@@ -90,7 +90,9 @@ resolution.
   root-level files.
 - Onboarding steps never label a `bus_factor<=1` path "easy".
 - Default exclusions now also cover `package-lock.json`, `pnpm-lock.yaml`,
-  `*.min.js`, `*.min.css`, and `*.map`.
+  `*.min.js`, `*.min.css`, `*.map`, and the CODEOWNERS file itself (a sync
+  commit would otherwise make whoever runs the tool its inferred owner,
+  perturbing every subsequent run).
 - Composite Action: fails fast with a clear error on shallow clones
   (`fetch-depth: 0` guidance), installs the `github` extra so handle
   resolution works in CI, and the PR comment is updated in place (one

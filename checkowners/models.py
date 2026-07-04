@@ -42,6 +42,9 @@ class BusFactorConfig:
 
 @dataclass(frozen=True)
 class PathsConfig:
+    #: CODEOWNERS itself is excluded: sync commits would otherwise make
+    #: whoever runs the tool the inferred "owner" of the generated file,
+    #: perturbing every subsequent run.
     exclude: tuple[str, ...] = (
         "*.lock",
         "package-lock.json",
@@ -53,6 +56,9 @@ class PathsConfig:
         "*.min.js",
         "*.min.css",
         "*.map",
+        ".github/CODEOWNERS",
+        "CODEOWNERS",
+        "docs/CODEOWNERS",
     )
 
 

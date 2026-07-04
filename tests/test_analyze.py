@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import subprocess
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -436,13 +435,6 @@ def test_gather_blame_coverage_aggregates() -> None:
     with patch(_MOCK_GIT, return_value=_mock_run(blame_stdout)):
         coverage = _gather_blame_coverage(["x.py"], Path("/fake"))
     assert coverage["x.py"]["alice@example.com"] == 1.0
-
-
-def test_recency_decay_constant_matches_expected() -> None:
-    """Sanity: at 1 half-life decay = exp(-ln2)."""
-    expected = math.pow(0.5, 1.0)
-    actual = math.pow(0.5, 90 / 90)
-    assert expected == actual
 
 
 def test_unqualified_paths_not_blamed() -> None:

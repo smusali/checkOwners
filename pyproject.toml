@@ -68,6 +68,13 @@ Source = "https://github.com/fortyOneTech/checkowners"
 [project.scripts]
 checkowners = "checkowners.cli:main"
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".claude",
+    ".instructions",
+    ".pre-commit-config.yaml",
+]
+
 [tool.hatch.envs.default]
 dependencies = [
     "pytest>=7.0",

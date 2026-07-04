@@ -34,10 +34,12 @@ def parse_rules(content: str) -> tuple[CodeownersRule, ...]:
     """
     rules: list[CodeownersRule] = []
     for line_number, raw_line in enumerate(content.splitlines(), start=1):
-        line = _strip_comment(raw_line).strip()
+        line = strip_inline_comment(raw_line).strip()
         if not line:
             continue
-        parts = line.split()
+        parts = split_escaped(line)
+        if not parts:
+            continue
         rules.append(
             CodeownersRule(
                 pattern=parts[0],
@@ -48,7 +50,7 @@ def parse_rules(content: str) -> tuple[CodeownersRule, ...]:
     return tuple(rules)
 
 
-def _strip_comment(line: str) -> str:
+def strip_inline_comment(line: str) -> str:
     """Drop an inline comment; a `#` only counts when at start or after space."""
     if line.lstrip().startswith("#"):
         return ""
@@ -56,6 +58,11 @@ def _strip_comment(line: str) -> str:
     if marker != -1:
         return line[:marker]
     return line
+
+
+def split_escaped(line: str) -> list[str]:
+    """Split on whitespace while honoring backslash-escaped spaces."""
+    return [token.replace("\\ ", " ") for token in re.split(r"(?<!\\)\s+", line) if token]
 
 
 def match_path(rules: tuple[CodeownersRule, ...], path: str) -> CodeownersRule | None:

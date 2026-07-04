@@ -132,12 +132,11 @@ def _gather_from_github() -> tuple[dict[str, int], str]:
 
 def _fetch_review_counts(client: Github, repo_full_name: str) -> tuple[dict[str, int], str]:
     """Count reviews per handle over the most recent closed PRs of one repo."""
+    from checkowners.github import iter_recent_closed_pulls  # noqa: PLC0415
+
     counts: dict[str, int] = {}
     try:
-        repo = client.get_repo(repo_full_name)
-        for index, pull in enumerate(repo.get_pulls(state="closed")):
-            if index >= _MAX_CLOSED_PRS:
-                break
+        for pull in iter_recent_closed_pulls(client, repo_full_name, _MAX_CLOSED_PRS):
             for review in pull.get_reviews():
                 handle = f"@{review.user.login}" if review.user else None
                 if handle:

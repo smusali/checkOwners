@@ -71,6 +71,18 @@ def _is_glob(value: str) -> bool:
     return any(ch in value for ch in ("*", "?", "["))
 
 
+def common_prefix_depth(a: str, b: str) -> int:
+    """Number of leading directory components shared between two paths."""
+    a_parts = a.lstrip("/").split("/")[:-1]
+    b_parts = b.lstrip("/").split("/")[:-1]
+    common = 0
+    for x, y in zip(a_parts, b_parts, strict=False):
+        if x != y:
+            break
+        common += 1
+    return common
+
+
 def _max_dt(a: datetime | None, b: datetime | None) -> datetime | None:
     if a is None:
         return b

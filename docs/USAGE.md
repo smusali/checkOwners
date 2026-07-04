@@ -69,7 +69,6 @@ output:
 
 drift:
   mode: commit                # commit | repo | both
-  compare_to: auto
   min_confidence_delta: 0.2   # suppress small-delta drift
 
 notifications:

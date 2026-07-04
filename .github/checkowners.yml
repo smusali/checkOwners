@@ -30,7 +30,6 @@ output:
   include_confidence: false
 drift:
   mode: both
-  compare_to: auto
   min_confidence_delta: 0.2
 notifications:
   webhook_url: ""

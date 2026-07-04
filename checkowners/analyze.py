@@ -309,7 +309,6 @@ def _is_bot_email(email: str) -> bool:
 def _filter_bot_authors(
     contributions: dict[str, dict[str, _Contribution]],
 ) -> dict[str, dict[str, _Contribution]]:
-    """Drop bot authors; a bot can never be a meaningful reviewer."""
     result: dict[str, dict[str, _Contribution]] = {}
     for path, authors in contributions.items():
         humans = {a: c for a, c in authors.items() if not _is_bot_email(a)}

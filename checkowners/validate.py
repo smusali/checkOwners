@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from checkowners.patterns import split_escaped, strip_inline_comment
+
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 #: GitHub logins: alphanumerics and internal hyphens (max 39 chars); team
@@ -46,33 +48,18 @@ def _validate_lines(content: str) -> list[ValidationError]:
     """Validate each line of CODEOWNERS content."""
     errors: list[ValidationError] = []
     for line_number, raw_line in enumerate(content.splitlines(), start=1):
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
         # Strip inline comment so confidence annotations don't fail validation.
-        line = _strip_inline_comment(stripped)
+        line = strip_inline_comment(raw_line.strip()).strip()
         if not line:
             continue
         errors.extend(_validate_entry(line_number, line))
     return errors
 
 
-def _strip_inline_comment(line: str) -> str:
-    marker = line.find(" #")
-    if marker != -1:
-        return line[:marker].strip()
-    return line
-
-
-def _split_escaped(line: str) -> list[str]:
-    """Split on whitespace while honoring backslash-escaped spaces."""
-    return [token.replace("\\ ", " ") for token in re.split(r"(?<!\\)\s+", line) if token]
-
-
 def _validate_entry(line_number: int, line: str) -> list[ValidationError]:
     """Validate a single CODEOWNERS entry line."""
     errors: list[ValidationError] = []
-    parts = _split_escaped(line)
+    parts = split_escaped(line)
     if not parts:
         return errors
 

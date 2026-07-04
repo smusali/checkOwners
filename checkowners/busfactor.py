@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from checkowners.expertise import path_matches_glob
+from checkowners.expertise import common_prefix_depth, path_matches_glob
 from checkowners.models import BusFactor, BusFactorConfig, Config, OwnershipMap
 
 Tier = Literal["critical", "warning", "ok"]
@@ -111,7 +111,7 @@ def _adjacent_candidates(
     for other_path, po in ownership.paths.items():
         if other_path == path:
             continue
-        if _common_prefix_depth(path, other_path) < 1:
+        if common_prefix_depth(path, other_path) < 1:
             continue
         for owner in po.owners:
             if owner.handle in qualified_set:
@@ -141,14 +141,3 @@ def _repo_wide_candidates(
             if owner.confidence > current:
                 candidates[owner.handle] = owner.confidence
     return candidates
-
-
-def _common_prefix_depth(a: str, b: str) -> int:
-    a_parts = a.lstrip("/").split("/")[:-1]
-    b_parts = b.lstrip("/").split("/")[:-1]
-    common = 0
-    for x, y in zip(a_parts, b_parts, strict=False):
-        if x != y:
-            break
-        common += 1
-    return common

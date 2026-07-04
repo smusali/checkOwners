@@ -189,8 +189,6 @@ def _build_drift_config(data: dict[str, Any]) -> DriftConfig:
             msg = f"Invalid drift.mode: {mode_str!r}; expected one of {sorted(_VALID_DRIFT_MODES)}"
             raise ValueError(msg)
         kwargs["mode"] = cast(DriftMode, mode_str)
-    if "compare_to" in data:
-        kwargs["compare_to"] = str(data["compare_to"])
     if "min_confidence_delta" in data:
         kwargs["min_confidence_delta"] = float(data["min_confidence_delta"])
     return DriftConfig(**kwargs)

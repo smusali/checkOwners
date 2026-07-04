@@ -42,7 +42,6 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.output.include_confidence is False
     assert cfg.output.consolidate is True
     assert cfg.drift.mode == "commit"
-    assert cfg.drift.compare_to == "auto"
     assert cfg.drift.min_confidence_delta == 0.2
     assert cfg.notifications.webhook_url == ""
     assert cfg.notifications.include_unchanged is False
@@ -103,7 +102,6 @@ output:
   include_confidence: true
 drift:
   mode: repo
-  compare_to: main
   min_confidence_delta: 0.4
 notifications:
   webhook_url: "https://hooks.example.com/drift"
@@ -135,7 +133,6 @@ github:
     assert cfg.output.include_unowned is True
     assert cfg.output.include_confidence is True
     assert cfg.drift.mode == "repo"
-    assert cfg.drift.compare_to == "main"
     assert cfg.drift.min_confidence_delta == 0.4
     assert cfg.notifications.webhook_url == "https://hooks.example.com/drift"
     assert cfg.notifications.include_unchanged is True

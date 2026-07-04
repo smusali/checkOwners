@@ -12,7 +12,10 @@ from typing import TYPE_CHECKING
 from checkowners.state import read_handle_cache, write_handle_cache
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from github import Github
+    from github.PullRequest import PullRequest
 
 logger = logging.getLogger(__name__)
 
@@ -121,25 +124,6 @@ def _lookup_handle(client: Github, email: str) -> str | None:
         return None
 
 
-def map_owners(
-    owners: dict[str, tuple[str, ...]],
-    token: str,
-) -> dict[str, tuple[str, ...]]:
-    """Replace emails with @handles where possible. Unresolved stay as-is."""
-    all_emails: set[str] = set()
-    for owner_tuple in owners.values():
-        all_emails.update(owner_tuple)
-
-    email_to_handle = resolve_handles(all_emails, token)
-    if not email_to_handle:
-        return owners
-
-    return {
-        path: tuple(email_to_handle.get(owner, owner) for owner in owner_tuple)
-        for path, owner_tuple in owners.items()
-    }
-
-
 def build_review_coverage(
     token: str,
     repo_full_name: str,
@@ -176,10 +160,21 @@ def build_review_coverage(
     return coverage
 
 
-#: Review coverage scans the most recently updated closed PRs only. Each PR
-#: costs 2+ API calls (reviews + files); without a bound a mature repo with
-#: tens of thousands of PRs would exhaust the rate limit in a single run.
-_REVIEW_SCAN_PR_LIMIT = 200
+#: PR scans cover the most recently updated closed PRs only. Each PR costs
+#: 2+ API calls (reviews + files); without a bound a mature repo with tens
+#: of thousands of PRs would exhaust the rate limit in a single run.
+REVIEW_SCAN_PR_LIMIT = 200
+
+
+def iter_recent_closed_pulls(
+    client: Github,
+    repo_full_name: str,
+    limit: int = REVIEW_SCAN_PR_LIMIT,
+) -> Iterator[PullRequest]:
+    """Yield the most recently updated closed PRs of a repo, bounded by limit."""
+    repo = client.get_repo(repo_full_name)
+    pulls = repo.get_pulls(state="closed", sort="updated", direction="desc")
+    return islice(pulls, limit)
 
 
 def _gather_review_counts_by_path(
@@ -189,9 +184,7 @@ def _gather_review_counts_by_path(
     """Count, per file path, how many reviews each reviewer login contributed."""
     result: dict[str, dict[str, int]] = {}
     try:
-        repo = client.get_repo(repo_full_name)
-        pulls = repo.get_pulls(state="closed", sort="updated", direction="desc")
-        for pull in islice(pulls, _REVIEW_SCAN_PR_LIMIT):
+        for pull in iter_recent_closed_pulls(client, repo_full_name):
             reviewers = {review.user.login for review in pull.get_reviews() if review.user}
             if not reviewers:
                 continue

@@ -101,6 +101,12 @@ resolution.
   dependency dropped.
 - graph DOT export escapes quotes and backslashes in node IDs and labels.
 
+### Removed
+- `drift.compare_to` config option: it was parsed and documented but never
+  read by any logic. Configs still containing it are ignored, not rejected.
+- Dead internal API surface orphaned by the identity-merge rework:
+  `OwnershipMap.handles_only()` and `github.map_owners()`.
+
 ### Fixed
 - Webhook notifications no longer crash the CLI on HTTP or network errors;
   failures log a warning and `notify` reports `sent: false`.

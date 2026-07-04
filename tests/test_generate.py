@@ -44,10 +44,19 @@ def _make_ownership(
     return OwnershipMap(paths=paths, last_analyzed=_NOW)
 
 
-def _zero_threshold(**output_kwargs: object) -> Config:
+def _zero_threshold(
+    *,
+    include_unowned: bool = False,
+    include_confidence: bool = False,
+    consolidate: bool = True,
+) -> Config:
     return Config(
         analysis=AnalysisConfig(confidence_threshold=0.0),
-        output=OutputConfig(**output_kwargs),  # type: ignore[arg-type]
+        output=OutputConfig(
+            include_unowned=include_unowned,
+            include_confidence=include_confidence,
+            consolidate=consolidate,
+        ),
     )
 
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from checkowners.decay import _path_is_adjacent, detect_decay
+from checkowners.decay import detect_decay
+from checkowners.expertise import common_prefix_depth
 from checkowners.models import (
     AnalysisConfig,
     Config,
@@ -174,7 +175,7 @@ def test_detect_decay_sorted_by_oldest_first() -> None:
     assert [r.warning.handle for r in reports] == ["@bob", "@alice"]
 
 
-def test_path_is_adjacent_heuristic() -> None:
-    assert _path_is_adjacent("src/auth/login.py", "src/auth/session.py")
-    assert _path_is_adjacent("src/main.py", "src/util.py")
-    assert not _path_is_adjacent("src/main.py", "tests/test_main.py")
+def test_common_prefix_depth_adjacency() -> None:
+    assert common_prefix_depth("src/auth/login.py", "src/auth/session.py") == 2
+    assert common_prefix_depth("src/main.py", "src/util.py") == 1
+    assert common_prefix_depth("src/main.py", "tests/test_main.py") == 0

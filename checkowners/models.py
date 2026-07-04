@@ -16,8 +16,6 @@ class AnalysisConfig:
     min_commits: int = 3
     top_n_owners: int = 3
     confidence_threshold: float = 0.3
-    #: Drop bot authors (dependabot[bot], github-actions[bot], ...) from
-    #: inference; a bot can never be a meaningful CODEOWNERS reviewer.
     exclude_bots: bool = True
 
 
@@ -69,7 +67,6 @@ class OutputConfig:
 @dataclass(frozen=True)
 class DriftConfig:
     mode: DriftMode = "commit"
-    compare_to: str = "auto"
     min_confidence_delta: float = 0.2
 
 
@@ -147,10 +144,6 @@ class OwnershipMap:
 
     paths: dict[str, PathOwnership]
     last_analyzed: datetime
-
-    def handles_only(self) -> dict[str, tuple[str, ...]]:
-        """Return a flat mapping of path -> owner handles (no confidence)."""
-        return {p: tuple(o.handle for o in po.owners) for p, po in self.paths.items()}
 
 
 @dataclass(frozen=True)

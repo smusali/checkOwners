@@ -9,7 +9,6 @@ from checkowners.github import (
     create_team_resolver,
     get_github_client,
     get_github_token,
-    map_owners,
     resolve_handles,
 )
 
@@ -118,36 +117,6 @@ def test_resolve_handles_api_error() -> None:
     with patch("checkowners.github.get_github_client", return_value=mock_client):
         result = resolve_handles({"alice@example.com"}, "ghp_test")
     assert result == {}
-
-
-def test_map_owners_replaces_emails() -> None:
-    owners = {
-        "src/main.py": ("alice@example.com", "bob@example.com"),
-        "src/util.py": ("alice@example.com",),
-    }
-    with patch(
-        "checkowners.github.resolve_handles",
-        return_value={"alice@example.com": "@alice", "bob@example.com": "@bob"},
-    ):
-        result = map_owners(owners, "ghp_test")
-    assert result["src/main.py"] == ("@alice", "@bob")
-    assert result["src/util.py"] == ("@alice",)
-
-
-def test_map_owners_partial_resolution() -> None:
-    owners = {"f.py": ("alice@example.com", "unknown@example.com")}
-    with patch(
-        "checkowners.github.resolve_handles",
-        return_value={"alice@example.com": "@alice"},
-    ):
-        result = map_owners(owners, "ghp_test")
-    assert result["f.py"] == ("@alice", "unknown@example.com")
-
-
-def test_map_owners_no_token() -> None:
-    owners = {"f.py": ("alice@example.com",)}
-    result = map_owners(owners, "")
-    assert result == owners
 
 
 def test_create_team_resolver_all_in_one_team() -> None:

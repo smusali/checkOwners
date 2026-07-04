@@ -108,3 +108,16 @@ class TestMatchPath:
         matched = match_path(rules, "internal/README.md")
         assert matched is not None
         assert matched.owners == ()
+
+
+class TestEscapedSpaces:
+    def test_parse_rules_unescapes_pattern_spaces(self) -> None:
+        rules = parse_rules("docs/getting\\ started.md @docs-team\n")
+        assert rules[0].pattern == "docs/getting started.md"
+        assert rules[0].owners == ("@docs-team",)
+
+    def test_match_path_with_escaped_space_pattern(self) -> None:
+        rules = parse_rules("docs/getting\\ started.md @docs-team\n")
+        matched = match_path(rules, "docs/getting started.md")
+        assert matched is not None
+        assert matched.owners == ("@docs-team",)

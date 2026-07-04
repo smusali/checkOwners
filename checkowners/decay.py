@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from checkowners.expertise import common_prefix_depth
 from checkowners.models import Config, DecayWarning, OwnershipMap, PathOwnership
 
 
@@ -89,7 +90,7 @@ def _recommend_transfer(
     for other_path, other_po in ownership.paths.items():
         if other_path == path:
             continue
-        adjacency = _common_prefix_depth(path, other_path)
+        adjacency = common_prefix_depth(path, other_path)
         if adjacency < 1:
             continue
         other_decaying = {w.handle for w in other_po.decay_warnings}
@@ -108,20 +109,3 @@ def _recommend_transfer(
         return None
     best = max(cross_path_candidates.items(), key=lambda kv: kv[1])
     return best[0]
-
-
-def _common_prefix_depth(a: str, b: str) -> int:
-    """Number of leading directory components shared between two paths."""
-    a_parts = a.lstrip("/").split("/")[:-1]
-    b_parts = b.lstrip("/").split("/")[:-1]
-    common = 0
-    for x, y in zip(a_parts, b_parts, strict=False):
-        if x != y:
-            break
-        common += 1
-    return common
-
-
-def _path_is_adjacent(a: str, b: str) -> bool:
-    """Adjacency heuristic: share at least one common directory component."""
-    return _common_prefix_depth(a, b) >= 1

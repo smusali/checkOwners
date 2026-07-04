@@ -488,3 +488,20 @@ def test_generate_refuses_handwritten_before_analyzing(tmp_path: Path) -> None:
         result = runner.invoke(app, ["generate"])
     assert result.exit_code == 1
     mock_analyze.assert_not_called()
+
+
+def test_validate_errors_render_brackets_verbatim() -> None:
+    """Rich markup must not swallow [segments] from user paths."""
+    from checkowners.validate import ValidationError
+
+    errors = [
+        ValidationError(
+            line_number=7,
+            line="x",
+            message="bad pattern: /app/[companyId]/page.tsx",
+        )
+    ]
+    with patch("checkowners.cli.validate_codeowners", return_value=errors), _MOCK_PATH:
+        result = runner.invoke(app, ["validate"])
+    assert result.exit_code == 1
+    assert "[companyId]" in result.stdout

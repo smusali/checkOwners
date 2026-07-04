@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -236,14 +237,14 @@ def _render_ownership_table(ownership: OwnershipMap) -> None:
     for path in sorted(ownership.paths):
         po = ownership.paths[path]
         owners_str = ", ".join(
-            f"[{_confidence_style(o.confidence)}]{o.handle} ({o.confidence:.2f})[/]"
+            f"[{_confidence_style(o.confidence)}]{escape(o.handle)} ({o.confidence:.2f})[/]"
             for o in po.owners
         )
         bus = str(po.bus_factor)
         if po.bus_factor <= 1:
             bus = f"[red]{bus}[/red]"
         decay = str(len(po.decay_warnings)) if po.decay_warnings else "-"
-        table.add_row(path, owners_str, bus, decay)
+        table.add_row(escape(path), owners_str, bus, decay)
     console.print(table)
 
 
@@ -420,7 +421,7 @@ def validate(json_output: JsonOption = False) -> None:
         console.print("[green]CODEOWNERS is valid.[/green]")
     else:
         for err in errors:
-            console.print(f"[red]Line {err.line_number}:[/red] {err.message}")
+            console.print(f"[red]Line {err.line_number}:[/red] {escape(err.message)}")
         raise typer.Exit(code=1)
 
 
@@ -431,23 +432,28 @@ def _render_drift_table(result: DriftResult) -> None:
     table.add_column("Δ", justify="right")
     table.add_column("Reason")
     for entry in result.stale:
-        table.add_row("[red]stale[/red]", entry.path, f"{entry.confidence_delta:.2f}", entry.reason)
+        table.add_row(
+            "[red]stale[/red]",
+            escape(entry.path),
+            f"{entry.confidence_delta:.2f}",
+            escape(entry.reason),
+        )
     for entry in result.missing:
         bf_low = entry.bus_factor is not None and entry.bus_factor <= 1
         flag = " [red](bf=1)[/red]" if bf_low else ""
         decay = " [magenta](decay)[/magenta]" if entry.decay else ""
         table.add_row(
             "[yellow]missing[/yellow]",
-            entry.path,
+            escape(entry.path),
             f"{entry.confidence_delta:.2f}",
-            entry.reason + flag + decay,
+            escape(entry.reason) + flag + decay,
         )
     for entry in result.changed:
         table.add_row(
             "[cyan]changed[/cyan]",
-            entry.path,
+            escape(entry.path),
             f"{entry.confidence_delta:.2f}",
-            entry.reason,
+            escape(entry.reason),
         )
     console.print(table)
 
@@ -474,7 +480,7 @@ def drift(json_output: JsonOption = False) -> None:
         typer.echo(json.dumps(data, indent=2))
         return
     for note in result.notes:
-        console.print(f"[yellow]note:[/yellow] {note}")
+        console.print(f"[yellow]note:[/yellow] {escape(note)}")
     if not result.drift_detected:
         console.print("[green]No drift detected.[/green]")
         return
@@ -746,12 +752,12 @@ def decay(json_output: JsonOption = False) -> None:
         status = "[red]departed[/red]" if report.departed else "[yellow]dormant[/yellow]"
         target = report.recommended_transfer or "[dim]triage[/dim]"
         table.add_row(
-            report.warning.path,
-            report.warning.handle,
+            escape(report.warning.path),
+            escape(report.warning.handle),
             str(report.warning.days_since_last_commit),
             f"{report.warning.historical_confidence:.2f}",
             status,
-            target,
+            escape(target) if report.recommended_transfer else target,
         )
     console.print(table)
 
@@ -798,7 +804,9 @@ def bus_factor(
             "warning": "[yellow]WARN[/yellow]",
             "ok": "[green]OK[/green]",
         }[tier]
-        table.add_row(entry.path, str(entry.bus_factor), tier_str, owners, backups)
+        table.add_row(
+            escape(entry.path), str(entry.bus_factor), tier_str, escape(owners), escape(backups)
+        )
     console.print(table)
     console.print(f"[dim]repo average bus factor: {report.repo_average:.2f}[/dim]")
 
@@ -884,7 +892,7 @@ def balance(json_output: JsonOption = False) -> None:
         status = (
             "[red]overloaded[/red]" if load.handle in overloaded_handles else "[green]ok[/green]"
         )
-        table.add_row(load.handle, str(load.reviews), status)
+        table.add_row(escape(load.handle), str(load.reviews), status)
     console.print(table)
     if report.suggestions:
         console.print()
@@ -917,9 +925,9 @@ def topology(json_output: JsonOption = False) -> None:
     for cluster in report.clusters:
         source = "[green]declared[/green]" if cluster.declared else "[yellow]inferred[/yellow]"
         table.add_row(
-            cluster.name,
-            ", ".join(cluster.members),
-            ", ".join(cluster.primary_paths) or "-",
+            escape(cluster.name),
+            escape(", ".join(cluster.members)),
+            escape(", ".join(cluster.primary_paths)) or "-",
             source,
         )
     console.print(table)
@@ -977,10 +985,10 @@ def onboard(
     for step in report.steps:
         table.add_row(
             str(step.order),
-            step.path,
-            step.reviewer,
+            escape(step.path),
+            escape(step.reviewer),
             step.complexity,
-            step.description,
+            escape(step.description),
         )
     console.print(table)
 
@@ -1013,7 +1021,7 @@ def expertise(
     for idx, rank in enumerate(ranking, start=1):
         table.add_row(
             str(idx),
-            f"[{_confidence_style(rank.confidence)}]{rank.handle}[/]",
+            f"[{_confidence_style(rank.confidence)}]{escape(rank.handle)}[/]",
             f"{rank.confidence:.2f}",
             str(rank.commits),
             _format_last_commit(rank.last_commit),

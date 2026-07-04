@@ -10,7 +10,7 @@ match a rule, which per-file patterns never would. Disable via
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -119,7 +119,8 @@ def _format_line(
     owners: tuple[OwnerEntry, ...],
     config: Config,
 ) -> str:
-    line = f"{pattern} {' '.join(written_handles)}"
+    escaped_pattern = pattern.replace(" ", "\\ ")
+    line = f"{escaped_pattern} {' '.join(written_handles)}"
     if not config.output.include_confidence:
         return line
     annotations = " ".join(f"{o.handle}({o.confidence:.2f})" for o in owners)
@@ -139,8 +140,43 @@ def _collect_rows(ownership: OwnershipMap, config: Config) -> list[_Row]:
         rows = _consolidate(filtered)
     else:
         rows = [_Row(pattern=f"/{path}", owners=owners) for path, owners in filtered]
+    rows = _merge_same_pattern(
+        _Row(pattern=_sanitize_pattern(row.pattern), owners=row.owners) for row in rows
+    )
     rows.sort(key=lambda row: row.pattern)
     return rows
+
+
+def _sanitize_pattern(pattern: str) -> str:
+    """Make a literal path emittable as a valid GitHub CODEOWNERS pattern.
+
+    GitHub rejects ``[...]`` as an unsupported character range and ignores the
+    whole line, silently un-owning the path. Bracket-bearing segments (Next.js
+    dynamic routes like ``[companyId]``) become ``*``, the closest valid
+    single-segment wildcard.
+    """
+    if "[" not in pattern and "]" not in pattern:
+        return pattern
+    segments = [
+        "*" if ("[" in segment or "]" in segment) else segment for segment in pattern.split("/")
+    ]
+    return "/".join(segments)
+
+
+def _merge_same_pattern(rows: Iterable[_Row]) -> list[_Row]:
+    """Merge rows whose sanitized patterns collide, unioning their owners."""
+    grouped: dict[str, list[_Row]] = {}
+    for row in rows:
+        grouped.setdefault(row.pattern, []).append(row)
+    merged: list[_Row] = []
+    for pattern, bucket in grouped.items():
+        if len(bucket) == 1:
+            merged.append(bucket[0])
+        else:
+            merged.append(
+                _Row(pattern=pattern, owners=_merge_owners([row.owners for row in bucket]))
+            )
+    return merged
 
 
 def _owner_key(owners: tuple[OwnerEntry, ...]) -> _OwnerKey:

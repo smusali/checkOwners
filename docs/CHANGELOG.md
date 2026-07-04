@@ -108,6 +108,15 @@ resolution.
   `OwnershipMap.handles_only()` and `github.map_owners()`.
 
 ### Fixed
+- Generated CODEOWNERS never emits `[...]` character ranges: bracket-bearing
+  path segments (Next.js dynamic routes like `[companyId]`) become the valid
+  `*` wildcard, colliding patterns merge their owners, and literal spaces in
+  patterns are backslash-escaped. GitHub ignores lines with `[...]`, which
+  silently un-owned those paths. Found by dogfooding against a production
+  Next.js monorepo.
+- Terminal output renders paths like `[companyId]` verbatim: user-derived
+  text (paths, reasons, handles) is markup-escaped so Rich no longer swallows
+  bracket segments as style tags.
 - Webhook notifications no longer crash the CLI on HTTP or network errors;
   failures log a warning and `notify` reports `sent: false`.
 - Rebalance suggestions can no longer propose shifting reviews onto another

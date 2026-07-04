@@ -277,3 +277,37 @@ def test_output_ends_with_newline() -> None:
     ownership = _make_ownership({"src/main.py": (_entry("@alice", 0.9),)})
     content = _build_codeowners_content(ownership, _zero_threshold())
     assert content.endswith("\n")
+
+
+def test_bracket_segments_become_wildcards() -> None:
+    """Next.js dynamic routes ([id]) are invalid CODEOWNERS ranges."""
+    ownership = _make_ownership(
+        {
+            "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
+            "app/[teamId]/layout.tsx": (_entry("@alice", 0.8),),
+            "app/other.tsx": (_entry("@bob", 0.9),),
+        }
+    )
+    content = _build_codeowners_content(ownership, _zero_threshold())
+    lines = [line for line in content.splitlines() if line and not line.startswith("#")]
+    assert lines == ["/app/*/ @alice", "/app/other.tsx @bob"]
+    assert "[" not in content
+
+
+def test_colliding_sanitized_patterns_merge_owners() -> None:
+    ownership = _make_ownership(
+        {
+            "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
+            "app/[userId]/view.tsx": (_entry("@bob", 0.6),),
+        }
+    )
+    config = _zero_threshold(consolidate=False)
+    content = _build_codeowners_content(ownership, config)
+    lines = [line for line in content.splitlines() if line and not line.startswith("#")]
+    assert lines == ["/app/*/page.tsx @alice", "/app/*/view.tsx @bob"]
+
+
+def test_pattern_spaces_escaped_on_write() -> None:
+    ownership = _make_ownership({"docs/getting started.md": (_entry("@alice", 0.9),)})
+    content = _build_codeowners_content(ownership, _zero_threshold())
+    assert "/docs/getting\\ started.md @alice" in content

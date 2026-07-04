@@ -44,6 +44,13 @@ inputs:
       the latest published release.
     required: false
     default: ""
+  install_spec:
+    description: >-
+      Full pip install spec overriding the PyPI package, e.g.
+      ".[graph,github]" to run the action against the repository's own
+      checkout (used for dogfooding in the checkOwners repo itself).
+    required: false
+    default: ""
 
 outputs:
   checkowners_drift:
@@ -79,8 +86,11 @@ runs:
       shell: bash
       env:
         CHECKOWNERS_VERSION: ${{ inputs.checkowners_version }}
+        CHECKOWNERS_INSTALL_SPEC: ${{ inputs.install_spec }}
       run: |
-        if [ -n "$CHECKOWNERS_VERSION" ]; then
+        if [ -n "$CHECKOWNERS_INSTALL_SPEC" ]; then
+          pip install --upgrade "$CHECKOWNERS_INSTALL_SPEC"
+        elif [ -n "$CHECKOWNERS_VERSION" ]; then
           pip install --upgrade "checkowners[graph,github]==$CHECKOWNERS_VERSION"
         else
           pip install --upgrade "checkowners[graph,github]"

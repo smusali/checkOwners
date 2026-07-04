@@ -38,7 +38,7 @@ class OnboardingPath:
         lines = [f"# Onboarding path for {self.target}", ""]
         for step in self.steps:
             lines.append(
-                f"- [ ] **Step {step.order}** ({step.complexity}) `{step.path}` — "
+                f"- [ ] **Step {step.order}** ({step.complexity}) `{step.path}`: "
                 f"review with {step.reviewer}. {step.description}"
             )
         lines.append("")

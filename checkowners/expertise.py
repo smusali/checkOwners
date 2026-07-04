@@ -51,7 +51,7 @@ def path_matches_glob(path: str, pattern: str) -> bool:
 
     Shared matching semantics for expertise, bus factor, and onboarding
     targets: fnmatch (where ``*`` may cross ``/``), PLUS a bare
-    directory-prefix convenience — a non-glob pattern like ``controllers``
+    directory-prefix convenience, so a non-glob pattern like ``controllers``
     or ``controllers/`` matches any path under that directory
     (segment-aware prefix match).
     """

@@ -12,12 +12,12 @@ the [graph] extra has not been installed.
 from __future__ import annotations
 
 from types import ModuleType
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from checkowners.models import OwnershipMap, TeamCluster
 
 if TYPE_CHECKING:
-    import networkx as nx  # type: ignore[import-untyped]
+    import networkx as nx
 
 
 class GraphExtraMissingError(ImportError):
@@ -30,7 +30,8 @@ def _require_networkx() -> ModuleType:
     except ImportError as exc:
         msg = "networkx is required for graph commands; install checkowners[graph]"
         raise GraphExtraMissingError(msg) from exc
-    return cast(ModuleType, networkx)
+    module: ModuleType = networkx
+    return module
 
 
 def build_graph(

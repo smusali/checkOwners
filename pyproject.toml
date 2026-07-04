@@ -105,6 +105,12 @@ quote-style = "double"
 strict = true
 python_version = "3.11"
 
+# networkx ships no type stubs; the per-module override is the durable
+# alternative to scattering "type: ignore[import-untyped]" at import sites.
+[[tool.mypy.overrides]]
+module = "networkx.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers"

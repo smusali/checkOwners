@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import subprocess
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -457,12 +458,12 @@ def test_unqualified_paths_not_blamed() -> None:
     blamed: list[str] = []
 
     def record_blame(
-        paths: object,
+        paths: Iterable[str],
         _root: Path,
         *,
         on_progress: object = None,
     ) -> dict[str, dict[str, float]]:
-        blamed.extend(paths)  # type: ignore[arg-type]
+        blamed.extend(paths)
         return {}
 
     with (

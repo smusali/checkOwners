@@ -70,7 +70,7 @@ from checkowners.trends import TrendPoint, analyze_trends
 from checkowners.validate import validate_codeowners
 
 if TYPE_CHECKING:
-    import networkx as nx  # type: ignore[import-untyped]
+    import networkx as nx
 
 app = typer.Typer(
     name="checkowners",

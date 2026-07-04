@@ -3,7 +3,7 @@
 Per-file inference is consolidated to directory-level rules before writing:
 when every inferred file under a directory shares the same owner set, one
 ``/dir/ @owners`` line replaces the per-file lines. This keeps the file
-readable and — more importantly — makes brand-new files under that directory
+readable and, more importantly, makes brand-new files under that directory
 match a rule, which per-file patterns never would. Disable via
 ``output.consolidate: false``.
 """

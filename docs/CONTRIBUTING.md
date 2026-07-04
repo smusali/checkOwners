@@ -26,6 +26,13 @@ hatch run test
 
 CI runs `hatch run test` across Python 3.11, 3.12, and 3.13, builds the wheel, smoke-tests every CLI subcommand against the built artifact, and runs `hatch run lint` plus a `hatch run fmt --check`. Match those locally before opening a PR.
 
+Optionally, install the pre-commit hooks so ruff, formatting, and mypy run on every commit:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
 ## Branch and PR workflow
 
 ```mermaid

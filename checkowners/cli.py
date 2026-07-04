@@ -11,8 +11,18 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
+from checkowners import __version__
 from checkowners.analyze import ReviewProvider, analyze_ownership
 from checkowners.balance import BalanceReport, analyze_balance
 from checkowners.busfactor import BusFactorReport, classify, compute_bus_factor
@@ -20,8 +30,12 @@ from checkowners.config import find_codeowners_path, load_config
 from checkowners.decay import DecayReport, detect_decay
 from checkowners.drift import detect_drift
 from checkowners.expertise import rank_expertise
-from checkowners.generate import generate_codeowners
-from checkowners.github import build_review_coverage, get_github_token, map_owners
+from checkowners.generate import (
+    CodeownersOverwriteError,
+    ensure_overwrite_safe,
+    generate_codeowners,
+)
+from checkowners.github import build_review_coverage, get_github_token, resolve_handles
 from checkowners.graph import (
     GraphExtraMissingError,
     build_graph,
@@ -32,6 +46,7 @@ from checkowners.graph import (
 )
 from checkowners.models import (
     Config,
+    DecayWarning,
     DriftEntry,
     DriftResult,
     ExpertiseRank,
@@ -56,47 +71,108 @@ from checkowners.trends import TrendPoint, analyze_trends
 from checkowners.validate import validate_codeowners
 
 if TYPE_CHECKING:
-    import networkx as nx  # type: ignore[import-untyped]
+    import networkx as nx
 
 app = typer.Typer(
     name="checkowners",
     help="Infer and maintain CODEOWNERS from git history.",
     rich_markup_mode="rich",
+    no_args_is_help=True,
 )
 
 console = Console()
+err_console = Console(stderr=True)
 
 JsonOption = Annotated[bool, typer.Option("--json", help="Output as JSON.")]
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"checkowners {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _app_callback(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Infer and maintain CODEOWNERS from git history."""
+
+
 def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> OwnershipMap:
-    """Replace email handles with GitHub @handles when a token is available."""
+    """Rewrite email identities to GitHub @handles and merge duplicates.
+
+    Handle resolution works even without a token (noreply emails parse
+    locally; prior lookups come from the on-disk cache). When two commit
+    emails resolve to the same @handle they are one person: their entries
+    merge and the path's bus factor is recomputed over distinct identities,
+    so one owner with two emails can no longer masquerade as a bus factor
+    of two.
+    """
     if not config.github.resolve_handles:
         return ownership
-    token = get_github_token()
-    if not token:
+    emails = {o.handle for po in ownership.paths.values() for o in po.owners}
+    for po in ownership.paths.values():
+        emails.update(w.handle for w in po.decay_warnings)
+    if not emails:
         return ownership
-    handle_map = ownership.handles_only()
-    mapped = map_owners(handle_map, token)
+    email_to_handle = resolve_handles(emails, get_github_token())
+    if not email_to_handle:
+        return ownership
     new_paths: dict[str, PathOwnership] = {}
     for path, po in ownership.paths.items():
-        mapped_handles = mapped.get(path, tuple(o.handle for o in po.owners))
-        rewritten = tuple(
-            OwnerEntry(
-                handle=mapped_handles[idx] if idx < len(mapped_handles) else owner.handle,
-                confidence=owner.confidence,
-                last_commit=owner.last_commit,
-                commits=owner.commits,
-                score_breakdown=owner.score_breakdown,
+        merged = _merge_identities(po.owners, email_to_handle)
+        decay_warnings = tuple(
+            DecayWarning(
+                handle=email_to_handle.get(w.handle, w.handle),
+                path=w.path,
+                last_commit=w.last_commit,
+                days_since_last_commit=w.days_since_last_commit,
+                historical_confidence=w.historical_confidence,
             )
-            for idx, owner in enumerate(po.owners)
+            for w in po.decay_warnings
         )
+        bus_factor = sum(1 for e in merged if e.confidence >= config.analysis.confidence_threshold)
         new_paths[path] = PathOwnership(
-            owners=rewritten,
-            bus_factor=po.bus_factor,
-            decay_warnings=po.decay_warnings,
+            owners=merged,
+            bus_factor=bus_factor,
+            decay_warnings=decay_warnings,
         )
     return OwnershipMap(paths=new_paths, last_analyzed=ownership.last_analyzed)
+
+
+def _merge_identities(
+    owners: tuple[OwnerEntry, ...],
+    email_to_handle: dict[str, str],
+) -> tuple[OwnerEntry, ...]:
+    """Merge owner entries whose emails resolve to the same @handle."""
+    grouped: dict[str, list[OwnerEntry]] = {}
+    for owner in owners:
+        identity = email_to_handle.get(owner.handle, owner.handle)
+        grouped.setdefault(identity, []).append(owner)
+    merged: list[OwnerEntry] = []
+    for identity, entries in grouped.items():
+        best = max(entries, key=lambda e: e.confidence)
+        last_commits = [e.last_commit for e in entries if e.last_commit is not None]
+        merged.append(
+            OwnerEntry(
+                handle=identity,
+                confidence=best.confidence,
+                last_commit=max(last_commits) if last_commits else None,
+                commits=sum(e.commits for e in entries),
+                score_breakdown=best.score_breakdown,
+            )
+        )
+    merged.sort(key=lambda e: (-e.confidence, e.handle))
+    return tuple(merged)
 
 
 def _confidence_style(confidence: float) -> str:
@@ -161,14 +237,14 @@ def _render_ownership_table(ownership: OwnershipMap) -> None:
     for path in sorted(ownership.paths):
         po = ownership.paths[path]
         owners_str = ", ".join(
-            f"[{_confidence_style(o.confidence)}]{o.handle} ({o.confidence:.2f})[/]"
+            f"[{_confidence_style(o.confidence)}]{escape(o.handle)} ({o.confidence:.2f})[/]"
             for o in po.owners
         )
         bus = str(po.bus_factor)
         if po.bus_factor <= 1:
             bus = f"[red]{bus}[/red]"
         decay = str(len(po.decay_warnings)) if po.decay_warnings else "-"
-        table.add_row(path, owners_str, bus, decay)
+        table.add_row(escape(path), owners_str, bus, decay)
     console.print(table)
 
 
@@ -195,20 +271,46 @@ def _review_provider(config: Config) -> ReviewProvider | None:
 
 
 def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
+        console=err_console,
+        transient=True,
+        disable=not err_console.is_terminal,
+    )
     try:
-        ownership = analyze_ownership(repo_root, config, review_provider=_review_provider(config))
+        with progress:
+            task_id = progress.add_task("Analyzing git history (blame pass)", total=None)
+
+            def on_progress(done: int, total: int) -> None:
+                progress.update(task_id, completed=done, total=total)
+
+            ownership = analyze_ownership(
+                repo_root,
+                config,
+                review_provider=_review_provider(config),
+                on_progress=on_progress,
+            )
     except subprocess.CalledProcessError as exc:
         console.print(f"[red]Git command failed:[/red] {exc}")
         raise typer.Exit(code=1) from None
     ownership = _resolve_github_owners(ownership, config)
-    write_state(ownership)
+    write_state(repo_root, ownership)
     return ownership
 
 
 def _load_or_analyze(config: Config, repo_root: Path) -> OwnershipMap:
-    """Use cached state when available; otherwise re-analyze."""
-    cached = load_ownership()
+    """Use this repo's cached state when available; otherwise re-analyze."""
+    cached = load_ownership(repo_root)
     if cached is not None:
+        cached_at = cached.last_analyzed.isoformat(timespec="seconds")
+        err_console.print(
+            f"[dim]Using cached analysis from {cached_at}; "
+            "run `checkowners analyze` to refresh.[/dim]"
+        )
         return cached
     return _run_analyze(config, repo_root)
 
@@ -237,22 +339,46 @@ def analyze(json_output: JsonOption = False) -> None:
         _render_ownership_table(ownership)
 
 
+ForceOption = Annotated[
+    bool,
+    typer.Option(
+        "--force",
+        help="Overwrite a CODEOWNERS file that was not generated by checkOwners.",
+    ),
+]
+
+
+def _check_overwrite_or_exit(codeowners_path: Path, config: Config, force: bool) -> None:
+    """Fail before the expensive analyze when the target would be refused."""
+    try:
+        ensure_overwrite_safe(codeowners_path, config.output.header, force=force)
+    except CodeownersOverwriteError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+
+
 @app.command()
-def generate(json_output: JsonOption = False) -> None:
+def generate(json_output: JsonOption = False, force: ForceOption = False) -> None:
     """Generate a CODEOWNERS file from inferred ownership."""
     config = load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
+    _check_overwrite_or_exit(codeowners_path, config, force)
     ownership = _run_analyze(config, repo_root)
     token = get_github_token()
-    content = generate_codeowners(
-        repo_root,
-        ownership,
-        config,
-        codeowners_path=codeowners_path,
-        token=token,
-        org=config.github.org,
-    )
+    try:
+        content = generate_codeowners(
+            repo_root,
+            ownership,
+            config,
+            codeowners_path=codeowners_path,
+            token=token,
+            org=config.github.org,
+            force=force,
+        )
+    except CodeownersOverwriteError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
     rel_path = codeowners_path.relative_to(repo_root)
     if json_output:
         typer.echo(json.dumps({"path": str(rel_path), "content": content}, indent=2))
@@ -288,12 +414,14 @@ def validate(json_output: JsonOption = False) -> None:
             "errors": [{"line": e.line_number, "message": e.message} for e in errors],
         }
         typer.echo(json.dumps(data, indent=2))
+        if errors:
+            raise typer.Exit(code=1)
         return
     if not errors:
         console.print("[green]CODEOWNERS is valid.[/green]")
     else:
         for err in errors:
-            console.print(f"[red]Line {err.line_number}:[/red] {err.message}")
+            console.print(f"[red]Line {err.line_number}:[/red] {escape(err.message)}")
         raise typer.Exit(code=1)
 
 
@@ -304,23 +432,28 @@ def _render_drift_table(result: DriftResult) -> None:
     table.add_column("Δ", justify="right")
     table.add_column("Reason")
     for entry in result.stale:
-        table.add_row("[red]stale[/red]", entry.path, f"{entry.confidence_delta:.2f}", entry.reason)
+        table.add_row(
+            "[red]stale[/red]",
+            escape(entry.path),
+            f"{entry.confidence_delta:.2f}",
+            escape(entry.reason),
+        )
     for entry in result.missing:
         bf_low = entry.bus_factor is not None and entry.bus_factor <= 1
         flag = " [red](bf=1)[/red]" if bf_low else ""
         decay = " [magenta](decay)[/magenta]" if entry.decay else ""
         table.add_row(
             "[yellow]missing[/yellow]",
-            entry.path,
+            escape(entry.path),
             f"{entry.confidence_delta:.2f}",
-            entry.reason + flag + decay,
+            escape(entry.reason) + flag + decay,
         )
     for entry in result.changed:
         table.add_row(
             "[cyan]changed[/cyan]",
-            entry.path,
+            escape(entry.path),
             f"{entry.confidence_delta:.2f}",
-            entry.reason,
+            escape(entry.reason),
         )
     console.print(table)
 
@@ -333,7 +466,7 @@ def drift(json_output: JsonOption = False) -> None:
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
-    severity = compute_severity(result)
+    severity = compute_severity(result, config)
     if json_output:
         data = {
             "stale": [_drift_entry_payload(e) for e in result.stale],
@@ -342,9 +475,12 @@ def drift(json_output: JsonOption = False) -> None:
             "drift_detected": result.drift_detected,
             "severity": severity,
             "max_confidence_delta": round(result.max_confidence_delta, 4),
+            "notes": list(result.notes),
         }
         typer.echo(json.dumps(data, indent=2))
         return
+    for note in result.notes:
+        console.print(f"[yellow]note:[/yellow] {escape(note)}")
     if not result.drift_detected:
         console.print("[green]No drift detected.[/green]")
         return
@@ -368,7 +504,7 @@ def notify(json_output: JsonOption = False) -> None:
     ownership = _run_analyze(config, repo_root)
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
     sent = send_notification(result, config)
-    severity = compute_severity(result)
+    severity = compute_severity(result, config)
     if json_output:
         data = {
             "sent": sent,
@@ -389,22 +525,35 @@ def notify(json_output: JsonOption = False) -> None:
 
 
 @app.command()
-def sync(json_output: JsonOption = False) -> None:
+def sync(json_output: JsonOption = False, force: ForceOption = False) -> None:
     """Sync CODEOWNERS with inferred ownership (generate + commit)."""
     config = load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
+    _check_overwrite_or_exit(codeowners_path, config, force)
     ownership = _run_analyze(config, repo_root)
     token = get_github_token()
-    content = generate_codeowners(
-        repo_root,
-        ownership,
-        config,
-        codeowners_path=codeowners_path,
-        token=token,
-        org=config.github.org,
-    )
+    try:
+        content = generate_codeowners(
+            repo_root,
+            ownership,
+            config,
+            codeowners_path=codeowners_path,
+            token=token,
+            org=config.github.org,
+            force=force,
+        )
+    except CodeownersOverwriteError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
     rel_path = codeowners_path.relative_to(repo_root)
+    if not _has_uncommitted_changes(repo_root, rel_path):
+        if json_output:
+            data = {"path": str(rel_path), "committed": False, "content": content}
+            typer.echo(json.dumps(data, indent=2))
+        else:
+            console.print(f"[green]{rel_path} is already in sync; nothing to commit.[/green]")
+        return
     try:
         subprocess.run(
             ["git", "add", str(rel_path)],
@@ -421,13 +570,29 @@ def sync(json_output: JsonOption = False) -> None:
             text=True,
         )
     except subprocess.CalledProcessError as exc:
-        console.print(f"[red]Git commit failed:[/red] {exc.stderr.strip()}")
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        console.print(f"[red]Git commit failed:[/red] {detail}")
         raise typer.Exit(code=1) from None
     if json_output:
         data = {"path": str(rel_path), "committed": True, "content": content}
         typer.echo(json.dumps(data, indent=2))
     else:
         console.print(f"[green]Generated and committed {rel_path}[/green]")
+
+
+def _has_uncommitted_changes(repo_root: Path, rel_path: Path) -> bool:
+    """True when the generated file differs from what is committed."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--", str(rel_path)],
+            cwd=str(repo_root),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError:
+        return True
+    return bool(result.stdout.strip())
 
 
 def _write_github_outputs(outputs: dict[str, Any]) -> None:
@@ -459,7 +624,7 @@ def github_action(
 
     # detect_drift writes the `checkowners_drift` key to GITHUB_OUTPUT itself.
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
-    severity = compute_severity(result)
+    severity = compute_severity(result, config)
     bus_report = compute_bus_factor(ownership, config, target=None)
     decay_reports = detect_decay(ownership, config)
 
@@ -470,6 +635,7 @@ def github_action(
         "stale": [_drift_entry_payload(e) for e in result.stale],
         "missing": [_drift_entry_payload(e) for e in result.missing],
         "changed": [_drift_entry_payload(e) for e in result.changed],
+        "notes": list(result.notes),
     }
     bus_payload = _bus_factor_payload(bus_report, config)
     decay_payload = {"reports": [_decay_report_payload(r) for r in decay_reports]}
@@ -586,12 +752,12 @@ def decay(json_output: JsonOption = False) -> None:
         status = "[red]departed[/red]" if report.departed else "[yellow]dormant[/yellow]"
         target = report.recommended_transfer or "[dim]triage[/dim]"
         table.add_row(
-            report.warning.path,
-            report.warning.handle,
+            escape(report.warning.path),
+            escape(report.warning.handle),
             str(report.warning.days_since_last_commit),
             f"{report.warning.historical_confidence:.2f}",
             status,
-            target,
+            escape(target) if report.recommended_transfer else target,
         )
     console.print(table)
 
@@ -638,7 +804,9 @@ def bus_factor(
             "warning": "[yellow]WARN[/yellow]",
             "ok": "[green]OK[/green]",
         }[tier]
-        table.add_row(entry.path, str(entry.bus_factor), tier_str, owners, backups)
+        table.add_row(
+            escape(entry.path), str(entry.bus_factor), tier_str, escape(owners), escape(backups)
+        )
     console.print(table)
     console.print(f"[dim]repo average bus factor: {report.repo_average:.2f}[/dim]")
 
@@ -678,6 +846,7 @@ def _topology_payload(report: TopologyReport) -> dict[str, Any]:
 def _balance_payload(report: BalanceReport) -> dict[str, Any]:
     return {
         "source": report.source,
+        "fallback_reason": report.fallback_reason,
         "average": report.average,
         "loads": [{"handle": load.handle, "reviews": load.reviews} for load in report.loads],
         "overloaded": [
@@ -708,16 +877,22 @@ def balance(json_output: JsonOption = False) -> None:
         console.print("[yellow]No review load data available.[/yellow]")
         return
     console.print(f"[dim]source: {report.source}; average reviews: {report.average:.1f}[/dim]")
+    if report.fallback_reason:
+        console.print(
+            f"[dim]GitHub API unavailable ({report.fallback_reason}); "
+            "loads below are commit counts, not reviews.[/dim]"
+        )
     table = Table(title="Review Load")
     table.add_column("Handle", style="cyan")
-    table.add_column("Reviews", justify="right")
+    load_label = "Commits (proxy)" if report.source == "git_authorship" else "Reviews"
+    table.add_column(load_label, justify="right")
     table.add_column("Status")
     overloaded_handles = {load.handle for load in report.overloaded}
     for load in report.loads:
         status = (
             "[red]overloaded[/red]" if load.handle in overloaded_handles else "[green]ok[/green]"
         )
-        table.add_row(load.handle, str(load.reviews), status)
+        table.add_row(escape(load.handle), str(load.reviews), status)
     console.print(table)
     if report.suggestions:
         console.print()
@@ -750,9 +925,9 @@ def topology(json_output: JsonOption = False) -> None:
     for cluster in report.clusters:
         source = "[green]declared[/green]" if cluster.declared else "[yellow]inferred[/yellow]"
         table.add_row(
-            cluster.name,
-            ", ".join(cluster.members),
-            ", ".join(cluster.primary_paths) or "-",
+            escape(cluster.name),
+            escape(", ".join(cluster.members)),
+            escape(", ".join(cluster.primary_paths)) or "-",
             source,
         )
     console.print(table)
@@ -810,10 +985,10 @@ def onboard(
     for step in report.steps:
         table.add_row(
             str(step.order),
-            step.path,
-            step.reviewer,
+            escape(step.path),
+            escape(step.reviewer),
             step.complexity,
-            step.description,
+            escape(step.description),
         )
     console.print(table)
 
@@ -846,7 +1021,7 @@ def expertise(
     for idx, rank in enumerate(ranking, start=1):
         table.add_row(
             str(idx),
-            f"[{_confidence_style(rank.confidence)}]{rank.handle}[/]",
+            f"[{_confidence_style(rank.confidence)}]{escape(rank.handle)}[/]",
             f"{rank.confidence:.2f}",
             str(rank.commits),
             _format_last_commit(rank.last_commit),
@@ -892,7 +1067,7 @@ def trends(
         }
         typer.echo(json.dumps(data, indent=2))
         return
-    if not report.points:
+    if not report.points or all(p.commits == 0 for p in report.points):
         console.print("[yellow]No history available for the requested range.[/yellow]")
         return
     table = Table(title=f"Ownership Trends ({report.periods}x{report.period_days}d)")

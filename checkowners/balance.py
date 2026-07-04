@@ -8,6 +8,7 @@ strictly weaker but always-available signal.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,9 @@ if TYPE_CHECKING:
 
 _MAX_INCREASE_FRACTION: float = 0.30
 _OVERLOAD_FACTOR: float = 2.0
+# Bound the GitHub scan: only the most recent closed PRs of the current repo
+# are inspected so API usage stays predictable on large repositories.
+_MAX_CLOSED_PRS: int = 200
 
 
 @dataclass(frozen=True)
@@ -41,7 +45,8 @@ class BalanceReport:
     average: float
     overloaded: tuple[ReviewLoad, ...]
     suggestions: tuple[RebalanceSuggestion, ...]
-    source: str  # "github_api" or "git_authorship"
+    source: str  # "github_api", "git_authorship", or "external"
+    fallback_reason: str = ""  # why the GitHub API path was abandoned, if it was
 
 
 def analyze_balance(
@@ -52,9 +57,9 @@ def analyze_balance(
 ) -> BalanceReport:
     """Compute review load distribution and rebalancing suggestions."""
     if review_counts is None:
-        counts, source = _gather_counts(ownership, config)
+        counts, source, fallback_reason = _gather_counts(ownership, config)
     else:
-        counts, source = dict(review_counts), "external"
+        counts, source, fallback_reason = dict(review_counts), "external", ""
     if not counts:
         return BalanceReport(
             loads=(),
@@ -62,6 +67,7 @@ def analyze_balance(
             overloaded=(),
             suggestions=(),
             source=source,
+            fallback_reason=fallback_reason,
         )
     loads = tuple(
         ReviewLoad(handle=handle, reviews=count)
@@ -78,18 +84,21 @@ def analyze_balance(
         overloaded=overloaded,
         suggestions=suggestions,
         source=source,
+        fallback_reason=fallback_reason,
     )
 
 
 def _gather_counts(
     ownership: OwnershipMap,
     config: Config,
-) -> tuple[dict[str, int], str]:
-    if config.github.api_enabled and config.github.org:
-        counts = _gather_from_github(config)
+) -> tuple[dict[str, int], str, str]:
+    """Return (counts, source, fallback_reason)."""
+    fallback_reason = ""
+    if config.github.api_enabled:
+        counts, fallback_reason = _gather_from_github()
         if counts:
-            return counts, "github_api"
-    return _gather_from_authorship(ownership), "git_authorship"
+            return counts, "github_api", ""
+    return _gather_from_authorship(ownership), "git_authorship", fallback_reason
 
 
 def _gather_from_authorship(ownership: OwnershipMap) -> dict[str, int]:
@@ -100,36 +109,43 @@ def _gather_from_authorship(ownership: OwnershipMap) -> dict[str, int]:
     return counts
 
 
-def _gather_from_github(config: Config) -> dict[str, int]:
+def _gather_from_github() -> tuple[dict[str, int], str]:
+    """Fetch review counts for the current repo; (counts, fallback_reason)."""
     try:
         from checkowners.github import (  # noqa: PLC0415
             get_github_client,
             get_github_token,
         )
     except ImportError:
-        return {}
+        return {}, "PyGithub is not installed"
     token = get_github_token()
     if not token:
-        return {}
+        return {}, "GITHUB_TOKEN is not set"
+    repo_full_name = os.environ.get("GITHUB_REPOSITORY", "")
+    if not repo_full_name:
+        return {}, "GITHUB_REPOSITORY is not set"
     client = get_github_client(token)
     if client is None:
-        return {}
-    return _fetch_review_counts(client, config.github.org)
+        return {}, "GitHub client could not be created"
+    return _fetch_review_counts(client, repo_full_name)
 
 
-def _fetch_review_counts(client: Github, org: str) -> dict[str, int]:
+def _fetch_review_counts(client: Github, repo_full_name: str) -> tuple[dict[str, int], str]:
+    """Count reviews per handle over the most recent closed PRs of one repo."""
+    from checkowners.github import iter_recent_closed_pulls  # noqa: PLC0415
+
     counts: dict[str, int] = {}
     try:
-        github_org = client.get_organization(org)
-        for repo in github_org.get_repos():
-            for pull in repo.get_pulls(state="closed"):
-                for review in pull.get_reviews():
-                    handle = f"@{review.user.login}" if review.user else None
-                    if handle:
-                        counts[handle] = counts.get(handle, 0) + 1
-    except Exception:  # noqa: BLE001
-        return {}
-    return counts
+        for pull in iter_recent_closed_pulls(client, repo_full_name, _MAX_CLOSED_PRS):
+            for review in pull.get_reviews():
+                handle = f"@{review.user.login}" if review.user else None
+                if handle:
+                    counts[handle] = counts.get(handle, 0) + 1
+    except Exception as exc:  # noqa: BLE001
+        return {}, f"GitHub API error: {exc}"
+    if not counts:
+        return {}, f"no PR reviews found in the last {_MAX_CLOSED_PRS} closed PRs"
+    return counts, ""
 
 
 def _suggest(
@@ -139,13 +155,12 @@ def _suggest(
     confidence_threshold: float,
 ) -> tuple[RebalanceSuggestion, ...]:
     load_map = {load.handle: load.reviews for load in loads}
+    overloaded_handles = {load.handle for load in overloaded}
     suggestions: list[RebalanceSuggestion] = []
     qualified_pairs = _qualified_pairs(ownership, confidence_threshold)
     for overloaded_load in overloaded:
-        for candidate, candidate_confidence in qualified_pairs.get(
-            overloaded_load.handle, []
-        ):
-            if candidate == overloaded_load.handle:
+        for candidate, candidate_confidence in qualified_pairs.get(overloaded_load.handle, []):
+            if candidate in overloaded_handles:
                 continue
             candidate_load = load_map.get(candidate, 0)
             allowed_increase = max(1, int(candidate_load * _MAX_INCREASE_FRACTION) or 1)
@@ -170,9 +185,7 @@ def _qualified_pairs(
     pairs: dict[str, dict[str, float]] = {}
     for po in ownership.paths.values():
         qualified = [
-            (o.handle, o.confidence)
-            for o in po.owners
-            if o.confidence >= confidence_threshold
+            (o.handle, o.confidence) for o in po.owners if o.confidence >= confidence_threshold
         ]
         for handle_a, _ in qualified:
             pairs.setdefault(handle_a, {})

@@ -21,7 +21,7 @@ def rank_expertise(
     """
     aggregated: dict[str, ExpertiseRank] = {}
     for path, po in ownership.paths.items():
-        if not _matches(path, target):
+        if not path_matches_glob(path, target):
             continue
         for owner in po.owners:
             existing = aggregated.get(owner.handle)
@@ -46,25 +46,41 @@ def rank_expertise(
     return tuple(ranked)
 
 
-def _matches(path: str, target: str) -> bool:
-    """Match a path against a target path or glob."""
-    normalized_target = target.lstrip("/")
+def path_matches_glob(path: str, pattern: str) -> bool:
+    """Match a repo path against a user-supplied path, glob, or directory prefix.
+
+    Shared matching semantics for expertise, bus factor, and onboarding
+    targets: fnmatch (where ``*`` may cross ``/``), PLUS a bare
+    directory-prefix convenience, so a non-glob pattern like ``controllers``
+    or ``controllers/`` matches any path under that directory
+    (segment-aware prefix match).
+    """
     normalized_path = path.lstrip("/")
-    if normalized_target == normalized_path:
+    normalized_pattern = pattern.lstrip("/")
+    if normalized_path == normalized_pattern:
         return True
-    if fnmatch.fnmatch(normalized_path, normalized_target):
+    if fnmatch.fnmatch(normalized_path, normalized_pattern):
         return True
-    if not normalized_target.endswith("/") and not _is_glob(normalized_target):
-        target_with_slash = normalized_target + "/"
-        if normalized_path == normalized_target or normalized_path.startswith(target_with_slash):
-            return True
-    if normalized_target.endswith("/"):
-        return normalized_path.startswith(normalized_target)
+    prefix = normalized_pattern.rstrip("/")
+    if prefix and not _is_glob(prefix):
+        return normalized_path.startswith(prefix + "/")
     return False
 
 
 def _is_glob(value: str) -> bool:
     return any(ch in value for ch in ("*", "?", "["))
+
+
+def common_prefix_depth(a: str, b: str) -> int:
+    """Number of leading directory components shared between two paths."""
+    a_parts = a.lstrip("/").split("/")[:-1]
+    b_parts = b.lstrip("/").split("/")[:-1]
+    common = 0
+    for x, y in zip(a_parts, b_parts, strict=False):
+        if x != y:
+            break
+        common += 1
+    return common
 
 
 def _max_dt(a: datetime | None, b: datetime | None) -> datetime | None:

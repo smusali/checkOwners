@@ -30,7 +30,6 @@ output:
   include_confidence: false
 drift:
   mode: both
-  compare_to: auto
   min_confidence_delta: 0.2
 notifications:
   webhook_url: ""
@@ -40,5 +39,5 @@ github:
   resolve_handles: true
   resolve_teams: true
   api_enabled: false
-  # Do NOT add `token:` here — checkowners.yml is committed to git.
+  # Do NOT add `token:` here: checkowners.yml is committed to git.
   # Set the GITHUB_TOKEN environment variable instead.

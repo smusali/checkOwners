@@ -38,7 +38,7 @@ def infer_topology(
     annotated: list[TeamCluster] = []
     mismatches: list[str] = []
     for idx, members in enumerate(clusters):
-        name, is_declared, mismatch = _name_cluster(members, declared, idx)
+        name, is_declared, cluster_mismatches = _name_cluster(members, declared, idx)
         annotated.append(
             TeamCluster(
                 name=name,
@@ -47,8 +47,7 @@ def infer_topology(
                 declared=is_declared,
             )
         )
-        if mismatch:
-            mismatches.append(mismatch)
+        mismatches.extend(cluster_mismatches)
     return TopologyReport(clusters=tuple(annotated), mismatches=tuple(mismatches))
 
 
@@ -115,21 +114,24 @@ def _name_cluster(
     members: set[str],
     declared: Mapping[str, frozenset[str]],
     fallback_index: int,
-) -> tuple[str, bool, str | None]:
-    """Find the declared team that matches `members` exactly or note a mismatch."""
+) -> tuple[str, bool, tuple[str, ...]]:
+    """Find the declared team matching `members` exactly, or note every mismatch.
+
+    A cluster overlapping several declared teams yields one mismatch line per
+    overlapping team.
+    """
     member_handles = {m.lstrip("@") for m in members}
     for team, team_members in declared.items():
         normalized = {m.lstrip("@") for m in team_members}
         if normalized == member_handles:
-            return team, True, None
-    for team, team_members in declared.items():
-        normalized = {m.lstrip("@") for m in team_members}
-        if member_handles & normalized and member_handles != normalized:
-            return f"inferred-{fallback_index}", False, (
-                f"inferred-{fallback_index} overlaps declared team '{team}' "
-                f"but membership differs"
-            )
-    return f"inferred-{fallback_index}", False, None
+            return team, True, ()
+    name = f"inferred-{fallback_index}"
+    mismatches = tuple(
+        f"{name} overlaps declared team '{team}' but membership differs"
+        for team in sorted(declared)
+        if member_handles & {m.lstrip("@") for m in declared[team]}
+    )
+    return name, False, mismatches
 
 
 def declared_teams_from_github(

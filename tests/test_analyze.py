@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import math
 import subprocess
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -59,6 +59,8 @@ def _passthrough(
 def _no_blame(
     _paths: object,
     _root: Path,
+    *,
+    on_progress: object = None,
 ) -> dict[str, dict[str, float]]:
     return {}
 
@@ -435,8 +437,93 @@ def test_gather_blame_coverage_aggregates() -> None:
     assert coverage["x.py"]["alice@example.com"] == 1.0
 
 
-def test_recency_decay_constant_matches_expected() -> None:
-    """Sanity: at 1 half-life decay = exp(-ln2)."""
-    expected = math.pow(0.5, 1.0)
-    actual = math.pow(0.5, 90 / 90)
-    assert expected == actual
+def test_unqualified_paths_not_blamed() -> None:
+    """Paths where no author reaches min_commits must skip the blame pass."""
+    commits = [
+        ("alice@example.com", _RECENT, ["hot.py"]),
+        ("alice@example.com", _RECENT, ["hot.py"]),
+        ("alice@example.com", _RECENT, ["hot.py"]),
+        ("bob@example.com", _RECENT, ["cold.py"]),
+    ]
+    stdout = _make_git_log_output(commits)
+    config = Config(analysis=AnalysisConfig(min_commits=3, confidence_threshold=0.0))
+    blamed: list[str] = []
+
+    def record_blame(
+        paths: Iterable[str],
+        _root: Path,
+        *,
+        on_progress: object = None,
+    ) -> dict[str, dict[str, float]]:
+        blamed.extend(paths)
+        return {}
+
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=record_blame),
+    ):
+        result = analyze_ownership(Path("/fake"), config)
+
+    assert blamed == ["hot.py"]
+    assert set(result.paths) == {"hot.py"}
+
+
+def test_progress_hook_reports_blame_progress() -> None:
+    commits = [
+        ("alice@example.com", _RECENT, ["a.py", "b.py"]),
+    ]
+    stdout = _make_git_log_output(commits)
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    updates: list[tuple[int, int]] = []
+    blame_stdout = "abc 1 1 1\nauthor Alice\nauthor-mail <alice@example.com>\n\tline\n"
+
+    def fake_git(cmd: list[str], **kwargs: object) -> object:
+        if "blame" in cmd:
+            return _mock_run(blame_stdout)
+        return _mock_run(stdout)
+
+    with (
+        patch(_MOCK_GIT, side_effect=fake_git),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+    ):
+        analyze_ownership(Path("/fake"), config, on_progress=lambda d, t: updates.append((d, t)))
+
+    assert updates == [(1, 2), (2, 2)]
+
+
+def test_bot_authors_excluded_by_default() -> None:
+    commits = [
+        ("49699333+dependabot[bot]@users.noreply.github.com", _RECENT, ["deps.txt"]),
+        ("49699333+dependabot[bot]@users.noreply.github.com", _RECENT, ["deps.txt"]),
+        ("49699333+dependabot[bot]@users.noreply.github.com", _RECENT, ["deps.txt"]),
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+    ]
+    stdout = _make_git_log_output(commits)
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        result = analyze_ownership(Path("/fake"), config)
+    assert set(result.paths) == {"src/main.py"}
+
+
+def test_bot_authors_kept_when_disabled() -> None:
+    commits = [
+        ("github-actions[bot]@users.noreply.github.com", _RECENT, ["gen.md"]),
+    ]
+    stdout = _make_git_log_output(commits)
+    config = Config(
+        analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0, exclude_bots=False),
+    )
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        result = analyze_ownership(Path("/fake"), config)
+    assert set(result.paths) == {"gen.md"}

@@ -29,8 +29,7 @@ def _entry(handle: str, confidence: float, commits: int = 5) -> OwnerEntry:
 def _ownership(raw: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
     return OwnershipMap(
         paths={
-            p: PathOwnership(owners=owners, bus_factor=len(owners))
-            for p, owners in raw.items()
+            p: PathOwnership(owners=owners, bus_factor=len(owners)) for p, owners in raw.items()
         },
         last_analyzed=_NOW,
     )
@@ -95,6 +94,25 @@ def test_infer_topology_flags_membership_mismatch() -> None:
     report = infer_topology(ownership, _config(), declared_teams=declared)
     assert report.clusters[0].declared is False
     assert any("backend" in m for m in report.mismatches)
+
+
+def test_infer_topology_reports_mismatch_per_overlapping_team() -> None:
+    ownership = _ownership(
+        {
+            "src/api.py": (_entry("@alice", 0.9), _entry("@bob", 0.8)),
+        }
+    )
+    declared = {
+        "backend": frozenset({"alice", "carol"}),
+        "frontend": frozenset({"bob", "dave"}),
+        "infra": frozenset({"erin"}),
+    }
+    report = infer_topology(ownership, _config(), declared_teams=declared)
+    # The cluster {alice, bob} overlaps both backend and frontend: one line each.
+    assert len(report.mismatches) == 2
+    assert any("'backend'" in m for m in report.mismatches)
+    assert any("'frontend'" in m for m in report.mismatches)
+    assert not any("'infra'" in m for m in report.mismatches)
 
 
 def test_cluster_disconnected_subgraphs() -> None:

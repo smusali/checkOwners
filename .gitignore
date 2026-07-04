@@ -220,3 +220,6 @@ __marimo__/
 # checkOwners state + graph cache (contributor emails + ownership map);
 # only relevant if CHECKOWNERS_STATE_DIR is pointed inside the repo.
 .checkowners/
+
+# Claude Code local session settings (never commit or package)
+.claude/

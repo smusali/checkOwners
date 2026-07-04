@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from unittest.mock import MagicMock, patch
 
 from checkowners.models import (
+    BusFactorConfig,
     Config,
     DriftEntry,
     DriftResult,
@@ -83,6 +85,100 @@ def test_compute_severity_low_medium_high_critical() -> None:
 
 def test_compute_severity_no_drift_is_low() -> None:
     assert compute_severity(_drift_with(detected=False)) == "low"
+
+
+def test_compute_severity_uses_configured_critical_threshold() -> None:
+    config = Config(bus_factor=BusFactorConfig(critical_threshold=2, warn_threshold=3))
+    # bus_factor=2 is critical under the configured threshold...
+    assert compute_severity(_drift_with(delta=0.1, bus_factor=2), config) == "critical"
+    # ...but not under the default fallback of 1.
+    assert compute_severity(_drift_with(delta=0.1, bus_factor=2)) == "low"
+    assert compute_severity(_drift_with(delta=0.1, bus_factor=1)) == "critical"
+
+
+def test_send_notification_skips_when_no_drift() -> None:
+    config = Config(
+        notifications=NotificationsConfig(
+            webhook_url="https://hooks.example.com/drift",
+            severity_threshold="low",
+        ),
+    )
+    with patch("checkowners.notify.urllib.request.urlopen") as mock_urlopen:
+        sent = send_notification(_drift_with(detected=False), config)
+    assert sent is False
+    mock_urlopen.assert_not_called()
+
+
+def test_send_notification_no_drift_sent_with_include_unchanged() -> None:
+    config = Config(
+        notifications=NotificationsConfig(
+            webhook_url="https://hooks.example.com/drift",
+            severity_threshold="low",
+            include_unchanged=True,
+        ),
+    )
+    with patch("checkowners.notify.urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value = MagicMock()
+        sent = send_notification(_drift_with(detected=False), config)
+    assert sent is True
+    mock_urlopen.assert_called_once()
+
+
+def test_send_notification_returns_false_on_network_failure() -> None:
+    config = Config(
+        notifications=NotificationsConfig(
+            webhook_url="https://hooks.example.com/drift",
+            severity_threshold="low",
+        ),
+    )
+    error = urllib.error.URLError("connection refused")
+    with patch("checkowners.notify.urllib.request.urlopen", side_effect=error):
+        sent = send_notification(_drift_with(delta=0.9), config)
+    assert sent is False
+
+
+def test_send_notification_returns_false_on_os_error() -> None:
+    config = Config(
+        notifications=NotificationsConfig(
+            webhook_url="https://hooks.example.com/drift",
+            severity_threshold="low",
+        ),
+    )
+    with patch("checkowners.notify.urllib.request.urlopen", side_effect=OSError("boom")):
+        sent = send_notification(_drift_with(delta=0.9), config)
+    assert sent is False
+
+
+def test_send_notification_logs_warning_on_failure() -> None:
+    config = Config(
+        notifications=NotificationsConfig(
+            webhook_url="https://hooks.example.com/drift",
+            severity_threshold="low",
+        ),
+    )
+    error = urllib.error.URLError("connection refused")
+    with (
+        patch("checkowners.notify.urllib.request.urlopen", side_effect=error),
+        patch("checkowners.notify.logger.warning") as mock_warning,
+    ):
+        send_notification(_drift_with(delta=0.9), config)
+    mock_warning.assert_called_once()
+
+
+def test_send_notification_closes_response() -> None:
+    config = Config(
+        notifications=NotificationsConfig(
+            webhook_url="https://hooks.example.com/drift",
+            severity_threshold="low",
+        ),
+    )
+    response = MagicMock()
+    with patch("checkowners.notify.urllib.request.urlopen", return_value=response):
+        sent = send_notification(_drift_with(delta=0.9), config)
+    assert sent is True
+    # The urlopen result is used as a context manager so it always closes.
+    response.__enter__.assert_called_once()
+    response.__exit__.assert_called_once()
 
 
 def test_build_payload_basic() -> None:

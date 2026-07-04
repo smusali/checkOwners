@@ -12,13 +12,15 @@ Infer CODEOWNERS from git history with confidence scoring, a knowledge graph, ex
 
 ## How it works
 
-`checkowners analyze` reads `git log` and `git blame` into a confidence-scored ownership map cached at `~/.checkowners/state.json`. From that map, `generate` writes a CODEOWNERS file and `drift` compares it against the committed one, while `bus-factor`, `decay`, `topology`, `balance`, `onboard`, and `trends` emit their own reports. In CI, the composite GitHub Action runs the same flow and writes structured `GITHUB_OUTPUT`. See [docs/USAGE.md](docs/USAGE.md) for the full pipeline and a diagram.
+`checkowners analyze` reads `git log` and `git blame` (in parallel, only over paths that can actually produce owners; a 24k-commit monorepo analyzes in under two minutes) into a confidence-scored ownership map cached per repo under `~/.checkowners/`. Commit emails resolve to GitHub `@handles` (noreply emails locally with no token, the rest via the GitHub API), and same-person identities merge so bus factors count people, not email addresses. From that map, `generate` writes a CODEOWNERS file with uniform directories consolidated into `dir/` rules, and `drift` compares the committed file against inference using real CODEOWNERS pattern matching (directory rules, globs, last-match-wins). `bus-factor`, `decay`, `topology`, `balance`, `onboard`, and `trends` emit their own reports. In CI, the composite GitHub Action runs the same flow, writes structured `GITHUB_OUTPUT`, and maintains a single up-to-date PR comment. See [docs/USAGE.md](docs/USAGE.md) for the full pipeline and a diagram.
 
 ## Installation
 
 ```bash
-pip install checkowners               # core CLI
-pip install "checkowners[graph]"      # adds networkx-backed graph / topology / onboard
+pip install checkowners               # core CLI (pure git, zero API deps)
+pip install "checkowners[graph]"      # + networkx-backed graph / topology / onboard
+pip install "checkowners[github]"     # + GitHub API handle/team/review resolution
+pip install "checkowners[all]"        # everything
 ```
 
 ## Quick start
@@ -28,6 +30,7 @@ pip install "checkowners[graph]"      # adds networkx-backed graph / topology / 
 checkowners analyze
 
 # Write CODEOWNERS with owners ranked by expertise confidence
+# (refuses to overwrite a hand-written file unless you pass --force)
 checkowners generate
 
 # Compare inferred vs current CODEOWNERS, ranked by confidence delta
@@ -37,7 +40,7 @@ checkowners drift
 checkowners validate
 ```
 
-All commands accept `--json` and persist their results to `~/.checkowners/state.json` so downstream commands can reuse the analysis.
+All commands accept `--json` (except `graph`, which exports DOT via `--export dot`) and persist their results per repo under `~/.checkowners/` so downstream commands can reuse the analysis.
 
 ## Commands
 

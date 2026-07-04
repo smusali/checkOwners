@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard, get_args
 
 import yaml
 
@@ -43,8 +43,16 @@ _CODEOWNERS_CANDIDATES: tuple[str, ...] = (
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 
-_VALID_DRIFT_MODES: frozenset[str] = frozenset({"commit", "repo", "both"})
-_VALID_SEVERITIES: frozenset[str] = frozenset({"low", "medium", "high", "critical"})
+_VALID_DRIFT_MODES: frozenset[str] = frozenset(get_args(DriftMode))
+_VALID_SEVERITIES: frozenset[str] = frozenset(get_args(Severity))
+
+
+def _is_drift_mode(value: str) -> TypeGuard[DriftMode]:
+    return value in _VALID_DRIFT_MODES
+
+
+def _is_severity(value: str) -> TypeGuard[Severity]:
+    return value in _VALID_SEVERITIES
 
 
 def find_codeowners_path(repo_root: Path) -> Path:
@@ -84,13 +92,13 @@ def _apply_env_overrides(config: Config) -> Config:
     mode_override = os.environ.get(DRIFT_MODE_ENV_VAR)
     if not mode_override:
         return config
-    if mode_override not in _VALID_DRIFT_MODES:
+    if not _is_drift_mode(mode_override):
         msg = (
             f"Invalid {DRIFT_MODE_ENV_VAR}: {mode_override!r}; "
             f"expected one of {sorted(_VALID_DRIFT_MODES)}"
         )
         raise ValueError(msg)
-    return replace(config, drift=replace(config.drift, mode=cast(DriftMode, mode_override)))
+    return replace(config, drift=replace(config.drift, mode=mode_override))
 
 
 def _merge_config(raw: dict[str, Any]) -> Config:
@@ -123,6 +131,8 @@ def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
         kwargs["top_n_owners"] = int(data["top_n_owners"])
     if "confidence_threshold" in data:
         kwargs["confidence_threshold"] = float(data["confidence_threshold"])
+    if "exclude_bots" in data:
+        kwargs["exclude_bots"] = bool(data["exclude_bots"])
     return AnalysisConfig(**kwargs)
 
 
@@ -174,6 +184,8 @@ def _build_output_config(data: dict[str, Any]) -> OutputConfig:
         kwargs["include_unowned"] = bool(data["include_unowned"])
     if "include_confidence" in data:
         kwargs["include_confidence"] = bool(data["include_confidence"])
+    if "consolidate" in data:
+        kwargs["consolidate"] = bool(data["consolidate"])
     return OutputConfig(**kwargs)
 
 
@@ -181,12 +193,10 @@ def _build_drift_config(data: dict[str, Any]) -> DriftConfig:
     kwargs: dict[str, Any] = {}
     if "mode" in data:
         mode_str = str(data["mode"])
-        if mode_str not in _VALID_DRIFT_MODES:
+        if not _is_drift_mode(mode_str):
             msg = f"Invalid drift.mode: {mode_str!r}; expected one of {sorted(_VALID_DRIFT_MODES)}"
             raise ValueError(msg)
-        kwargs["mode"] = cast(DriftMode, mode_str)
-    if "compare_to" in data:
-        kwargs["compare_to"] = str(data["compare_to"])
+        kwargs["mode"] = mode_str
     if "min_confidence_delta" in data:
         kwargs["min_confidence_delta"] = float(data["min_confidence_delta"])
     return DriftConfig(**kwargs)
@@ -214,13 +224,13 @@ def _build_notifications_config(data: dict[str, Any]) -> NotificationsConfig:
         kwargs["include_unchanged"] = bool(data["include_unchanged"])
     if "severity_threshold" in data:
         sev_str = str(data["severity_threshold"])
-        if sev_str not in _VALID_SEVERITIES:
+        if not _is_severity(sev_str):
             msg = (
                 f"Invalid notifications.severity_threshold: {sev_str!r}; "
                 f"expected one of {sorted(_VALID_SEVERITIES)}"
             )
             raise ValueError(msg)
-        kwargs["severity_threshold"] = cast(Severity, sev_str)
+        kwargs["severity_threshold"] = sev_str
     return NotificationsConfig(**kwargs)
 
 

@@ -44,6 +44,13 @@ inputs:
       the latest published release.
     required: false
     default: ""
+  install_spec:
+    description: >-
+      Full pip install spec overriding the PyPI package, e.g.
+      ".[graph,github]" to run the action against the repository's own
+      checkout (used for dogfooding in the checkOwners repo itself).
+    required: false
+    default: ""
 
 outputs:
   checkowners_drift:
@@ -59,6 +66,17 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Verify full git history
+      shell: bash
+      run: |
+        # checkowners infers ownership from git log + git blame; a shallow
+        # clone (actions/checkout default) would silently produce an empty
+        # or wildly wrong ownership map. Fail fast with a fix instead.
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          echo "::error title=checkOwners needs full history::Shallow clone detected. Add 'fetch-depth: 0' to your actions/checkout step so git log and git blame can see the repository history."
+          exit 1
+        fi
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -68,11 +86,14 @@ runs:
       shell: bash
       env:
         CHECKOWNERS_VERSION: ${{ inputs.checkowners_version }}
+        CHECKOWNERS_INSTALL_SPEC: ${{ inputs.install_spec }}
       run: |
-        if [ -n "$CHECKOWNERS_VERSION" ]; then
-          pip install --upgrade "checkowners[graph]==$CHECKOWNERS_VERSION"
+        if [ -n "$CHECKOWNERS_INSTALL_SPEC" ]; then
+          pip install --upgrade "$CHECKOWNERS_INSTALL_SPEC"
+        elif [ -n "$CHECKOWNERS_VERSION" ]; then
+          pip install --upgrade "checkowners[graph,github]==$CHECKOWNERS_VERSION"
         else
-          pip install --upgrade "checkowners[graph]"
+          pip install --upgrade "checkowners[graph,github]"
         fi
 
     - name: Run checkowners drift
@@ -130,8 +151,31 @@ runs:
       with:
         script: |
           const fs = require('fs');
+          const MARKER = '<!-- checkowners-drift-report -->';
           const drift = JSON.parse(fs.readFileSync('drift.json', 'utf8'));
-          if (!drift.drift_detected) return;
+
+          // One managed comment per PR: find ours (by marker) and update it
+          // in place so repeated pushes don't pile up stale reports.
+          const { data: comments } = await github.rest.issues.listComments({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            per_page: 100,
+          });
+          const existing = comments.find(c => c.body && c.body.includes(MARKER));
+
+          if (!drift.drift_detected) {
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `${MARKER}\n### checkOwners: no drift detected\n\nPreviously reported drift has been resolved.`,
+              });
+            }
+            return;
+          }
+
           let critical = [];
           try {
             critical = (JSON.parse(fs.readFileSync('bus_factor.json', 'utf8')).critical_paths) || [];
@@ -143,29 +187,41 @@ runs:
           const badge = critical.length > 0 ? '**CRITICAL**' : (drift.severity || 'drift').toUpperCase();
           const fx = (n) => Number(n).toFixed(2);
           const body = [
+            MARKER,
             `### checkOwners: drift detected (${badge})`,
             '',
             critical.length > 0 ? `> **bus_factor=1 path(s):** ${critical.join(', ')}` : '',
             decayCount > 0 ? `> **${decayCount} expertise-decay warning(s)**` : '',
+            ...(drift.notes || []).map(n => `> note: ${n}`),
             '',
             '<details><summary>Drift details</summary>',
             '',
             '| Category | Path | Δ confidence |',
             '|----------|------|--------------|',
-            ...(drift.stale || []).map(s => `| stale | ${s.path} | ${fx(s.confidence_delta)} |`),
-            ...(drift.missing || []).map(m => `| missing | ${m.path} | ${fx(m.confidence_delta)} |`),
-            ...(drift.changed || []).map(c => `| changed | ${c.path} | ${fx(c.confidence_delta)} |`),
+            ...(drift.stale || []).map(s => `| stale | \`${s.path}\` | ${fx(s.confidence_delta)} |`),
+            ...(drift.missing || []).map(m => `| missing | \`${m.path}\` | ${fx(m.confidence_delta)} |`),
+            ...(drift.changed || []).map(c => `| changed | \`${c.path}\` | ${fx(c.confidence_delta)} |`),
             '',
             '</details>',
             '',
             'Run `checkowners sync` locally to reconcile.',
           ].filter(Boolean).join('\n');
-          await github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body,
-          });
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              comment_id: existing.id,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+          }
 
     - name: Fail on drift
       if: ${{ inputs.fail_on_drift == 'true' }}

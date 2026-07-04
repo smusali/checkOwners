@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "checkowners"
-version = "0.4.0"
+version = "0.5.0"
 description = "Infer CODEOWNERS from git history with confidence scoring, knowledge graphs, expertise decay detection, bus factor analysis, and team topology inference. CI-native."
 readme = "README.md"
 license = "MIT"
@@ -27,7 +27,7 @@ keywords = [
     "code-review",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
@@ -39,17 +39,25 @@ classifiers = [
     "Topic :: Software Development :: Version Control :: Git",
     "Typing :: Typed",
 ]
+# Core inference is pure git via subprocess: no GitPython, no PyGithub.
+# GitHub API features (handle search, teams, review coverage) live behind
+# the optional "github" extra and degrade gracefully when absent.
 dependencies = [
     "typer>=0.9.0",
     "rich>=13.0.0",
-    "gitpython>=3.1.0",
-    "pygithub>=2.0.0",
     "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
 graph = [
     "networkx>=3.0",
+]
+github = [
+    "pygithub>=2.0.0",
+]
+all = [
+    "networkx>=3.0",
+    "pygithub>=2.0.0",
 ]
 
 [project.urls]
@@ -60,6 +68,13 @@ Source = "https://github.com/fortyOneTech/checkowners"
 [project.scripts]
 checkowners = "checkowners.cli:main"
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".claude",
+    ".instructions",
+    ".pre-commit-config.yaml",
+]
+
 [tool.hatch.envs.default]
 dependencies = [
     "pytest>=7.0",
@@ -68,6 +83,7 @@ dependencies = [
     "mypy>=1.0",
     "types-PyYAML",
     "networkx>=3.0",
+    "pygithub>=2.0.0",
 ]
 
 [tool.hatch.envs.default.scripts]
@@ -88,6 +104,12 @@ quote-style = "double"
 [tool.mypy]
 strict = true
 python_version = "3.11"
+
+# networkx ships no type stubs; the per-module override is the durable
+# alternative to scattering "type: ignore[import-untyped]" at import sites.
+[[tool.mypy.overrides]]
+module = "networkx.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

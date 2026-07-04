@@ -1,0 +1,22 @@
+# Install with: pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.14
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: mypy-strict
+        name: mypy --strict
+        entry: mypy --strict checkowners/
+        language: system
+        pass_filenames: false
+        files: ^checkowners/.*\.py$

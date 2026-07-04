@@ -4,13 +4,28 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Callable
+from itertools import islice
 from typing import TYPE_CHECKING
 
+from checkowners.state import read_handle_cache, write_handle_cache
+
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from github import Github
+    from github.PullRequest import PullRequest
 
 logger = logging.getLogger(__name__)
+
+#: GitHub noreply commit emails embed the login: "12345+login@users.noreply.
+#: github.com" (current form) or "login@users.noreply.github.com" (legacy).
+#: These resolve to @handles locally, with zero API calls.
+_NOREPLY_RE = re.compile(
+    r"^(?:\d+\+)?([a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38})@users\.noreply\.github\.com$",
+    re.IGNORECASE,
+)
 
 
 def get_github_token() -> str:
@@ -23,28 +38,77 @@ def get_github_token() -> str:
 
 
 def get_github_client(token: str) -> Github | None:
-    """Create a PyGithub client, or None if token is empty."""
+    """Create a PyGithub client, or None if token is empty.
+
+    PyGithub ships in the optional ``github`` extra; when it is not installed
+    the API-backed features degrade gracefully instead of crashing.
+    """
     if not token:
         return None
-    from github import Github as GithubClient
+    try:
+        from github import Github as GithubClient
+    except ImportError:
+        logger.warning(
+            "PyGithub is not installed; GitHub API features are disabled. "
+            'Install with: pip install "checkowners[github]"'
+        )
+        return None
 
     return GithubClient(token)
+
+
+def resolve_noreply_handle(email: str) -> str | None:
+    """Extract the @handle from a GitHub noreply email, or None."""
+    match = _NOREPLY_RE.match(email.strip())
+    if match is None:
+        return None
+    return f"@{match.group(1)}"
 
 
 def resolve_handles(
     emails: set[str],
     token: str,
 ) -> dict[str, str]:
-    """Map git commit emails to GitHub @handles."""
+    """Map git commit emails to GitHub @handles.
+
+    Resolution order: noreply-email parsing (local, free), then the on-disk
+    cache (which also remembers misses as empty strings so unresolvable
+    emails are not re-queried), then the rate-limited user-search API.
+    """
+    resolved: dict[str, str] = {}
+    remaining: list[str] = []
+    for email in sorted(emails):
+        noreply = resolve_noreply_handle(email)
+        if noreply is not None:
+            resolved[email] = noreply
+        else:
+            remaining.append(email)
+    if not remaining:
+        return resolved
+
+    cached = read_handle_cache()
+    api_queue: list[str] = []
+    for email in remaining:
+        hit = cached.get(email)
+        if hit:
+            resolved[email] = hit
+        elif hit is None:
+            api_queue.append(email)
+        # hit == "": remembered miss; skip the API.
+    if not api_queue:
+        return resolved
+
     client = get_github_client(token)
     if client is None:
-        return {}
-    cache: dict[str, str] = {}
-    for email in sorted(emails):
+        return resolved
+    fresh: dict[str, str] = {}
+    for email in api_queue:
         handle = _lookup_handle(client, email)
+        fresh[email] = handle if handle is not None else ""
         if handle is not None:
-            cache[email] = handle
-    return cache
+            resolved[email] = handle
+    write_handle_cache(fresh)
+    return resolved
 
 
 def _lookup_handle(client: Github, email: str) -> str | None:
@@ -58,25 +122,6 @@ def _lookup_handle(client: Github, email: str) -> str | None:
     except Exception:
         logger.warning("Failed to resolve GitHub handle for %s", email)
         return None
-
-
-def map_owners(
-    owners: dict[str, tuple[str, ...]],
-    token: str,
-) -> dict[str, tuple[str, ...]]:
-    """Replace emails with @handles where possible. Unresolved stay as-is."""
-    all_emails: set[str] = set()
-    for owner_tuple in owners.values():
-        all_emails.update(owner_tuple)
-
-    email_to_handle = resolve_handles(all_emails, token)
-    if not email_to_handle:
-        return owners
-
-    return {
-        path: tuple(email_to_handle.get(owner, owner) for owner in owner_tuple)
-        for path, owner_tuple in owners.items()
-    }
 
 
 def build_review_coverage(
@@ -115,6 +160,23 @@ def build_review_coverage(
     return coverage
 
 
+#: PR scans cover the most recently updated closed PRs only. Each PR costs
+#: 2+ API calls (reviews + files); without a bound a mature repo with tens
+#: of thousands of PRs would exhaust the rate limit in a single run.
+REVIEW_SCAN_PR_LIMIT = 200
+
+
+def iter_recent_closed_pulls(
+    client: Github,
+    repo_full_name: str,
+    limit: int = REVIEW_SCAN_PR_LIMIT,
+) -> Iterator[PullRequest]:
+    """Yield the most recently updated closed PRs of a repo, bounded by limit."""
+    repo = client.get_repo(repo_full_name)
+    pulls = repo.get_pulls(state="closed", sort="updated", direction="desc")
+    return islice(pulls, limit)
+
+
 def _gather_review_counts_by_path(
     client: Github,
     repo_full_name: str,
@@ -122,8 +184,7 @@ def _gather_review_counts_by_path(
     """Count, per file path, how many reviews each reviewer login contributed."""
     result: dict[str, dict[str, int]] = {}
     try:
-        repo = client.get_repo(repo_full_name)
-        for pull in repo.get_pulls(state="closed"):
+        for pull in iter_recent_closed_pulls(client, repo_full_name):
             reviewers = {review.user.login for review in pull.get_reviews() if review.user}
             if not reviewers:
                 continue

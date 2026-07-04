@@ -6,6 +6,128 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-03
+
+Hardening release driven by testing every command against a real production
+monorepo (24k commits, 12k active files). Focus: correct CODEOWNERS
+semantics, analyze performance, per-repo state isolation, and identity
+resolution.
+
+### Added
+- CODEOWNERS pattern matching engine (`checkowners/patterns.py`) with
+  GitHub's documented gitignore-style semantics: `*` stays within a path
+  segment, `**` crosses segments, leading or interior `/` anchors to the repo
+  root, trailing `/` matches directory contents, `dir/*` matches direct
+  children only, and the last matching rule wins.
+- `generate` consolidates per-file inference into directory-level rules when
+  every inferred file under a directory shares one owner set (`/src/ @alice`
+  instead of hundreds of per-file lines). New files under a consolidated
+  directory now match a rule. Disable with `output.consolidate: false`.
+- `generate` and `sync` refuse to overwrite a hand-written CODEOWNERS (one
+  without the machine-generated header) unless `--force` is passed.
+- `--version` flag; running bare `checkowners` now prints help instead of a
+  usage error.
+- Progress bar (stderr, TTY-only) during the analyze blame pass.
+- Local GitHub-noreply email resolution: `12345+login@users.noreply.github.com`
+  and `login@users.noreply.github.com` map to `@login` with zero API calls
+  and no token.
+- Persistent email-to-handle cache at `<state-dir>/handles.json`, including
+  remembered misses, so the rate-limited user-search API is only queried once
+  per new email.
+- Identity merging: when several commit emails resolve to one GitHub handle,
+  their owner entries merge and per-path bus factor is recomputed over
+  distinct people, so one person with two emails no longer reads as a bus
+  factor of two. Decay warnings are remapped to the resolved handle.
+- Drift results carry `notes` explaining skipped comparisons (raw emails vs
+  @handles, team-owned rules) instead of emitting false drift.
+- `balance` reports `fallback_reason` when the GitHub API path was abandoned,
+  and labels the load column "Commits (proxy)" when counting authorship.
+
+### Changed
+- **Drift detection is now pattern-aware.** Inferred files are matched
+  against CODEOWNERS rules with real matching semantics; previously the
+  comparison was literal string equality, so directory rules like
+  `frontend/` never matched inferred file paths and real-world files
+  produced near-100% false "missing"/"stale" reports. New categories:
+  `missing` = file no rule covers, `stale` = rule matching no tracked file
+  (via `git ls-files`), `changed` = per-rule owner divergence, aggregated and
+  ranked by worst per-file delta. Owner comparison is case-insensitive.
+- **State is keyed per repo** (schema v3) at
+  `~/.checkowners/state/<repo-hash>.json` with the absolute repo path
+  embedded and verified on load. Previously a single global `state.json`
+  meant analyzing repo A then running `decay` in repo B silently reused repo
+  A's data.
+- **Analyze is parallel and skips unowned files.** git blame now runs on a
+  thread pool sized to the CPU count and only on paths where at least one
+  author reaches `min_commits` (4-5x fewer files on a real monorepo).
+  Combined effect on a 24k-commit production repo: 80+ minutes to under 3
+  minutes.
+- `validate` follows GitHub's actual CODEOWNERS rules: relative patterns
+  (`docs/`, `apps/*`, `frontend/package.json`) are valid, owner-less rules
+  (GitHub's documented exemption mechanism) are valid, escaped spaces are
+  parsed, and `!` negation / `[...]` character ranges are correctly rejected.
+  It previously demanded every pattern start with `/` or `*`, failing
+  perfectly valid real-world files. Handle validation now matches GitHub's
+  login rules (no dots, max 39 chars).
+- `validate --json` exits non-zero on an invalid file, matching the
+  human-readable mode.
+- `sync` is a no-op success when the generated file matches the committed one
+  ("already in sync"); it previously failed with an empty error because git
+  prints "nothing to commit" on stdout.
+- Downstream commands print a stderr hint when reusing cached state.
+- `notifications.include_unchanged` now means "also notify when no drift was
+  detected"; without it, no-drift runs no longer fire webhooks.
+- Severity's critical signal honors `bus_factor.critical_threshold` instead
+  of a hardcoded 1.
+- Review-coverage and balance GitHub scans are bounded to the 200 most
+  recently updated closed PRs and scoped to `GITHUB_REPOSITORY`; previously
+  unbounded scans exhausted the API rate limit on mature repos.
+- `trends` counts distinct commits per period; a commit touching 12 files
+  previously counted 12 times.
+- `bus-factor`, `expertise`, and `onboard` share one glob semantic
+  (previously the same pattern matched different path sets per command).
+- Backup-reviewer suggestions fall back to repo-wide top owners for
+  root-level files.
+- Onboarding steps never label a `bus_factor<=1` path "easy".
+- Default exclusions now also cover `package-lock.json`, `pnpm-lock.yaml`,
+  `*.min.js`, `*.min.css`, `*.map`, and the CODEOWNERS file itself (a sync
+  commit would otherwise make whoever runs the tool its inferred owner,
+  perturbing every subsequent run).
+- Composite Action: fails fast with a clear error on shallow clones
+  (`fetch-depth: 0` guidance), installs the `github` extra so handle
+  resolution works in CI, and the PR comment is updated in place (one
+  managed comment per PR, marked resolved when drift clears) instead of
+  posting a new comment on every push.
+- PyGithub moved from a hard dependency to the `github` extra (with an
+  `all` convenience extra); core inference is pure git. Unused GitPython
+  dependency dropped.
+- graph DOT export escapes quotes and backslashes in node IDs and labels.
+
+### Removed
+- `drift.compare_to` config option: it was parsed and documented but never
+  read by any logic. Configs still containing it are ignored, not rejected.
+- Dead internal API surface orphaned by the identity-merge rework:
+  `OwnershipMap.handles_only()` and `github.map_owners()`.
+
+### Fixed
+- Generated CODEOWNERS never emits `[...]` character ranges: bracket-bearing
+  path segments (Next.js dynamic routes like `[companyId]`) become the valid
+  `*` wildcard, colliding patterns merge their owners, and literal spaces in
+  patterns are backslash-escaped. GitHub ignores lines with `[...]`, which
+  silently un-owned those paths. Found by dogfooding against a production
+  Next.js monorepo.
+- Terminal output renders paths like `[companyId]` verbatim: user-derived
+  text (paths, reasons, handles) is markup-escaped so Rich no longer swallows
+  bracket segments as style tags.
+- Webhook notifications no longer crash the CLI on HTTP or network errors;
+  failures log a warning and `notify` reports `sent: false`.
+- Rebalance suggestions can no longer propose shifting reviews onto another
+  overloaded reviewer.
+- Topology reports one mismatch line per overlapping declared team instead of
+  only the first.
+- Tests never touch the developer's real `~/.checkowners` (isolated state
+  dir fixture).
+
 ## [0.4.0] - 2026-06-14
 
 ### Added
@@ -89,7 +211,8 @@ Repo now dogfoods its own generated CODEOWNERS.
 - Packaging via hatch; published to PyPI under `checkowners`.
 - CI workflow running tests and lint across Python 3.11, 3.12, 3.13.
 
-[Unreleased]: https://github.com/fortyOneTech/checkowners/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/fortyOneTech/checkowners/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/fortyOneTech/checkowners/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/fortyOneTech/checkowners/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/fortyOneTech/checkowners/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fortyOneTech/checkowners/compare/v0.1.1...v0.2.0

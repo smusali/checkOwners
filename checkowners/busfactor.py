@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import fnmatch
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
 from typing import Literal
 
+from checkowners.expertise import common_prefix_depth, path_matches_glob
 from checkowners.models import BusFactor, BusFactorConfig, Config, OwnershipMap
 
 Tier = Literal["critical", "warning", "ok"]
@@ -37,11 +36,9 @@ def compute_bus_factor(
     threshold = config.analysis.confidence_threshold
     entries: list[BusFactor] = []
     for path, po in ownership.paths.items():
-        if target is not None and not _matches(path, target):
+        if target is not None and not path_matches_glob(path, target):
             continue
-        qualified = tuple(
-            o.handle for o in po.owners if o.confidence >= threshold
-        )
+        qualified = tuple(o.handle for o in po.owners if o.confidence >= threshold)
         backups = _recommend_backups(ownership, path, qualified, threshold)
         entries.append(
             BusFactor(
@@ -52,9 +49,7 @@ def compute_bus_factor(
             )
         )
     entries.sort(key=lambda e: (e.bus_factor, e.path))
-    repo_average = (
-        round(sum(e.bus_factor for e in entries) / len(entries), 2) if entries else 0.0
-    )
+    repo_average = round(sum(e.bus_factor for e in entries) / len(entries), 2) if entries else 0.0
     return BusFactorReport(
         entries=tuple(entries),
         repo_average=repo_average,
@@ -84,39 +79,39 @@ def _classify(
     return "ok"
 
 
-def _matches(path: str, target: str) -> bool:
-    """Match concrete paths, directory prefixes, and segment-aware globs."""
-    normalized_path = path.lstrip("/")
-    normalized_target = target.lstrip("/")
-    if normalized_target == normalized_path:
-        return True
-    if normalized_target.endswith("/"):
-        return normalized_path.startswith(normalized_target)
-    if _is_glob(normalized_target):
-        if PurePosixPath(normalized_path).match(normalized_target):
-            return True
-        no_slash = "/" not in normalized_target
-        return no_slash and fnmatch.fnmatch(normalized_path, normalized_target)
-    return normalized_path.startswith(normalized_target + "/")
-
-
-def _is_glob(value: str) -> bool:
-    return any(ch in value for ch in ("*", "?", "["))
-
-
 def _recommend_backups(
     ownership: OwnershipMap,
     path: str,
     qualified: tuple[str, ...],
     threshold: float,
 ) -> tuple[str, ...]:
-    """Suggest contributors who could build up backup expertise."""
+    """Suggest contributors who could build up backup expertise.
+
+    Prefers contributors working in adjacent paths (shared leading
+    directory); when that heuristic yields nothing (e.g. root-level files),
+    falls back to the repo-wide top owners by confidence, excluding the
+    path's own owners.
+    """
     qualified_set = set(qualified)
+    candidates = _adjacent_candidates(ownership, path, qualified_set, threshold)
+    if not candidates:
+        candidates = _repo_wide_candidates(ownership, path)
+    ordered = sorted(candidates.items(), key=lambda kv: (-kv[1], kv[0]))
+    return tuple(handle for handle, _ in ordered[:3])
+
+
+def _adjacent_candidates(
+    ownership: OwnershipMap,
+    path: str,
+    qualified_set: set[str],
+    threshold: float,
+) -> dict[str, float]:
+    """Backup candidates from paths sharing a leading directory with `path`."""
     candidates: dict[str, float] = {}
     for other_path, po in ownership.paths.items():
         if other_path == path:
             continue
-        if _common_prefix_depth(path, other_path) < 1:
+        if common_prefix_depth(path, other_path) < 1:
             continue
         for owner in po.owners:
             if owner.handle in qualified_set:
@@ -126,16 +121,23 @@ def _recommend_backups(
             current = candidates.get(owner.handle, 0.0)
             if owner.confidence > current:
                 candidates[owner.handle] = owner.confidence
-    ordered = sorted(candidates.items(), key=lambda kv: (-kv[1], kv[0]))
-    return tuple(handle for handle, _ in ordered[:3])
+    return candidates
 
 
-def _common_prefix_depth(a: str, b: str) -> int:
-    a_parts = a.lstrip("/").split("/")[:-1]
-    b_parts = b.lstrip("/").split("/")[:-1]
-    common = 0
-    for x, y in zip(a_parts, b_parts, strict=False):
-        if x != y:
-            break
-        common += 1
-    return common
+def _repo_wide_candidates(
+    ownership: OwnershipMap,
+    path: str,
+) -> dict[str, float]:
+    """Repo-wide top owners by confidence, excluding the path's own owners."""
+    own_handles = {owner.handle for owner in ownership.paths[path].owners}
+    candidates: dict[str, float] = {}
+    for other_path, po in ownership.paths.items():
+        if other_path == path:
+            continue
+        for owner in po.owners:
+            if owner.handle in own_handles:
+                continue
+            current = candidates.get(owner.handle, 0.0)
+            if owner.confidence > current:
+                candidates[owner.handle] = owner.confidence
+    return candidates

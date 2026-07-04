@@ -130,5 +130,50 @@ def test_compute_bus_factor_glob_target() -> None:
             "tests/test_api.py": (_entry("@carol", 0.7),),
         }
     )
+    # Unified glob semantics (fnmatch): '*' crosses '/', so nested paths match.
     report = compute_bus_factor(ownership, _config(), target="src/*.py")
-    assert {e.path for e in report.entries} == {"src/api.py"}
+    assert {e.path for e in report.entries} == {"src/api.py", "src/api/v2.py"}
+
+
+def test_compute_bus_factor_bare_directory_target() -> None:
+    ownership = _ownership(
+        {
+            "controllers/user.py": (_entry("@alice", 0.9),),
+            "controllers/admin.py": (_entry("@bob", 0.85),),
+            "models/user.py": (_entry("@carol", 0.7),),
+        }
+    )
+    # A bare directory name (no trailing slash) matches everything under it.
+    report = compute_bus_factor(ownership, _config(), target="controllers")
+    assert {e.path for e in report.entries} == {
+        "controllers/user.py",
+        "controllers/admin.py",
+    }
+
+
+def test_recommend_backups_root_level_falls_back_repo_wide() -> None:
+    ownership = _ownership(
+        {
+            "README.md": (_entry("@alice", 0.95),),
+            "src/api.py": (_entry("@bob", 0.85),),
+            "src/db.py": (_entry("@carol", 0.7),),
+        }
+    )
+    report = compute_bus_factor(ownership, _config(), target="README.md")
+    entry = report.entries[0]
+    # No shared leading directory exists, so repo-wide top owners are used.
+    assert entry.recommended_backups == ("@bob", "@carol")
+
+
+def test_recommend_backups_repo_wide_excludes_own_owners() -> None:
+    ownership = _ownership(
+        {
+            "README.md": (_entry("@alice", 0.95), _entry("@bob", 0.2)),
+            "src/api.py": (_entry("@bob", 0.85),),
+            "src/db.py": (_entry("@carol", 0.7),),
+        }
+    )
+    report = compute_bus_factor(ownership, _config(), target="README.md")
+    entry = report.entries[0]
+    # @bob already owns README.md (even below threshold), so only @carol remains.
+    assert entry.recommended_backups == ("@carol",)

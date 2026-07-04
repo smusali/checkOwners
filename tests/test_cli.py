@@ -461,3 +461,30 @@ def test_merge_identities_dedupes_same_handle() -> None:
     assert merged[0].handle == "@a"
     assert merged[0].commits == 10
     assert merged[0].confidence == 0.9
+
+
+def test_sync_noop_when_already_in_sync() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_codeowners", return_value="content"),
+        patch("checkowners.cli._has_uncommitted_changes", return_value=False),
+        patch("checkowners.cli.subprocess.run") as mock_run,
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["sync", "--json"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["committed"] is False
+    mock_run.assert_not_called()
+
+
+def test_generate_refuses_handwritten_before_analyzing(tmp_path: Path) -> None:
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("# Hand-curated\nsrc/ @human\n", encoding="utf-8")
+    with (
+        patch("checkowners.cli.find_codeowners_path", return_value=target),
+        patch("checkowners.cli.analyze_ownership") as mock_analyze,
+    ):
+        result = runner.invoke(app, ["generate"])
+    assert result.exit_code == 1
+    mock_analyze.assert_not_called()

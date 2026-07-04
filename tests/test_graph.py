@@ -10,6 +10,7 @@ import pytest
 import checkowners.graph as graph_module
 from checkowners.graph import (
     GraphExtraMissingError,
+    _dot_quote,
     build_graph,
     from_serializable,
     to_dot,
@@ -98,6 +99,40 @@ def test_to_dot_emits_graphviz_format() -> None:
     dot = to_dot(build_graph(_ownership()))
     assert "graph" in dot or "digraph" in dot
     assert "contrib::@alice" in dot
+
+
+def test_dot_quote_escapes_backslash_and_quote() -> None:
+    assert _dot_quote('say "hi"') == 'say \\"hi\\"'
+    assert _dot_quote("a\\b") == "a\\\\b"
+    assert _dot_quote('a\\"b') == 'a\\\\\\"b'
+    assert _dot_quote("plain") == "plain"
+    assert _dot_quote(0.9) == "0.9"
+
+
+def test_to_dot_escapes_node_ids_and_attribute_values() -> None:
+    ownership = OwnershipMap(
+        paths={
+            'src/we"ird\\file.py': PathOwnership(
+                owners=(_entry('@ali"ce', 0.9),),
+                bus_factor=1,
+            ),
+        },
+        last_analyzed=_NOW,
+    )
+    clusters = (
+        TeamCluster(
+            name='team "core"',
+            members=('@ali"ce',),
+            primary_paths=('src/we"ird\\file.py',),
+            declared=False,
+        ),
+    )
+    dot = to_dot(build_graph(ownership, clusters=clusters))
+    # No raw (unescaped) double quote or backslash may survive inside quotes.
+    assert '"path::/src/we\\"ird\\\\file.py"' in dot
+    assert '"contrib::@ali\\"ce"' in dot
+    assert '"team::team \\"core\\""' in dot
+    assert 'path::/src/we"ird' not in dot
 
 
 def test_missing_extra_raises_clear_error() -> None:

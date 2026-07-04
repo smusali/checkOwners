@@ -206,7 +206,7 @@ def test_validate_json_errors() -> None:
     errors = [ValidationError(line_number=1, line="x", message="oops")]
     with patch("checkowners.cli.validate_codeowners", return_value=errors), _MOCK_PATH:
         result = runner.invoke(app, ["validate", "--json"])
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     data = json.loads(result.stdout)
     assert data["valid"] is False
     assert len(data["errors"]) == 1
@@ -434,3 +434,30 @@ def test_trends_json() -> None:
     assert data["periods"] == 2
     assert data["points"][1]["avg_top_confidence"] == 0.72
     assert data["points"][0]["active_contributors"] == 2
+
+
+# --- version / identity merge ---
+
+
+def test_version_flag() -> None:
+    from checkowners import __version__
+
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert __version__ in result.stdout
+
+
+def test_merge_identities_dedupes_same_handle() -> None:
+    from checkowners.cli import _merge_identities
+
+    noreply = "1+a@users.noreply.github.com"
+    entries = (
+        OwnerEntry(handle="a@x.com", confidence=0.9, last_commit=None, commits=4),
+        OwnerEntry(handle=noreply, confidence=0.5, last_commit=None, commits=6),
+    )
+    mapping = {"a@x.com": "@a", "1+a@users.noreply.github.com": "@a"}
+    merged = _merge_identities(entries, mapping)
+    assert len(merged) == 1
+    assert merged[0].handle == "@a"
+    assert merged[0].commits == 10
+    assert merged[0].confidence == 0.9

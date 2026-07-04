@@ -59,7 +59,6 @@ def test_generate_onboarding_orders_broad_to_deep() -> None:
         ownership,
         _config(),
         target="src/payments/",
-        min_steps=3,
         max_steps=3,
     )
     paths = [step.path for step in report.steps]
@@ -88,13 +87,40 @@ def test_generate_onboarding_complexity_increases() -> None:
         ownership,
         _config(),
         target="src/payments/",
-        min_steps=6,
         max_steps=6,
     )
     complexities = [step.complexity for step in report.steps]
     # First third easy, last third hard
     assert complexities[0] == "easy"
     assert complexities[-1] == "hard"
+
+
+def test_generate_onboarding_bus_factor_one_never_easy() -> None:
+    solo = (_entry("@alice", 0.95),)
+    ownership = _ownership(
+        {
+            "src/payments/a.py": solo,
+            "src/payments/b.py": solo,
+            "src/payments/c.py": solo,
+            "src/payments/d.py": solo,
+            "src/payments/e.py": solo,
+            "src/payments/f.py": solo,
+        }
+    )
+    report = generate_onboarding_path(ownership, _config(), target="src/payments/")
+    assert report.steps
+    # Every path has bus_factor 1 (deep expertise), so nothing may be 'easy'.
+    for step in report.steps:
+        assert step.complexity != "easy"
+    # The first third is still the gentlest tier available: medium.
+    assert report.steps[0].complexity == "medium"
+
+
+def test_generate_onboarding_caps_at_max_steps() -> None:
+    owners = (_entry("@alice", 0.9), _entry("@bob", 0.7))
+    ownership = _ownership({f"src/payments/mod_{i:02d}.py": owners for i in range(20)})
+    report = generate_onboarding_path(ownership, _config(), target="src/payments/", max_steps=4)
+    assert len(report.steps) == 4
 
 
 def test_generate_onboarding_rotates_reviewers() -> None:
@@ -109,7 +135,6 @@ def test_generate_onboarding_rotates_reviewers() -> None:
         ownership,
         _config(),
         target="src/payments/",
-        min_steps=3,
         max_steps=3,
     )
     reviewers = [step.reviewer for step in report.steps]
@@ -127,7 +152,6 @@ def test_to_markdown_emits_checklist() -> None:
         ownership,
         _config(),
         target="src/payments/",
-        min_steps=1,
         max_steps=1,
     )
     md = report.to_markdown()

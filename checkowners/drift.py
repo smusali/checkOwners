@@ -1,9 +1,27 @@
-"""Drift detection between inferred ownership and current CODEOWNERS."""
+"""Drift detection between inferred ownership and current CODEOWNERS.
+
+The committed CODEOWNERS is parsed into ordered pattern rules and compared
+against the inferred per-file ownership with real CODEOWNERS matching
+semantics (last matching rule wins), so directory- and glob-level rules are
+honored instead of being string-compared against file paths:
+
+- ``missing``: an inferred file that no rule covers.
+- ``stale``: a rule whose pattern matches no tracked file (dead rule).
+- ``changed``: a rule whose owners disagree with the inferred owners of the
+  files it covers (aggregated per rule, ranked by the worst file delta).
+
+Owner comparison is case-insensitive. When the inferred side only has raw
+commit emails but CODEOWNERS uses @handles, the sets are incomparable; the
+comparison is skipped and a note explains how to enable handle resolution
+instead of reporting 100% false drift.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from checkowners.models import (
@@ -15,8 +33,16 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
 )
+from checkowners.patterns import CodeownersRule, match_path, parse_rules, pattern_matches
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
+
+_IDENTITY_NOTE = (
+    "inferred owners are commit emails but CODEOWNERS uses @handles; "
+    "owner comparison skipped. Set GITHUB_TOKEN (github.resolve_handles) "
+    "to compare owner sets."
+)
+_TEAM_NOTE = "rules owned by teams (@org/team) are not compared against inferred individuals."
 
 
 def detect_drift(
@@ -28,112 +54,189 @@ def detect_drift(
 ) -> DriftResult:
     """Compare inferred ownership against current CODEOWNERS."""
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
-    current = _parse_codeowners(target)
-    inferred = _normalize_inferred(ownership)
-    result = _compare(current, inferred, config.drift.mode, config.drift.min_confidence_delta)
+    rules = _load_rules(target)
+    tracked = _tracked_files(repo_root)
+    result = _compare(
+        rules,
+        ownership.paths,
+        tracked,
+        config.drift.mode,
+        config.drift.min_confidence_delta,
+    )
     _write_github_output(result)
     return result
 
 
-def _parse_codeowners(codeowners_path: Path) -> dict[str, tuple[str, ...]]:
-    """Parse existing CODEOWNERS file into path -> owner handles mapping."""
+def _load_rules(codeowners_path: Path) -> tuple[CodeownersRule, ...]:
     if not codeowners_path.exists():
-        return {}
-    entries: dict[str, tuple[str, ...]] = {}
-    for raw_line in codeowners_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            path = parts[0]
-            owners = tuple(parts[1:])
-            entries[path] = owners
-    return entries
+        return ()
+    return parse_rules(codeowners_path.read_text(encoding="utf-8"))
 
 
-def _normalize_inferred(ownership: OwnershipMap) -> dict[str, PathOwnership]:
-    """Normalize inferred ownership paths to match CODEOWNERS leading-slash format."""
-    normalized: dict[str, PathOwnership] = {}
-    for path, path_ownership in ownership.paths.items():
-        key = path if path.startswith("/") else f"/{path}"
-        normalized[key] = path_ownership
-    return normalized
+def _tracked_files(repo_root: Path) -> tuple[str, ...]:
+    """List tracked files; used to tell dead rules from merely quiet ones."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            check=True,
+        )
+    except (subprocess.CalledProcessError, OSError):
+        return ()
+    return tuple(line for line in result.stdout.splitlines() if line)
 
 
 def _compare(
-    current: dict[str, tuple[str, ...]],
+    rules: tuple[CodeownersRule, ...],
     inferred: dict[str, PathOwnership],
+    tracked: tuple[str, ...],
     mode: DriftMode,
     min_delta: float,
 ) -> DriftResult:
-    """Compare current CODEOWNERS against inferred PathOwnerships."""
     stale: list[DriftEntry] = []
     missing: list[DriftEntry] = []
-    changed_seen: dict[str, DriftEntry] = {}
+    changed: list[DriftEntry] = []
+    notes: list[str] = []
 
-    if mode in ("repo", "both"):
-        for path in sorted(current):
-            if path not in inferred:
-                stale.append(
-                    DriftEntry(
-                        path=path,
-                        confidence_delta=1.0,
-                        reason="path not in inferred ownership",
-                    )
-                )
-            else:
-                entry = _maybe_changed(path, current[path], inferred[path], min_delta)
-                if entry is not None:
-                    changed_seen[path] = entry
+    coverage = {path: match_path(rules, path.lstrip("/")) for path in inferred}
 
     if mode in ("commit", "both"):
-        for path in sorted(inferred):
-            if path not in current:
-                missing.append(
-                    DriftEntry(
-                        path=path,
-                        confidence_delta=_top_confidence(inferred[path].owners),
-                        reason="path missing from CODEOWNERS",
-                        bus_factor=inferred[path].bus_factor,
-                        decay=bool(inferred[path].decay_warnings),
-                    )
-                )
-            else:
-                entry = _maybe_changed(path, current[path], inferred[path], min_delta)
-                if entry is not None:
-                    changed_seen.setdefault(path, entry)
+        missing = _find_missing(inferred, coverage)
+        changed, notes = _find_changed(rules, inferred, coverage, min_delta)
 
-    changed = tuple(changed_seen[path] for path in sorted(changed_seen))
+    if mode in ("repo", "both"):
+        stale = _find_stale(rules, tracked)
+        if mode == "repo":
+            changed, notes = _find_changed(rules, inferred, coverage, min_delta)
+
     stale_sorted = _sort_by_delta(stale)
     missing_sorted = _sort_by_delta(missing)
+    changed_sorted = _sort_by_delta(changed)
     return DriftResult(
         stale=stale_sorted,
         missing=missing_sorted,
-        changed=changed,
-        drift_detected=bool(stale_sorted or missing_sorted or changed),
+        changed=changed_sorted,
+        drift_detected=bool(stale_sorted or missing_sorted or changed_sorted),
+        notes=tuple(notes),
     )
 
 
-def _maybe_changed(
-    path: str,
-    current_owners: tuple[str, ...],
-    inferred: PathOwnership,
+def _find_missing(
+    inferred: dict[str, PathOwnership],
+    coverage: dict[str, CodeownersRule | None],
+) -> list[DriftEntry]:
+    """Inferred files no rule covers. Owner-less rules count as intentional."""
+    entries: list[DriftEntry] = []
+    for path, po in inferred.items():
+        if coverage[path] is not None:
+            continue
+        entries.append(
+            DriftEntry(
+                path=path,
+                confidence_delta=_top_confidence(po.owners),
+                reason="path not covered by any CODEOWNERS rule",
+                bus_factor=po.bus_factor,
+                decay=bool(po.decay_warnings),
+            )
+        )
+    return entries
+
+
+def _find_stale(
+    rules: tuple[CodeownersRule, ...],
+    tracked: tuple[str, ...],
+) -> list[DriftEntry]:
+    """Rules whose pattern no longer matches any tracked file."""
+    if not tracked:
+        return []
+    entries: list[DriftEntry] = []
+    for rule in rules:
+        if any(pattern_matches(rule.pattern, path) for path in tracked):
+            continue
+        entries.append(
+            DriftEntry(
+                path=rule.pattern,
+                confidence_delta=1.0,
+                reason=f"pattern matches no tracked file (line {rule.line_number})",
+            )
+        )
+    return entries
+
+
+def _find_changed(
+    rules: tuple[CodeownersRule, ...],
+    inferred: dict[str, PathOwnership],
+    coverage: dict[str, CodeownersRule | None],
     min_delta: float,
-) -> DriftEntry | None:
-    inferred_handles = tuple(o.handle for o in inferred.owners)
-    if set(current_owners) == set(inferred_handles):
-        return None
-    delta = _confidence_delta(current_owners, inferred.owners)
-    if delta < min_delta:
-        return None
-    return DriftEntry(
-        path=path,
-        confidence_delta=delta,
-        reason="owner set or ranking changed",
-        bus_factor=inferred.bus_factor,
-        decay=bool(inferred.decay_warnings),
-    )
+) -> tuple[list[DriftEntry], list[str]]:
+    """Per-rule owner disagreement, aggregated over the files the rule covers."""
+    notes: list[str] = []
+    if _identities_incomparable(rules, inferred):
+        return [], [_IDENTITY_NOTE]
+
+    per_rule: dict[CodeownersRule, list[tuple[str, PathOwnership]]] = {}
+    for path, rule in coverage.items():
+        if rule is not None and rule.owners:
+            per_rule.setdefault(rule, []).append((path, inferred[path]))
+
+    entries: list[DriftEntry] = []
+    team_rules_skipped = False
+    for rule, covered in per_rule.items():
+        if any("/" in owner for owner in rule.owners):
+            team_rules_skipped = True
+            continue
+        current = _normalize_owners(rule.owners)
+        worst_delta = 0.0
+        diverging = 0
+        bus_factor: int | None = None
+        decay = False
+        for _path, po in covered:
+            inferred_handles = _normalize_owners(o.handle for o in po.owners)
+            if current == inferred_handles:
+                continue
+            delta = _confidence_delta(rule.owners, po.owners)
+            diverging += 1
+            if delta > worst_delta:
+                worst_delta = delta
+                bus_factor = po.bus_factor
+                decay = bool(po.decay_warnings)
+        if diverging == 0 or worst_delta < min_delta:
+            continue
+        entries.append(
+            DriftEntry(
+                path=rule.pattern,
+                confidence_delta=worst_delta,
+                reason=(
+                    f"owners diverge on {diverging} of {len(covered)} covered path(s) "
+                    f"(line {rule.line_number})"
+                ),
+                bus_factor=bus_factor,
+                decay=decay,
+            )
+        )
+    if team_rules_skipped:
+        notes.append(_TEAM_NOTE)
+    return entries, notes
+
+
+def _identities_incomparable(
+    rules: tuple[CodeownersRule, ...],
+    inferred: dict[str, PathOwnership],
+) -> bool:
+    """True when CODEOWNERS uses @handles but inference only has emails."""
+    rule_owners = [o for rule in rules for o in rule.owners]
+    inferred_handles = [o.handle for po in inferred.values() for o in po.owners]
+    if not rule_owners or not inferred_handles:
+        return False
+    rules_use_handles = all(owner.startswith("@") for owner in rule_owners)
+    inferred_all_emails = not any(handle.startswith("@") for handle in inferred_handles)
+    return rules_use_handles and inferred_all_emails
+
+
+def _normalize_owners(owners: Iterable[str]) -> frozenset[str]:
+    return frozenset(owner.casefold() for owner in owners)
 
 
 def _confidence_delta(
@@ -141,9 +244,9 @@ def _confidence_delta(
     inferred_owners: tuple[OwnerEntry, ...],
 ) -> float:
     """Aggregate per-owner confidence delta between current and inferred sets."""
-    inferred_map = {o.handle: o.confidence for o in inferred_owners}
+    inferred_map = {o.handle.casefold(): o.confidence for o in inferred_owners}
     inferred_set = set(inferred_map)
-    current_set = set(current_owners)
+    current_set = {owner.casefold() for owner in current_owners}
     added = inferred_set - current_set
     removed = current_set - inferred_set
     delta_added = sum(inferred_map[h] for h in added)
@@ -177,6 +280,7 @@ def _write_github_output(result: DriftResult) -> None:
             "stale": [_entry_payload(e) for e in result.stale],
             "missing": [_entry_payload(e) for e in result.missing],
             "changed": [_entry_payload(e) for e in result.changed],
+            "notes": list(result.notes),
         }
     )
     with open(output_file, "a", encoding="utf-8") as f:

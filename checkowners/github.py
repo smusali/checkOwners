@@ -4,13 +4,25 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Callable
+from itertools import islice
 from typing import TYPE_CHECKING
+
+from checkowners.state import read_handle_cache, write_handle_cache
 
 if TYPE_CHECKING:
     from github import Github
 
 logger = logging.getLogger(__name__)
+
+#: GitHub noreply commit emails embed the login: "12345+login@users.noreply.
+#: github.com" (current form) or "login@users.noreply.github.com" (legacy).
+#: These resolve to @handles locally, with zero API calls.
+_NOREPLY_RE = re.compile(
+    r"^(?:\d+\+)?([a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38})@users\.noreply\.github\.com$",
+    re.IGNORECASE,
+)
 
 
 def get_github_token() -> str:
@@ -23,28 +35,77 @@ def get_github_token() -> str:
 
 
 def get_github_client(token: str) -> Github | None:
-    """Create a PyGithub client, or None if token is empty."""
+    """Create a PyGithub client, or None if token is empty.
+
+    PyGithub ships in the optional ``github`` extra; when it is not installed
+    the API-backed features degrade gracefully instead of crashing.
+    """
     if not token:
         return None
-    from github import Github as GithubClient
+    try:
+        from github import Github as GithubClient
+    except ImportError:
+        logger.warning(
+            "PyGithub is not installed; GitHub API features are disabled. "
+            'Install with: pip install "checkowners[github]"'
+        )
+        return None
 
     return GithubClient(token)
+
+
+def resolve_noreply_handle(email: str) -> str | None:
+    """Extract the @handle from a GitHub noreply email, or None."""
+    match = _NOREPLY_RE.match(email.strip())
+    if match is None:
+        return None
+    return f"@{match.group(1)}"
 
 
 def resolve_handles(
     emails: set[str],
     token: str,
 ) -> dict[str, str]:
-    """Map git commit emails to GitHub @handles."""
+    """Map git commit emails to GitHub @handles.
+
+    Resolution order: noreply-email parsing (local, free), then the on-disk
+    cache (which also remembers misses as empty strings so unresolvable
+    emails are not re-queried), then the rate-limited user-search API.
+    """
+    resolved: dict[str, str] = {}
+    remaining: list[str] = []
+    for email in sorted(emails):
+        noreply = resolve_noreply_handle(email)
+        if noreply is not None:
+            resolved[email] = noreply
+        else:
+            remaining.append(email)
+    if not remaining:
+        return resolved
+
+    cached = read_handle_cache()
+    api_queue: list[str] = []
+    for email in remaining:
+        hit = cached.get(email)
+        if hit:
+            resolved[email] = hit
+        elif hit is None:
+            api_queue.append(email)
+        # hit == "": remembered miss; skip the API.
+    if not api_queue:
+        return resolved
+
     client = get_github_client(token)
     if client is None:
-        return {}
-    cache: dict[str, str] = {}
-    for email in sorted(emails):
+        return resolved
+    fresh: dict[str, str] = {}
+    for email in api_queue:
         handle = _lookup_handle(client, email)
+        fresh[email] = handle if handle is not None else ""
         if handle is not None:
-            cache[email] = handle
-    return cache
+            resolved[email] = handle
+    write_handle_cache(fresh)
+    return resolved
 
 
 def _lookup_handle(client: Github, email: str) -> str | None:
@@ -115,6 +176,12 @@ def build_review_coverage(
     return coverage
 
 
+#: Review coverage scans the most recently updated closed PRs only. Each PR
+#: costs 2+ API calls (reviews + files); without a bound a mature repo with
+#: tens of thousands of PRs would exhaust the rate limit in a single run.
+_REVIEW_SCAN_PR_LIMIT = 200
+
+
 def _gather_review_counts_by_path(
     client: Github,
     repo_full_name: str,
@@ -123,7 +190,8 @@ def _gather_review_counts_by_path(
     result: dict[str, dict[str, int]] = {}
     try:
         repo = client.get_repo(repo_full_name)
-        for pull in repo.get_pulls(state="closed"):
+        pulls = repo.get_pulls(state="closed", sort="updated", direction="desc")
+        for pull in islice(pulls, _REVIEW_SCAN_PR_LIMIT):
             reviewers = {review.user.login for review in pull.get_reviews() if review.user}
             if not reviewers:
                 continue

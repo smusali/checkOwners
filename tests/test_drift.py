@@ -1,252 +1,220 @@
-"""Tests for checkowners.drift module."""
+"""Tests for checkowners.drift module (pattern-aware comparison)."""
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from checkowners.drift import (
-    _compare,
-    _confidence_delta,
-    _normalize_inferred,
-    _parse_codeowners,
-    _write_github_output,
-    detect_drift,
-)
+from checkowners.drift import detect_drift
 from checkowners.models import (
     Config,
-    DecayWarning,
     DriftConfig,
-    DriftEntry,
-    DriftResult,
+    DriftMode,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
 )
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+_MOCK_LS_FILES = "checkowners.drift._tracked_files"
 
 
-def _entry(handle: str, confidence: float = 0.8) -> OwnerEntry:
+def _owner(handle: str, confidence: float = 0.8) -> OwnerEntry:
     return OwnerEntry(handle=handle, confidence=confidence, last_commit=_NOW, commits=5)
 
 
-def _make_ownership(raw: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
+def _ownership(paths: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
     return OwnershipMap(
         paths={
-            p: PathOwnership(owners=owners, bus_factor=len(owners)) for p, owners in raw.items()
+            path: PathOwnership(owners=owners, bus_factor=len(owners))
+            for path, owners in paths.items()
         },
         last_analyzed=_NOW,
     )
 
 
-def _write_codeowners(tmp_path: Path, content: str) -> None:
-    github_dir = tmp_path / ".github"
-    github_dir.mkdir(exist_ok=True)
-    (github_dir / "CODEOWNERS").write_text(content, encoding="utf-8")
+def _config(mode: DriftMode = "both", min_delta: float = 0.0) -> Config:
+    return Config(drift=DriftConfig(mode=mode, min_confidence_delta=min_delta))
 
 
-def _zero_delta_config(mode: str = "both") -> Config:
-    return Config(drift=DriftConfig(mode=mode, min_confidence_delta=0.0))
+def _write_codeowners(tmp_path: Path, content: str) -> Path:
+    target = tmp_path / ".github" / "CODEOWNERS"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return target
 
 
-def test_detect_drift_no_codeowners(tmp_path: Path) -> None:
-    ownership = _make_ownership({"/src/main.py": (_entry("alice@example.com"),)})
-    result = detect_drift(tmp_path, ownership, _zero_delta_config("commit"))
-    assert result.drift_detected is True
-    paths = [e.path for e in result.missing]
-    assert "/src/main.py" in paths
+def test_no_codeowners_all_inferred_missing(tmp_path: Path) -> None:
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert [e.path for e in result.missing] == ["src/main.py"]
+    assert result.drift_detected
 
 
-def test_detect_drift_no_drift(tmp_path: Path) -> None:
-    _write_codeowners(tmp_path, "/src/main.py alice@example.com\n")
-    ownership = _make_ownership({"src/main.py": (_entry("alice@example.com"),)})
-    result = detect_drift(tmp_path, ownership, _zero_delta_config("both"))
-    assert result.drift_detected is False
+def test_directory_rule_covers_inferred_files(tmp_path: Path) -> None:
+    """A src/ rule must cover src/main.py: no missing entry, no false drift."""
+    _write_codeowners(tmp_path, "src/ @alice\n")
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert result.missing == ()
+    assert result.changed == ()
     assert result.stale == ()
+    assert not result.drift_detected
+
+
+def test_glob_rule_covers_inferred_files(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "*.py @alice\n")
+    ownership = _ownership({"deep/nested/tool.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("deep/nested/tool.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert not result.drift_detected
+
+
+def test_stale_rule_matches_no_tracked_file(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "/deleted-dir/ @alice\n/src/ @alice\n")
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert [e.path for e in result.stale] == ["/deleted-dir/"]
+    assert result.stale[0].confidence_delta == 1.0
+    assert "line 1" in result.stale[0].reason
+
+
+def test_stale_not_reported_in_commit_mode(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "/deleted-dir/ @alice\n")
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config(mode="commit"))
+    assert result.stale == ()
+    assert [e.path for e in result.missing] == ["src/main.py"]
+
+
+def test_changed_owner_set_reported_per_rule(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "src/ @bob\n")
+    ownership = _ownership(
+        {
+            "src/main.py": (_owner("@alice", 0.9),),
+            "src/util.py": (_owner("@alice", 0.7),),
+        }
+    )
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py", "src/util.py")):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert len(result.changed) == 1
+    entry = result.changed[0]
+    assert entry.path == "src/"
+    assert "2 of 2 covered path(s)" in entry.reason
+    assert entry.confidence_delta > 0
+
+
+def test_owner_comparison_is_case_insensitive(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "src/ @Alice\n")
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert result.changed == ()
+    assert not result.drift_detected
+
+
+def test_min_delta_suppresses_small_changes(tmp_path: Path) -> None:
+    """A newly added owner with tiny confidence stays below min_delta."""
+    _write_codeowners(tmp_path, "src/ @alice\n")
+    ownership = _ownership(
+        {"src/main.py": (_owner("@alice", 0.9), _owner("@carol", 0.1))},
+    )
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config(min_delta=0.5))
+    assert result.changed == ()
+
+
+def test_removed_owner_scores_full_delta(tmp_path: Path) -> None:
+    """An owner present in CODEOWNERS but absent from inference is max-alarm."""
+    _write_codeowners(tmp_path, "src/ @alice @departed\n")
+    ownership = _ownership({"src/main.py": (_owner("@alice", 0.9),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert len(result.changed) == 1
+    assert result.changed[0].confidence_delta == 1.0
+
+
+def test_ownerless_rule_exempts_paths(tmp_path: Path) -> None:
+    """GitHub's owner-less rules mean 'intentionally unowned': not missing."""
+    _write_codeowners(tmp_path, "* @alice\ninternal/\n")
+    ownership = _ownership({"internal/tool.py": (_owner("@bob"),)})
+    with patch(_MOCK_LS_FILES, return_value=("internal/tool.py",)):
+        result = detect_drift(tmp_path, ownership, _config(mode="commit"))
     assert result.missing == ()
     assert result.changed == ()
 
 
-def test_detect_drift_stale_entry(tmp_path: Path) -> None:
-    _write_codeowners(
-        tmp_path,
-        "/src/main.py alice@example.com\n/src/old.py bob@example.com\n",
-    )
-    ownership = _make_ownership({"src/main.py": (_entry("alice@example.com"),)})
-    result = detect_drift(tmp_path, ownership, _zero_delta_config("repo"))
-    paths = [e.path for e in result.stale]
-    assert "/src/old.py" in paths
-    assert result.drift_detected is True
+def test_identity_incomparable_emails_vs_handles(tmp_path: Path) -> None:
+    """Raw-email inference vs @handle CODEOWNERS: note, not 100% false drift."""
+    _write_codeowners(tmp_path, "src/ @alice\n")
+    ownership = _ownership({"src/main.py": (_owner("alice@example.com"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert result.changed == ()
+    assert any("commit emails" in note for note in result.notes)
 
 
-def test_detect_drift_missing_entry_records_bus_factor_and_decay(tmp_path: Path) -> None:
-    _write_codeowners(tmp_path, "/src/main.py alice@example.com\n")
-    decay = DecayWarning(
-        handle="carol@example.com",
-        path="src/new.py",
-        last_commit=_NOW,
-        days_since_last_commit=300,
-        historical_confidence=0.4,
-    )
-    ownership = OwnershipMap(
-        paths={
-            "src/main.py": PathOwnership(owners=(_entry("alice@example.com"),), bus_factor=1),
-            "src/new.py": PathOwnership(
-                owners=(_entry("carol@example.com", 0.65),),
-                bus_factor=1,
-                decay_warnings=(decay,),
-            ),
-        },
-        last_analyzed=_NOW,
-    )
-    result = detect_drift(tmp_path, ownership, _zero_delta_config("commit"))
-    missing = {e.path: e for e in result.missing}
-    assert "/src/new.py" in missing
-    assert missing["/src/new.py"].bus_factor == 1
-    assert missing["/src/new.py"].decay is True
+def test_team_rules_skipped_with_note(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "src/ @org/backend-team\n")
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert result.changed == ()
+    assert any("team" in note for note in result.notes)
 
 
-def test_detect_drift_changed_entry_records_delta(tmp_path: Path) -> None:
-    _write_codeowners(tmp_path, "/src/main.py alice@example.com\n")
-    ownership = _make_ownership({"src/main.py": (_entry("bob@example.com", 0.9),)})
-    result = detect_drift(tmp_path, ownership, _zero_delta_config("repo"))
-    assert len(result.changed) == 1
-    assert result.changed[0].path == "/src/main.py"
-    assert result.changed[0].confidence_delta > 0
-
-
-def test_detect_drift_min_confidence_delta_suppresses_small_changes(tmp_path: Path) -> None:
-    _write_codeowners(tmp_path, "/src/main.py alice@example.com\n")
-    ownership = _make_ownership(
-        {
-            "src/main.py": (
-                _entry("alice@example.com", 0.9),
-                _entry("carol@example.com", 0.05),
-            )
-        }
-    )
-    config = Config(drift=DriftConfig(mode="both", min_confidence_delta=0.5))
-    result = detect_drift(tmp_path, ownership, config)
+def test_last_matching_rule_wins(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "* @bob\nsrc/ @alice\n")
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
     assert result.changed == ()
 
 
-def test_detect_drift_both_mode(tmp_path: Path) -> None:
-    _write_codeowners(
-        tmp_path,
-        "/src/main.py alice@example.com\n/src/old.py bob@example.com\n",
-    )
-    ownership = _make_ownership(
+def test_missing_carries_bus_factor_and_decay(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "docs/ @alice\n")
+    ownership = _ownership({"src/solo.py": (_owner("@bob", 0.9),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/solo.py", "docs/readme.md")):
+        result = detect_drift(tmp_path, ownership, _config(mode="commit"))
+    assert len(result.missing) == 1
+    assert result.missing[0].bus_factor == 1
+    assert result.missing[0].confidence_delta == 0.9
+
+
+def test_missing_sorted_by_delta(tmp_path: Path) -> None:
+    ownership = _ownership(
         {
-            "src/main.py": (_entry("carol@example.com", 0.9),),
-            "src/new.py": (_entry("dave@example.com", 0.9),),
+            "a/low.py": (_owner("@a", 0.4),),
+            "b/high.py": (_owner("@b", 0.9),),
         }
     )
-    result = detect_drift(tmp_path, ownership, _zero_delta_config("both"))
-    assert {e.path for e in result.stale} == {"/src/old.py"}
-    assert {e.path for e in result.missing} == {"/src/new.py"}
-    assert {e.path for e in result.changed} == {"/src/main.py"}
-    assert result.drift_detected is True
+    with patch(_MOCK_LS_FILES, return_value=("a/low.py", "b/high.py")):
+        result = detect_drift(tmp_path, ownership, _config(mode="commit"))
+    assert [e.path for e in result.missing] == ["b/high.py", "a/low.py"]
 
 
-def test_parse_codeowners_strips_inline_comments(tmp_path: Path) -> None:
-    content = "# header\n/src/main.py alice@example.com  # alice(0.92)\n# trailing\n"
-    _write_codeowners(tmp_path, content)
-    assert _parse_codeowners(tmp_path / ".github" / "CODEOWNERS") == {
-        "/src/main.py": ("alice@example.com",),
-    }
-
-
-def test_parse_codeowners_multiple_owners(tmp_path: Path) -> None:
-    _write_codeowners(tmp_path, "/src/api.py alice@example.com bob@example.com\n")
-    result = _parse_codeowners(tmp_path / ".github" / "CODEOWNERS")
-    assert result["/src/api.py"] == ("alice@example.com", "bob@example.com")
-
-
-def test_parse_codeowners_missing_file(tmp_path: Path) -> None:
-    result = _parse_codeowners(tmp_path / ".github" / "CODEOWNERS")
-    assert result == {}
-
-
-def test_detect_drift_with_custom_codeowners_path(tmp_path: Path) -> None:
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir()
-    (docs_dir / "CODEOWNERS").write_text("/src/main.py alice@example.com\n", encoding="utf-8")
-    ownership = _make_ownership({"src/main.py": (_entry("alice@example.com"),)})
-    result = detect_drift(
-        tmp_path, ownership, _zero_delta_config("both"), codeowners_path=docs_dir / "CODEOWNERS"
-    )
-    assert result.drift_detected is False
-
-
-def test_normalize_inferred_adds_slash() -> None:
-    ownership = _make_ownership(
-        {
-            "src/main.py": (_entry("alice@example.com"),),
-            "/already/slashed.py": (_entry("bob@example.com"),),
-        }
-    )
-    result = _normalize_inferred(ownership)
-    assert "/src/main.py" in result
-    assert "/already/slashed.py" in result
-
-
-def test_compare_empty_both() -> None:
-    result = _compare({}, {}, "both", 0.0)
-    assert result == DriftResult(stale=(), missing=(), changed=(), drift_detected=False)
-
-
-def test_compare_changed_deduped_across_modes() -> None:
-    current = {"/f.py": ("alice@example.com",)}
-    inferred = {
-        "/f.py": PathOwnership(owners=(_entry("bob@example.com", 0.9),), bus_factor=1),
-    }
-    result = _compare(current, inferred, "both", 0.0)
-    paths = [e.path for e in result.changed]
-    assert paths == ["/f.py"]
-
-
-def test_confidence_delta_added_and_removed() -> None:
-    inferred = (_entry("alice@example.com", 0.8), _entry("eve@example.com", 0.6))
-    delta = _confidence_delta(("alice@example.com", "bob@example.com"), inferred)
-    assert delta > 0
-
-
-def test_confidence_delta_identical_returns_zero() -> None:
-    inferred = (_entry("alice@example.com", 0.8),)
-    assert _confidence_delta(("alice@example.com",), inferred) == 0.0
-
-
-def test_drift_results_sorted_by_delta(tmp_path: Path) -> None:
-    _write_codeowners(
-        tmp_path,
-        "/keep.py alice@example.com\n/z_old.py bob@example.com\n/a_old.py carol@example.com\n",
-    )
-    ownership = _make_ownership({"keep.py": (_entry("alice@example.com"),)})
-    result = detect_drift(tmp_path, ownership, _zero_delta_config("repo"))
-    assert all(e.confidence_delta == 1.0 for e in result.stale)
-    assert [e.path for e in result.stale] == ["/a_old.py", "/z_old.py"]
-
-
-def test_write_github_output(tmp_path: Path) -> None:
-    output_file = tmp_path / "github_output.txt"
-    output_file.write_text("", encoding="utf-8")
-    result = DriftResult(
-        stale=(DriftEntry(path="/old.py", confidence_delta=1.0, reason="stale"),),
-        missing=(DriftEntry(path="/new.py", confidence_delta=0.7, reason="missing"),),
-        changed=(),
-        drift_detected=True,
-    )
-    with patch.dict("os.environ", {"GITHUB_OUTPUT": str(output_file)}):
-        _write_github_output(result)
+def test_github_output_written(tmp_path: Path) -> None:
+    output_file = tmp_path / "gh_output.txt"
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with (
+        patch(_MOCK_LS_FILES, return_value=("src/main.py",)),
+        patch.dict(os.environ, {"GITHUB_OUTPUT": str(output_file)}),
+    ):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert result.drift_detected
     content = output_file.read_text(encoding="utf-8")
-    assert "checkowners_drift=" in content
+    assert content.startswith("checkowners_drift=")
     assert '"drift_detected": true' in content
-    assert '"max_confidence_delta": 1.0' in content
 
 
-def test_write_github_output_skipped_outside_actions() -> None:
-    result = DriftResult(stale=(), missing=(), changed=(), drift_detected=False)
-    with patch.dict("os.environ", {}, clear=True):
-        _write_github_output(result)
+def test_empty_ownership_and_no_codeowners(tmp_path: Path) -> None:
+    ownership = _ownership({})
+    with patch(_MOCK_LS_FILES, return_value=()):
+        result = detect_drift(tmp_path, ownership, _config())
+    assert not result.drift_detected

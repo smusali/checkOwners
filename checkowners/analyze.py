@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import fnmatch
 import math
+import os
 import subprocess
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +29,10 @@ _COMMIT_SENTINEL = "COMMIT_START"
 #: injected so analyze.py itself stays free of network calls; the CLI supplies
 #: a GitHub-backed implementation only when the API is enabled.
 ReviewProvider = Callable[[set[str]], dict[str, dict[str, float]]]
+
+#: Optional progress hook: called as on_progress(done, total) while blame runs.
+#: Injected by the CLI to drive a progress bar; analyze.py stays console-free.
+ProgressHook = Callable[[int, int], None]
 
 
 @dataclass(frozen=True)
@@ -51,18 +57,25 @@ def analyze_ownership(
     config: Config,
     *,
     review_provider: ReviewProvider | None = None,
+    on_progress: ProgressHook | None = None,
 ) -> OwnershipMap:
     """Analyze git history and return a confidence-scored ownership map.
 
     When ``review_provider`` is supplied, its per-path, per-email review
     coverage feeds the review factor of the confidence score; otherwise the
-    review factor is 0.0 (the pure-git default).
+    review factor is 0.0 (the pure-git default). ``on_progress`` receives
+    (done, total) updates while the per-file blame pass runs.
     """
     commits = _get_commit_history(repo_root, config.analysis.lookback_days)
     contributions = _aggregate_contributions(commits)
     contributions = _filter_excluded(contributions, config.paths.exclude)
     contributions = _filter_nonexistent(contributions, repo_root)
-    blame_coverage = _gather_blame_coverage(contributions.keys(), repo_root)
+    if config.analysis.exclude_bots:
+        contributions = _filter_bot_authors(contributions)
+    contributions = _filter_unqualified(contributions, config.analysis.min_commits)
+    blame_coverage = _gather_blame_coverage(
+        contributions.keys(), repo_root, on_progress=on_progress
+    )
     review_coverage = _gather_review_coverage(contributions, review_provider)
     now = datetime.now(UTC)
     paths = _build_path_ownerships(contributions, blame_coverage, review_coverage, config, now)
@@ -287,6 +300,41 @@ def _filter_nonexistent(
     return {path: authors for path, authors in contributions.items() if (repo_root / path).exists()}
 
 
+def _is_bot_email(email: str) -> bool:
+    """True for automation authors (GitHub Apps sign as `name[bot]@...`)."""
+    lowered = email.lower()
+    return "[bot]" in lowered or lowered == "actions@github.com" or lowered.startswith("bot@")
+
+
+def _filter_bot_authors(
+    contributions: dict[str, dict[str, _Contribution]],
+) -> dict[str, dict[str, _Contribution]]:
+    """Drop bot authors; a bot can never be a meaningful reviewer."""
+    result: dict[str, dict[str, _Contribution]] = {}
+    for path, authors in contributions.items():
+        humans = {a: c for a, c in authors.items() if not _is_bot_email(a)}
+        if humans:
+            result[path] = humans
+    return result
+
+
+def _filter_unqualified(
+    contributions: dict[str, dict[str, _Contribution]],
+    min_commits: int,
+) -> dict[str, dict[str, _Contribution]]:
+    """Drop paths where no author reaches min_commits.
+
+    Those paths can never produce owners, so filtering them before the blame
+    pass avoids running git blame on files that would be discarded anyway
+    (on active monorepos this cuts the blame workload several-fold).
+    """
+    return {
+        path: authors
+        for path, authors in contributions.items()
+        if any(contrib.commits >= min_commits for contrib in authors.values())
+    }
+
+
 def _is_excluded(path: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
@@ -294,13 +342,30 @@ def _is_excluded(path: str, patterns: tuple[str, ...]) -> bool:
 def _gather_blame_coverage(
     paths: Iterable[str],
     repo_root: Path,
+    *,
+    on_progress: ProgressHook | None = None,
 ) -> dict[str, dict[str, float]]:
-    """Run git blame per path and return author -> coverage fraction."""
+    """Run git blame per path (in parallel) and return author -> coverage.
+
+    git blame is a subprocess, so threads parallelize cleanly; the worker
+    count tracks the CPU count since blame is compute-bound inside git.
+    """
+    path_list = list(paths)
+    total = len(path_list)
+    if total == 0:
+        return {}
     coverage: dict[str, dict[str, float]] = {}
-    for path in paths:
-        per_author = _blame_for_path(repo_root, path)
-        if per_author:
-            coverage[path] = per_author
+    workers = min(32, os.cpu_count() or 4)
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for path, per_author in zip(
+            path_list, pool.map(lambda p: _blame_for_path(repo_root, p), path_list), strict=True
+        ):
+            done += 1
+            if on_progress is not None:
+                on_progress(done, total)
+            if per_author:
+                coverage[path] = per_author
     return coverage
 
 

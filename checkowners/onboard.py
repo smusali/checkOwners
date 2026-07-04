@@ -8,11 +8,11 @@ Each step nominates a reviewer and an estimated complexity tier.
 
 from __future__ import annotations
 
-import fnmatch
 from dataclasses import dataclass
 from typing import Literal
 
 from checkowners.busfactor import compute_bus_factor
+from checkowners.expertise import path_matches_glob
 from checkowners.models import Config, OwnerEntry, OwnershipMap
 
 Complexity = Literal["easy", "medium", "hard"]
@@ -51,7 +51,6 @@ def generate_onboarding_path(
     *,
     target: str,
     max_steps: int = 15,
-    min_steps: int = 10,
 ) -> OnboardingPath:
     """Build an ordered learning path for `target`."""
     threshold = config.analysis.confidence_threshold
@@ -72,8 +71,7 @@ def generate_onboarding_path(
     scored.sort(key=lambda item: (-item[2], item[0]))
     if not scored:
         return OnboardingPath(target=target, steps=())
-    cap = min(max_steps, max(min_steps, len(scored)))
-    selected = scored[:cap]
+    selected = scored[:max_steps]
     used_reviewers: set[str] = set()
     steps: list[OnboardingStep] = []
     for order, (path, owners, bus_factor) in enumerate(selected, start=1):
@@ -94,26 +92,7 @@ def generate_onboarding_path(
 
 
 def _matching_paths(ownership: OwnershipMap, target: str) -> list[str]:
-    normalized_target = target.lstrip("/")
-    matches: list[str] = []
-    for path in ownership.paths:
-        normalized = path.lstrip("/")
-        if normalized == normalized_target:
-            matches.append(path)
-            continue
-        if normalized_target.endswith("/") and normalized.startswith(normalized_target):
-            matches.append(path)
-            continue
-        if not _is_glob(normalized_target) and normalized.startswith(normalized_target + "/"):
-            matches.append(path)
-            continue
-        if fnmatch.fnmatch(normalized, normalized_target):
-            matches.append(path)
-    return matches
-
-
-def _is_glob(value: str) -> bool:
-    return any(ch in value for ch in ("*", "?", "["))
+    return [path for path in ownership.paths if path_matches_glob(path, target)]
 
 
 def _pick_reviewer(owners: tuple[OwnerEntry, ...], used: set[str]) -> str:
@@ -124,13 +103,12 @@ def _pick_reviewer(owners: tuple[OwnerEntry, ...], used: set[str]) -> str:
 
 
 def _complexity_for(order: int, total: int, bus_factor: int) -> Complexity:
-    if total == 0:
-        return "easy"
+    """Tier a step's complexity; bus_factor <= 1 paths are never 'easy'."""
     third = max(1, total // 3)
     if order <= third:
-        return "easy"
+        return "medium" if bus_factor <= 1 else "easy"
     if order <= 2 * third:
-        return "medium" if bus_factor > 1 else "hard"
+        return "hard" if bus_factor <= 1 else "medium"
     return "hard"
 
 

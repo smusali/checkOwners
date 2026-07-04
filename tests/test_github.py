@@ -214,3 +214,55 @@ def test_create_team_resolver_no_token() -> None:
 
 def test_create_team_resolver_no_org() -> None:
     assert create_team_resolver("ghp_test", "") is None
+
+
+def test_resolve_noreply_handle_current_form() -> None:
+    from checkowners.github import resolve_noreply_handle
+
+    assert resolve_noreply_handle("12345+octo-cat@users.noreply.github.com") == "@octo-cat"
+
+
+def test_resolve_noreply_handle_legacy_form() -> None:
+    from checkowners.github import resolve_noreply_handle
+
+    assert resolve_noreply_handle("octocat@users.noreply.github.com") == "@octocat"
+
+
+def test_resolve_noreply_handle_rejects_other_emails() -> None:
+    from checkowners.github import resolve_noreply_handle
+
+    assert resolve_noreply_handle("alice@example.com") is None
+    assert resolve_noreply_handle("x@users.noreply.github.com.evil.com") is None
+
+
+def test_resolve_handles_noreply_without_token() -> None:
+    """Noreply emails resolve locally: no token, no API, no client."""
+    result = resolve_handles({"99+alice@users.noreply.github.com"}, "")
+    assert result == {"99+alice@users.noreply.github.com": "@alice"}
+
+
+def test_resolve_handles_uses_disk_cache_before_api() -> None:
+    from checkowners.state import write_handle_cache
+
+    write_handle_cache({"alice@example.com": "@alice"})
+    mock_client = MagicMock()
+    with patch("checkowners.github.get_github_client", return_value=mock_client):
+        result = resolve_handles({"alice@example.com"}, "ghp_test")
+    assert result == {"alice@example.com": "@alice"}
+    mock_client.search_users.assert_not_called()
+
+
+def test_resolve_handles_remembers_misses() -> None:
+    from checkowners.state import read_handle_cache
+
+    mock_client = MagicMock()
+    mock_client.search_users.return_value = []
+    with patch("checkowners.github.get_github_client", return_value=mock_client):
+        resolve_handles({"ghost@example.com"}, "ghp_test")
+    assert read_handle_cache()["ghost@example.com"] == ""
+    # Second run: the remembered miss short-circuits the API.
+    mock_client.search_users.reset_mock()
+    with patch("checkowners.github.get_github_client", return_value=mock_client):
+        result = resolve_handles({"ghost@example.com"}, "ghp_test")
+    assert result == {}
+    mock_client.search_users.assert_not_called()

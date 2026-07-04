@@ -123,6 +123,8 @@ def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
         kwargs["top_n_owners"] = int(data["top_n_owners"])
     if "confidence_threshold" in data:
         kwargs["confidence_threshold"] = float(data["confidence_threshold"])
+    if "exclude_bots" in data:
+        kwargs["exclude_bots"] = bool(data["exclude_bots"])
     return AnalysisConfig(**kwargs)
 
 
@@ -174,6 +176,8 @@ def _build_output_config(data: dict[str, Any]) -> OutputConfig:
         kwargs["include_unowned"] = bool(data["include_unowned"])
     if "include_confidence" in data:
         kwargs["include_confidence"] = bool(data["include_confidence"])
+    if "consolidate" in data:
+        kwargs["consolidate"] = bool(data["consolidate"])
     return OutputConfig(**kwargs)
 
 

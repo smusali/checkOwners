@@ -95,7 +95,8 @@ def _summarize(window: list[_RawCommit], config: Config, as_of: datetime) -> Tre
         if not _is_excluded(path, config.paths.exclude)
     }
     contributors = {author for authors in contributions.values() for author in authors}
-    total_commits = sum(commit_count_for(authors) for authors in contributions.values())
+    # Distinct commits in the window: one commit touching many files counts once.
+    total_commits = len(window)
 
     top_confidences: list[float] = []
     bus_factors: list[int] = []
@@ -117,10 +118,6 @@ def _summarize(window: list[_RawCommit], config: Config, as_of: datetime) -> Tre
         avg_top_confidence=avg_conf,
         avg_bus_factor=avg_bus,
     )
-
-
-def commit_count_for(authors: dict[str, _Contribution]) -> int:
-    return sum(contrib.commits for contrib in authors.values())
 
 
 def _score_path(

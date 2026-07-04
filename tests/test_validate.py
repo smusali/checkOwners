@@ -25,18 +25,38 @@ def test_validate_missing_file(tmp_path: Path) -> None:
     assert "not found" in errors[0].message
 
 
-def test_validate_missing_owner(tmp_path: Path) -> None:
-    _write_codeowners(tmp_path, "/src/main.py\n")
+def test_validate_ownerless_rule_is_valid(tmp_path: Path) -> None:
+    """GitHub documents owner-less rules as the way to exempt paths."""
+    _write_codeowners(tmp_path, "/apps/ @octocat\n/apps/github\n")
     errors = validate_codeowners(tmp_path)
-    assert len(errors) == 1
-    assert "at least one owner" in errors[0].message
+    assert errors == []
 
 
-def test_validate_invalid_path(tmp_path: Path) -> None:
-    _write_codeowners(tmp_path, "src/main.py @alice\n")
+def test_validate_relative_patterns_are_valid(tmp_path: Path) -> None:
+    """GitHub's own examples use relative patterns like docs/* and apps/."""
+    _write_codeowners(tmp_path, "docs/* @octocat\napps/ @hubot\nfrontend/package.json @a\n")
+    errors = validate_codeowners(tmp_path)
+    assert errors == []
+
+
+def test_validate_negation_rejected(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "!/src/main.py @alice\n")
     errors = validate_codeowners(tmp_path)
     assert len(errors) == 1
-    assert "must start with" in errors[0].message
+    assert "negation" in errors[0].message
+
+
+def test_validate_character_range_rejected(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "/src/[a-z].py @alice\n")
+    errors = validate_codeowners(tmp_path)
+    assert len(errors) == 1
+    assert "character ranges" in errors[0].message
+
+
+def test_validate_escaped_space_pattern(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "docs/getting\\ started.md @docs-team\n")
+    errors = validate_codeowners(tmp_path)
+    assert errors == []
 
 
 def test_validate_invalid_owner(tmp_path: Path) -> None:
@@ -65,18 +85,26 @@ def test_validate_wildcard_path(tmp_path: Path) -> None:
 
 
 def test_validate_multiple_errors(tmp_path: Path) -> None:
-    content = "/valid.py @alice\nsrc/bad.py @bob\n/also.py\n"
+    content = "/valid.py @alice\n![a].py bad--owner\n"
     _write_codeowners(tmp_path, content)
     errors = validate_codeowners(tmp_path)
-    assert len(errors) == 2
+    assert len(errors) == 3  # negation + character range + invalid owner
 
 
 def test_validate_line_numbers(tmp_path: Path) -> None:
-    content = "# header\n\n/ok.py @alice\nsrc/bad.py @bob\n"
+    content = "# header\n\n/ok.py @alice\n/bad.py not-an-owner!\n"
     _write_codeowners(tmp_path, content)
     errors = validate_codeowners(tmp_path)
     assert len(errors) == 1
     assert errors[0].line_number == 4
+
+
+def test_validate_dotted_login_rejected(tmp_path: Path) -> None:
+    """GitHub logins cannot contain dots; @user.name is not a real handle."""
+    _write_codeowners(tmp_path, "/src/ @user.name\n")
+    errors = validate_codeowners(tmp_path)
+    assert len(errors) == 1
+    assert "Invalid owner" in errors[0].message
 
 
 def test_validate_email_owner(tmp_path: Path) -> None:

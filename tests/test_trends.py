@@ -52,6 +52,17 @@ def test_build_trends_window_is_cumulative() -> None:
     assert newest.commits == 2
 
 
+def test_build_trends_counts_distinct_commits_not_touched_files() -> None:
+    # One commit touching many files must count as a single commit.
+    many_files = tuple(f"src/module_{i}.py" for i in range(12))
+    commits = [
+        _commit("alice@example.com", 5, many_files),
+        _commit("bob@example.com", 3, ("src/other.py",)),
+    ]
+    report = build_trends(commits, _config(), periods=1, period_days=30, now=_NOW)
+    assert report.points[0].commits == 2
+
+
 def test_build_trends_excludes_configured_paths() -> None:
     commits = [
         _commit("alice@example.com", 1, ("src/main.py",)),

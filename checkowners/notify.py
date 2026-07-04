@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import urllib.error
 import urllib.request
 from typing import Any
 
 from checkowners.models import Config, DriftEntry, DriftResult, Severity
+
+logger = logging.getLogger(__name__)
 
 _SEVERITY_ORDER: tuple[Severity, ...] = ("low", "medium", "high", "critical")
 
@@ -14,22 +18,29 @@ _SEVERITY_ORDER: tuple[Severity, ...] = ("low", "medium", "high", "critical")
 def send_notification(result: DriftResult, config: Config) -> bool:
     """POST drift result to the configured webhook URL.
 
-    Returns True if the payload was sent, False if skipped because no webhook
-    URL is configured or the computed severity is below severity_threshold.
+    Returns True if the payload was sent, False if skipped (no webhook URL,
+    no drift detected without include_unchanged, or severity below
+    severity_threshold) or if the POST itself failed.
     """
     if not config.notifications.webhook_url:
         return False
-    severity = compute_severity(result)
+    if not result.drift_detected and not config.notifications.include_unchanged:
+        return False
+    severity = compute_severity(result, config)
     if not _meets_threshold(severity, config.notifications.severity_threshold):
         return False
     payload = _build_payload(result, severity, config)
-    _post_webhook(config.notifications.webhook_url, payload)
-    return True
+    return _post_webhook(config.notifications.webhook_url, payload)
 
 
-def compute_severity(result: DriftResult) -> Severity:
-    """Map the max confidence delta + bus factor signals to a severity level."""
-    if _has_critical_signal(result):
+def compute_severity(result: DriftResult, config: Config | None = None) -> Severity:
+    """Map the max confidence delta + bus factor signals to a severity level.
+
+    When `config` is provided the critical bus factor signal uses
+    `config.bus_factor.critical_threshold`; otherwise it falls back to 1.
+    """
+    critical_threshold = config.bus_factor.critical_threshold if config is not None else 1
+    if _has_critical_signal(result, critical_threshold):
         return "critical"
     delta = result.max_confidence_delta
     if delta >= 0.7:
@@ -39,10 +50,10 @@ def compute_severity(result: DriftResult) -> Severity:
     return "low"
 
 
-def _has_critical_signal(result: DriftResult) -> bool:
+def _has_critical_signal(result: DriftResult, critical_threshold: int) -> bool:
     for entries in (result.stale, result.missing, result.changed):
         for entry in entries:
-            if entry.bus_factor is not None and entry.bus_factor <= 1:
+            if entry.bus_factor is not None and entry.bus_factor <= critical_threshold:
                 return True
             if entry.decay:
                 return True
@@ -84,8 +95,12 @@ def _entry_payload(entry: DriftEntry) -> dict[str, Any]:
     return body
 
 
-def _post_webhook(url: str, payload: dict[str, Any]) -> None:
-    """Send an HTTP POST with JSON payload to the given URL."""
+def _post_webhook(url: str, payload: dict[str, Any]) -> bool:
+    """Send an HTTP POST with JSON payload to the given URL.
+
+    Returns True on success, False on any network/HTTP failure. A failed
+    delivery never raises.
+    """
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -93,4 +108,10 @@ def _post_webhook(url: str, payload: dict[str, Any]) -> None:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    urllib.request.urlopen(req, timeout=30)  # noqa: S310
+    try:
+        with urllib.request.urlopen(req, timeout=30):  # noqa: S310
+            pass
+    except (urllib.error.URLError, OSError) as exc:
+        logger.warning("Webhook POST to %s failed: %s", url, exc)
+        return False
+    return True

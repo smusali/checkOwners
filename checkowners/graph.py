@@ -89,20 +89,25 @@ def to_dot(graph: nx.Graph) -> str:
     _require_networkx()
     lines = ["graph checkowners {"]
     for node, attrs in graph.nodes(data=True):
-        attr_pairs = ", ".join(f'{k}="{v}"' for k, v in sorted(attrs.items()))
+        attr_pairs = ", ".join(f'{k}="{_dot_quote(v)}"' for k, v in sorted(attrs.items()))
         attr_str = f" [{attr_pairs}]" if attr_pairs else ""
-        lines.append(f'  "{node}"{attr_str};')
+        lines.append(f'  "{_dot_quote(node)}"{attr_str};')
     seen: set[frozenset[str]] = set()
     for u, v, attrs in graph.edges(data=True):
         edge_id = frozenset({u, v})
         if edge_id in seen:
             continue
         seen.add(edge_id)
-        attr_pairs = ", ".join(f'{k}="{v}"' for k, v in sorted(attrs.items()))
+        attr_pairs = ", ".join(f'{k}="{_dot_quote(v)}"' for k, v in sorted(attrs.items()))
         attr_str = f" [{attr_pairs}]" if attr_pairs else ""
-        lines.append(f'  "{u}" -- "{v}"{attr_str};')
+        lines.append(f'  "{_dot_quote(u)}" -- "{_dot_quote(v)}"{attr_str};')
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def _dot_quote(value: object) -> str:
+    """Escape a value for use inside a double-quoted DOT string."""
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
 
 
 def to_text(graph: nx.Graph) -> str:

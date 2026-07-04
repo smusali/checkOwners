@@ -1,8 +1,10 @@
-"""Persistent state at ~/.checkowners/state.json.
+"""Persistent state at ~/.checkowners/state/<repo-hash>.json.
 
 The state file is the cache of the most recent analyze run for a repo.
 Downstream commands (drift, decay, bus-factor, topology, balance, onboard)
-read from it to avoid re-running git log on every invocation.
+read from it to avoid re-running git log on every invocation. State is keyed
+per repo (schema v3): each repo gets its own file, and the payload embeds the
+absolute repo path so state from one repo can never leak into another.
 
 Schema is versioned. Older state files are not auto-migrated; they are
 ignored and a fresh state replaces them on the next analyze.
@@ -28,10 +30,11 @@ from checkowners.models import (
     TeamCluster,
 )
 
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 _STATE_DIR = Path.home() / ".checkowners"
-_STATE_FILENAME = "state.json"
+_STATE_SUBDIR = "state"
 _GRAPH_CACHE_SUBDIR = "graph"
+_HANDLE_CACHE_FILENAME = "handles.json"
 
 
 def _base_dir() -> Path:
@@ -40,15 +43,18 @@ def _base_dir() -> Path:
     return Path(override) if override else _STATE_DIR
 
 
-def _state_path() -> Path:
-    """Resolve the state file path, honoring CHECKOWNERS_STATE_DIR override."""
-    return _base_dir() / _STATE_FILENAME
+def _repo_digest(repo_root: Path) -> str:
+    return hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:16]
+
+
+def _state_path(repo_root: Path) -> Path:
+    """Resolve the per-repo state file path, honoring CHECKOWNERS_STATE_DIR."""
+    return _base_dir() / _STATE_SUBDIR / f"{_repo_digest(repo_root)}.json"
 
 
 def _graph_cache_path(repo_root: Path) -> Path:
     """Resolve the serialized-graph cache path for a repo (keyed by repo hash)."""
-    digest = hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:16]
-    return _base_dir() / _GRAPH_CACHE_SUBDIR / f"{digest}.json"
+    return _base_dir() / _GRAPH_CACHE_SUBDIR / f"{_repo_digest(repo_root)}.json"
 
 
 def write_graph_cache(repo_root: Path, last_analyzed: datetime, graph_data: dict[str, Any]) -> Path:
@@ -86,9 +92,9 @@ def read_graph_cache(repo_root: Path, last_analyzed: datetime) -> dict[str, Any]
     return graph if isinstance(graph, dict) else None
 
 
-def read_state() -> dict[str, Any] | None:
-    """Read the state file as a dict, or None if missing or version mismatch."""
-    target = _state_path()
+def read_state(repo_root: Path) -> dict[str, Any] | None:
+    """Read a repo's state as a dict, or None if missing/version/repo mismatch."""
+    target = _state_path(repo_root)
     if not target.exists():
         return None
     try:
@@ -99,10 +105,13 @@ def read_state() -> dict[str, Any] | None:
         return None
     if data.get("schema_version") != SCHEMA_VERSION:
         return None
+    if data.get("repo") != str(repo_root.resolve()):
+        return None
     return data
 
 
 def write_state(
+    repo_root: Path,
     ownership: OwnershipMap,
     *,
     topology: tuple[TeamCluster, ...] = (),
@@ -110,10 +119,11 @@ def write_state(
     drift_detected: bool = False,
 ) -> Path:
     """Persist the latest ownership map and derived intelligence to disk."""
-    target = _state_path()
+    target = _state_path(repo_root)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
+        "repo": str(repo_root.resolve()),
         "inferred": {path: _serialize_path(po) for path, po in ownership.paths.items()},
         "topology": {"clusters": [asdict(c) for c in topology]},
         "bus_factor_summary": _serialize_bus_factor_summary(bus_factor_summary),
@@ -124,9 +134,36 @@ def write_state(
     return target
 
 
-def load_ownership() -> OwnershipMap | None:
-    """Reconstruct OwnershipMap from disk, or None if state is missing/invalid."""
-    data = read_state()
+def read_handle_cache() -> dict[str, str]:
+    """Read the persistent email -> @handle cache (shared across repos).
+
+    An empty-string value is a remembered miss: the email was looked up before
+    and did not resolve, so callers should not re-query the API for it.
+    """
+    target = _base_dir() / _HANDLE_CACHE_FILENAME
+    if not target.exists():
+        return {}
+    try:
+        data: Any = json.loads(target.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if isinstance(v, str)}
+
+
+def write_handle_cache(cache: dict[str, str]) -> Path:
+    """Persist the email -> @handle cache, merging over any existing entries."""
+    target = _base_dir() / _HANDLE_CACHE_FILENAME
+    target.parent.mkdir(parents=True, exist_ok=True)
+    merged = {**read_handle_cache(), **cache}
+    target.write_text(json.dumps(merged, indent=2, sort_keys=True), encoding="utf-8")
+    return target
+
+
+def load_ownership(repo_root: Path) -> OwnershipMap | None:
+    """Reconstruct a repo's OwnershipMap, or None if state is missing/invalid."""
+    data = read_state(repo_root)
     if data is None:
         return None
     inferred = data.get("inferred")

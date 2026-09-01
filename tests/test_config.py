@@ -309,3 +309,14 @@ def test_find_codeowners_path_priority(tmp_path: Path) -> None:
 
 def test_find_codeowners_path_none_exist(tmp_path: Path) -> None:
     assert find_codeowners_path(tmp_path) == tmp_path / ".github" / "CODEOWNERS"
+
+
+def test_drift_mode_default_matches_docs() -> None:
+    from checkowners.models import DriftConfig
+    import re
+    usage_md = (Path(__file__).parent.parent / "docs" / "USAGE.md").read_text(encoding="utf-8")
+    match = re.search(r"^\s*mode:\s*(\w+)\s*#\s*commit\s*\|\s*repo\s*\|\s*both", usage_md, re.MULTILINE)
+    assert match is not None, "Could not find drift.mode in USAGE.md"
+    documented_default = match.group(1)
+    assert documented_default == DriftConfig().mode
+

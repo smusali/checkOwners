@@ -88,6 +88,19 @@ github:
 
 The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` environment variable instead. `checkowners.yml` is committed to your repo, so storing a token here would push it to GitHub. `load_config` raises a clear error if `github.token` is present. For the same reason, `notifications.webhook_url` supports a `${ENV_VAR}` reference (for example `${CHECKOWNERS_WEBHOOK_URL}`) so a committed config can point at a secret endpoint without storing it; an unset variable resolves to an empty string.
 
+## Environment variables
+
+These variables influence runtime behavior and always take precedence over the config file:
+
+| Variable | Purpose |
+|----------|---------|
+| `GITHUB_TOKEN` | Required for handle resolution and review-activity scoring. Never read from config. |
+| `CHECKOWNERS_STATE_DIR` | Overrides the default cache directory (`~/.checkowners/state`). Recommended in CI. |
+| `CHECKOWNERS_CONFIG` | Overrides the default config file path (`.github/checkowners.yml`). |
+| `CHECKOWNERS_DRIFT_MODE` | Overrides the `drift.mode` defined in the config file. |
+| `GITHUB_REPOSITORY` | Runner-provided variable, used to construct absolute repo context. |
+| `GITHUB_OUTPUT` | Runner-provided variable, used to publish action outputs. |
+
 ## Identity resolution
 
 Commit emails are rewritten to GitHub `@handles` in three stages, cheapest first:
@@ -173,7 +186,7 @@ jobs:
           fetch-depth: 0
       - uses: fortyOneTech/checkOwners@v0.5.0
         with:
-          mode: repo
+          mode: commit
           config: .github/checkowners.yml
 ```
 

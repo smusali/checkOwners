@@ -61,6 +61,7 @@ all = [
 ]
 
 [project.urls]
+Documentation = "https://github.com/smusali/checkowners/blob/main/docs/USAGE.md"
 Homepage = "https://github.com/fortyOneTech/checkowners"
 Issues = "https://github.com/fortyOneTech/checkowners/issues"
 Source = "https://github.com/fortyOneTech/checkowners"
@@ -79,6 +80,7 @@ exclude = [
 dependencies = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "readme-renderer[md]>=44.0",
     "ruff>=0.4.0",
     "mypy>=1.0",
     "types-PyYAML",

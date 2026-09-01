@@ -203,3 +203,27 @@ hatch run lint              # ruff check + mypy --strict
 hatch run fmt               # ruff format
 hatch build                 # sdist + wheel in dist/
 ```
+
+### Reports and pull request permissions
+
+Every Action run attempts to write its available drift, bus-factor, and decay
+reports to the job summary, including a diagnostic if drift analysis failed.
+A failed analysis still fails the Action; a comment permission failure does not.
+Fork pull requests skip commenting and receive a notice pointing to the summary.
+
+For summary-only reporting, use the least-privilege configuration:
+
+```yaml
+permissions:
+  contents: read
+# In the checkOwners step:
+# with:
+#   comment_on_pr: "false"
+```
+
+Same-repository pull request comments additionally need `pull-requests: write`.
+The `github_token` input defaults to `github.token`; supply a GitHub App token or
+PAT through a secret to override it. This token also serves the CLI's optional
+GitHub lookups. Do not expose privileged tokens to untrusted fork workflows.
+Commenting remains enabled by default for compatibility. Set `comment_on_pr: "false"` to opt out. Comments give counts and next steps; the full reports remain
+in the job summary.

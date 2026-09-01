@@ -10,17 +10,26 @@ match a rule, which per-file patterns never would. Disable via
 
 from __future__ import annotations
 
+import subprocess
+import warnings
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from checkowners.models import Config, OwnerEntry, OwnershipMap
+from checkowners.patterns import match_path, parse_rules
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 _OwnerKey = frozenset[str]
 _FileRow = tuple[str, tuple[OwnerEntry, ...]]
+_TeamResolver = Callable[[tuple[str, ...]], str | None]
+_SIZE_WARNING_BYTES = 2_000_000
+
+
+class CodeownersGenerationError(ValueError):
+    """Generated rules cannot safely represent the intended ownership."""
 
 
 class CodeownersOverwriteError(Exception):
@@ -51,11 +60,88 @@ def generate_codeowners(
     machine-generated header) unless ``force`` is set, so a curated file is
     never silently destroyed.
     """
-    content = _build_codeowners_content(ownership, config, token=token, org=org)
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     ensure_overwrite_safe(target, config.output.header, force=force)
+    tracked = _tracked_paths(repo_root) if config.output.verify_round_trip else ()
+    resolver = _team_resolver(config, token, org)
+    content = _build_codeowners_content(
+        ownership, config, tracked_paths=tracked, team_resolve=resolver
+    )
+    size = len(content.encode("utf-8"))
+    if config.output.max_bytes <= 0:
+        raise CodeownersGenerationError("output.max_bytes must be a positive integer")
+    if size > config.output.max_bytes and not force:
+        raise CodeownersGenerationError(
+            f"Generated CODEOWNERS is {size} bytes, exceeding output.max_bytes "
+            f"({config.output.max_bytes}). Reduce the rules or use --force "
+            "to override the size limit."
+        )
+    if size >= _SIZE_WARNING_BYTES:
+        warnings.warn(
+            f"Generated CODEOWNERS is {size} bytes; GitHub ignores files over 3 MB.",
+            UserWarning,
+            stacklevel=2,
+        )
+    if config.output.verify_round_trip:
+        verify_round_trip(content, ownership, config, tracked, team_resolve=resolver)
     _write_codeowners(target, content)
     return content
+
+
+def _tracked_paths(repo_root: Path) -> tuple[str, ...]:
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=repo_root, capture_output=True, check=True
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise CodeownersGenerationError(
+            "Cannot list tracked files for CODEOWNERS verification"
+        ) from exc
+    return tuple(sorted(set(result.stdout.decode("utf-8").rstrip("\0").split("\0")) - {""}))
+
+
+def _team_resolver(config: Config, token: str, org: str) -> _TeamResolver | None:
+    if config.github.resolve_teams and token and org:
+        from checkowners.github import create_team_resolver
+
+        return create_team_resolver(token, org)
+    return None
+
+
+def verify_round_trip(
+    content: str,
+    ownership: OwnershipMap,
+    config: Config,
+    tracked_paths: Iterable[str],
+    *,
+    team_resolve: _TeamResolver | None = None,
+) -> None:
+    """Check the candidate before writing, including tracked paths with no owners."""
+    rules = parse_rules(content)
+    expected = {
+        path.lstrip("/"): tuple(
+            owner.handle
+            for owner in po.owners
+            if owner.confidence >= config.analysis.confidence_threshold
+        )
+        for path, po in ownership.paths.items()
+    }
+    for path in sorted(set(tracked_paths) | expected.keys()):
+        intended = expected.get(path, ())
+        if intended and team_resolve is not None:
+            team = team_resolve(intended)
+            if team is not None:
+                intended = (team,)
+        winner = match_path(rules, path)
+        resolved = winner.owners if winner else ()
+        if {owner.casefold() for owner in intended} != {owner.casefold() for owner in resolved}:
+            rule = (
+                f"line {winner.line_number} ({winner.pattern!r})" if winner else "no matching rule"
+            )
+            raise CodeownersGenerationError(
+                f"CODEOWNERS verification failed for {path!r}: intended {list(intended)!r}, "
+                f"resolved {list(resolved)!r}; winning rule: {rule}."
+            )
 
 
 def ensure_overwrite_safe(target: Path, header: str, *, force: bool) -> None:
@@ -77,17 +163,16 @@ def _build_codeowners_content(
     *,
     token: str = "",
     org: str = "",
+    tracked_paths: Iterable[str] = (),
+    team_resolve: _TeamResolver | None = None,
 ) -> str:
     """Build the CODEOWNERS file content string."""
     lines: list[str] = [config.output.header, ""]
-    rows = _collect_rows(ownership, config)
+    rows = _collect_rows(ownership, config, tracked_paths=tracked_paths)
     unowned_paths = _collect_unowned_paths(ownership)
 
-    team_resolve: Callable[[tuple[str, ...]], str | None] | None = None
-    if config.github.resolve_teams and token and org:
-        from checkowners.github import create_team_resolver
-
-        team_resolve = create_team_resolver(token, org)
+    if team_resolve is None:
+        team_resolve = _team_resolver(config, token, org)
 
     for row in rows:
         handles = tuple(o.handle for o in row.owners)
@@ -127,7 +212,9 @@ def _format_line(
     return f"{line}  # {annotations}"
 
 
-def _collect_rows(ownership: OwnershipMap, config: Config) -> list[_Row]:
+def _collect_rows(
+    ownership: OwnershipMap, config: Config, *, tracked_paths: Iterable[str] = ()
+) -> list[_Row]:
     """Confidence-filtered rows, consolidated to directories when uniform."""
     filtered: list[_FileRow] = []
     for path, path_ownership in ownership.paths.items():
@@ -137,7 +224,9 @@ def _collect_rows(ownership: OwnershipMap, config: Config) -> list[_Row]:
         if owners:
             filtered.append((path.lstrip("/"), owners))
     if config.output.consolidate:
-        rows = _consolidate(filtered)
+        owned = {path for path, _ in filtered}
+        unowned = (set(tracked_paths) | {p.lstrip("/") for p in ownership.paths}) - owned
+        rows = _consolidate(filtered, unowned_paths=unowned)
     else:
         rows = [_Row(pattern=f"/{path}", owners=owners) for path, owners in filtered]
     rows = _merge_same_pattern(
@@ -189,7 +278,7 @@ def _ancestors(path: str) -> list[str]:
     return ["/".join(segments[:i]) for i in range(len(segments))]
 
 
-def _consolidate(files: list[_FileRow]) -> list[_Row]:
+def _consolidate(files: list[_FileRow], *, unowned_paths: Iterable[str] = ()) -> list[_Row]:
     """Merge per-file rows into directory rows where owner sets are uniform.
 
     Every file is attached to its shortest ancestor directory whose inferred
@@ -204,7 +293,11 @@ def _consolidate(files: list[_FileRow]) -> list[_Row]:
             dir_keys.setdefault(ancestor, set()).add(key)
             dir_files.setdefault(ancestor, []).append((path, owners))
 
+    blocked_dirs = {ancestor for path in unowned_paths for ancestor in _ancestors(path)}
+
     def is_uniform(directory: str) -> bool:
+        if directory in blocked_dirs:
+            return False
         if len(dir_keys[directory]) != 1 or len(dir_files[directory]) < 2:
             return False
         if directory == "":

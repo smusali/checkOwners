@@ -505,3 +505,41 @@ def test_validate_errors_render_brackets_verbatim() -> None:
         result = runner.invoke(app, ["validate"])
     assert result.exit_code == 1
     assert "[companyId]" in result.stdout
+
+
+@pytest.mark.parametrize("command", ["generate", "sync"])
+def test_generation_failure_does_not_commit(command: str) -> None:
+    from checkowners.generate import CodeownersGenerationError
+
+    with (
+        patch("checkowners.cli._check_overwrite_or_exit"),
+        patch("checkowners.cli._run_analyze", return_value=_OWNERSHIP),
+        patch(
+            "checkowners.cli.generate_codeowners", side_effect=CodeownersGenerationError("bad rule")
+        ),
+        patch("checkowners.cli.subprocess.run") as git,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, [command, "--json"])
+    assert result.exit_code == 1
+    assert "bad rule" in result.stderr
+    git.assert_not_called()
+
+
+def test_explain_path_reports_match_chain(tmp_path: Path) -> None:
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("* @all\n/src/ @team\n/src/*.py @python\n/src/private.py\n")
+    with patch("checkowners.cli.find_codeowners_path", return_value=target):
+        result = runner.invoke(app, ["explain-path", "src/private.py", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert [match["line"] for match in data["matches"]] == [1, 2, 3, 4]
+    assert data["winner"]["owners"] == []
+
+
+def test_explain_path_without_match(tmp_path: Path) -> None:
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("/src/ @team\n")
+    with patch("checkowners.cli.find_codeowners_path", return_value=target):
+        result = runner.invoke(app, ["explain-path", "docs/a.md", "--json"])
+    assert json.loads(result.stdout)["winner"] is None

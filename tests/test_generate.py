@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import subprocess
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from checkowners.generate import (
+    CodeownersGenerationError,
     CodeownersOverwriteError,
     _build_codeowners_content,
     _collect_unowned_paths,
     _consolidate,
+    _tracked_paths,
     generate_codeowners,
+    verify_round_trip,
 )
 from checkowners.models import (
     AnalysisConfig,
@@ -311,3 +316,123 @@ def test_pattern_spaces_escaped_on_write() -> None:
     ownership = _make_ownership({"docs/getting started.md": (_entry("@alice", 0.9),)})
     content = _build_codeowners_content(ownership, _zero_threshold())
     assert "/docs/getting\\ started.md @alice" in content
+
+
+@pytest.fixture(autouse=True)
+def _mock_tracked_paths() -> None:
+    with patch("checkowners.generate._tracked_paths", return_value=()):
+        yield
+
+
+def test_verifier_catches_later_broad_rule() -> None:
+    ownership = _make_ownership({"src/a.py": (_entry("@alice", 0.9),)})
+    with pytest.raises(CodeownersGenerationError, match=r"src/a.py.*alice.*bob.*line 2"):
+        verify_round_trip("/src/a.py @alice\n* @bob\n", ownership, _zero_threshold(), ["src/a.py"])
+
+
+def test_consolidation_does_not_claim_unowned_tracked_files(tmp_path: Path) -> None:
+    ownership = _make_ownership(
+        {
+            "src/a.py": (_entry("@alice", 0.9),),
+            "src/b.py": (_entry("@alice", 0.9),),
+        }
+    )
+    with patch(
+        "checkowners.generate._tracked_paths", return_value=("src/a.py", "src/b.py", "src/c.py")
+    ):
+        content = generate_codeowners(tmp_path, ownership, _zero_threshold())
+    assert "/src/ @alice" not in content
+    assert "/src/a.py @alice" in content
+
+
+def test_failed_verification_preserves_existing_file(tmp_path: Path) -> None:
+    config = _zero_threshold()
+    target = tmp_path / "CODEOWNERS"
+    before = config.output.header + "\n* @human\n"
+    target.write_text(before)
+    ownership = _make_ownership({"src/a.py": (_entry("@alice", 0.9),)})
+    with (
+        patch("checkowners.generate._build_codeowners_content", return_value="* @wrong\n"),
+        pytest.raises(CodeownersGenerationError),
+    ):
+        generate_codeowners(tmp_path, ownership, config, codeowners_path=target, force=True)
+    assert target.read_text() == before
+
+
+def test_size_limit_counts_utf8_bytes_and_force_overrides(tmp_path: Path) -> None:
+    ownership = _make_ownership({"café.py": (_entry("@alice", 0.9),)})
+    config = _zero_threshold()
+    content = _build_codeowners_content(ownership, config)
+    config = replace(config, output=replace(config.output, max_bytes=len(content)))
+    with pytest.raises(CodeownersGenerationError, match="output.max_bytes"):
+        generate_codeowners(tmp_path, ownership, config)
+    assert not (tmp_path / ".github" / "CODEOWNERS").exists()
+    assert generate_codeowners(tmp_path, ownership, config, force=True) == content
+
+
+def test_warns_at_two_megabytes(tmp_path: Path) -> None:
+    config = _zero_threshold()
+    with (
+        patch("checkowners.generate._build_codeowners_content", return_value="#" + "x" * 1_999_999),
+        pytest.warns(UserWarning, match="2000000 bytes"),
+    ):
+        generate_codeowners(tmp_path, _make_ownership({}), config)
+
+
+def test_verification_can_be_disabled_explicitly(tmp_path: Path) -> None:
+    config = _zero_threshold()
+    config = replace(config, output=replace(config.output, verify_round_trip=False))
+    with patch("checkowners.generate.verify_round_trip") as verify:
+        generate_codeowners(tmp_path, _make_ownership({}), config)
+    verify.assert_not_called()
+
+
+def test_verifies_resolved_teams(tmp_path: Path) -> None:
+    config = _zero_threshold()
+    ownership = _make_ownership({"src/a.py": (_entry("@alice", 0.9), _entry("@bob", 0.8))})
+    with patch("checkowners.github.create_team_resolver", return_value=lambda owners: "@acme/team"):
+        content = generate_codeowners(tmp_path, ownership, config, token="test", org="acme")
+    assert "@acme/team" in content
+
+
+def test_verifier_reports_no_matching_rule() -> None:
+    ownership = _make_ownership({"a.py": (_entry("@alice", 0.9),)})
+    with pytest.raises(CodeownersGenerationError, match="no matching rule"):
+        verify_round_trip("", ownership, _zero_threshold(), ["a.py"])
+
+
+def test_verifier_compares_owner_sets_case_insensitively() -> None:
+    ownership = _make_ownership({"a.py": (_entry("@Alice", 0.9), _entry("@Bob", 0.8))})
+    verify_round_trip("/a.py @bob @alice\n", ownership, _zero_threshold(), ["a.py"])
+
+
+def test_tracked_paths_are_nul_separated(tmp_path: Path) -> None:
+    with patch(
+        "checkowners.generate.subprocess.run", return_value=MagicMock(stdout=b"a b\0c\nd\0")
+    ) as run:
+        assert _tracked_paths(tmp_path) == ("a b", "c\nd")
+    assert run.call_args.args[0] == ["git", "ls-files", "-z"]
+
+
+def test_tracked_paths_fail_closed(tmp_path: Path) -> None:
+    with (
+        patch(
+            "checkowners.generate.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "git"),
+        ),
+        pytest.raises(CodeownersGenerationError, match="Cannot list tracked"),
+    ):
+        _tracked_paths(tmp_path)
+
+
+@pytest.mark.parametrize("consolidate", [True, False])
+def test_generated_rules_round_trip_across_owner_combinations(consolidate: bool) -> None:
+    from itertools import product
+
+    for assignment in product(((), (_entry("@alice", 0.9),), (_entry("@bob", 0.8),)), repeat=4):
+        ownership = _make_ownership(
+            dict(zip(("src/a.py", "src/b.py", "docs/a.md", "docs/b.md"), assignment, strict=True))
+        )
+        config = _zero_threshold(consolidate=consolidate)
+        content = _build_codeowners_content(ownership, config, tracked_paths=ownership.paths)
+        verify_round_trip(content, ownership, config, ownership.paths)

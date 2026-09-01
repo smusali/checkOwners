@@ -149,3 +149,13 @@ You're on an older version that predates the inline-comment fix. Upgrade to v0.3
 ### The bus factor report says `repo_average: 1.0`. Is that right?
 
 For a solo-maintainer repo, yes. Bus factor is the number of selected owners with confidence above `analysis.confidence_threshold`; a single committer caps out at 1 per path. Invite a co-owner and let them rack up commits to move the needle.
+
+
+### Why does generation fail round-trip verification?
+
+A generated pattern would resolve differently from the inferred ownership. The
+error names the path and winning rule; inspect it with `checkowners explain-path <path>`. Common causes include wildcard characters in literal paths and bracket
+paths that sanitize to overlapping patterns. Verification fails before writing,
+so your previous CODEOWNERS remains intact. `--force` does not bypass this check.
+You can explicitly set `output.verify_round_trip: false`, but must then review
+coverage yourself. Prefer fixing the conflicting patterns or ownership evidence.

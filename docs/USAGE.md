@@ -69,6 +69,8 @@ output:
   include_unowned: false
   include_confidence: false   # if true, append "# alice(0.92) bob(0.71)" to each line
   consolidate: true           # collapse uniform directories into one dir/ rule
+  max_bytes: 2500000           # refuse larger generated files without --force
+  verify_round_trip: true      # check every tracked path before replacing the file
 
 drift:
   mode: commit                # commit | repo | both
@@ -203,3 +205,33 @@ hatch run lint              # ruff check + mypy --strict
 hatch run fmt               # ruff format
 hatch build                 # sdist + wheel in dist/
 ```
+
+
+### Verify generation and explain matching rules
+
+`generate` and `sync` check the candidate CODEOWNERS against every tracked path
+before replacing the file. The winning rule must resolve to exactly the inferred
+owners above `analysis.confidence_threshold` (or the equivalent resolved team).
+Tracked paths without inferred owners must remain unowned. Consolidation therefore
+keeps individual rules when a broader directory rule would claim an unowned file.
+A mismatch reports the path, intended owners, resolved owners, and winning rule
+line. The previous CODEOWNERS is preserved and `sync` does not commit.
+
+Both commands warn at 2,000,000 UTF-8 bytes and refuse output above
+`output.max_bytes` (default 2,500,000). GitHub does not load CODEOWNERS files over
+3 MB. `--force` overrides the size and hand-written-file guards, but still runs
+verification. `output.verify_round_trip: false` explicitly disables the latter;
+use it only after reviewing the resulting rule coverage. Generation JSON includes
+`bytes_written` and `rules_written` alongside the existing fields.
+
+To inspect a path without rerunning inference:
+
+```bash
+checkowners explain-path src/main.py
+checkowners explain-path src/main.py --json
+```
+
+The match chain includes line numbers, patterns, and owner lists. The final match
+wins, including an owner-less exemption rule. No match means the path is unowned.
+The command evaluates the current CODEOWNERS using the local pattern engine;
+it does not verify GitHub team permissions or membership.

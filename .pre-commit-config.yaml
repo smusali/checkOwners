@@ -20,3 +20,9 @@ repos:
         language: system
         pass_filenames: false
         files: ^checkowners/.*\.py$
+      - id: checkowners-validate
+        name: Validate CODEOWNERS syntax
+        entry: checkowners validate
+        language: python
+        pass_filenames: false
+        files: '(^|/)CODEOWNERS$'

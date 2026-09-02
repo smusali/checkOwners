@@ -90,7 +90,7 @@ The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` enviro
 
 ## Environment variables
 
-These variables influence runtime behavior and always take precedence over the config file:
+These environment variables can be used to override configuration file values and influence runtime behavior:
 
 | Variable | Purpose |
 |----------|---------|

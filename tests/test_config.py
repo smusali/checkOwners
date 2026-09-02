@@ -315,7 +315,7 @@ def test_drift_mode_default_matches_docs() -> None:
     from checkowners.models import DriftConfig
     import re
     usage_md = (Path(__file__).parent.parent / "docs" / "USAGE.md").read_text(encoding="utf-8")
-    match = re.search(r"^\s*mode:\s*(\w+)\s*#\s*commit\s*\|\s*repo\s*\|\s*both", usage_md, re.MULTILINE)
+    match = re.search(r"drift:\n\s*mode:\s*(\w+)", usage_md, re.MULTILINE)
     assert match is not None, "Could not find drift.mode in USAGE.md"
     documented_default = match.group(1)
     assert documented_default == DriftConfig().mode

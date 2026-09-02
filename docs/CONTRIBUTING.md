@@ -5,7 +5,7 @@ Thanks for thinking about contributing. checkowners is a pure-git ownership infe
 ## Quick start
 
 ```bash
-git clone https://github.com/fortyOneTech/checkowners.git
+git clone https://github.com/smusali/checkowners.git
 cd checkowners
 pip install hatch
 hatch run test
@@ -66,7 +66,7 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 
 ## Code conventions
 
-- Python 3.11 minimum. Use modern syntax (`X | Y` unions, `dict[str, int]`).
+- Python 3.11 minimum. Use modern syntax (`X | Y` unions, `dict[str, int]`). We intentionally do not support Python 3.10; while it remains a common system Python, standardizing on newer language features (like native exception groups and modern typing) keeps the codebase simpler. Standalone artifacts are the better answer for old runtimes.
 - Functional style. The only classes allowed are dataclasses in `models.py` and small frozen dataclasses living inside the module that returns them.
 - Type hints on **every** function signature; `mypy --strict` is enforced.
 - All paths via `pathlib.Path`; never hardcode strings.
@@ -84,7 +84,7 @@ For the architecture overview and module map, see [CLAUDE.md](../CLAUDE.md).
 
 ## Reporting bugs
 
-Open an issue at <https://github.com/fortyOneTech/checkowners/issues> with:
+Open an issue at <https://github.com/smusali/checkowners/issues> with:
 
 1. The command you ran and the `--json` output if available.
 2. The relevant `.github/checkowners.yml` (redact tokens; we don't accept them in this file anyway).

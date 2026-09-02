@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "checkowners"
-version = "0.5.0"
+dynamic = ["version"]
 description = "Infer CODEOWNERS from git history with confidence scoring, knowledge graphs, expertise decay detection, bus factor analysis, and team topology inference. CI-native."
 readme = "README.md"
 license = "MIT"
@@ -35,6 +35,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Version Control :: Git",
     "Typing :: Typed",
@@ -43,30 +44,40 @@ classifiers = [
 # GitHub API features (handle search, teams, review coverage) live behind
 # the optional "github" extra and degrade gracefully when absent.
 dependencies = [
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-    "pyyaml>=6.0",
+    "typer>=0.9.0,<1.0.0",
+    "rich>=13.0.0,<14.0.0",
+    "pyyaml>=6.0,<7.0",
 ]
 
 [project.optional-dependencies]
 graph = [
-    "networkx>=3.0",
+    "networkx>=3.0,<4.0",
 ]
 github = [
-    "pygithub>=2.0.0",
+    "pygithub>=2.0.0,<3.0.0",
 ]
 all = [
-    "networkx>=3.0",
-    "pygithub>=2.0.0",
+    "checkowners[graph,github]",
+]
+dev = [
+    "pytest>=7.0,<9.0",
+    "pytest-cov>=4.0,<6.0",
+    "ruff>=0.4.0,<1.0.0",
+    "mypy>=1.0,<2.0",
+    "types-PyYAML",
+    "checkowners[all]",
 ]
 
 [project.urls]
-Homepage = "https://github.com/fortyOneTech/checkowners"
-Issues = "https://github.com/fortyOneTech/checkowners/issues"
-Source = "https://github.com/fortyOneTech/checkowners"
+Homepage = "https://github.com/smusali/checkowners"
+Issues = "https://github.com/smusali/checkowners/issues"
+Source = "https://github.com/smusali/checkowners"
 
 [project.scripts]
 checkowners = "checkowners.cli:main"
+
+[tool.hatch.version]
+path = "checkowners/__init__.py"
 
 [tool.hatch.build.targets.sdist]
 exclude = [

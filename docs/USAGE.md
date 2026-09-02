@@ -183,6 +183,18 @@ The composite action also accepts `fail_on_drift: "false"` if you want to commen
 
 The action fails fast with a clear error when it detects a shallow clone: `git log` and `git blame` need history, so the `actions/checkout` step must set `fetch-depth: 0`.
 
+## Pre-commit
+
+You can use checkOwners to validate your CODEOWNERS file syntax automatically before every commit, and detect drift before pushing. Add this to your `.pre-commit-config.yaml`:
+
+```yaml
+  - repo: https://github.com/smusali/checkOwners
+    rev: v0.5.0
+    hooks:
+      - id: checkowners-validate
+      - id: checkowners-drift
+```
+
 ## How checkowners compares
 
 | Tool | Inference | Confidence | Drift | Bus factor | Decay | Topology | Onboarding |

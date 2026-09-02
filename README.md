@@ -23,6 +23,17 @@ pip install "checkowners[github]"     # + GitHub API handle/team/review resoluti
 pip install "checkowners[all]"        # everything
 ```
 
+### Pre-commit hook
+
+You can use checkOwners to validate your CODEOWNERS file syntax automatically before every commit. Add this to your `.pre-commit-config.yaml`:
+
+```yaml
+  - repo: https://github.com/smusali/checkOwners
+    rev: v0.5.0
+    hooks:
+      - id: checkowners-validate
+```
+
 ## Quick start
 
 ```bash

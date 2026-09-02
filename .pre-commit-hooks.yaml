@@ -1,0 +1,15 @@
+- id: checkowners-validate
+  name: Validate CODEOWNERS syntax
+  description: Validate CODEOWNERS against GitHub's documented semantics.
+  entry: checkowners validate
+  language: python
+  pass_filenames: false
+  files: '(^|/)CODEOWNERS$'
+
+- id: checkowners-drift
+  name: Detect CODEOWNERS drift
+  entry: checkowners drift --baseline .checkowners-baseline.json
+  language: python
+  additional_dependencies: ["checkowners[github]"]
+  pass_filenames: false
+  stages: [pre-push]

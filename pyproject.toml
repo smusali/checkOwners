@@ -61,9 +61,11 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/fortyOneTech/checkowners"
-Issues = "https://github.com/fortyOneTech/checkowners/issues"
-Source = "https://github.com/fortyOneTech/checkowners"
+Homepage = "https://github.com/smusali/checkowners"
+Issues = "https://github.com/smusali/checkowners/issues"
+Source = "https://github.com/smusali/checkowners"
+Documentation = "https://github.com/smusali/checkowners/blob/main/docs/USAGE.md"
+Changelog = "https://github.com/smusali/checkowners/blob/main/docs/CHANGELOG.md"
 
 [project.scripts]
 checkowners = "checkowners.cli:main"

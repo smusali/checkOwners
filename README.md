@@ -1,6 +1,6 @@
-# checkowners
+# CheckOwners
 
-[![CI](https://github.com/fortyOneTech/checkowners/actions/workflows/ci.yml/badge.svg)](https://github.com/fortyOneTech/checkowners/actions/workflows/ci.yml)
+[![CI](https://github.com/smusali/checkowners/actions/workflows/ci.yml/badge.svg)](https://github.com/smusali/checkowners/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/checkowners.svg)](https://pypi.org/project/checkowners/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/checkowners.svg)](https://pypi.org/project/checkowners/)
 [![Python versions](https://img.shields.io/pypi/pyversions/checkowners.svg)](https://pypi.org/project/checkowners/)
@@ -8,7 +8,9 @@
 
 Infer CODEOWNERS from git history with confidence scoring, a knowledge graph, expertise decay detection, bus factor analysis, team topology inference, review load balancing, and onboarding paths. Pure git, no LLMs. CI-native: structured JSON output, GITHUB_OUTPUT integration, composite GitHub Action.
 
-> Ownership is not binary. checkOwners is the first CODEOWNERS tool that treats it as a confidence-scored spectrum and surfaces the second-order risks (bus factor, expertise decay, team topology) that come with it.
+This repository moved here from a previous GitHub organization; Sigstore attestations for 0.5.0 and earlier record that earlier publisher.
+
+> Ownership is not binary. CheckOwners is the first CODEOWNERS tool that treats it as a confidence-scored spectrum and surfaces the second-order risks (bus factor, expertise decay, team topology) that come with it.
 
 ## How it works
 

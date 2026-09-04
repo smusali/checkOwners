@@ -1,6 +1,6 @@
 # Contributor's Code of Conduct
 
-If you contribute to **checkOwners**, you agree to abide by this code of conduct for
+If you contribute to **CheckOwners**, you agree to abide by this code of conduct for
 this community.
 
 We abide by the

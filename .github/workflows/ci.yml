@@ -7,6 +7,20 @@ on:
     branches: [main]
 
 jobs:
+  identity-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if the previous organization slug reappears
+        run: |
+          set -euo pipefail
+          needle="$(printf '%s%s' 'forty' 'onetech')"
+          if git grep -i -- "$needle"; then
+            echo "::error::Previous organization slug must not appear in the tree"
+            exit 1
+          fi
+
   test:
     runs-on: ubuntu-latest
     strategy:

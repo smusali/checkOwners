@@ -21,6 +21,21 @@ jobs:
             exit 1
           fi
 
+  pypi-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install readme-renderer
+        run: pip install "readme-renderer[md]"
+
+      - name: Fail if README or project URLs are not PyPI-safe
+        run: python tools/check_pypi_readme.py
+
   test:
     runs-on: ubuntu-latest
     strategy:

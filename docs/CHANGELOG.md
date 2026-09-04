@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- README documentation and license links are now absolute GitHub URLs so they
+  resolve on the PyPI project page.
+
 ### Changed
 - Project URLs, documentation clone and issue links, the Actions example,
   and the security advisory link now point at this repository.

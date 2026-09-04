@@ -97,9 +97,16 @@ Do not open public issues for vulnerabilities. Email <fortyone.technologies@gmai
 
 ## Releasing
 
-Tagged releases trigger `.github/workflows/publish.yml` which builds and uploads to PyPI via Trusted Publisher. Steps:
+Tagged releases trigger `.github/workflows/publish.yml` which builds and uploads to PyPI via Trusted Publisher.
+
+Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.md) as they merge. Each dated heading is the UTC calendar day the GitHub Release will be published (that event uploads to PyPI), formatted `YYYY-MM-DD`. `Unreleased` has no date. If publish slips to another UTC day, update the heading before creating the Release.
+
+`python tools/check_changelog.py vX.Y.Z` must succeed before tagging. The publish job runs the same check and fails the upload if the heading is missing or has no date.
+
+Steps:
 
 1. Bump `version` in `pyproject.toml` and `__version__` in `checkowners/__init__.py`.
-2. Update [docs/CHANGELOG.md](CHANGELOG.md) with the new section.
-3. Tag the commit: `git tag -a v0.X.Y -m "v0.X.Y"` and push the tag.
-4. Create a GitHub Release pointing at the tag; the publish workflow takes it from there.
+2. Promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, leave a fresh `[Unreleased]`, and refresh the compare links at the bottom of the changelog.
+3. Confirm `python tools/check_changelog.py vX.Y.Z` succeeds.
+4. Tag the commit: `git tag -a v0.X.Y -m "v0.X.Y"` and push the tag.
+5. Create a GitHub Release pointing at the tag; the publish workflow takes it from there.

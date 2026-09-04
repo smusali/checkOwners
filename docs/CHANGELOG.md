@@ -4,7 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Each dated heading is the UTC calendar day that version was published to PyPI (`YYYY-MM-DD`). `Unreleased` has no date.
+
 ## [Unreleased]
+
+### Added
+- The publish workflow rejects a GitHub Release whose tag has no dated changelog heading.
 
 ### Fixed
 - README documentation and license links are now absolute GitHub URLs so they
@@ -13,8 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - Project URLs, documentation clone and issue links, the Actions example,
   and the security advisory link now point at this repository.
+- Changelog version dates are the PyPI publication day; the 0.3.0 and 0.5.0
+  headings now match those uploads.
 
-## [0.5.0] - 2026-07-03
+## [0.5.0] - 2026-07-04
 
 Hardening release driven by testing every command against a real production
 monorepo (24k commits, 12k active files). Focus: correct CODEOWNERS
@@ -164,7 +171,7 @@ resolution.
 - `.checkowners/` is git-ignored so a state or graph cache (contributor emails + ownership map) cannot be committed if `CHECKOWNERS_STATE_DIR` points inside a repo.
 - `github.token` remains refused inside `.github/checkowners.yml`; the only supported way to provide a token is the `GITHUB_TOKEN` environment variable.
 
-## [0.3.0] - 2026-05-28
+## [0.3.0] - 2026-06-06
 
 ### Added
 - Confidence scoring on every path-owner pair. Score is a weighted blend of four signals: commit recency (exponential decay), commit frequency, blame coverage, and PR review activity (last one only when `github.api_enabled`).

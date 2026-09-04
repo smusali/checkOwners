@@ -13,6 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fail if the tag has no dated changelog entry
+        run: python3 tools/check_changelog.py "${{ github.event.release.tag_name }}"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"

@@ -34,9 +34,9 @@ def send_notification(result: DriftResult, config: Config) -> bool:
 
 
 def compute_severity(result: DriftResult, config: Config | None = None) -> Severity:
-    """Map the max confidence delta + bus factor signals to a severity level.
+    """Map the max confidence delta + reviewer depth signals to a severity level.
 
-    When `config` is provided the critical bus factor signal uses
+    When `config` is provided the critical reviewer depth signal uses
     `config.bus_factor.critical_threshold`; otherwise it falls back to 1.
     """
     critical_threshold = config.bus_factor.critical_threshold if config is not None else 1

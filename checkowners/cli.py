@@ -113,8 +113,8 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
     Handle resolution works even without a token (noreply emails parse
     locally; prior lookups come from the on-disk cache). When two commit
     emails resolve to the same @handle they are one person: their entries
-    merge and the path's bus factor is recomputed over distinct identities,
-    so one owner with two emails can no longer masquerade as a bus factor
+    merge and the path's reviewer depth is recomputed over distinct identities,
+    so one owner with two emails can no longer masquerade as a reviewer depth
     of two.
     """
     if not config.github.resolve_handles:
@@ -616,7 +616,7 @@ def github_action(
     ] = True,
     json_output: JsonOption = False,
 ) -> None:
-    """Run the full CI flow (drift + bus factor + decay) and write GITHUB_OUTPUT."""
+    """Run the full CI flow (drift + reviewer depth + continuity risk) and write GITHUB_OUTPUT."""
     config = load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
@@ -684,7 +684,7 @@ def _decay_report_payload(report: DecayReport) -> dict[str, Any]:
 
 
 def _build_or_load_graph(repo_root: Path, ownership: OwnershipMap) -> nx.Graph:
-    """Return the knowledge graph, reusing a fresh on-disk cache when available."""
+    """Return the ownership graph, reusing a fresh on-disk cache when available."""
     cached = read_graph_cache(repo_root, ownership.last_analyzed)
     if cached is not None:
         return from_serializable(cached)
@@ -704,7 +704,7 @@ def graph(
         ),
     ] = None,
 ) -> None:
-    """Render the contributor-file knowledge graph in the terminal."""
+    """Render the contributor-file ownership graph in the terminal."""
     config = load_config()
     repo_root = Path.cwd()
     ownership = _load_or_analyze(config, repo_root)
@@ -741,7 +741,7 @@ def decay(json_output: JsonOption = False) -> None:
     if not reports:
         console.print("[green]No decaying expertise detected.[/green]")
         return
-    table = Table(title="Expertise Decay")
+    table = Table(title="Continuity Risk")
     table.add_column("Path", style="cyan")
     table.add_column("Handle")
     table.add_column("Days", justify="right")
@@ -774,7 +774,7 @@ def bus_factor(
     ] = False,
     json_output: JsonOption = False,
 ) -> None:
-    """Calculate the bus factor for each path."""
+    """Calculate the reviewer depth for each path."""
     if path is None and not all_paths:
         console.print("[yellow]Specify a path or pass --all to report every path.[/yellow]")
         raise typer.Exit(code=1)
@@ -789,7 +789,7 @@ def bus_factor(
     if not report.entries:
         console.print("[yellow]No paths matched.[/yellow]")
         return
-    table = Table(title="Bus Factor")
+    table = Table(title="Reviewer Depth")
     table.add_column("Path", style="cyan")
     table.add_column("BF", justify="right")
     table.add_column("Tier")
@@ -808,7 +808,7 @@ def bus_factor(
             escape(entry.path), str(entry.bus_factor), tier_str, escape(owners), escape(backups)
         )
     console.print(table)
-    console.print(f"[dim]repo average bus factor: {report.repo_average:.2f}[/dim]")
+    console.print(f"[dim]repo average reviewer depth: {report.repo_average:.2f}[/dim]")
 
 
 def _bus_factor_payload(report: BusFactorReport, config: Config) -> dict[str, Any]:
@@ -866,7 +866,7 @@ def _balance_payload(report: BalanceReport) -> dict[str, Any]:
 
 @app.command()
 def balance(json_output: JsonOption = False) -> None:
-    """Analyze PR review load distribution and suggest rebalancing."""
+    """Analyze PR git authorship proxy distribution and suggest rebalancing."""
     config = load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     report = analyze_balance(ownership, config)
@@ -874,7 +874,7 @@ def balance(json_output: JsonOption = False) -> None:
         typer.echo(json.dumps(_balance_payload(report), indent=2))
         return
     if not report.loads:
-        console.print("[yellow]No review load data available.[/yellow]")
+        console.print("[yellow]No git authorship proxy data available.[/yellow]")
         return
     console.print(f"[dim]source: {report.source}; average reviews: {report.average:.1f}[/dim]")
     if report.fallback_reason:
@@ -882,7 +882,7 @@ def balance(json_output: JsonOption = False) -> None:
             f"[dim]GitHub API unavailable ({report.fallback_reason}); "
             "loads below are commit counts, not reviews.[/dim]"
         )
-    table = Table(title="Review Load")
+    table = Table(title="Git Authorship Proxy")
     table.add_column("Handle", style="cyan")
     load_label = "Commits (proxy)" if report.source == "git_authorship" else "Reviews"
     table.add_column(load_label, justify="right")
@@ -1052,7 +1052,7 @@ def trends(
     ] = 30,
     json_output: JsonOption = False,
 ) -> None:
-    """Show how ownership confidence and bus factor have evolved over time."""
+    """Show how ownership confidence and reviewer depth have evolved over time."""
     config = load_config()
     try:
         report = analyze_trends(Path.cwd(), config, periods=periods, period_days=period_days)
@@ -1076,7 +1076,7 @@ def trends(
     table.add_column("Contributors", justify="right")
     table.add_column("Tracked paths", justify="right")
     table.add_column("Avg top conf.", justify="right")
-    table.add_column("Avg bus factor", justify="right")
+    table.add_column("Avg reviewer depth", justify="right")
     for point in report.points:
         table.add_row(
             point.period_end.date().isoformat(),

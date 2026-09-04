@@ -1,4 +1,4 @@
-"""Knowledge graph builder backed by an optional networkx extra.
+"""Ownership graph builder backed by an optional networkx extra.
 
 The graph is a bipartite multi-edge structure: contributors on one side,
 file paths on the other, with edge weights equal to the inferred
@@ -39,7 +39,7 @@ def build_graph(
     *,
     clusters: tuple[TeamCluster, ...] = (),
 ) -> nx.Graph:
-    """Build a multipartite knowledge graph from an ownership map."""
+    """Build a multipartite ownership graph from an ownership map."""
     nx = _require_networkx()
     graph = nx.Graph()
     for path, po in ownership.paths.items():
@@ -86,7 +86,7 @@ def from_serializable(data: dict[str, list[dict[str, object]]]) -> nx.Graph:
 
 
 def to_dot(graph: nx.Graph) -> str:
-    """Serialize a knowledge graph to Graphviz DOT format."""
+    """Serialize an ownership graph to Graphviz DOT format."""
     _require_networkx()
     lines = ["graph checkowners {"]
     for node, attrs in graph.nodes(data=True):

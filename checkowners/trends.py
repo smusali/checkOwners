@@ -2,7 +2,7 @@
 
 Reconstructs the ownership snapshot at the end of each of the last N periods
 from a single ``git log`` pass and reports how concentration, confidence, and
-bus factor have evolved. The snapshot at each period end is cumulative: it uses
+reviewer depth have evolved. The snapshot at each period end is cumulative: it uses
 every fetched commit up to that point, with recency measured relative to that
 period's end. Blame and review factors are not reconstructed historically, so
 the trend confidence uses the recency and frequency factors (renormalized).

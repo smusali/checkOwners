@@ -1,4 +1,4 @@
-"""PR review load analysis with rebalancing recommendations.
+"""PR git authorship proxy analysis with rebalancing recommendations.
 
 When github.api_enabled and a token are configured the analyzer reads
 review counts straight from the GitHub PR review API. Otherwise it falls
@@ -55,7 +55,7 @@ def analyze_balance(
     *,
     review_counts: dict[str, int] | None = None,
 ) -> BalanceReport:
-    """Compute review load distribution and rebalancing suggestions."""
+    """Compute git authorship proxy distribution and rebalancing suggestions."""
     if review_counts is None:
         counts, source, fallback_reason = _gather_counts(ownership, config)
     else:

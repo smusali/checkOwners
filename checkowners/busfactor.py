@@ -1,4 +1,4 @@
-"""Bus factor analysis per path with backup-reviewer recommendations."""
+"""Reviewer depth analysis per path with candidate backup reviewer recommendations."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class BusFactorReport:
         return tuple(e.path for e in self.entries if self.tier_for(e.bus_factor) == "critical")
 
     def tier_for(self, bus_factor: int) -> Tier:
-        """Tier a bus factor against this report's configured thresholds."""
+        """Tier a reviewer depth against this report's configured thresholds."""
         return classify(bus_factor, self.config)
 
 
@@ -32,7 +32,7 @@ def compute_bus_factor(
     *,
     target: str | None = None,
 ) -> BusFactorReport:
-    """Compute bus factor entries for every path matching `target` (or all paths)."""
+    """Compute reviewer depth entries for every path matching `target` (or all paths)."""
     threshold = config.analysis.confidence_threshold
     entries: list[BusFactor] = []
     for path, po in ownership.paths.items():
@@ -58,7 +58,7 @@ def compute_bus_factor(
 
 
 def classify(bus_factor: int, config: BusFactorConfig) -> Tier:
-    """Map a bus factor value to a severity tier."""
+    """Map a reviewer depth value to a severity tier."""
     return _classify(
         bus_factor,
         critical_threshold=config.critical_threshold,

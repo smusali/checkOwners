@@ -8,7 +8,7 @@ Common questions about configuring and operating checkowners. For the full confi
 
 GitHub usernames whenever they can be resolved. `github.resolve_handles` (on by default) resolves in three stages, cheapest first: GitHub noreply emails (`12345+login@users.noreply.github.com`) parse to `@login` locally with no token and no network; previously resolved emails come from the on-disk cache (`~/.checkowners/handles.json`, misses remembered); everything else goes through the GitHub user-search API when `GITHUB_TOKEN` is set. When resolution misses (private email, no GitHub account, API unavailable) the entry falls back to the raw email so the output stays usable.
 
-On squash-merge repos most contributors have noreply author emails, so usernames appear even without a token. When two emails resolve to the same username they merge into one owner and the path's bus factor is recomputed over distinct people.
+On squash-merge repos most contributors have noreply author emails, so usernames appear even without a token. When two emails resolve to the same username they merge into one owner and the path's reviewer depth is recomputed over distinct people.
 
 ```yaml
 github:
@@ -41,7 +41,7 @@ No. The core inference is pure git and runs offline. A token is only needed for 
 
 Noreply emails (`login@users.noreply.github.com`) resolve to `@login` without any token. The API-backed features also need the `github` extra (`pip install "checkowners[github]"`); without it they degrade gracefully with a log hint.
 
-Without a token you still get confidence-scored ownership, drift detection, bus factor, expertise decay, and onboarding paths; they just operate on email handles and skip the review-activity signal in the confidence score.
+Without a token you still get confidence-scored ownership, drift detection, reviewer depth, continuity risk, and onboarding paths; they just operate on email handles and skip the review-activity signal in the confidence score.
 
 ### What environment variable holds the token?
 
@@ -121,7 +121,7 @@ Four filters can drop a path: it matches a `paths.exclude` pattern, it no longer
 
 ### What does drift "severity" mean in CI?
 
-`notify.compute_severity` maps the max confidence delta plus bus-factor / decay flags to a tier:
+`notify.compute_severity` maps the max confidence delta plus reviewer-depth / continuity-risk flags to a tier:
 
 | Severity | Trigger |
 |----------|---------|
@@ -146,6 +146,6 @@ Install the extra: `pip install "checkowners[graph]"`. The error message points 
 
 You're on an older version that predates the inline-comment fix. Upgrade to v0.3.0+ or strip the annotations by setting `output.include_confidence: false` and regenerating.
 
-### The bus factor report says `repo_average: 1.0`. Is that right?
+### The reviewer depth report says `repo_average: 1.0`. Is that right?
 
-For a solo-maintainer repo, yes. Bus factor is the number of selected owners with confidence above `analysis.confidence_threshold`; a single committer caps out at 1 per path. Invite a co-owner and let them rack up commits to move the needle.
+For a solo-maintainer repo, yes. Reviewer depth is the number of selected owners with confidence above `analysis.confidence_threshold`; a single committer caps out at 1 per path. Invite a co-owner and let them rack up commits to move the needle.

@@ -1,4 +1,4 @@
-"""Expertise decay detector.
+"""Continuity risk detector.
 
 Surfaces contributors whose expertise on a path is stale: they committed
 heavily in the past but not within the configured threshold window.

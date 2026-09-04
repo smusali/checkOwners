@@ -29,7 +29,7 @@ output:
   # per-file confidence/bus-factor map signals where the codebase is fragile.
   include_confidence: false
 drift:
-  mode: both
+  mode: commit
   min_confidence_delta: 0.2
 notifications:
   webhook_url: ""

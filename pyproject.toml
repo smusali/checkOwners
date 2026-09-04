@@ -75,6 +75,7 @@ exclude = [
     ".claude",
     ".instructions",
     ".pre-commit-config.yaml",
+    "tools",
 ]
 
 [tool.hatch.envs.default]

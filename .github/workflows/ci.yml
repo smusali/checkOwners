@@ -99,6 +99,13 @@ jobs:
       - name: Install hatch
         run: pip install hatch
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test Action reporting
+        run: node --test tests/action-report.test.cjs
+
       - name: Run linters
         run: hatch run lint
 

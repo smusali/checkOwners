@@ -34,6 +34,10 @@ inputs:
       calling workflow to grant `pull-requests: write`.
     required: false
     default: "true"
+  github_token:
+    description: Optional GitHub App token or PAT for API lookups and PR comments.
+    required: false
+    default: ${{ github.token }}
   python_version:
     description: Python version to set up.
     required: false
@@ -102,6 +106,7 @@ runs:
       env:
         # checkowners reads these env vars (see checkowners/config.py): the
         # action inputs win over whatever the repo's checkowners.yml declares.
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
         CHECKOWNERS_DRIFT_MODE: ${{ inputs.mode }}
       run: |
@@ -120,6 +125,7 @@ runs:
       if: ${{ inputs.include_bus_factor == 'true' }}
       shell: bash
       env:
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
       run: |
         checkowners bus-factor --all --json > bus_factor.json
@@ -135,6 +141,7 @@ runs:
       if: ${{ inputs.include_decay == 'true' }}
       shell: bash
       env:
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
       run: |
         checkowners decay --json > decay.json
@@ -145,83 +152,24 @@ runs:
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
-    - name: Comment drift summary on PR
-      if: ${{ inputs.comment_on_pr == 'true' && github.event_name == 'pull_request' }}
+    - name: Report checkOwners results
+      if: ${{ always() }}
+      continue-on-error: true
       uses: actions/github-script@v7
+      env:
+        CHECKOWNERS_ACTION_PATH: ${{ github.action_path }}
+        CHECKOWNERS_DRIFT_OUTCOME: ${{ steps.run.outcome }}
+        CHECKOWNERS_COMMENT_ON_PR: ${{ inputs.comment_on_pr }}
       with:
+        github-token: ${{ inputs.github_token || github.token }}
         script: |
-          const fs = require('fs');
-          const MARKER = '<!-- checkowners-drift-report -->';
-          const drift = JSON.parse(fs.readFileSync('drift.json', 'utf8'));
-
-          // One managed comment per PR: find ours (by marker) and update it
-          // in place so repeated pushes don't pile up stale reports.
-          const { data: comments } = await github.rest.issues.listComments({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            per_page: 100,
+          const report = require(`${process.env.CHECKOWNERS_ACTION_PATH}/.github/scripts/report.cjs`);
+          await report({
+            github, context, core,
+            directory: process.cwd(),
+            driftOutcome: process.env.CHECKOWNERS_DRIFT_OUTCOME,
+            commentEnabled: process.env.CHECKOWNERS_COMMENT_ON_PR === 'true',
           });
-          const existing = comments.find(c => c.body && c.body.includes(MARKER));
-
-          if (!drift.drift_detected) {
-            if (existing) {
-              await github.rest.issues.updateComment({
-                comment_id: existing.id,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: `${MARKER}\n### checkOwners: no drift detected\n\nPreviously reported drift has been resolved.`,
-              });
-            }
-            return;
-          }
-
-          let critical = [];
-          try {
-            critical = (JSON.parse(fs.readFileSync('bus_factor.json', 'utf8')).critical_paths) || [];
-          } catch (e) { /* bus factor step may be disabled */ }
-          let decayCount = 0;
-          try {
-            decayCount = (JSON.parse(fs.readFileSync('decay.json', 'utf8')).reports || []).length;
-          } catch (e) { /* decay step may be disabled */ }
-          const badge = critical.length > 0 ? '**CRITICAL**' : (drift.severity || 'drift').toUpperCase();
-          const fx = (n) => Number(n).toFixed(2);
-          const body = [
-            MARKER,
-            `### checkOwners: drift detected (${badge})`,
-            '',
-            critical.length > 0 ? `> **bus_factor=1 path(s):** ${critical.join(', ')}` : '',
-            decayCount > 0 ? `> **${decayCount} expertise-decay warning(s)**` : '',
-            ...(drift.notes || []).map(n => `> note: ${n}`),
-            '',
-            '<details><summary>Drift details</summary>',
-            '',
-            '| Category | Path | Δ confidence |',
-            '|----------|------|--------------|',
-            ...(drift.stale || []).map(s => `| stale | \`${s.path}\` | ${fx(s.confidence_delta)} |`),
-            ...(drift.missing || []).map(m => `| missing | \`${m.path}\` | ${fx(m.confidence_delta)} |`),
-            ...(drift.changed || []).map(c => `| changed | \`${c.path}\` | ${fx(c.confidence_delta)} |`),
-            '',
-            '</details>',
-            '',
-            'Run `checkowners sync` locally to reconcile.',
-          ].filter(Boolean).join('\n');
-
-          if (existing) {
-            await github.rest.issues.updateComment({
-              comment_id: existing.id,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body,
-            });
-          } else {
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body,
-            });
-          }
 
     - name: Fail on drift
       if: ${{ inputs.fail_on_drift == 'true' }}

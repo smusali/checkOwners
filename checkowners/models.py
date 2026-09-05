@@ -68,6 +68,8 @@ class OutputConfig:
     include_unowned: bool = False
     include_confidence: bool = False
     consolidate: bool = True
+    max_bytes: int = 2_500_000
+    verify_round_trip: bool = True
 
 
 @dataclass(frozen=True)

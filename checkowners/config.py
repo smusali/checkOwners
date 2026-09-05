@@ -186,6 +186,15 @@ def _build_output_config(data: dict[str, Any]) -> OutputConfig:
         kwargs["include_confidence"] = bool(data["include_confidence"])
     if "consolidate" in data:
         kwargs["consolidate"] = bool(data["consolidate"])
+    if "max_bytes" in data:
+        value = data["max_bytes"]
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("output.max_bytes must be a positive integer")
+        kwargs["max_bytes"] = value
+    if "verify_round_trip" in data:
+        if not isinstance(data["verify_round_trip"], bool):
+            raise ValueError("output.verify_round_trip must be a boolean")
+        kwargs["verify_round_trip"] = data["verify_round_trip"]
     return OutputConfig(**kwargs)
 
 

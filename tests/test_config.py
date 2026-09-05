@@ -309,3 +309,21 @@ def test_find_codeowners_path_priority(tmp_path: Path) -> None:
 
 def test_find_codeowners_path_none_exist(tmp_path: Path) -> None:
     assert find_codeowners_path(tmp_path) == tmp_path / ".github" / "CODEOWNERS"
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "large"])
+def test_invalid_output_max_bytes(value: object) -> None:
+    from checkowners.config import _build_output_config
+
+    with pytest.raises(ValueError, match="max_bytes"):
+        _build_output_config({"max_bytes": value})
+
+
+def test_generation_guard_configuration() -> None:
+    from checkowners.config import _build_output_config
+
+    config = _build_output_config({"max_bytes": 12345, "verify_round_trip": False})
+    assert config.max_bytes == 12345
+    assert config.verify_round_trip is False
+    with pytest.raises(ValueError, match="verify_round_trip"):
+        _build_output_config({"verify_round_trip": "false"})

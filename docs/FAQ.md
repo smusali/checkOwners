@@ -52,7 +52,7 @@ export GITHUB_TOKEN=ghp_...
 checkowners generate
 ```
 
-In GitHub Actions the job token exists as `${{ secrets.GITHUB_TOKEN }}` / `${{ github.token }}`, but a `run:` step only sees `GITHUB_TOKEN` if the workflow exports it. The composite action does this for you: `github_token` defaults to `${{ github.token }}` and is exported on every CLI step. Pass a PAT or App token only when the default job token is not enough (org team listing). See [docs/USAGE.md](USAGE.md#github-actions).
+In GitHub Actions the job token exists as `${{ secrets.GITHUB_TOKEN }}` / `${{ github.token }}`, but a `run:` step only sees `GITHUB_TOKEN` if the workflow exports it. The composite action does this for you: `github_token` defaults to `${{ github.token }}`, is exported on every CLI step, and is passed to the PR comment step. Pass a PAT or App token only when the default job token is not enough (org team listing or commenting). See [docs/USAGE.md](USAGE.md#github-actions).
 
 ```yaml
 - uses: smusali/checkowners@v0.5.0
@@ -77,6 +77,8 @@ If you invoke the CLI yourself in a `run:` step, export the token:
 | Team / subteam resolution | Not available: the default `GITHUB_TOKEN` is repo-scoped and cannot list org teams. Pass a PAT or App token via `github_token` | `read:org` | Organization members: Read |
 | Review coverage and review-load balance (`github.api_enabled`) | `pull-requests: read` | `repo` (private) or `public_repo` | Pull requests: Read |
 | PR comment (Action `comment_on_pr`) | `pull-requests: write` | `repo` | Pull requests: Write |
+
+Fork `pull_request` runs cannot comment with the job token: GitHub makes that token read-only regardless of the `permissions:` block. The action skips the comment, writes the report to the job summary, and does not fail the job. The same warning-not-failure path applies when the workflow itself is read-only; set `comment_on_pr: false` to skip the attempt.
 
 A fine-grained PAT scoped to the target org with the minimums above is the recommended setup when the job token cannot reach org teams.
 
@@ -152,7 +154,7 @@ Four filters can drop a path: it matches a `paths.exclude` pattern, it no longer
 
 ### How do I fail a PR only on critical drift?
 
-The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.checkowners_drift).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want to comment without blocking.
+The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.checkowners_drift).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want the job summary and optional PR comment without blocking.
 
 ## Troubleshooting
 
@@ -166,4 +168,4 @@ You're on an older version that predates the inline-comment fix. Upgrade to v0.3
 
 ### The bus factor report says `repo_average: 1.0`. Is that right?
 
-For a solo-maintainer repo, yes. Bus factor is the number of selected owners with confidence above `analysis.confidence_threshold`; a single committer caps out at 1 per path. Invite a co-owner and let them rack up commits to move the needle.
+For a solo-maintainer repo, yes. Bus factor is the number of selected owners with confidence above `analysis.confidence_threshold`; a single committer caps out at 1 per path. Invite a co-owner and let them rack up commits to move the needle. The composite Action does not open a knowledge-risk PR comment for that case: single-owner paths are expected when only one human has qualified ownership.

@@ -24,6 +24,7 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
+from checkowners.busfactor import qualified_owner_count_fields
 from checkowners.models import (
     Config,
     DriftEntry,
@@ -63,7 +64,7 @@ def detect_drift(
         config.drift.mode,
         config.drift.min_confidence_delta,
     )
-    _write_github_output(result)
+    _write_github_output(result, config.analysis.top_n_owners)
     return result
 
 
@@ -137,7 +138,7 @@ def _find_missing(
                 path=path,
                 confidence_delta=_top_confidence(po.owners),
                 reason="path not covered by any CODEOWNERS rule",
-                bus_factor=po.bus_factor,
+                qualified_owner_count=po.qualified_owner_count,
                 decay=bool(po.decay_warnings),
             )
         )
@@ -190,7 +191,7 @@ def _find_changed(
         current = _normalize_owners(rule.owners)
         worst_delta = 0.0
         diverging = 0
-        bus_factor: int | None = None
+        qualified_owner_count: int | None = None
         decay = False
         for _path, po in covered:
             inferred_handles = _normalize_owners(o.handle for o in po.owners)
@@ -200,7 +201,7 @@ def _find_changed(
             diverging += 1
             if delta > worst_delta:
                 worst_delta = delta
-                bus_factor = po.bus_factor
+                qualified_owner_count = po.qualified_owner_count
                 decay = bool(po.decay_warnings)
         if diverging == 0 or worst_delta < min_delta:
             continue
@@ -212,7 +213,7 @@ def _find_changed(
                     f"owners diverge on {diverging} of {len(covered)} covered path(s) "
                     f"(line {rule.line_number})"
                 ),
-                bus_factor=bus_factor,
+                qualified_owner_count=qualified_owner_count,
                 decay=decay,
             )
         )
@@ -268,7 +269,7 @@ def _sort_by_delta(entries: list[DriftEntry]) -> tuple[DriftEntry, ...]:
     return tuple(entries)
 
 
-def _write_github_output(result: DriftResult) -> None:
+def _write_github_output(result: DriftResult, cap: int) -> None:
     """Write drift result to GITHUB_OUTPUT if running in Actions."""
     output_file = os.environ.get("GITHUB_OUTPUT")
     if not output_file:
@@ -277,9 +278,9 @@ def _write_github_output(result: DriftResult) -> None:
         {
             "drift_detected": result.drift_detected,
             "max_confidence_delta": result.max_confidence_delta,
-            "stale": [_entry_payload(e) for e in result.stale],
-            "missing": [_entry_payload(e) for e in result.missing],
-            "changed": [_entry_payload(e) for e in result.changed],
+            "stale": [_entry_payload(e, cap) for e in result.stale],
+            "missing": [_entry_payload(e, cap) for e in result.missing],
+            "changed": [_entry_payload(e, cap) for e in result.changed],
             "notes": list(result.notes),
         }
     )
@@ -287,14 +288,14 @@ def _write_github_output(result: DriftResult) -> None:
         f.write(f"checkowners_drift={payload}\n")
 
 
-def _entry_payload(entry: DriftEntry) -> dict[str, object]:
+def _entry_payload(entry: DriftEntry, cap: int) -> dict[str, object]:
     payload: dict[str, object] = {
         "path": entry.path,
         "confidence_delta": entry.confidence_delta,
         "reason": entry.reason,
     }
-    if entry.bus_factor is not None:
-        payload["bus_factor"] = entry.bus_factor
+    if entry.qualified_owner_count is not None:
+        payload.update(qualified_owner_count_fields(entry.qualified_owner_count, cap))
     if entry.decay:
         payload["decay"] = entry.decay
     return payload

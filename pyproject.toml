@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "checkowners"
 version = "0.5.0"
-description = "Infer CODEOWNERS from git history with confidence scoring, knowledge graphs, expertise decay detection, bus factor analysis, and team topology inference. CI-native."
+description = "Infer CODEOWNERS from git history with confidence scoring, knowledge graphs, expertise decay detection, and team topology inference. CI-native."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
-    { name = "Samir Musali", email = "fortyone.technologies@gmail.com" },
+    { name = "Samir Musali", email = "samir.musali@gmail.com" },
 ]
 keywords = [
     "codeowners",
@@ -20,7 +20,6 @@ keywords = [
     "cli",
     "github-actions",
     "knowledge-graph",
-    "bus-factor",
     "expertise-decay",
     "team-topology",
     "platform-engineering",

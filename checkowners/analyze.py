@@ -102,7 +102,7 @@ def _build_path_ownerships(
     config: Config,
     now: datetime,
 ) -> dict[str, PathOwnership]:
-    """Compute confidence-scored owners + bus factor + decay per path."""
+    """Compute confidence-scored owners + qualified owner count + decay per path."""
     result: dict[str, PathOwnership] = {}
     for path, authors in contributions.items():
         qualified = {
@@ -123,8 +123,12 @@ def _build_path_ownerships(
             continue
         top = filtered[: config.analysis.top_n_owners]
         decay = _detect_decay(path, qualified, top, config.decay.threshold_days, now)
-        bus_factor = _compute_bus_factor(top, config.analysis.confidence_threshold)
-        result[path] = PathOwnership(owners=top, bus_factor=bus_factor, decay_warnings=decay)
+        qualified_owner_count = _count_qualified_owners(top, config.analysis.confidence_threshold)
+        result[path] = PathOwnership(
+            owners=top,
+            qualified_owner_count=qualified_owner_count,
+            decay_warnings=decay,
+        )
     return result
 
 
@@ -211,7 +215,7 @@ def _detect_decay(
     return tuple(warnings)
 
 
-def _compute_bus_factor(top: tuple[OwnerEntry, ...], threshold: float) -> int:
+def _count_qualified_owners(top: tuple[OwnerEntry, ...], threshold: float) -> int:
     return sum(1 for entry in top if entry.confidence >= threshold)
 
 

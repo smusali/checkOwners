@@ -28,7 +28,7 @@ def _owner(handle: str, confidence: float = 0.8) -> OwnerEntry:
 def _ownership(paths: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
     return OwnershipMap(
         paths={
-            path: PathOwnership(owners=owners, bus_factor=len(owners))
+            path: PathOwnership(owners=owners, qualified_owner_count=len(owners))
             for path, owners in paths.items()
         },
         last_analyzed=_NOW,
@@ -183,7 +183,7 @@ def test_missing_carries_bus_factor_and_decay(tmp_path: Path) -> None:
     with patch(_MOCK_LS_FILES, return_value=("src/solo.py", "docs/readme.md")):
         result = detect_drift(tmp_path, ownership, _config(mode="commit"))
     assert len(result.missing) == 1
-    assert result.missing[0].bus_factor == 1
+    assert result.missing[0].qualified_owner_count == 1
     assert result.missing[0].confidence_delta == 0.9
 
 

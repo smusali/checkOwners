@@ -44,7 +44,7 @@ def _zero_threshold() -> Config:
 def test_detect_decay_no_warnings_returns_empty() -> None:
     ownership = OwnershipMap(
         paths={
-            "src/main.py": PathOwnership(owners=(_entry("@alice", 0.9),), bus_factor=1),
+            "src/main.py": PathOwnership(owners=(_entry("@alice", 0.9),), qualified_owner_count=1),
         },
         last_analyzed=_NOW,
     )
@@ -56,7 +56,7 @@ def test_detect_decay_disabled_via_config() -> None:
         paths={
             "src/auth.py": PathOwnership(
                 owners=(_entry("@alice", 0.3, _OLD),),
-                bus_factor=1,
+                qualified_owner_count=1,
                 decay_warnings=(_make_warning("@alice", "src/auth.py"),),
             ),
         },
@@ -74,17 +74,17 @@ def test_detect_decay_marks_dormant_vs_departed() -> None:
         paths={
             "src/auth.py": PathOwnership(
                 owners=(_entry("@alice", 0.3, _OLD),),
-                bus_factor=1,
+                qualified_owner_count=1,
                 decay_warnings=(_make_warning("@alice", "src/auth.py"),),
             ),
             "src/billing.py": PathOwnership(
                 owners=(_entry("@bob", 0.2, _OLD),),
-                bus_factor=1,
+                qualified_owner_count=1,
                 decay_warnings=(_make_warning("@bob", "src/billing.py"),),
             ),
             "src/api.py": PathOwnership(
                 owners=(_entry("@alice", 0.9),),
-                bus_factor=1,
+                qualified_owner_count=1,
             ),
         },
         last_analyzed=_NOW,
@@ -105,7 +105,7 @@ def test_detect_decay_recommends_active_owner_on_same_path() -> None:
                     _entry("@alice", 0.3, _OLD),
                     _entry("@bob", 0.85),
                 ),
-                bus_factor=1,
+                qualified_owner_count=1,
                 decay_warnings=(_make_warning("@alice", "src/api.py"),),
             ),
         },
@@ -121,16 +121,16 @@ def test_detect_decay_falls_back_to_adjacent_path() -> None:
         paths={
             "src/auth/login.py": PathOwnership(
                 owners=(_entry("@alice", 0.3, _OLD),),
-                bus_factor=1,
+                qualified_owner_count=1,
                 decay_warnings=(_make_warning("@alice", "src/auth/login.py"),),
             ),
             "src/auth/session.py": PathOwnership(
                 owners=(_entry("@carol", 0.9),),
-                bus_factor=1,
+                qualified_owner_count=1,
             ),
             "src/billing.py": PathOwnership(
                 owners=(_entry("@eve", 0.95),),
-                bus_factor=1,
+                qualified_owner_count=1,
             ),
         },
         last_analyzed=_NOW,
@@ -145,7 +145,7 @@ def test_detect_decay_no_candidate_returns_none() -> None:
         paths={
             "src/auth.py": PathOwnership(
                 owners=(_entry("@alice", 0.3, _OLD),),
-                bus_factor=1,
+                qualified_owner_count=1,
                 decay_warnings=(_make_warning("@alice", "src/auth.py"),),
             ),
         },
@@ -160,12 +160,12 @@ def test_detect_decay_sorted_by_oldest_first() -> None:
         paths={
             "src/a.py": PathOwnership(
                 owners=(_entry("@alice", 0.3, _OLD),),
-                bus_factor=1,
+                qualified_owner_count=1,
                 decay_warnings=(_make_warning("@alice", "src/a.py", days=200),),
             ),
             "src/b.py": PathOwnership(
                 owners=(_entry("@bob", 0.3, _OLD),),
-                bus_factor=1,
+                qualified_owner_count=1,
                 decay_warnings=(_make_warning("@bob", "src/b.py", days=500),),
             ),
         },

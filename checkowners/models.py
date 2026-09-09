@@ -141,7 +141,7 @@ class PathOwnership:
     """All information known about a single path's ownership."""
 
     owners: tuple[OwnerEntry, ...]
-    bus_factor: int
+    qualified_owner_count: int
     decay_warnings: tuple[DecayWarning, ...] = ()
 
 
@@ -176,7 +176,7 @@ class TeamCluster:
 @dataclass(frozen=True)
 class BusFactor:
     path: str
-    bus_factor: int
+    qualified_owner_count: int
     contributors_above_threshold: tuple[str, ...]
     recommended_backups: tuple[str, ...]
 
@@ -186,7 +186,7 @@ class DriftEntry:
     path: str
     confidence_delta: float
     reason: str = ""
-    bus_factor: int | None = None
+    qualified_owner_count: int | None = None
     decay: bool = False
 
 

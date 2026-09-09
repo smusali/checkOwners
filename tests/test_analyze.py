@@ -315,7 +315,9 @@ def test_analyze_bus_factor_counts_qualified_owners() -> None:
     ):
         result = analyze_ownership(Path("/fake"), config)
 
-    assert result.paths["src/main.py"].bus_factor == 3
+    count = result.paths["src/main.py"].qualified_owner_count
+    assert count == 3
+    assert count <= config.analysis.top_n_owners
 
 
 def test_is_excluded_patterns() -> None:

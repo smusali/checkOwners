@@ -1,4 +1,4 @@
-"""Bus factor analysis per path with backup-reviewer recommendations."""
+"""Qualified owner count per path with backup-reviewer recommendations."""
 
 from __future__ import annotations
 
@@ -8,6 +8,9 @@ from typing import Literal
 from checkowners.expertise import common_prefix_depth, path_matches_glob
 from checkowners.models import BusFactor, BusFactorConfig, Config, OwnershipMap
 
+DEPRECATED_COUNT_KEY = "bus_factor"
+DEPRECATED_AVG_COUNT_KEY = "avg_bus_factor"
+
 Tier = Literal["critical", "warning", "ok"]
 
 
@@ -15,25 +18,41 @@ Tier = Literal["critical", "warning", "ok"]
 class BusFactorReport:
     entries: tuple[BusFactor, ...]
     repo_average: float
+    qualified_owner_count_cap: int
     config: BusFactorConfig = field(default_factory=BusFactorConfig)
 
     @property
     def critical_paths(self) -> tuple[str, ...]:
-        return tuple(e.path for e in self.entries if self.tier_for(e.bus_factor) == "critical")
+        return tuple(
+            e.path for e in self.entries if self.tier_for(e.qualified_owner_count) == "critical"
+        )
 
-    def tier_for(self, bus_factor: int) -> Tier:
-        """Tier a bus factor against this report's configured thresholds."""
-        return classify(bus_factor, self.config)
+    def tier_for(self, qualified_owner_count: int) -> Tier:
+        """Tier a qualified owner count against this report's configured thresholds."""
+        return classify(qualified_owner_count, self.config)
 
 
-def compute_bus_factor(
+def format_qualified_owner_count(count: int, cap: int) -> str:
+    return f"{count} (capped by top_n_owners={cap})"
+
+
+def qualified_owner_count_fields(count: int, cap: int) -> dict[str, int]:
+    return {
+        "qualified_owner_count": count,
+        "bus_factor": count,
+        "qualified_owner_count_cap": cap,
+    }
+
+
+def compute_qualified_owners(
     ownership: OwnershipMap,
     config: Config,
     *,
     target: str | None = None,
 ) -> BusFactorReport:
-    """Compute bus factor entries for every path matching `target` (or all paths)."""
+    """Compute qualified-owner entries for every path matching `target` (or all paths)."""
     threshold = config.analysis.confidence_threshold
+    cap = config.analysis.top_n_owners
     entries: list[BusFactor] = []
     for path, po in ownership.paths.items():
         if target is not None and not path_matches_glob(path, target):
@@ -43,38 +62,41 @@ def compute_bus_factor(
         entries.append(
             BusFactor(
                 path=path,
-                bus_factor=po.bus_factor,
+                qualified_owner_count=po.qualified_owner_count,
                 contributors_above_threshold=qualified,
                 recommended_backups=backups,
             )
         )
-    entries.sort(key=lambda e: (e.bus_factor, e.path))
-    repo_average = round(sum(e.bus_factor for e in entries) / len(entries), 2) if entries else 0.0
+    entries.sort(key=lambda e: (e.qualified_owner_count, e.path))
+    repo_average = (
+        round(sum(e.qualified_owner_count for e in entries) / len(entries), 2) if entries else 0.0
+    )
     return BusFactorReport(
         entries=tuple(entries),
         repo_average=repo_average,
+        qualified_owner_count_cap=cap,
         config=config.bus_factor,
     )
 
 
-def classify(bus_factor: int, config: BusFactorConfig) -> Tier:
-    """Map a bus factor value to a severity tier."""
+def classify(qualified_owner_count: int, config: BusFactorConfig) -> Tier:
+    """Map a qualified owner count to a severity tier."""
     return _classify(
-        bus_factor,
+        qualified_owner_count,
         critical_threshold=config.critical_threshold,
         warn_threshold=config.warn_threshold,
     )
 
 
 def _classify(
-    bus_factor: int,
+    qualified_owner_count: int,
     *,
     critical_threshold: int,
     warn_threshold: int,
 ) -> Tier:
-    if bus_factor <= critical_threshold:
+    if qualified_owner_count <= critical_threshold:
         return "critical"
-    if bus_factor <= warn_threshold:
+    if qualified_owner_count <= warn_threshold:
         return "warning"
     return "ok"
 

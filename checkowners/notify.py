@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from checkowners.busfactor import qualified_owner_count_fields
 from checkowners.models import Config, DriftEntry, DriftResult, Severity
 
 logger = logging.getLogger(__name__)
@@ -34,9 +35,9 @@ def send_notification(result: DriftResult, config: Config) -> bool:
 
 
 def compute_severity(result: DriftResult, config: Config | None = None) -> Severity:
-    """Map the max confidence delta + bus factor signals to a severity level.
+    """Map the max confidence delta + qualified-owner signals to a severity level.
 
-    When `config` is provided the critical bus factor signal uses
+    When `config` is provided the critical qualified-owner signal uses
     `config.bus_factor.critical_threshold`; otherwise it falls back to 1.
     """
     critical_threshold = config.bus_factor.critical_threshold if config is not None else 1
@@ -53,7 +54,10 @@ def compute_severity(result: DriftResult, config: Config | None = None) -> Sever
 def _has_critical_signal(result: DriftResult, critical_threshold: int) -> bool:
     for entries in (result.stale, result.missing, result.changed):
         for entry in entries:
-            if entry.bus_factor is not None and entry.bus_factor <= critical_threshold:
+            if (
+                entry.qualified_owner_count is not None
+                and entry.qualified_owner_count <= critical_threshold
+            ):
                 return True
             if entry.decay:
                 return True
@@ -73,23 +77,23 @@ def _build_payload(
         "drift_detected": result.drift_detected,
         "severity": severity,
         "max_confidence_delta": result.max_confidence_delta,
-        "stale": [_entry_payload(e) for e in result.stale],
-        "missing": [_entry_payload(e) for e in result.missing],
-        "changed": [_entry_payload(e) for e in result.changed],
+        "stale": [_entry_payload(e, config.analysis.top_n_owners) for e in result.stale],
+        "missing": [_entry_payload(e, config.analysis.top_n_owners) for e in result.missing],
+        "changed": [_entry_payload(e, config.analysis.top_n_owners) for e in result.changed],
     }
     if config.notifications.include_unchanged:
         payload["include_unchanged"] = True
     return payload
 
 
-def _entry_payload(entry: DriftEntry) -> dict[str, Any]:
+def _entry_payload(entry: DriftEntry, cap: int) -> dict[str, Any]:
     body: dict[str, Any] = {
         "path": entry.path,
         "confidence_delta": entry.confidence_delta,
         "reason": entry.reason,
     }
-    if entry.bus_factor is not None:
-        body["bus_factor"] = entry.bus_factor
+    if entry.qualified_owner_count is not None:
+        body.update(qualified_owner_count_fields(entry.qualified_owner_count, cap))
     if entry.decay:
         body["decay"] = entry.decay
     return body

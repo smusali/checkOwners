@@ -1,9 +1,9 @@
 """Persistent state at ~/.checkowners/state/<repo-hash>.json.
 
 The state file is the cache of the most recent analyze run for a repo.
-Downstream commands (drift, decay, bus-factor, topology, balance, onboard)
+Downstream commands (drift, decay, qualified-owners, topology, balance, onboard)
 read from it to avoid re-running git log on every invocation. State is keyed
-per repo (schema v3): each repo gets its own file, and the payload embeds the
+per repo (schema v4): each repo gets its own file, and the payload embeds the
 absolute repo path so state from one repo can never leak into another.
 
 Schema is versioned. Older state files are not auto-migrated; they are
@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from checkowners.busfactor import DEPRECATED_COUNT_KEY, qualified_owner_count_fields
 from checkowners.models import (
     BusFactor,
     ConfidenceScore,
@@ -30,7 +31,7 @@ from checkowners.models import (
     TeamCluster,
 )
 
-SCHEMA_VERSION: int = 3
+SCHEMA_VERSION: int = 4
 _STATE_DIR = Path.home() / ".checkowners"
 _STATE_SUBDIR = "state"
 _GRAPH_CACHE_SUBDIR = "graph"
@@ -117,6 +118,7 @@ def write_state(
     topology: tuple[TeamCluster, ...] = (),
     bus_factor_summary: tuple[BusFactor, ...] = (),
     drift_detected: bool = False,
+    qualified_owner_count_cap: int = 3,
 ) -> Path:
     """Persist the latest ownership map and derived intelligence to disk."""
     target = _state_path(repo_root)
@@ -124,9 +126,16 @@ def write_state(
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "repo": str(repo_root.resolve()),
-        "inferred": {path: _serialize_path(po) for path, po in ownership.paths.items()},
+        "inferred": {
+            path: _serialize_path(po, qualified_owner_count_cap)
+            for path, po in ownership.paths.items()
+        },
         "topology": {"clusters": [asdict(c) for c in topology]},
-        "bus_factor_summary": _serialize_bus_factor_summary(bus_factor_summary),
+        "bus_factor_summary": _serialize_bus_factor_summary(
+            bus_factor_summary, qualified_owner_count_cap
+        ),
+        "qualified_owner_count_cap": qualified_owner_count_cap,
+        "deprecated_keys": [DEPRECATED_COUNT_KEY],
         "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
         "drift_detected": drift_detected,
     }
@@ -185,10 +194,10 @@ def load_ownership(repo_root: Path) -> OwnershipMap | None:
     return OwnershipMap(paths=paths, last_analyzed=last_analyzed)
 
 
-def _serialize_path(po: PathOwnership) -> dict[str, Any]:
+def _serialize_path(po: PathOwnership, cap: int) -> dict[str, Any]:
     return {
         "owners": [_serialize_owner(o) for o in po.owners],
-        "bus_factor": po.bus_factor,
+        **qualified_owner_count_fields(po.qualified_owner_count, cap),
         "decay_warnings": [_serialize_decay(w) for w in po.decay_warnings],
     }
 
@@ -217,13 +226,23 @@ def _serialize_decay(warning: DecayWarning) -> dict[str, Any]:
 
 def _serialize_bus_factor_summary(
     entries: tuple[BusFactor, ...],
+    cap: int,
 ) -> dict[str, Any]:
-    critical_paths = sorted(e.path for e in entries if e.bus_factor <= 1)
-    repo_average = round(sum(e.bus_factor for e in entries) / len(entries), 2) if entries else 0.0
+    critical_paths = sorted(e.path for e in entries if e.qualified_owner_count <= 1)
+    repo_average = (
+        round(sum(e.qualified_owner_count for e in entries) / len(entries), 2) if entries else 0.0
+    )
+    serialized_entries: list[dict[str, Any]] = []
+    for entry in entries:
+        row = asdict(entry)
+        row.update(qualified_owner_count_fields(entry.qualified_owner_count, cap))
+        serialized_entries.append(row)
     return {
         "critical_paths": critical_paths,
         "repo_average": repo_average,
-        "entries": [asdict(e) for e in entries],
+        "qualified_owner_count_cap": cap,
+        "deprecated_keys": [DEPRECATED_COUNT_KEY],
+        "entries": serialized_entries,
     }
 
 
@@ -238,7 +257,7 @@ def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:
         deserialized = _deserialize_owner(entry)
         if deserialized is not None:
             owners.append(deserialized)
-    bus_factor = int(raw.get("bus_factor", 0))
+    qualified_owner_count = _read_qualified_owner_count(raw)
     raw_decay = raw.get("decay_warnings", [])
     decay_warnings: list[DecayWarning] = []
     if isinstance(raw_decay, list):
@@ -249,9 +268,16 @@ def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:
                     decay_warnings.append(deserialized_warning)
     return PathOwnership(
         owners=tuple(owners),
-        bus_factor=bus_factor,
+        qualified_owner_count=qualified_owner_count,
         decay_warnings=tuple(decay_warnings),
     )
+
+
+def _read_qualified_owner_count(raw: dict[str, Any]) -> int:
+    raw_count = raw.get("qualified_owner_count", raw.get("bus_factor", 0))
+    if isinstance(raw_count, bool) or not isinstance(raw_count, int):
+        return 0
+    return raw_count
 
 
 def _deserialize_owner(raw: dict[str, Any]) -> OwnerEntry | None:

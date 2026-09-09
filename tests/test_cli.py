@@ -35,11 +35,11 @@ _OWNERSHIP = OwnershipMap(
     paths={
         "src/main.py": PathOwnership(
             owners=(_entry("alice@example.com", 0.92), _entry("bob@example.com", 0.55)),
-            bus_factor=2,
+            qualified_owner_count=2,
         ),
         "src/auth.py": PathOwnership(
             owners=(_entry("dave@example.com", 0.34),),
-            bus_factor=1,
+            qualified_owner_count=1,
             decay_warnings=(
                 DecayWarning(
                     handle="dave@example.com",
@@ -63,7 +63,7 @@ _DRIFT_DETECTED = DriftResult(
             path="/new.py",
             confidence_delta=0.7,
             reason="missing",
-            bus_factor=1,
+            qualified_owner_count=1,
             decay=True,
         ),
     ),
@@ -98,6 +98,11 @@ def test_analyze_json() -> None:
     owners = data["inferred"]["src/main.py"]["owners"]
     assert owners[0]["handle"] == "alice@example.com"
     assert owners[0]["confidence"] == 0.92
+    path_data = data["inferred"]["src/main.py"]
+    assert path_data["qualified_owner_count"] == 2
+    assert path_data["bus_factor"] == 2
+    assert path_data["qualified_owner_count_cap"] == 3
+    assert data["deprecated_keys"] == ["bus_factor"]
 
 
 def test_analyze_table() -> None:
@@ -161,7 +166,9 @@ def test_print_json() -> None:
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert "src/main.py" in data
+    assert data["src/main.py"]["qualified_owner_count"] == 2
     assert data["src/main.py"]["bus_factor"] == 2
+    assert data["src/main.py"]["qualified_owner_count_cap"] == 3
 
 
 def test_print_plain_shows_confidence() -> None:
@@ -377,6 +384,8 @@ def test_github_action_no_fail_flag(tmp_path: Path) -> None:
     data = json.loads(result.stdout)
     assert data["checkowners_drift"]["drift_detected"] is True
     assert "bus_factor_summary" in data
+    assert data["bus_factor_summary"]["deprecated_keys"] == ["bus_factor"]
+    assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
     assert "decay_summary" in data
 
 
@@ -402,7 +411,7 @@ _TREND_REPORT = TrendReport(
             active_contributors=2,
             tracked_paths=3,
             avg_top_confidence=0.6,
-            avg_bus_factor=1.5,
+            avg_qualified_owner_count=1.5,
         ),
         TrendPoint(
             period_end=datetime(2026, 5, 1, tzinfo=UTC),
@@ -410,7 +419,7 @@ _TREND_REPORT = TrendReport(
             active_contributors=3,
             tracked_paths=4,
             avg_top_confidence=0.72,
-            avg_bus_factor=1.8,
+            avg_qualified_owner_count=1.8,
         ),
     ),
     periods=2,
@@ -434,6 +443,10 @@ def test_trends_json() -> None:
     assert data["periods"] == 2
     assert data["points"][1]["avg_top_confidence"] == 0.72
     assert data["points"][0]["active_contributors"] == 2
+    assert data["points"][1]["avg_qualified_owner_count"] == 1.8
+    assert data["points"][1]["avg_bus_factor"] == 1.8
+    assert data["deprecated_keys"] == ["avg_bus_factor"]
+    assert data["qualified_owner_count_cap"] == 3
 
 
 # --- version / identity merge ---

@@ -15,7 +15,7 @@ DIAGNOSTIC = (
 MAX_RISK_PATHS = 8
 MAX_PATH_DISPLAY = 80
 SOLO_LINE = "One human contributor has qualified ownership. Single-owner paths are expected here."
-OUTPUT_SCHEMA_VERSION = 1
+OUTPUT_SCHEMA_VERSION = 2
 DEFAULT_MAX_OUTPUT_ENTRIES = 50
 DEFAULT_ARTIFACT_NAME = "checkowners-reports"
 T = TypeVar("T")
@@ -244,7 +244,7 @@ def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
 
 
 def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, object]:
-    """Build a bounded bus-factor summary from full CLI bus-factor JSON (`data`, `limit`)."""
+    """Build a bounded qualified-owner summary from full CLI JSON (`data`, `limit`)."""
     entries = _bus_entries(data)
     counts = {"critical": 0, "warning": 0, "ok": 0, "entries": len(entries)}
     for entry in entries:
@@ -257,9 +257,14 @@ def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, objec
     else:
         paths = []
     trimmed_paths, paths_cut = _trim(paths, limit)
+    cap = data.get("qualified_owner_count_cap")
+    if not isinstance(cap, int) or isinstance(cap, bool):
+        cap = 3
     return {
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "repo_average": data.get("repo_average"),
+        "qualified_owner_count_cap": cap,
+        "deprecated_keys": ["bus_factor"],
         "counts": counts,
         "critical_paths": trimmed_paths,
         "truncated": paths_cut or bool(entries),

@@ -25,7 +25,15 @@ from rich.table import Table
 from checkowners import __version__
 from checkowners.analyze import ReviewProvider, analyze_ownership
 from checkowners.balance import BalanceReport, analyze_balance
-from checkowners.busfactor import BusFactorReport, classify, compute_bus_factor
+from checkowners.busfactor import (
+    DEPRECATED_AVG_COUNT_KEY,
+    DEPRECATED_COUNT_KEY,
+    BusFactorReport,
+    classify,
+    compute_qualified_owners,
+    format_qualified_owner_count,
+    qualified_owner_count_fields,
+)
 from checkowners.config import find_codeowners_path, load_config
 from checkowners.decay import DecayReport, detect_decay
 from checkowners.drift import detect_drift
@@ -113,9 +121,9 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
     Handle resolution works even without a token (noreply emails parse
     locally; prior lookups come from the on-disk cache). When two commit
     emails resolve to the same @handle they are one person: their entries
-    merge and the path's bus factor is recomputed over distinct identities,
-    so one owner with two emails can no longer masquerade as a bus factor
-    of two.
+    merge and the path's qualified owner count is recomputed over distinct
+    identities, so one owner with two emails can no longer masquerade as
+    two qualified owners.
     """
     if not config.github.resolve_handles:
         return ownership
@@ -140,10 +148,12 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
             )
             for w in po.decay_warnings
         )
-        bus_factor = sum(1 for e in merged if e.confidence >= config.analysis.confidence_threshold)
+        qualified_owner_count = sum(
+            1 for e in merged if e.confidence >= config.analysis.confidence_threshold
+        )
         new_paths[path] = PathOwnership(
             owners=merged,
-            bus_factor=bus_factor,
+            qualified_owner_count=qualified_owner_count,
             decay_warnings=decay_warnings,
         )
     return OwnershipMap(paths=new_paths, last_analyzed=ownership.last_analyzed)
@@ -196,10 +206,10 @@ def _owner_payload(owner: OwnerEntry) -> dict[str, Any]:
     }
 
 
-def _path_payload(po: PathOwnership) -> dict[str, Any]:
-    return {
+def _path_payload(po: PathOwnership, cap: int) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "owners": [_owner_payload(o) for o in po.owners],
-        "bus_factor": po.bus_factor,
+        **qualified_owner_count_fields(po.qualified_owner_count, cap),
         "decay_warnings": [
             {
                 "handle": w.handle,
@@ -210,29 +220,30 @@ def _path_payload(po: PathOwnership) -> dict[str, Any]:
             for w in po.decay_warnings
         ],
     }
+    return payload
 
 
-def _drift_entry_payload(entry: DriftEntry) -> dict[str, Any]:
+def _drift_entry_payload(entry: DriftEntry, cap: int) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "path": entry.path,
         "confidence_delta": round(entry.confidence_delta, 4),
         "reason": entry.reason,
     }
-    if entry.bus_factor is not None:
-        payload["bus_factor"] = entry.bus_factor
+    if entry.qualified_owner_count is not None:
+        payload.update(qualified_owner_count_fields(entry.qualified_owner_count, cap))
     if entry.decay:
         payload["decay"] = entry.decay
     return payload
 
 
-def _render_ownership_table(ownership: OwnershipMap) -> None:
+def _render_ownership_table(ownership: OwnershipMap, cap: int) -> None:
     if not ownership.paths:
         console.print("[yellow]No ownership data inferred.[/yellow]")
         return
     table = Table(title="Inferred Ownership")
     table.add_column("Path", style="cyan")
     table.add_column("Owners (confidence)", style="white")
-    table.add_column("Bus", justify="right")
+    table.add_column("Qualified owners", justify="right")
     table.add_column("Decay", justify="right")
     for path in sorted(ownership.paths):
         po = ownership.paths[path]
@@ -240,11 +251,11 @@ def _render_ownership_table(ownership: OwnershipMap) -> None:
             f"[{_confidence_style(o.confidence)}]{escape(o.handle)} ({o.confidence:.2f})[/]"
             for o in po.owners
         )
-        bus = str(po.bus_factor)
-        if po.bus_factor <= 1:
-            bus = f"[red]{bus}[/red]"
+        count = format_qualified_owner_count(po.qualified_owner_count, cap)
+        if po.qualified_owner_count <= 1:
+            count = f"[red]{count}[/red]"
         decay = str(len(po.decay_warnings)) if po.decay_warnings else "-"
-        table.add_row(escape(path), owners_str, bus, decay)
+        table.add_row(escape(path), owners_str, count, decay)
     console.print(table)
 
 
@@ -308,7 +319,11 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
         console.print(f"[red]Git command failed:[/red] {exc}")
         raise typer.Exit(code=1) from None
     ownership = _resolve_github_owners(ownership, config)
-    write_state(repo_root, ownership)
+    write_state(
+        repo_root,
+        ownership,
+        qualified_owner_count_cap=config.analysis.top_n_owners,
+    )
     return ownership
 
 
@@ -340,14 +355,16 @@ def analyze(json_output: JsonOption = False) -> None:
     """Analyze git history to infer confidence-scored ownership."""
     config = load_config()
     ownership = _run_analyze(config, Path.cwd())
+    cap = config.analysis.top_n_owners
     if json_output:
         data = {
-            "inferred": {path: _path_payload(po) for path, po in ownership.paths.items()},
+            "inferred": {path: _path_payload(po, cap) for path, po in ownership.paths.items()},
             "last_analyzed": ownership.last_analyzed.isoformat(),
+            "deprecated_keys": [DEPRECATED_COUNT_KEY],
         }
         typer.echo(json.dumps(data, indent=2))
     else:
-        _render_ownership_table(ownership)
+        _render_ownership_table(ownership, cap)
 
 
 ForceOption = Annotated[
@@ -402,8 +419,9 @@ def print_cmd(json_output: JsonOption = False) -> None:
     """Print inferred ownership to stdout."""
     config = load_config()
     ownership = _run_analyze(config, Path.cwd())
+    cap = config.analysis.top_n_owners
     if json_output:
-        data = {path: _path_payload(po) for path, po in sorted(ownership.paths.items())}
+        data = {path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())}
         typer.echo(json.dumps(data, indent=2))
     else:
         for path in sorted(ownership.paths):
@@ -450,8 +468,8 @@ def _render_drift_table(result: DriftResult) -> None:
             escape(entry.reason),
         )
     for entry in result.missing:
-        bf_low = entry.bus_factor is not None and entry.bus_factor <= 1
-        flag = " [red](bf=1)[/red]" if bf_low else ""
+        count_low = entry.qualified_owner_count is not None and entry.qualified_owner_count <= 1
+        flag = " [red](qualified_owner_count=1)[/red]" if count_low else ""
         decay = " [magenta](decay)[/magenta]" if entry.decay else ""
         table.add_row(
             "[yellow]missing[/yellow]",
@@ -478,15 +496,17 @@ def drift(json_output: JsonOption = False) -> None:
     ownership = _run_analyze(config, repo_root)
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
     severity = compute_severity(result, config)
+    cap = config.analysis.top_n_owners
     if json_output:
         data = {
-            "stale": [_drift_entry_payload(e) for e in result.stale],
-            "missing": [_drift_entry_payload(e) for e in result.missing],
-            "changed": [_drift_entry_payload(e) for e in result.changed],
+            "stale": [_drift_entry_payload(e, cap) for e in result.stale],
+            "missing": [_drift_entry_payload(e, cap) for e in result.missing],
+            "changed": [_drift_entry_payload(e, cap) for e in result.changed],
             "drift_detected": result.drift_detected,
             "severity": severity,
             "max_confidence_delta": round(result.max_confidence_delta, 4),
             "notes": list(result.notes),
+            "deprecated_keys": [DEPRECATED_COUNT_KEY],
         }
         typer.echo(json.dumps(data, indent=2))
         return
@@ -627,28 +647,29 @@ def github_action(
     ] = True,
     json_output: JsonOption = False,
 ) -> None:
-    """Run the full CI flow (drift + bus factor + decay) and write GITHUB_OUTPUT."""
+    """Run the full CI flow (drift + qualified owners + decay) and write GITHUB_OUTPUT."""
     config = load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
+    cap = config.analysis.top_n_owners
 
-    # detect_drift writes the `checkowners_drift` key to GITHUB_OUTPUT itself.
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
     severity = compute_severity(result, config)
-    bus_report = compute_bus_factor(ownership, config, target=None)
+    owners_report = compute_qualified_owners(ownership, config, target=None)
     decay_reports = detect_decay(ownership, config)
 
     drift_payload = {
         "drift_detected": result.drift_detected,
         "severity": severity,
         "max_confidence_delta": round(result.max_confidence_delta, 4),
-        "stale": [_drift_entry_payload(e) for e in result.stale],
-        "missing": [_drift_entry_payload(e) for e in result.missing],
-        "changed": [_drift_entry_payload(e) for e in result.changed],
+        "stale": [_drift_entry_payload(e, cap) for e in result.stale],
+        "missing": [_drift_entry_payload(e, cap) for e in result.missing],
+        "changed": [_drift_entry_payload(e, cap) for e in result.changed],
         "notes": list(result.notes),
+        "deprecated_keys": [DEPRECATED_COUNT_KEY],
     }
-    bus_payload = _bus_factor_payload(bus_report, config)
+    bus_payload = _qualified_owners_payload(owners_report, config)
     decay_payload = {"reports": [_decay_report_payload(r) for r in decay_reports]}
 
     _write_github_outputs(
@@ -674,7 +695,7 @@ def github_action(
         console.print(
             f"[bold]drift:[/bold] {result.drift_detected} "
             f"([{_severity_style(severity)}]{severity}[/]) "
-            f"· critical paths: {len(bus_report.critical_paths)} "
+            f"· critical paths: {len(owners_report.critical_paths)} "
             f"· decay warnings: {len(decay_reports)}"
         )
 
@@ -773,7 +794,65 @@ def decay(json_output: JsonOption = False) -> None:
     console.print(table)
 
 
-@app.command(name="bus-factor")
+def _qualified_owners_impl(
+    path: str | None,
+    all_paths: bool,
+    json_output: bool,
+) -> None:
+    if path is None and not all_paths:
+        console.print("[yellow]Specify a path or pass --all to report every path.[/yellow]")
+        raise typer.Exit(code=1)
+    config = load_config()
+    ownership = _load_or_analyze(config, Path.cwd())
+    target = path if path else None
+    report = compute_qualified_owners(ownership, config, target=target)
+    if json_output:
+        data = _qualified_owners_payload(report, config)
+        typer.echo(json.dumps(data, indent=2))
+        return
+    if not report.entries:
+        console.print("[yellow]No paths matched.[/yellow]")
+        return
+    cap = report.qualified_owner_count_cap
+    table = Table(title="Qualified owners")
+    table.add_column("Path", style="cyan")
+    table.add_column("Qualified owners", justify="right")
+    table.add_column("Tier")
+    table.add_column("Owners")
+    table.add_column("Recommended backups")
+    for entry in report.entries:
+        tier = classify(entry.qualified_owner_count, config.bus_factor)
+        owners = ", ".join(entry.contributors_above_threshold) or "-"
+        backups = ", ".join(entry.recommended_backups) or "-"
+        tier_str = {
+            "critical": "[red]CRITICAL[/red]",
+            "warning": "[yellow]WARN[/yellow]",
+            "ok": "[green]OK[/green]",
+        }[tier]
+        count = format_qualified_owner_count(entry.qualified_owner_count, cap)
+        table.add_row(escape(entry.path), count, tier_str, escape(owners), escape(backups))
+    console.print(table)
+    console.print(
+        f"[dim]repo average qualified_owner_count: {report.repo_average:.2f} "
+        f"(capped by top_n_owners={cap})[/dim]"
+    )
+
+
+def qualified_owners(
+    path: Annotated[
+        str | None,
+        typer.Argument(help="Path (or glob) to limit the report to."),
+    ] = None,
+    all_paths: Annotated[
+        bool,
+        typer.Option("--all", help="Report every path in the repo."),
+    ] = False,
+    json_output: JsonOption = False,
+) -> None:
+    """Count owners above the confidence threshold, capped by top_n_owners."""
+    _qualified_owners_impl(path, all_paths, json_output)
+
+
 def bus_factor(
     path: Annotated[
         str | None,
@@ -785,51 +864,25 @@ def bus_factor(
     ] = False,
     json_output: JsonOption = False,
 ) -> None:
-    """Calculate the bus factor for each path."""
-    if path is None and not all_paths:
-        console.print("[yellow]Specify a path or pass --all to report every path.[/yellow]")
-        raise typer.Exit(code=1)
-    config = load_config()
-    ownership = _load_or_analyze(config, Path.cwd())
-    target = path if path else None
-    report = compute_bus_factor(ownership, config, target=target)
-    if json_output:
-        data = _bus_factor_payload(report, config)
-        typer.echo(json.dumps(data, indent=2))
-        return
-    if not report.entries:
-        console.print("[yellow]No paths matched.[/yellow]")
-        return
-    table = Table(title="Bus Factor")
-    table.add_column("Path", style="cyan")
-    table.add_column("BF", justify="right")
-    table.add_column("Tier")
-    table.add_column("Owners")
-    table.add_column("Recommended backups")
-    for entry in report.entries:
-        tier = classify(entry.bus_factor, config.bus_factor)
-        owners = ", ".join(entry.contributors_above_threshold) or "-"
-        backups = ", ".join(entry.recommended_backups) or "-"
-        tier_str = {
-            "critical": "[red]CRITICAL[/red]",
-            "warning": "[yellow]WARN[/yellow]",
-            "ok": "[green]OK[/green]",
-        }[tier]
-        table.add_row(
-            escape(entry.path), str(entry.bus_factor), tier_str, escape(owners), escape(backups)
-        )
-    console.print(table)
-    console.print(f"[dim]repo average bus factor: {report.repo_average:.2f}[/dim]")
+    """Deprecated alias of qualified-owners. The name will be redefined."""
+    _qualified_owners_impl(path, all_paths, json_output)
 
 
-def _bus_factor_payload(report: BusFactorReport, config: Config) -> dict[str, Any]:
+app.command(name="qualified-owners")(qualified_owners)
+app.command(name="bus-factor")(bus_factor)
+
+
+def _qualified_owners_payload(report: BusFactorReport, config: Config) -> dict[str, Any]:
+    cap = report.qualified_owner_count_cap
     return {
         "repo_average": report.repo_average,
+        "qualified_owner_count_cap": cap,
+        "deprecated_keys": [DEPRECATED_COUNT_KEY],
         "entries": [
             {
                 "path": entry.path,
-                "bus_factor": entry.bus_factor,
-                "tier": classify(entry.bus_factor, config.bus_factor),
+                **qualified_owner_count_fields(entry.qualified_owner_count, cap),
+                "tier": classify(entry.qualified_owner_count, config.bus_factor),
                 "contributors_above_threshold": list(entry.contributors_above_threshold),
                 "recommended_backups": list(entry.recommended_backups),
             }
@@ -1040,14 +1093,16 @@ def expertise(
     console.print(table)
 
 
-def _trend_point_payload(point: TrendPoint) -> dict[str, Any]:
+def _trend_point_payload(point: TrendPoint, cap: int) -> dict[str, Any]:
     return {
         "period_end": point.period_end.date().isoformat(),
         "commits": point.commits,
         "active_contributors": point.active_contributors,
         "tracked_paths": point.tracked_paths,
         "avg_top_confidence": point.avg_top_confidence,
-        "avg_bus_factor": point.avg_bus_factor,
+        "avg_qualified_owner_count": point.avg_qualified_owner_count,
+        "avg_bus_factor": point.avg_qualified_owner_count,
+        "qualified_owner_count_cap": cap,
     }
 
 
@@ -1063,8 +1118,9 @@ def trends(
     ] = 30,
     json_output: JsonOption = False,
 ) -> None:
-    """Show how ownership confidence and bus factor have evolved over time."""
+    """Show how ownership confidence and qualified owner count have evolved."""
     config = load_config()
+    cap = config.analysis.top_n_owners
     try:
         report = analyze_trends(Path.cwd(), config, periods=periods, period_days=period_days)
     except subprocess.CalledProcessError as exc:
@@ -1074,7 +1130,9 @@ def trends(
         data = {
             "periods": report.periods,
             "period_days": report.period_days,
-            "points": [_trend_point_payload(p) for p in report.points],
+            "qualified_owner_count_cap": cap,
+            "deprecated_keys": [DEPRECATED_AVG_COUNT_KEY],
+            "points": [_trend_point_payload(p, cap) for p in report.points],
         }
         typer.echo(json.dumps(data, indent=2))
         return
@@ -1087,7 +1145,7 @@ def trends(
     table.add_column("Contributors", justify="right")
     table.add_column("Tracked paths", justify="right")
     table.add_column("Avg top conf.", justify="right")
-    table.add_column("Avg bus factor", justify="right")
+    table.add_column("Avg qualified owners", justify="right")
     for point in report.points:
         table.add_row(
             point.period_end.date().isoformat(),
@@ -1095,7 +1153,7 @@ def trends(
             str(point.active_contributors),
             str(point.tracked_paths),
             f"[{_confidence_style(point.avg_top_confidence)}]{point.avg_top_confidence:.2f}[/]",
-            f"{point.avg_bus_factor:.2f}",
+            f"{point.avg_qualified_owner_count:.2f} (capped by top_n_owners={cap})",
         )
     console.print(table)
 

@@ -25,7 +25,8 @@ def _entry(handle: str, confidence: float, commits: int = 5) -> OwnerEntry:
 def _ownership(raw: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
     return OwnershipMap(
         paths={
-            p: PathOwnership(owners=owners, bus_factor=len(owners)) for p, owners in raw.items()
+            p: PathOwnership(owners=owners, qualified_owner_count=len(owners))
+            for p, owners in raw.items()
         },
         last_analyzed=_NOW,
     )

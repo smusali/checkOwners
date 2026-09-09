@@ -206,11 +206,13 @@ The action always writes the full report to the job summary. That needs no extra
 
 If `comment_on_pr` stays `"true"` under read-only workflow permissions, the comment step warns (`Grant 'pull-requests: write' or set comment_on_pr: false`) and does not fail the job. Set `comment_on_pr: false` to skip the attempt.
 
-`checkowners drift --json` writes `checkowners_drift` to `GITHUB_OUTPUT` with `drift_detected`, `max_confidence_delta`, `severity`, `notes`, and per-entry `bus_factor` / `decay` flags so workflows can label PRs, comment, or fail required checks.
+The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_version: 1`) so workflow gates stay under GitHub's 1 MB per-output cap. Existing `fromJson(...)` checks keep working: `checkowners_drift.drift_detected`, `checkowners_drift.severity`, and `bus_factor_summary.critical_paths[0]`. Each summary includes `counts` and `truncated`. Drift still carries `notes` plus the top `missing` / `stale` / `changed` entries (with per-entry `bus_factor` / `decay` flags). Bus-factor `entries` are omitted from the output; the full lists live in the uploaded artifact.
+
+Set `max_output_entries` (default `50`) to cap each list in those summaries. Workflows that need every entry should `actions/download-artifact` using the `artifact_name` output (`checkowners-reports`) and branch on `schema_version`.
 
 The composite action exports `GITHUB_TOKEN` on every CLI step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
 
-The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `include_bus_factor` / `include_decay` toggles for the secondary outputs, and `comment_on_pr` (default `"true"`) which maintains a single drift + bus-factor summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears.
+The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + bus-factor summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears.
 
 The action fails fast with a clear error when it detects a shallow clone: `git log` and `git blame` need history, so the `actions/checkout` step must set `fetch-depth: 0`.
 

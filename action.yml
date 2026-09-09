@@ -24,6 +24,13 @@ inputs:
     description: Emit the decay_summary output.
     required: false
     default: "true"
+  max_output_entries:
+    description: >-
+      Maximum entries per list in GITHUB_OUTPUT summaries (missing, stale,
+      changed, notes, critical_paths, reports). Full payloads are uploaded
+      as an artifact. Default 50 keeps each output well under the 1 MB cap.
+    required: false
+    default: "50"
   fail_on_drift:
     description: Fail the action when drift_detected is true.
     required: false
@@ -77,14 +84,25 @@ inputs:
 
 outputs:
   checkowners_drift:
-    description: JSON payload of the drift report.
-    value: ${{ steps.run.outputs.checkowners_drift }}
+    description: >-
+      Bounded JSON drift summary (schema_version 1): drift_detected, severity,
+      max_confidence_delta, notes, counts, top entries, and truncated.
+      Full drift.json is in the uploaded artifact.
+    value: ${{ steps.summary.outputs.checkowners_drift }}
   bus_factor_summary:
-    description: JSON payload listing per-path bus factors and critical paths.
-    value: ${{ steps.bus_factor.outputs.bus_factor_summary }}
+    description: >-
+      Bounded JSON bus-factor summary (schema_version 1): repo_average,
+      counts, critical_paths, and truncated. Per-path entries are omitted
+      here and live in the uploaded artifact.
+    value: ${{ steps.summary.outputs.bus_factor_summary }}
   decay_summary:
-    description: JSON payload listing decaying ownership entries.
-    value: ${{ steps.decay.outputs.decay_summary }}
+    description: >-
+      Bounded JSON decay summary (schema_version 1): counts, top reports,
+      and truncated. Full decay.json is in the uploaded artifact.
+    value: ${{ steps.summary.outputs.decay_summary }}
+  artifact_name:
+    description: Name of the uploaded artifact that holds the full JSON payloads.
+    value: ${{ steps.summary.outputs.artifact_name }}
 
 runs:
   using: composite
@@ -189,15 +207,7 @@ runs:
         CHECKOWNERS_DRIFT_MODE: ${{ inputs.mode }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
-        checkowners drift --json > drift.json
-        {
-          echo "checkowners_drift<<EOF"
-          cat drift.json
-          echo
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
-        # Also publish the same as the historical key used by older workflows.
-        cat drift.json
+        env -u GITHUB_OUTPUT checkowners drift --json > drift.json
 
     - name: Compute bus factor summary
       id: bus_factor
@@ -207,13 +217,7 @@ runs:
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
-        checkowners bus-factor --all --json > bus_factor.json
-        {
-          echo "bus_factor_summary<<EOF"
-          cat bus_factor.json
-          echo
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
+        env -u GITHUB_OUTPUT checkowners bus-factor --all --json > bus_factor.json
 
     - name: Compute decay summary
       id: decay
@@ -223,18 +227,28 @@ runs:
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
-        checkowners decay --json > decay.json
-        {
-          echo "decay_summary<<EOF"
-          cat decay.json
-          echo
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
+        env -u GITHUB_OUTPUT checkowners decay --json > decay.json
 
     - name: Render job summary
+      id: summary
       if: ${{ always() }}
       shell: bash
+      env:
+        MAX_OUTPUT_ENTRIES: ${{ inputs.max_output_entries }}
+        CHECKOWNERS_ARTIFACT_NAME: checkowners-reports
       run: python "${GITHUB_ACTION_PATH}/tools/render_job_summary.py"
+
+    - name: Upload checkowners reports
+      if: ${{ always() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.summary.outputs.artifact_name }}
+        path: |
+          drift.json
+          bus_factor.json
+          decay.json
+          checkowners-report.md
+        if-no-files-found: warn
 
     - name: Comment drift summary on PR
       if: ${{ always() && inputs.comment_on_pr == 'true' && github.event_name == 'pull_request' }}

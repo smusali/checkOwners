@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from pathlib import Path
+from typing import TypeVar
 
 REPORT = Path("checkowners-report.md")
 DIAGNOSTIC = (
@@ -12,6 +14,10 @@ DIAGNOSTIC = (
 )
 MAX_RISK_PATHS = 8
 SOLO_LINE = "One human contributor has qualified ownership. Single-owner paths are expected here."
+OUTPUT_SCHEMA_VERSION = 1
+DEFAULT_MAX_OUTPUT_ENTRIES = 50
+DEFAULT_ARTIFACT_NAME = "checkowners-reports"
+T = TypeVar("T")
 
 
 def load(path: str) -> dict[str, object] | None:
@@ -162,6 +168,132 @@ def _decay_lines(decay: dict[str, object] | None) -> list[str]:
     return lines
 
 
+def _max_output_entries() -> int:
+    raw = os.environ.get("MAX_OUTPUT_ENTRIES", str(DEFAULT_MAX_OUTPUT_ENTRIES))
+    try:
+        value = int(raw)
+    except ValueError:
+        raise SystemExit(f"max_output_entries must be a positive integer, got {raw!r}") from None
+    if value < 1:
+        raise SystemExit(f"max_output_entries must be a positive integer, got {raw!r}")
+    return value
+
+
+def _trim(items: list[T], limit: int) -> tuple[list[T], bool]:
+    """Return the first `limit` items and whether any were dropped."""
+    if len(items) > limit:
+        return items[:limit], True
+    return items, False
+
+
+def _as_list(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
+def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
+    """Build a bounded drift summary from full CLI drift JSON (`data`, `limit`)."""
+    missing = _as_list(data.get("missing"))
+    stale = _as_list(data.get("stale"))
+    changed = _as_list(data.get("changed"))
+    notes = _as_list(data.get("notes"))
+    trimmed_missing, missing_cut = _trim(missing, limit)
+    trimmed_stale, stale_cut = _trim(stale, limit)
+    trimmed_changed, changed_cut = _trim(changed, limit)
+    trimmed_notes, notes_cut = _trim(notes, limit)
+    return {
+        "schema_version": OUTPUT_SCHEMA_VERSION,
+        "drift_detected": bool(data.get("drift_detected")),
+        "severity": data.get("severity"),
+        "max_confidence_delta": data.get("max_confidence_delta"),
+        "notes": trimmed_notes,
+        "counts": {
+            "missing": len(missing),
+            "stale": len(stale),
+            "changed": len(changed),
+        },
+        "missing": trimmed_missing,
+        "stale": trimmed_stale,
+        "changed": trimmed_changed,
+        "truncated": missing_cut or stale_cut or changed_cut or notes_cut,
+    }
+
+
+def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, object]:
+    """Build a bounded bus-factor summary from full CLI bus-factor JSON (`data`, `limit`)."""
+    entries = _bus_entries(data)
+    counts = {"critical": 0, "warning": 0, "ok": 0, "entries": len(entries)}
+    for entry in entries:
+        tier = entry.get("tier")
+        if tier in ("critical", "warning", "ok"):
+            counts[tier] += 1
+    raw_paths = data.get("critical_paths")
+    if isinstance(raw_paths, list):
+        paths = [path for path in raw_paths if isinstance(path, str)]
+    else:
+        paths = []
+    trimmed_paths, paths_cut = _trim(paths, limit)
+    return {
+        "schema_version": OUTPUT_SCHEMA_VERSION,
+        "repo_average": data.get("repo_average"),
+        "counts": counts,
+        "critical_paths": trimmed_paths,
+        "truncated": paths_cut or bool(entries),
+    }
+
+
+def summarize_decay(data: dict[str, object], limit: int) -> dict[str, object]:
+    """Build a bounded decay summary from full CLI decay JSON (`data`, `limit`)."""
+    reports = _decay_reports(data)
+    trimmed, cut = _trim(reports, limit)
+    return {
+        "schema_version": OUTPUT_SCHEMA_VERSION,
+        "counts": {"reports": len(reports)},
+        "reports": trimmed,
+        "truncated": cut,
+    }
+
+
+def _write_multiline_output(name: str, payload: str) -> None:
+    """Append `name` / `payload` to GITHUB_OUTPUT with a random delimiter."""
+    output_file = os.environ.get("GITHUB_OUTPUT")
+    if not output_file:
+        return
+    delim = f"ghadelim_{secrets.token_hex(16)}"
+    while f"\n{delim}\n" in f"\n{payload}\n":
+        delim = f"ghadelim_{secrets.token_hex(16)}"
+    with Path(output_file).open("a", encoding="utf-8") as fh:
+        fh.write(f"{name}<<{delim}\n")
+        fh.write(payload)
+        fh.write(f"\n{delim}\n")
+
+
+def publish_outputs() -> None:
+    limit = _max_output_entries()
+    artifact = os.environ.get("CHECKOWNERS_ARTIFACT_NAME", DEFAULT_ARTIFACT_NAME)
+    _write_multiline_output("artifact_name", artifact)
+
+    drift = load("drift.json")
+    if drift is not None:
+        _write_multiline_output(
+            "checkowners_drift",
+            json.dumps(summarize_drift(drift, limit), separators=(",", ":")),
+        )
+
+    bus = load("bus_factor.json")
+    if bus is not None:
+        _write_multiline_output(
+            "bus_factor_summary",
+            json.dumps(summarize_bus_factor(bus, limit), separators=(",", ":")),
+        )
+
+    decay = load("decay.json")
+    if decay is not None:
+        _write_multiline_output(
+            "decay_summary",
+            json.dumps(summarize_decay(decay, limit), separators=(",", ":")),
+        )
+
+
 def knowledge_risk_lines(
     bus: dict[str, object] | None,
     decay: dict[str, object] | None,
@@ -240,6 +372,7 @@ def main() -> int:
                 fh.write(text)
     except OSError:
         pass
+    publish_outputs()
     return 0
 
 

@@ -9,6 +9,10 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 ## [Unreleased]
 
 ### Added
+- Composite Action input `max_output_entries` (default 50) caps each list
+  in the `GITHUB_OUTPUT` summaries. Full `drift.json`, `bus_factor.json`,
+  and `decay.json` payloads are uploaded as the `checkowners-reports`
+  artifact, exposed via the `artifact_name` output.
 - The composite Action always writes the drift, bus-factor, and decay
   report to the job summary, including when the drift step fails.
 - Third-party GitHub Actions are pinned to full commit SHAs. Dependabot
@@ -23,6 +27,9 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   or lockfile disagree with each other (or with the release tag).
 
 ### Fixed
+- Composite Action multiline `GITHUB_OUTPUT` writes use a random
+  `ghadelim_` delimiter instead of a static `EOF`, so a path, note, or
+  reason equal to `EOF` can no longer truncate or inject outputs.
 - The composite Action no longer installs an unpinned latest package from
   PyPI. `uses: smusali/checkowners@vX.Y.Z` now installs `checkowners==X.Y.Z`.
 - `install_spec` dogfood installs use pip's isolated build env so hatchling
@@ -49,6 +56,11 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   suggested backups instead of saying "bus factor 1".
 
 ### Changed
+- Composite Action outputs `checkowners_drift`, `bus_factor_summary`, and
+  `decay_summary` are now bounded summaries (`schema_version: 1`) with
+  counts and a `truncated` flag, not the full CLI payloads. Bus-factor
+  `entries` are omitted from `GITHUB_OUTPUT`. `fromJson` gates on
+  `drift_detected`, `severity`, and `critical_paths[0]` are unchanged.
 - Project URLs, documentation clone and issue links, the Actions example,
   and the security advisory link now point at this repository.
 - Changelog version dates are the PyPI publication day; the 0.3.0 and 0.5.0

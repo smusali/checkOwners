@@ -17,7 +17,8 @@ def _entry(handle: str, confidence: float, commits: int = 5) -> OwnerEntry:
 def _ownership(raw: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
     return OwnershipMap(
         paths={
-            p: PathOwnership(owners=owners, bus_factor=len(owners)) for p, owners in raw.items()
+            p: PathOwnership(owners=owners, qualified_owner_count=len(owners))
+            for p, owners in raw.items()
         },
         last_analyzed=_NOW,
     )
@@ -114,7 +115,7 @@ def test_path_matches_glob_leading_slash_normalized() -> None:
 
 def test_path_matches_glob_consistent_across_modules() -> None:
     """busfactor and onboard target matching share this exact helper."""
-    from checkowners.busfactor import compute_bus_factor
+    from checkowners.busfactor import compute_qualified_owners
     from checkowners.models import AnalysisConfig, Config
     from checkowners.onboard import generate_onboarding_path
 
@@ -131,7 +132,7 @@ def test_path_matches_glob_consistent_across_modules() -> None:
     ranked_handles = {r.handle for r in rank_expertise(ownership, "controllers")}
     assert ranked_handles == {"@alice", "@bob"}
 
-    bus_report = compute_bus_factor(ownership, config, target="controllers")
+    bus_report = compute_qualified_owners(ownership, config, target="controllers")
     assert {e.path for e in bus_report.entries} == expected
 
     onboarding = generate_onboarding_path(ownership, config, target="controllers")

@@ -25,7 +25,7 @@ def _ownership(raw: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
         paths={
             p: PathOwnership(
                 owners=owners,
-                bus_factor=sum(1 for o in owners if o.confidence >= 0.3),
+                qualified_owner_count=sum(1 for o in owners if o.confidence >= 0.3),
             )
             for p, owners in raw.items()
         },
@@ -109,7 +109,7 @@ def test_generate_onboarding_bus_factor_one_never_easy() -> None:
     )
     report = generate_onboarding_path(ownership, _config(), target="src/payments/")
     assert report.steps
-    # Every path has bus_factor 1 (deep expertise), so nothing may be 'easy'.
+    # Every path has qualified_owner_count 1 (deep expertise), so nothing may be 'easy'.
     for step in report.steps:
         assert step.complexity != "easy"
     # The first third is still the gentlest tier available: medium.

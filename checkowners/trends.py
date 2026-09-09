@@ -2,7 +2,7 @@
 
 Reconstructs the ownership snapshot at the end of each of the last N periods
 from a single ``git log`` pass and reports how concentration, confidence, and
-bus factor have evolved. The snapshot at each period end is cumulative: it uses
+qualified owner count have evolved. The snapshot at each period end is cumulative: it uses
 every fetched commit up to that point, with recency measured relative to that
 period's end. Blame and review factors are not reconstructed historically, so
 the trend confidence uses the recency and frequency factors (renormalized).
@@ -39,7 +39,7 @@ class TrendPoint:
     active_contributors: int
     tracked_paths: int
     avg_top_confidence: float
-    avg_bus_factor: float
+    avg_qualified_owner_count: float
 
 
 @dataclass(frozen=True)
@@ -99,24 +99,26 @@ def _summarize(window: list[_RawCommit], config: Config, as_of: datetime) -> Tre
     total_commits = len(window)
 
     top_confidences: list[float] = []
-    bus_factors: list[int] = []
+    qualified_owner_counts: list[int] = []
     for authors in contributions.values():
         owners = _score_path(authors, config, as_of)
         if not owners:
             continue
         top_confidences.append(owners[0])
-        bus_factors.append(sum(1 for c in owners if c >= config.analysis.confidence_threshold))
+        qualified_owner_counts.append(
+            sum(1 for c in owners if c >= config.analysis.confidence_threshold)
+        )
 
     tracked = len(top_confidences)
     avg_conf = round(sum(top_confidences) / tracked, 4) if tracked else 0.0
-    avg_bus = round(sum(bus_factors) / tracked, 2) if tracked else 0.0
+    avg_count = round(sum(qualified_owner_counts) / tracked, 2) if tracked else 0.0
     return TrendPoint(
         period_end=as_of,
         commits=total_commits,
         active_contributors=len(contributors),
         tracked_paths=tracked,
         avg_top_confidence=avg_conf,
-        avg_bus_factor=avg_bus,
+        avg_qualified_owner_count=avg_count,
     )
 
 

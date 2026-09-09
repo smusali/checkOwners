@@ -1,7 +1,7 @@
 name: checkOwners
 description: >-
   Infer CODEOWNERS from git history with confidence scoring, drift detection,
-  bus factor analysis, and expertise decay alerts.
+  qualified owner counts, and expertise decay alerts.
 author: Samir Musali
 branding:
   icon: shield
@@ -37,7 +37,7 @@ inputs:
     default: "true"
   comment_on_pr:
     description: >-
-      Post a drift + bus-factor summary comment on same-repo pull requests.
+      Post a drift + qualified-owners summary comment on same-repo pull requests.
       Requires `pull-requests: write`. Fork pull requests skip the comment
       and write the report to the job summary instead. Set to false to opt
       out.
@@ -85,19 +85,20 @@ inputs:
 outputs:
   checkowners_drift:
     description: >-
-      Bounded JSON drift summary (schema_version 1): drift_detected, severity,
+      Bounded JSON drift summary (schema_version 2): drift_detected, severity,
       max_confidence_delta, notes, counts, top entries, and truncated.
       Full drift.json is in the uploaded artifact.
     value: ${{ steps.summary.outputs.checkowners_drift }}
   bus_factor_summary:
     description: >-
-      Bounded JSON bus-factor summary (schema_version 1): repo_average,
-      counts, critical_paths, and truncated. Per-path entries are omitted
-      here and live in the uploaded artifact.
+      Bounded JSON qualified-owner summary (schema_version 2): repo_average,
+      qualified_owner_count_cap, counts, critical_paths, and truncated.
+      Per-path entries are omitted here and live in the uploaded artifact.
+      bus_factor remains as a deprecated alias inside the full payload.
     value: ${{ steps.summary.outputs.bus_factor_summary }}
   decay_summary:
     description: >-
-      Bounded JSON decay summary (schema_version 1): counts, top reports,
+      Bounded JSON decay summary (schema_version 2): counts, top reports,
       and truncated. Full decay.json is in the uploaded artifact.
     value: ${{ steps.summary.outputs.decay_summary }}
   artifact_name:
@@ -209,7 +210,7 @@ runs:
       run: |
         env -u GITHUB_OUTPUT checkowners drift --json > drift.json
 
-    - name: Compute bus factor summary
+    - name: Compute qualified owner summary
       id: bus_factor
       if: ${{ inputs.include_bus_factor == 'true' }}
       shell: bash
@@ -218,7 +219,7 @@ runs:
         CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
-        env -u GITHUB_OUTPUT checkowners bus-factor --all --json > bus_factor.json
+        env -u GITHUB_OUTPUT checkowners qualified-owners --all --json > bus_factor.json
 
     - name: Compute decay summary
       id: decay

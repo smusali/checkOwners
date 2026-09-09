@@ -10,7 +10,7 @@ flowchart LR
     Analyze --> State[(per-repo state)]
     State --> Generate[generate]
     State --> Drift[drift]
-    State --> Bus[bus-factor]
+    State --> Owners[qualified-owners]
     State --> Decay[decay]
     State --> Topology[topology]
     State --> Balance[balance]
@@ -110,7 +110,7 @@ Commit emails are rewritten to GitHub `@handles` in three stages, cheapest first
 2. **Disk cache** at `~/.checkowners/handles.json`, including remembered misses, so the search API is queried at most once per email.
 3. **GitHub user-search API** (needs `GITHUB_TOKEN` and the `github` extra) for the rest.
 
-When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's bus factor is recomputed over distinct people.
+When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's qualified owner count is recomputed over distinct people.
 
 ## Confidence scoring
 
@@ -134,9 +134,17 @@ flowchart LR
     Filter -->|no| Drop[dropped]
 ```
 
-Weights are configurable under `scoring`. The final score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Bus factor per path is the count of remaining qualified owners.
+Weights are configurable under `scoring`. The final score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
 The blame pass only runs on paths where at least one author reaches `min_commits`, and runs on a thread pool sized to the CPU count; on a 24k-commit production monorepo a full 365-day analyze completes in under two minutes.
+
+## Qualified owner count
+
+`qualified_owner_count` is the number of owners on a path whose confidence is at or above `analysis.confidence_threshold`, taken from the list that has already been truncated to `analysis.top_n_owners` (default 3). Human output always states the cap: `3 (capped by top_n_owners=3)`. JSON emits `qualified_owner_count`, `qualified_owner_count_cap`, and the deprecated `bus_factor` alias for one minor cycle.
+
+This is not truck factor, bus factor, or lottery factor. Those metrics are a removal simulation over a knowledge distribution: the smallest set of contributors whose departure leaves a threshold fraction of files without an owner. CheckOwners does not compute knowledge shares, effective owner count, or TF50/75/90. Raising `top_n_owners` raises the maximum reportable count without any code changing hands. The `bus_factor:` config section still classifies this capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
+
+`checkowners qualified-owners` is the canonical command. `checkowners bus-factor` remains as a deprecated alias; that name will be redefined.
 
 ## Generated CODEOWNERS
 
@@ -158,11 +166,11 @@ The comparison uses real CODEOWNERS pattern semantics (gitignore-style: `*` with
 
 Owner comparison is case-insensitive, and owner-less rules (GitHub's exemption mechanism) count as intentional coverage. When comparison would be meaningless, drift emits a `note` instead of false positives: raw-email inference vs `@handle` rules (set `GITHUB_TOKEN` to resolve handles), and rules owned by `@org/team` (individual inference cannot be compared to a team).
 
-`notify.compute_severity` maps the max confidence delta plus bus-factor / decay flags to a tier:
+`notify.compute_severity` maps the max confidence delta plus qualified-owner / decay flags to a tier:
 
 | Severity | Trigger |
 |----------|---------|
-| `critical` | Any drift entry at or below `bus_factor.critical_threshold`, or `decay = true` |
+| `critical` | Any drift entry at or below `bus_factor.critical_threshold` (applied to `qualified_owner_count`), or `decay = true` |
 | `high` | `max_confidence_delta >= 0.7` |
 | `medium` | `max_confidence_delta >= 0.3` |
 | `low` | otherwise |
@@ -217,13 +225,13 @@ The action always writes the full report to the job summary. That needs no extra
 
 If `comment_on_pr` stays `"true"` under read-only workflow permissions, the comment step warns (`Grant 'pull-requests: write' or set comment_on_pr: false`) and does not fail the job. Set `comment_on_pr: false` to skip the attempt.
 
-The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_version: 1`) so workflow gates stay under GitHub's 1 MB per-output cap. Existing `fromJson(...)` checks keep working: `checkowners_drift.drift_detected`, `checkowners_drift.severity`, and `bus_factor_summary.critical_paths[0]`. Each summary includes `counts` and `truncated`. Drift still carries `notes` plus the top `missing` / `stale` / `changed` entries (with per-entry `bus_factor` / `decay` flags). Bus-factor `entries` are omitted from the output; the full lists live in the uploaded artifact.
+The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_version: 2`) so workflow gates stay under GitHub's 1 MB per-output cap. Existing `fromJson(...)` checks keep working: `checkowners_drift.drift_detected`, `checkowners_drift.severity`, and `bus_factor_summary.critical_paths[0]`. Each summary includes `counts` and `truncated`. The qualified-owner summary also includes `qualified_owner_count_cap` and `deprecated_keys`. Drift still carries `notes` plus the top `missing` / `stale` / `changed` entries (with per-entry `qualified_owner_count` / deprecated `bus_factor` / `decay` flags). Per-path `entries` are omitted from the output; the full lists live in the uploaded artifact.
 
 Set `max_output_entries` (default `50`) to cap each list in those summaries and in the job-summary / PR-comment report. Workflows that need every entry should `actions/download-artifact` using the `artifact_name` output (`checkowners-reports`) and branch on `schema_version`.
 
 The composite action exports `GITHUB_TOKEN` on every CLI step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
 
-The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + bus-factor summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears.
+The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
 
 The action fails fast with a clear error when it detects a shallow clone: `git log` and `git blame` need history, so the `actions/checkout` step must set `fetch-depth: 0`.
 
@@ -240,9 +248,9 @@ Advanced install inputs:
 
 ## How checkowners compares
 
-| Tool | Inference | Confidence | Drift | Bus factor | Decay | Topology | Onboarding |
-|------|-----------|------------|-------|------------|-------|----------|------------|
-| **checkowners** | git log + blame | yes (four-factor) | yes (pattern-aware, delta + severity) | yes (per-path + backups) | yes (transfer suggestions) | yes (inferred + GitHub reconcile) | yes (Markdown checklist) |
+| Tool | Inference | Confidence | Drift | Qualified owners | Decay | Topology | Onboarding |
+|------|-----------|------------|-------|------------------|-------|----------|------------|
+| **checkowners** | git log + blame | yes (four-factor) | yes (pattern-aware, delta + severity) | capped count + backups | yes (transfer suggestions) | yes (inferred + GitHub reconcile) | yes (Markdown checklist) |
 | git-codeowners (PyPI) | no | no | no | no | no | no | no |
 | codeowners-validator (Action) | no | no | no | no | no | no | no |
 | GitHub native CODEOWNERS | no | no | no | no | no | no | no |

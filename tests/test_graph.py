@@ -36,11 +36,11 @@ def _ownership() -> OwnershipMap:
         paths={
             "src/api.py": PathOwnership(
                 owners=(_entry("@alice", 0.9), _entry("@bob", 0.6)),
-                bus_factor=2,
+                qualified_owner_count=2,
             ),
             "src/db.py": PathOwnership(
                 owners=(_entry("@carol", 0.85),),
-                bus_factor=1,
+                qualified_owner_count=1,
             ),
         },
         last_analyzed=_NOW,
@@ -114,7 +114,7 @@ def test_to_dot_escapes_node_ids_and_attribute_values() -> None:
         paths={
             'src/we"ird\\file.py': PathOwnership(
                 owners=(_entry('@ali"ce', 0.9),),
-                bus_factor=1,
+                qualified_owner_count=1,
             ),
         },
         last_analyzed=_NOW,

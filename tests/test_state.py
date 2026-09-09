@@ -56,7 +56,7 @@ def _make_ownership() -> OwnershipMap:
         days_since_last_commit=200,
         historical_confidence=0.4,
     )
-    po = PathOwnership(owners=(owner,), bus_factor=1, decay_warnings=(decay,))
+    po = PathOwnership(owners=(owner,), qualified_owner_count=1, decay_warnings=(decay,))
     return OwnershipMap(paths={"src/auth.py": po}, last_analyzed=_NOW)
 
 
@@ -117,7 +117,7 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     bus_factor = (
         BusFactor(
             path="src/auth.py",
-            bus_factor=1,
+            qualified_owner_count=1,
             contributors_above_threshold=("@alice",),
             recommended_backups=("@bob",),
         ),
@@ -138,7 +138,13 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["topology"]["clusters"][0]["name"] == "backend"
     assert data["bus_factor_summary"]["critical_paths"] == ["src/auth.py"]
     assert data["bus_factor_summary"]["repo_average"] == 1.0
+    assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
+    assert data["deprecated_keys"] == ["bus_factor"]
     assert "src/auth.py" in data["inferred"]
+    inferred = data["inferred"]["src/auth.py"]
+    assert inferred["qualified_owner_count"] == 1
+    assert inferred["bus_factor"] == 1
+    assert inferred["qualified_owner_count_cap"] == 3
 
 
 def test_state_isolated_between_repos(tmp_path: Path, repo: Path) -> None:
@@ -198,7 +204,9 @@ def test_load_ownership_skips_malformed_path(repo: Path) -> None:
                         "commits": 3,
                     }
                 ],
+                "qualified_owner_count": 1,
                 "bus_factor": 1,
+                "qualified_owner_count_cap": 3,
                 "decay_warnings": [],
             },
             "src/bad.py": "garbage",

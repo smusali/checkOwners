@@ -43,7 +43,12 @@ def build_graph(
     nx = _require_networkx()
     graph = nx.Graph()
     for path, po in ownership.paths.items():
-        graph.add_node(_path_node(path), kind="path", bus_factor=po.bus_factor)
+        graph.add_node(
+            _path_node(path),
+            kind="path",
+            qualified_owner_count=po.qualified_owner_count,
+            bus_factor=po.qualified_owner_count,
+        )
         for owner in po.owners:
             graph.add_node(_contrib_node(owner.handle), kind="contributor")
             graph.add_edge(

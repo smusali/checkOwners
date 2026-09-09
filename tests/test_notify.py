@@ -24,7 +24,7 @@ from checkowners.notify import (
 def _drift_with(
     *,
     delta: float = 1.0,
-    bus_factor: int | None = None,
+    qualified_owner_count: int | None = None,
     decay: bool = False,
     detected: bool = True,
 ) -> DriftResult:
@@ -34,7 +34,7 @@ def _drift_with(
         path="/src/main.py",
         confidence_delta=delta,
         reason="test",
-        bus_factor=bus_factor,
+        qualified_owner_count=qualified_owner_count,
         decay=decay,
     )
     return DriftResult(stale=(entry,), missing=(), changed=(), drift_detected=True)
@@ -79,7 +79,7 @@ def test_compute_severity_low_medium_high_critical() -> None:
     assert compute_severity(_drift_with(delta=0.1)) == "low"
     assert compute_severity(_drift_with(delta=0.4)) == "medium"
     assert compute_severity(_drift_with(delta=0.8)) == "high"
-    assert compute_severity(_drift_with(delta=0.8, bus_factor=1)) == "critical"
+    assert compute_severity(_drift_with(delta=0.8, qualified_owner_count=1)) == "critical"
     assert compute_severity(_drift_with(delta=0.1, decay=True)) == "critical"
 
 
@@ -89,11 +89,11 @@ def test_compute_severity_no_drift_is_low() -> None:
 
 def test_compute_severity_uses_configured_critical_threshold() -> None:
     config = Config(bus_factor=BusFactorConfig(critical_threshold=2, warn_threshold=3))
-    # bus_factor=2 is critical under the configured threshold...
-    assert compute_severity(_drift_with(delta=0.1, bus_factor=2), config) == "critical"
+    # qualified_owner_count=2 is critical under the configured threshold...
+    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=2), config) == "critical"
     # ...but not under the default fallback of 1.
-    assert compute_severity(_drift_with(delta=0.1, bus_factor=2)) == "low"
-    assert compute_severity(_drift_with(delta=0.1, bus_factor=1)) == "critical"
+    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=2)) == "low"
+    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=1)) == "critical"
 
 
 def test_send_notification_skips_when_no_drift() -> None:
@@ -182,14 +182,16 @@ def test_send_notification_closes_response() -> None:
 
 
 def test_build_payload_basic() -> None:
-    result = _drift_with(delta=0.6, bus_factor=2)
+    result = _drift_with(delta=0.6, qualified_owner_count=2)
     config = Config()
     payload = _build_payload(result, "medium", config)
     assert payload["drift_detected"] is True
     assert payload["severity"] == "medium"
     assert payload["max_confidence_delta"] == 0.6
     assert payload["stale"][0]["path"] == "/src/main.py"
+    assert payload["stale"][0]["qualified_owner_count"] == 2
     assert payload["stale"][0]["bus_factor"] == 2
+    assert payload["stale"][0]["qualified_owner_count_cap"] == 3
     assert "include_unchanged" not in payload
 
 
@@ -207,7 +209,7 @@ def test_send_notification_critical_signal_overrides_low_delta() -> None:
             severity_threshold="critical",
         ),
     )
-    drift = _drift_with(delta=0.05, bus_factor=1)
+    drift = _drift_with(delta=0.05, qualified_owner_count=1)
     captured: list[bytes] = []
 
     def _capture(req: urllib.request.Request, timeout: float) -> MagicMock:

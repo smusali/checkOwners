@@ -67,6 +67,14 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   `GITHUB_OUTPUT`) are documented with their precedence over the config file.
 
 ### Changed
+- The truncated owner count is now named `qualified_owner_count`. Human
+  output always states the `top_n_owners` cap. JSON emits both
+  `qualified_owner_count` and the deprecated `bus_factor` alias for one
+  minor cycle, plus `qualified_owner_count_cap` and `deprecated_keys`.
+  `checkowners qualified-owners` is the canonical command; `bus-factor`
+  remains as a deprecated alias pending redefinition. Persisted state is
+  schema v4; Action summaries are `schema_version` 2. README, PyPI, and
+  Action copy no longer advertise an unqualified bus factor.
 - Composite Action outputs `checkowners_drift`, `bus_factor_summary`, and
   `decay_summary` are now bounded summaries (`schema_version: 1`) with
   counts and a `truncated` flag, not the full CLI payloads. Bus-factor

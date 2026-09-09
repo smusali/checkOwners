@@ -250,6 +250,8 @@ runs:
           checkowners-report.md
         if-no-files-found: warn
 
+    # Marker lookup paginates past 100 comments; the report body is
+    # escaped and capped so paths cannot break the comment.
     - name: Comment drift summary on PR
       if: ${{ always() && inputs.comment_on_pr == 'true' && github.event_name == 'pull_request' }}
       continue-on-error: true

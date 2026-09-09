@@ -15,6 +15,7 @@ RESOLVED = (
     f"{MARKER}\n### CheckOwners: no drift detected\n\nPreviously reported drift has been resolved."
 )
 API_VERSION = "2022-11-28"
+COMMENTS_PAGE = 100
 
 
 def _notice(message: str) -> None:
@@ -58,21 +59,26 @@ def _request(
 def _existing_id(token: str, owner: str, repo: str, number: str) -> int | None:
     owner_q = urllib.parse.quote(owner, safe="")
     repo_q = urllib.parse.quote(repo, safe="")
-    comments = _request(
-        "GET",
-        f"/repos/{owner_q}/{repo_q}/issues/{number}/comments?per_page=100",
-        token,
-    )
-    if not isinstance(comments, list):
-        return None
-    for comment in comments:
-        if not isinstance(comment, dict):
-            continue
-        body = comment.get("body")
-        comment_id = comment.get("id")
-        if isinstance(body, str) and MARKER in body and isinstance(comment_id, int):
-            return comment_id
-    return None
+    page = 1
+    while True:
+        comments = _request(
+            "GET",
+            f"/repos/{owner_q}/{repo_q}/issues/{number}/comments"
+            f"?per_page={COMMENTS_PAGE}&page={page}",
+            token,
+        )
+        if not isinstance(comments, list):
+            return None
+        for comment in comments:
+            if not isinstance(comment, dict):
+                continue
+            body = comment.get("body")
+            comment_id = comment.get("id")
+            if isinstance(body, str) and MARKER in body and isinstance(comment_id, int):
+                return comment_id
+        if len(comments) < COMMENTS_PAGE:
+            return None
+        page += 1
 
 
 def _comment(token: str, owner: str, repo: str, number: str) -> None:

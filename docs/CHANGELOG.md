@@ -27,6 +27,11 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   or lockfile disagree with each other (or with the release tag).
 
 ### Fixed
+- The Action PR-comment lookup paginates past 100 comments, so the
+  managed comment is updated instead of duplicated. Interpolated
+  paths, notes, and reasons are escaped, long paths are truncated,
+  and the report is capped with an overflow line pointing at the
+  uploaded artifact.
 - Composite Action multiline `GITHUB_OUTPUT` writes use a random
   `ghadelim_` delimiter instead of a static `EOF`, so a path, note, or
   reason equal to `EOF` can no longer truncate or inject outputs.

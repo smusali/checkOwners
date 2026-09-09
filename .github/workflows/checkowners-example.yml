@@ -31,6 +31,9 @@ jobs:
           # should OMIT install_spec (the action then installs the pinned wheel).
           install_spec: ".[graph,github]"
 
+      - name: Assert state directory is ephemeral
+        run: test -d "${{ runner.temp }}/checkowners-state"
+
       - name: Assert owner comparison ran
         run: |
           python -c "

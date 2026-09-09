@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 
 from checkowners.config import find_codeowners_path, load_config
-from checkowners.models import Config
+from checkowners.models import Config, DriftConfig
 
 
 def _write_config(tmp_path: Path, content: str) -> Path:
@@ -59,6 +60,21 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.decay.alert_on_decay is True
     assert cfg.bus_factor.critical_threshold == 1
     assert cfg.bus_factor.warn_threshold == 2
+
+
+def test_drift_mode_default_matches_documented_surfaces() -> None:
+    root = Path(__file__).resolve().parents[1]
+    expected = DriftConfig().mode
+
+    usage = (root / "docs" / "USAGE.md").read_text(encoding="utf-8")
+    usage_match = re.search(r"(?m)^drift:\n  mode: (\w+)", usage)
+    assert usage_match is not None
+    assert usage_match.group(1) == expected
+
+    action = (root / "action.yml").read_text(encoding="utf-8")
+    action_match = re.search(r"(?m)^  mode:\n(?:    .*\n)*?    default: (\S+)", action)
+    assert action_match is not None
+    assert action_match.group(1) == expected
 
 
 def test_load_config_empty_file(tmp_path: Path) -> None:

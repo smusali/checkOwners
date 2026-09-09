@@ -158,6 +158,30 @@ Owner comparison is case-insensitive, and owner-less rules (GitHub's exemption m
 
 ## GitHub Actions
 
+Least privilege (job summary only; no PR comment):
+
+```yaml
+name: checkowners
+on: [pull_request]
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: smusali/checkowners@v0.5.0
+        with:
+          mode: repo
+          config: .github/checkowners.yml
+          comment_on_pr: false
+```
+
+Same-repo PR comments (`comment_on_pr` defaults to `"true"`):
+
 ```yaml
 name: checkowners
 on: [pull_request]
@@ -178,11 +202,15 @@ jobs:
           config: .github/checkowners.yml
 ```
 
+The action always writes the full report to the job summary. That needs no extra permissions and works on fork pull requests, where the job token is read-only regardless of the `permissions:` block. On a fork pull request the action skips commenting, emits a notice, and leaves the job green.
+
+If `comment_on_pr` stays `"true"` under read-only workflow permissions, the comment step warns (`Grant 'pull-requests: write' or set comment_on_pr: false`) and does not fail the job. Set `comment_on_pr: false` to skip the attempt.
+
 `checkowners drift --json` writes `checkowners_drift` to `GITHUB_OUTPUT` with `drift_detected`, `max_confidence_delta`, `severity`, `notes`, and per-entry `bus_factor` / `decay` flags so workflows can label PRs, comment, or fail required checks.
 
-The composite action exports `GITHUB_TOKEN` on every CLI step from the `github_token` input, which defaults to `${{ github.token }}`. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
+The composite action exports `GITHUB_TOKEN` on every CLI step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
 
-The composite action also accepts `fail_on_drift: "false"` if you want to comment without blocking, `include_bus_factor` / `include_decay` toggles for the secondary outputs, and `comment_on_pr` (default `"true"`) which maintains a single drift + bus-factor summary comment on the pull request, updated in place on every push and marked resolved when drift clears (the job must grant `pull-requests: write`).
+The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `include_bus_factor` / `include_decay` toggles for the secondary outputs, and `comment_on_pr` (default `"true"`) which maintains a single drift + bus-factor summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears.
 
 The action fails fast with a clear error when it detects a shallow clone: `git log` and `git blame` need history, so the `actions/checkout` step must set `fetch-depth: 0`.
 

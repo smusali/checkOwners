@@ -9,6 +9,8 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 ## [Unreleased]
 
 ### Added
+- The composite Action always writes the drift, bus-factor, and decay
+  report to the job summary, including when the drift step fails.
 - Third-party GitHub Actions are pinned to full commit SHAs. Dependabot
   watches the `github-actions` ecosystem, and CI fails on any unpinned
   `uses:` reference.
@@ -34,7 +36,17 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   incomplete: the extra was installed, but the token was never passed, so
   only local noreply parsing worked. When `github.api_enabled` is true and
   no token is reachable, the CLI now prints a warning naming `GITHUB_TOKEN`
-  instead of degrading silently.
+  instead of degrading silently. The same input is now passed to the PR
+  comment step, so a PAT or App token takes precedence over `github.token`.
+- PR comments no longer fail the job on fork pull requests or read-only
+  workflow permissions. Forks skip the comment with a notice; a 403
+  becomes a warning that names `pull-requests: write` and
+  `comment_on_pr: false`. The comment body is a short sectioned report
+  rather than a details-block dump.
+- Solo-maintainer repos no longer get a per-file knowledge-risk comment
+  for `bus_factor = 1`. The Action only lists single-owner paths when
+  more than one human has qualified ownership, and names the owner and
+  suggested backups instead of saying "bus factor 1".
 
 ### Changed
 - Project URLs, documentation clone and issue links, the Actions example,

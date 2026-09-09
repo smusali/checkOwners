@@ -15,9 +15,10 @@ jobs:
         with:
           fetch-depth: 0       # git log + git blame need the full history
 
-      # The action posts the drift + bus-factor summary comment itself
-      # (comment_on_pr defaults to "true"); the calling workflow only needs to
-      # grant pull-requests: write, which it does above.
+      # The action always writes the job summary. On same-repo PRs it also
+      # posts the drift + bus-factor comment (comment_on_pr defaults to
+      # "true"); fork PRs skip the comment. pull-requests: write is granted
+      # above for the comment and for the label step below.
       - id: checkowners
         uses: ./
         with:

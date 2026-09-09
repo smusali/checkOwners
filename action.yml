@@ -15,7 +15,7 @@ inputs:
   mode:
     description: Drift mode (commit | repo | both).
     required: false
-    default: both
+    default: commit
   include_bus_factor:
     description: Emit the bus_factor_summary output.
     required: false
@@ -201,10 +201,10 @@ runs:
       id: run
       shell: bash
       env:
-        # checkowners reads these env vars (see checkowners/config.py): the
-        # action inputs win over whatever the repo's checkowners.yml declares.
+        # Action inputs win over the repo's checkowners.yml.
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
         CHECKOWNERS_DRIFT_MODE: ${{ inputs.mode }}
+        CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         env -u GITHUB_OUTPUT checkowners drift --json > drift.json
@@ -215,6 +215,7 @@ runs:
       shell: bash
       env:
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
+        CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         env -u GITHUB_OUTPUT checkowners bus-factor --all --json > bus_factor.json
@@ -225,6 +226,7 @@ runs:
       shell: bash
       env:
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
+        CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         env -u GITHUB_OUTPUT checkowners decay --json > decay.json

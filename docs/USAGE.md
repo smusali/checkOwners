@@ -89,6 +89,19 @@ github:
 
 The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` environment variable instead. `checkowners.yml` is committed to your repo, so storing a token here would push it to GitHub. `load_config` raises a clear error if `github.token` is present. For the same reason, `notifications.webhook_url` supports a `${ENV_VAR}` reference (for example `${CHECKOWNERS_WEBHOOK_URL}`) so a committed config can point at a secret endpoint without storing it; an unset variable resolves to an empty string.
 
+### Environment variables
+
+| Variable | Who sets it | Role | Precedence |
+|----------|-------------|------|------------|
+| `CHECKOWNERS_CONFIG` | Action `config` input, or the user | Config file path (relative to repo root, or absolute) | Wins over `.github/checkowners.yml` |
+| `CHECKOWNERS_DRIFT_MODE` | Action `mode` input, or the user | `commit` / `repo` / `both` | Applied after YAML load; wins over `drift.mode` |
+| `CHECKOWNERS_STATE_DIR` | Action, or the user | State / handle / graph cache root | Wins over `~/.checkowners` |
+| `GITHUB_TOKEN` | Action `github_token` input, or the user | Only supported token source | Never read from YAML (`github.token` is rejected) |
+| `GITHUB_REPOSITORY` | GitHub runner | `owner/repo` for review coverage, topology, balance | Required for those API features; ignored otherwise |
+| `GITHUB_OUTPUT` | GitHub runner | CLI may append step outputs when set | The Action unsets it on CLI steps (`env -u GITHUB_OUTPUT`) so the job-summary renderer owns the outputs |
+
+The composite Action sets `CHECKOWNERS_STATE_DIR` to `${{ runner.temp }}/checkowners-state`. CLI and hand-rolled CI must set it themselves if they want an ephemeral cache.
+
 ## Identity resolution
 
 Commit emails are rewritten to GitHub `@handles` in three stages, cheapest first:
@@ -175,7 +188,6 @@ jobs:
           fetch-depth: 0
       - uses: smusali/checkowners@v0.5.0
         with:
-          mode: repo
           config: .github/checkowners.yml
           comment_on_pr: false
 ```
@@ -198,7 +210,6 @@ jobs:
           fetch-depth: 0
       - uses: smusali/checkowners@v0.5.0
         with:
-          mode: repo
           config: .github/checkowners.yml
 ```
 

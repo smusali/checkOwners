@@ -59,6 +59,12 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   for `bus_factor = 1`. The Action only lists single-owner paths when
   more than one human has qualified ownership, and names the owner and
   suggested backups instead of saying "bus factor 1".
+- The composite Action sets `CHECKOWNERS_STATE_DIR` to
+  `${{ runner.temp }}/checkowners-state` on every CLI step, so CI state
+  no longer lands in the runner home directory. Environment variables
+  (`CHECKOWNERS_CONFIG`, `CHECKOWNERS_DRIFT_MODE`, `CHECKOWNERS_STATE_DIR`,
+  `GITHUB_TOKEN`, plus runner-provided `GITHUB_REPOSITORY` and
+  `GITHUB_OUTPUT`) are documented with their precedence over the config file.
 
 ### Changed
 - Composite Action outputs `checkowners_drift`, `bus_factor_summary`, and
@@ -70,6 +76,10 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   and the security advisory link now point at this repository.
 - Changelog version dates are the PyPI publication day; the 0.3.0 and 0.5.0
   headings now match those uploads.
+- Composite Action `mode` default is now `commit`, matching `DriftConfig`
+  and the configuration reference. Callers who omitted `mode` previously
+  got `both` (including stale-rule detection) and must pass `mode: both`
+  to keep that behavior.
 
 ## [0.5.0] - 2026-07-04
 

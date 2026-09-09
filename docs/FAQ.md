@@ -45,7 +45,7 @@ Without a token you still get confidence-scored ownership, drift detection, bus 
 
 ### What environment variable holds the token?
 
-`GITHUB_TOKEN` (not `GITHUB_API_KEY`). This is the **only** supported way to provide a token. `github.token` is intentionally **not** accepted in `checkowners.yml` because that file gets committed to git and storing a secret there would publish it to GitHub. `load_config` refuses to load a config that contains `github.token` so a misconfigured repo fails fast instead of silently leaking.
+`GITHUB_TOKEN` (not `GITHUB_API_KEY`). This is the **only** supported way to provide a token. `github.token` is intentionally **not** accepted in `checkowners.yml` because that file gets committed to git and storing a secret there would publish it to GitHub. `load_config` refuses to load a config that contains `github.token` so a misconfigured repo fails fast instead of silently leaking. The full environment-variable list and precedence live in [docs/USAGE.md](USAGE.md#environment-variables).
 
 ```bash
 export GITHUB_TOKEN=ghp_...
@@ -102,7 +102,7 @@ Note that `generate` and `sync` refuse to overwrite a CODEOWNERS that was not ge
 
 ### Where is the state cache?
 
-`~/.checkowners/state/<repo-hash>.json` (schema v3, one file per repo; the payload embeds the absolute repo path and is verified on load, so state from one repo can never leak into another). Downstream commands (`bus-factor`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) read it so they don't re-run `git log`, and print a stderr hint when they do. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests.
+`~/.checkowners/state/<repo-hash>.json` (schema v3, one file per repo; the payload embeds the absolute repo path and is verified on load, so state from one repo can never leak into another). Downstream commands (`bus-factor`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) read it so they don't re-run `git log`, and print a stderr hint when they do. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#environment-variables).
 
 ## Inference behavior
 
@@ -138,6 +138,8 @@ analysis:
 Four filters can drop a path: it matches a `paths.exclude` pattern, it no longer exists on disk (deleted files are filtered automatically so CODEOWNERS doesn't pin removed paths), its only contributors are bots (`analysis.exclude_bots`, on by default), or no contributor reaches `analysis.min_commits` within the lookback window.
 
 ## Drift, severity, and CI
+
+`drift.mode` defaults to `commit` (missing + changed). Set `repo` or `both` to also flag stale rules.
 
 ### What does drift "severity" mean in CI?
 

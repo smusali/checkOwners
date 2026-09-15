@@ -495,8 +495,8 @@ def test_github_action_reads_toggles_from_env(
     monkeypatch.setenv("CHECKOWNERS_FAIL_ON_DRIFT", "false")
     monkeypatch.setenv("CHECKOWNERS_INCLUDE_BUS_FACTOR", "false")
     monkeypatch.setenv("CHECKOWNERS_INCLUDE_DECAY", "false")
-    exit_code, _stdout, output_file, _summary_file = _run_github_action(
-        tmp_path, monkeypatch, ["github-action"], drift=_DRIFT_DETECTED
+    exit_code, stdout, output_file, _summary_file = _run_github_action(
+        tmp_path, monkeypatch, ["github-action", "--json"], drift=_DRIFT_DETECTED
     )
     assert exit_code == 0
     written = output_file.read_text(encoding="utf-8")
@@ -504,6 +504,9 @@ def test_github_action_reads_toggles_from_env(
     assert not (tmp_path / "decay.json").exists()
     assert "bus_factor_summary<<" not in written
     assert "decay_summary<<" not in written
+    data = json.loads(stdout)
+    assert "bus_factor_summary" not in data
+    assert "decay_summary" not in data
 
 
 def test_github_action_analysis_failure_writes_diagnostic(
@@ -531,6 +534,37 @@ def test_github_action_analysis_failure_writes_diagnostic(
     assert output_file.read_text(encoding="utf-8") == _gh_block(
         "artifact_name", "checkowners-reports"
     )
+
+
+def test_github_action_rejects_non_positive_max_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exit_code, _stdout, _output_file, _summary_file = _run_github_action(
+        tmp_path, monkeypatch, ["github-action", "--max-output-entries", "0"]
+    )
+    assert exit_code == 2
+
+
+def test_github_action_unexpected_error_writes_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_file = tmp_path / "gh_output"
+    summary_file = tmp_path / "step_summary"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CHECKOWNERS_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", side_effect=RuntimeError("boom")),
+        patch("checkowners.action_report.secrets.token_hex", return_value=_FIXED_HEX),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["github-action", "--no-fail-on-drift"])
+    assert result.exit_code == 1
+    assert summary_file.read_text(encoding="utf-8") == DIAGNOSTIC
+    assert not (tmp_path / "drift.json").exists()
 
 
 # --- trends ---

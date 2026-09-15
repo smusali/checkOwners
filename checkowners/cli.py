@@ -686,14 +686,6 @@ def github_action(
     json_output: JsonOption = False,
 ) -> None:
     """Run the full CI flow (drift + qualified owners + decay) and write GITHUB_OUTPUT."""
-    drift_payload: dict[str, object] | None = None
-    bus_payload: dict[str, object] | None = None
-    decay_payload: dict[str, object] | None = None
-    result: DriftResult | None = None
-    severity = "low"
-    critical_paths = 0
-    decay_count = 0
-
     try:
         config = load_config()
         repo_root = Path.cwd()
@@ -702,7 +694,7 @@ def github_action(
         cap = config.analysis.top_n_owners
         result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
         severity = compute_severity(result, config)
-        drift_payload = {
+        drift_payload: dict[str, object] = {
             "drift_detected": result.drift_detected,
             "severity": severity,
             "max_confidence_delta": round(result.max_confidence_delta, 4),
@@ -712,6 +704,10 @@ def github_action(
             "notes": list(result.notes),
             "deprecated_keys": [DEPRECATED_COUNT_KEY],
         }
+        bus_payload: dict[str, object] | None = None
+        decay_payload: dict[str, object] | None = None
+        critical_paths = 0
+        decay_count = 0
         if include_bus_factor:
             owners_report = compute_qualified_owners(ownership, config, target=None)
             bus_payload = _qualified_owners_payload(owners_report, config)
@@ -726,10 +722,6 @@ def github_action(
     except Exception:
         _publish_action_failure()
         raise typer.Exit(code=1) from None
-
-    if drift_payload is None or result is None:
-        _publish_action_failure()
-        raise typer.Exit(code=1)
 
     _write_action_json(Path("drift.json"), drift_payload)
     if bus_payload is not None:

@@ -207,11 +207,7 @@ def _max_output_entries() -> int:
 
 
 def _resolve_limit(limit: int | None) -> int:
-    if limit is None:
-        return _max_output_entries()
-    if limit < 1:
-        raise SystemExit(f"max_output_entries must be a positive integer, got {limit!r}")
-    return limit
+    return _max_output_entries() if limit is None else limit
 
 
 def _trim(items: list[T], limit: int) -> tuple[list[T], bool]:

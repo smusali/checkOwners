@@ -8,7 +8,24 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from checkowners.action_report import build, md_cell
+from checkowners.action_report import (
+    DIAGNOSTIC,
+    SOLO_LINE,
+    _write_multiline_output,
+    build,
+    entry_lines,
+    fmt_delta,
+    has_actionable_findings,
+    has_actionable_knowledge_risk,
+    knowledge_risk_lines,
+    load,
+    md_cell,
+    publish_outputs,
+    qualified_humans,
+    summarize_bus_factor,
+    summarize_decay,
+    write_step_summary,
+)
 
 _TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(_TOOLS))
@@ -52,6 +69,179 @@ def test_build_overflow_points_at_artifact(tmp_path: Path, monkeypatch: pytest.M
     assert "`b.py`" in text
     assert "`c.py`" not in text
     assert "and 2 more. Full report is in the checkowners-reports artifact." in text
+
+
+def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert load("missing.json") is None
+    (tmp_path / "not-object.json").write_text("[1]", encoding="utf-8")
+    assert load("not-object.json") is None
+    assert fmt_delta(None) == "0.00"
+    assert fmt_delta("x") == "0.00"
+    assert fmt_delta("1.5") == "1.50"
+    assert qualified_humans(None) == []
+    assert summarize_bus_factor({"entries": "nope"}, 1)["counts"]["entries"] == 0
+    assert summarize_decay({"reports": "nope"}, 1)["counts"]["reports"] == 0
+    assert has_actionable_findings(None, None, None) is False
+    assert has_actionable_findings({"drift_detected": True}, None, None) is True
+    assert has_actionable_findings({"drift_detected": False}, None, None) is False
+    assert has_actionable_knowledge_risk(None, {"reports": [{"path": "a.py"}]}) is False
+    assert (
+        has_actionable_knowledge_risk(
+            {"entries": [{"contributors_above_threshold": ["@only"]}]},
+            {"reports": [{"path": "a.py"}]},
+        )
+        is False
+    )
+    lines, _cut = entry_lines([("stale", {"path": 1})])
+    assert lines == []
+    assert has_actionable_knowledge_risk(
+        {
+            "entries": [
+                {
+                    "path": "a.py",
+                    "contributors_above_threshold": ["@a", "@b"],
+                    "recommended_backups": [],
+                },
+                {
+                    "path": "b.py",
+                    "contributors_above_threshold": ["@a"],
+                    "recommended_backups": ["@b"],
+                },
+            ]
+        },
+        None,
+    )
+    solo = {
+        "entries": [
+            {"path": "only.py", "contributors_above_threshold": ["alice"]},
+        ]
+    }
+    assert knowledge_risk_lines(solo, None) == ([SOLO_LINE], False)
+    assert knowledge_risk_lines(None, None) == ([], False)
+    risk, _cut = knowledge_risk_lines(
+        {
+            "entries": [
+                {
+                    "path": "shared.py",
+                    "contributors_above_threshold": ["@owner", "@other"],
+                    "recommended_backups": [],
+                },
+                {
+                    "path": "solo.py",
+                    "contributors_above_threshold": ["alice"],
+                    "recommended_backups": [],
+                },
+                {
+                    "path": "",
+                    "contributors_above_threshold": ["@owner"],
+                },
+            ]
+        },
+        {
+            "reports": [
+                {"handle": "@x", "path": "d.py", "days_since_last_commit": "n/a"},
+                {"handle": "@y", "path": "e.py"},
+            ]
+        },
+    )
+    assert "No suggested backups." in risk
+    assert "Only @alice" in "\n".join(risk)
+    assert "a while ago" in "\n".join(risk)
+    many = {
+        "entries": [
+            {
+                "path": f"p{index}.py",
+                "contributors_above_threshold": ["@one", "@two"],
+                "recommended_backups": [],
+            }
+            for index in range(2)
+        ]
+        + [
+            {
+                "path": f"s{index}.py",
+                "contributors_above_threshold": ["@one"],
+                "recommended_backups": ["bot[bot]"],
+            }
+            for index in range(10)
+        ]
+    }
+    extra_lines, extra_cut = knowledge_risk_lines(many, None)
+    assert extra_cut is False
+    assert any("more single-owner paths" in line for line in extra_lines)
+    summary = summarize_bus_factor(
+        {"entries": [{"tier": "other"}], "qualified_owner_count_cap": True},
+        2,
+    )
+    assert summary["qualified_owner_count_cap"] == 3
+    assert summary["critical_paths"] == []
+    (tmp_path / "drift.json").write_text(
+        json.dumps({"drift_detected": False, "stale": "nope", "notes": 1}),
+        encoding="utf-8",
+    )
+    assert "No drift detected." in build(limit=5)
+    (tmp_path / "bus_factor.json").write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "path": "shared.py",
+                        "contributors_above_threshold": ["@a", "@b"],
+                    },
+                    {
+                        "path": "x" * 90,
+                        "contributors_above_threshold": ["@a"],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "decay.json").write_text(
+        json.dumps(
+            {
+                "reports": [{"path": "skip-me"}]
+                + [
+                    {
+                        "handle": f"@d{index}",
+                        "path": f"d{index}.py",
+                        "days_since_last_commit": 1,
+                    }
+                    for index in range(10)
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    risk_text = build()
+    assert "### Knowledge risk" in risk_text
+    assert "more expertise-decay warnings." in risk_text
+    assert "Full report is in the checkowners-reports artifact." in risk_text
+    (tmp_path / "drift.json").unlink()
+    assert build() == DIAGNOSTIC
+    write_step_summary("plain")
+    assert (tmp_path / "checkowners-report.md").read_text(encoding="utf-8") == "plain"
+    (tmp_path / "checkowners-report.md").unlink()
+    (tmp_path / "checkowners-report.md").mkdir()
+    write_step_summary("ignored")
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    publish_outputs(limit=1)
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out"))
+    hexes = iter(["aaa", "bbb"])
+    with patch(
+        "checkowners.action_report.secrets.token_hex",
+        side_effect=lambda _n: next(hexes),
+    ):
+        _write_multiline_output("name", "hello\nghadelim_aaa\nworld")
+    written = (tmp_path / "out").read_text(encoding="utf-8")
+    assert "ghadelim_bbb" in written
+    assert "ghadelim_aaa\nworld" in written
+    monkeypatch.setenv("MAX_OUTPUT_ENTRIES", "nope")
+    with pytest.raises(SystemExit, match="positive integer"):
+        publish_outputs()
+    monkeypatch.setenv("MAX_OUTPUT_ENTRIES", "0")
+    with pytest.raises(SystemExit, match="positive integer"):
+        publish_outputs()
 
 
 def _json_resp(payload: object) -> MagicMock:

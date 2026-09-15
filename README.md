@@ -9,7 +9,7 @@
 
 Infer CODEOWNERS from git history with confidence scoring, a knowledge graph, expertise decay detection, team topology inference, review load balancing, and onboarding paths. Core inference is deterministic git analysis; no LLM is in that path. CI-native: structured JSON output, GITHUB_OUTPUT integration, composite GitHub Action.
 
-This repository moved here from a previous GitHub organization; Sigstore attestations for 0.5.0 and earlier record that earlier publisher.
+This repository moved here from a previous GitHub organization; Sigstore attestations for 0.5.0 and earlier record that earlier publisher. 0.5.1 and later are published from `smusali/checkowners`.
 
 > CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration.
 

@@ -53,7 +53,7 @@ inputs:
       at the default to install the version that matches this Action tag.
       An empty value uses the pin, never the latest PyPI release.
     required: false
-    default: "0.5.0"
+    default: "0.5.1"
   install_spec:
     description: >-
       SECURITY-SENSITIVE. Interpolating untrusted workflow data into this
@@ -131,7 +131,7 @@ runs:
         CHECKOWNERS_INSTALL_SPEC: ${{ inputs.install_spec }}
         CHECKOWNERS_INDEX_URL: ${{ inputs.index_url }}
         CHECKOWNERS_OFFLINE: ${{ inputs.offline }}
-        CHECKOWNERS_PINNED_VERSION: "0.5.0"
+        CHECKOWNERS_PINNED_VERSION: "0.5.1"
       run: |
         set -euo pipefail
         ACTION_ROOT="${GITHUB_ACTION_PATH}"

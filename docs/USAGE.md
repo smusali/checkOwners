@@ -194,7 +194,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: smusali/checkowners@v0.5.0
+      - uses: smusali/checkowners@v0
         with:
           config: .github/checkowners.yml
           comment_on_pr: false
@@ -216,10 +216,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: smusali/checkowners@v0.5.0
+      - uses: smusali/checkowners@v0
         with:
           config: .github/checkowners.yml
 ```
+
+`@v0` tracks the latest 0.x release. `@v0.5` tracks 0.5.x patches. `@v0.5.1` is the immutable pin for this release.
 
 The action always writes the full report to the job summary. That needs no extra permissions and works on fork pull requests, where the job token is read-only regardless of the `permissions:` block. On a fork pull request the action skips commenting, emits a notice, and leaves the job green.
 

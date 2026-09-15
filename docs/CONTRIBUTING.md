@@ -115,22 +115,67 @@ Do not open public issues for vulnerabilities. Use [private vulnerability report
 
 ## Releasing
 
-Tagged releases trigger `.github/workflows/publish.yml` which builds and uploads to PyPI via Trusted Publisher.
+One merge commit becomes the git tag, the GitHub Release, the PyPI upload, the Marketplace listing, and the floating Action tags. Do not ship those surfaces independently.
 
-Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.md) as they merge. Each dated heading is the UTC calendar day the GitHub Release will be published (that event uploads to PyPI), formatted `YYYY-MM-DD`. `Unreleased` has no date. If publish slips to another UTC day, update the heading before creating the Release.
+Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.md) as they merge. Each dated heading is the UTC calendar day the GitHub Release will be published (that event uploads to PyPI), formatted `YYYY-MM-DD`. `Unreleased` has no date. If publish slips to another UTC day, update the heading before creating the Release. Leave `[Unreleased]` non-empty for the next cycle (a pointer to [ROADMAP.md](../ROADMAP.md) is enough when nothing has landed yet).
 
 `python tools/check_changelog.py vX.Y.Z` must succeed before tagging. The publish job runs the same check and fails the upload if the heading is missing, has no date, or the Action pin / wheel / lockfiles disagree with the tag.
 
-Steps:
+### Prepare the release commit
 
 1. Bump `__version__` in `checkowners/__init__.py` (hatch reads it for the package version).
 2. Set the Action pin to the same version: `checkowners_version` default and `CHECKOWNERS_PINNED_VERSION` in `action.yml`.
-3. Rebuild the Action wheel (`hatch build`) and replace `checkowners-X.Y.Z-py3-none-any.whl` at the repository root. Remove the previous version's wheel.
-4. Regenerate the hashed lockfiles:
-   `pip-compile --generate-hashes --extra graph --extra github -o requirements.lock pyproject.toml`
-   and
-   `pip-compile --generate-hashes --extra graph --extra github --extra dev --unsafe-package checkowners -o requirements-dev.lock pyproject.toml`.
-5. Promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, leave a fresh `[Unreleased]`, and refresh the compare links at the bottom of the changelog.
-6. Confirm `python tools/check_changelog.py vX.Y.Z` succeeds.
-7. Tag the commit: `git tag -a v0.X.Y -m "v0.X.Y"` and push the tag.
-8. Create a GitHub Release pointing at the tag; the publish workflow takes it from there.
+3. Rebuild the Action wheel (`hatch build` or `python3 -m hatchling build`) and replace `checkowners-X.Y.Z-py3-none-any.whl` at the repository root. Remove the previous version's wheel.
+4. Regenerate the hashed lockfiles only when `pyproject.toml` dependencies or extras changed:
+
+   ```bash
+   pip-compile --generate-hashes --extra graph --extra github -o requirements.lock pyproject.toml
+   pip-compile --generate-hashes --extra graph --extra github --extra dev --unsafe-package checkowners -o requirements-dev.lock pyproject.toml
+   ```
+
+   A version-only bump does not need a lock refresh. `requirements.lock` does not pin `checkowners` itself; the Action installs the committed wheel.
+5. Promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, leave a fresh non-empty `[Unreleased]`, and refresh the compare links at the bottom of the changelog.
+6. Confirm `python tools/check_changelog.py vX.Y.Z` succeeds. Merge that commit to `main`.
+
+### Pre-flight
+
+PyPI Trusted Publisher for project `checkowners` must match this repository exactly: owner `smusali`, repository name as GitHub reports it in the OIDC token (`checkOwners` versus `checkowners`), workflow filename `publish.yml`, environment `pypi`. Confirm at [the project's publishing settings](https://pypi.org/manage/project/checkowners/settings/publishing/). After an organization transfer, an old publisher yields `invalid-publisher`. Confirm the GitHub environment `pypi` exists (`.github/workflows/publish.yml` targets it).
+
+### Cut the release
+
+7. Tag the merge commit and push it:
+
+   ```bash
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+8. Create a GitHub Release for **only** that full semver tag. Tick **Publish this Action to the GitHub Marketplace**. The REST API and `gh release create` cannot set that checkbox; if the Release is created from the CLI, edit it in the UI and tick the box. Do not create a Release for `v0` or `v0.5`; those tags must stay movable.
+
+   Publishing the Release triggers `.github/workflows/publish.yml`, which builds with hatch and uploads via Trusted Publishing (`id-token: write`, `pypa/gh-action-pypi-publish`). Sigstore attestations are on by default. Wait until that workflow is green before continuing.
+
+9. Point the floating Action tags at the **same commit** as `vX.Y.Z`. First time:
+
+   ```bash
+   git tag v0 vX.Y.Z
+   git tag v0.5 vX.Y.Z
+   git push origin v0 v0.5
+   ```
+
+   Later compatible releases move those two tags only:
+
+   ```bash
+   git tag -f v0 vX.Y.Z
+   git tag -f v0.5 vX.Y.Z
+   git push -f origin v0 v0.5
+   ```
+
+   Consumers: `@v0` tracks the latest 0.x, `@v0.5` tracks 0.5.x patches, `@vX.Y.Z` is the immutable pin.
+
+### Verify
+
+- `pip install checkowners==X.Y.Z` in a clean environment; `checkowners --version` prints `checkowners X.Y.Z`.
+- PyPI project URLs are `https://github.com/smusali/checkowners` and README links resolve.
+- Provenance exists for the wheel and sdist (Integrity API, or `pypi-attestations verify pypi --repository https://github.com/smusali/checkowners pypi:checkowners-X.Y.Z-py3-none-any.whl`).
+- The Marketplace listing shows `X.Y.Z`.
+- `git rev-parse v0 v0.5 vX.Y.Z` are the same SHA. A scratch workflow with `smusali/checkowners@vX.Y.Z` and `@v0` both resolve and run.

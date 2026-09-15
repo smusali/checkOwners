@@ -55,8 +55,9 @@ checkowners generate
 In GitHub Actions the job token exists as `${{ secrets.GITHUB_TOKEN }}` / `${{ github.token }}`, but a `run:` step only sees `GITHUB_TOKEN` if the workflow exports it. The composite action does this for you: `github_token` defaults to `${{ github.token }}`, is exported on every CLI step, and is passed to the PR comment step. Pass a PAT or App token only when the default job token is not enough (org team listing or commenting). See [docs/USAGE.md](USAGE.md#github-actions).
 
 ```yaml
-- uses: smusali/checkowners@v0.5.0
+- uses: smusali/checkowners@v0
   # github_token defaults to github.token; override only when you need a PAT.
+  # @v0 tracks the latest 0.x; @v0.5 tracks 0.5.x patches; @v0.5.1 is the pin.
   with:
     github_token: ${{ secrets.GITHUB_TOKEN }}
 ```

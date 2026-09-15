@@ -2,6 +2,12 @@
 
 Thanks for thinking about contributing. CheckOwners is a pure-git ownership inference engine; this guide covers the local workflow, the conventions enforced by CI, and the PR process.
 
+## Picking work
+
+Start from a [good first issue](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or the [public roadmap](https://github.com/smusali/checkowners/blob/main/ROADMAP.md). The [action-item register](ACTION_ITEMS.md) lists every planned change and its issue.
+
+Usage questions go to [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a). The issue tracker is for bugs, false positives, and features; those forms are required.
+
 ## Quick start
 
 ```bash
@@ -99,16 +105,13 @@ CI uploads `coverage.xml` to Codecov with the `CODECOV_TOKEN` repository secret.
 
 ## Reporting bugs
 
-Open an issue at <https://github.com/smusali/checkowners/issues> with:
+Open an issue from the [issue chooser](https://github.com/smusali/checkowners/issues/new/choose). Use the bug form for a defect, the false-positive form when inference named the wrong owner, and the feature form for a proposed change. Each form asks for the command, configuration (no tokens), repository shape, and merge strategy.
 
-1. The command you ran and the `--json` output if available.
-2. The relevant `.github/checkowners.yml` (redact tokens; we don't accept them in this file anyway).
-3. Repo characteristics that matter (contributor count, lookback window, whether `github.api_enabled` is on).
-4. Expected behavior vs. observed behavior.
+Usage questions belong in [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a), not the issue tracker.
 
 ## Security issues
 
-Do not open public issues for vulnerabilities. Email <fortyone.technologies@gmail.com> with a description and a proof-of-concept. We will respond and coordinate disclosure.
+Do not open public issues for vulnerabilities. Use [private vulnerability reporting](https://github.com/smusali/checkowners/security/advisories/new). You can also email <fortyone.technologies@gmail.com> with a description and a proof-of-concept. We will respond and coordinate disclosure.
 
 ## Releasing
 

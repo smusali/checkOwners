@@ -9,6 +9,13 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 ## [Unreleased]
 
 ### Added
+- Issue forms (bug, false-positive, feature), a pull-request template,
+  Discussions, `ROADMAP.md`, the action-item register, `.github/FUNDING.yml`,
+  two example configs, and demo assets (terminal recording, PR comment,
+  sample `analyze` / `drift` JSON). Listing PRs:
+  [awesome-actions](https://github.com/sdras/awesome-actions/pull/953),
+  [awesome-devops](https://github.com/wmariuss/awesome-devops/pull/555),
+  [static-analysis](https://github.com/analysis-tools-dev/static-analysis/pull/1895).
 - A `dev` extra bootstraps tests and linters via `pip install -e ".[dev]"`.
 - Python 3.14 classifier and CI matrix entry. `checkowners/py.typed` ships in
   the wheel so the `Typing :: Typed` classifier is accurate.

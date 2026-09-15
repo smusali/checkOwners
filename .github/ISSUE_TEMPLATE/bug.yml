@@ -1,0 +1,85 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for a defect you can reproduce. For a wrong owner that is
+        otherwise working as designed, use the false-positive form. For usage
+        questions, use Discussions.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `checkowners --version`, or the Action tag (for example `v0.5.0`).
+      placeholder: 0.5.0
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command or Action invocation.
+      placeholder: checkowners drift --json
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: json
+    attributes:
+      label: JSON output
+      description: Paste `--json` output if the command supports it. Redact tokens and emails you do not want public.
+      render: json
+    validations:
+      required: false
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Paste `.github/checkowners.yml`. Never include a token. `github.token` is rejected at load time.
+      render: yaml
+    validations:
+      required: false
+  - type: dropdown
+    id: repo_shape
+    attributes:
+      label: Repository shape
+      options:
+        - Single package
+        - Monorepo
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: repo_size
+    attributes:
+      label: Approximate size
+      description: Commits, tracked files, and distinct commit authors, as well as you know them.
+      placeholder: 24000 commits, 12000 files, 80 authors
+    validations:
+      required: false
+  - type: dropdown
+    id: merge_strategy
+    attributes:
+      label: Merge strategy
+      options:
+        - Merge commit
+        - Squash
+        - Rebase
+        - Mixed / unknown
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed
+    validations:
+      required: true

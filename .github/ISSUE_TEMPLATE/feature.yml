@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a user-visible change.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If you are unsure whether this belongs on the tracker, start a thread in
+        Discussions under Ideas. Search existing issues first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard or impossible today, and who hits it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you want the tool to do. A sketch is enough.
+    validations:
+      required: true
+  - type: dropdown
+    id: contract
+    attributes:
+      label: Model or contract impact
+      description: Does this change a published contract?
+      options:
+        - None
+        - Scoring weights
+        - JSON shape
+        - Config defaults
+        - Action inputs or outputs
+    validations:
+      required: true
+  - type: textarea
+    id: extras
+    attributes:
+      label: Extra context
+      description: Links, screenshots, or related issues.
+    validations:
+      required: false

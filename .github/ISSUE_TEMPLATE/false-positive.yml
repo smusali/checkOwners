@@ -1,0 +1,108 @@
+name: False-positive report
+description: Inference named the wrong owner, or missed the person who actually owns the path.
+title: "[False positive]: "
+labels: ["bug", "correctness"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the tool ran successfully but the owner is wrong. These
+        reports feed the public false-positive ledger. For a crash or CLI defect,
+        use the bug form.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `checkowners --version`, or the Action tag (for example `v0.5.0`).
+      placeholder: 0.5.0
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command that produced the wrong owner.
+      placeholder: checkowners analyze --json
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: path
+    attributes:
+      label: Path
+      description: The file or directory whose owner is wrong.
+      placeholder: src/payments/charge.py
+    validations:
+      required: true
+  - type: input
+    id: inferred
+    attributes:
+      label: Inferred owner
+      placeholder: "@alice"
+    validations:
+      required: true
+  - type: input
+    id: expected_owner
+    attributes:
+      label: Expected owner
+      placeholder: "@bob"
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why the inference is wrong
+      description: What the expected owner actually did, and why the inferred owner should not win.
+    validations:
+      required: true
+  - type: textarea
+    id: json
+    attributes:
+      label: JSON output
+      description: Paste `--json` output if available. Redact tokens and emails you do not want public.
+      render: json
+    validations:
+      required: false
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Paste `.github/checkowners.yml`. Never include a token.
+      render: yaml
+    validations:
+      required: false
+  - type: dropdown
+    id: repo_shape
+    attributes:
+      label: Repository shape
+      options:
+        - Single package
+        - Monorepo
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: repo_size
+    attributes:
+      label: Approximate size
+      description: Commits, tracked files, and distinct commit authors, as well as you know them.
+    validations:
+      required: false
+  - type: dropdown
+    id: merge_strategy
+    attributes:
+      label: Merge strategy
+      options:
+        - Merge commit
+        - Squash
+        - Rebase
+        - Mixed / unknown
+    validations:
+      required: true
+  - type: checkboxes
+    id: ledger
+    attributes:
+      label: Public ledger
+      options:
+        - label: This report (anonymized) may be added to the public false-positive ledger.
+          required: false

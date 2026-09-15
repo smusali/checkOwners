@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="220" viewBox="0 0 760 220" role="img" aria-label="GitHub pull request comment from CheckOwners when drift is clear">
+  <rect width="760" height="220" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <circle cx="36" cy="36" r="16" fill="#1f2328"/>
+  <text x="36" y="41" text-anchor="middle" fill="#ffffff" font-family="Helvetica, Arial, sans-serif" font-size="11" xml:space="preserve">gh</text>
+  <text x="62" y="32" fill="#1f2328" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="600" xml:space="preserve">github-actions</text>
+  <text x="178" y="32" fill="#656d76" font-family="Helvetica, Arial, sans-serif" font-size="13" xml:space="preserve">bot commented on a dogfood pull request</text>
+  <rect x="62" y="42" width="92" height="18" rx="9" fill="#ddf4ff"/>
+  <text x="108" y="55" text-anchor="middle" fill="#0969da" font-family="Helvetica, Arial, sans-serif" font-size="11" xml:space="preserve">AI</text>
+  <line x1="20" y1="78" x2="740" y2="78" stroke="#d0d7de"/>
+  <text x="28" y="112" fill="#1f2328" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="600" xml:space="preserve">CheckOwners: no drift detected</text>
+  <text x="28" y="146" fill="#1f2328" font-family="Helvetica, Arial, sans-serif" font-size="14" xml:space="preserve">Previously reported drift has been resolved.</text>
+  <text x="28" y="192" fill="#656d76" font-family="Helvetica, Arial, sans-serif" font-size="12" xml:space="preserve">Posted by the composite Action on same-repo pull requests. Fork PRs get the same report in the job summary.</text>
+</svg>

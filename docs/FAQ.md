@@ -172,6 +172,12 @@ The full matrix and what each category does well live in [How checkowners compar
 
 No LLM is in the inference path. Core analysis is deterministic git work (`git log`, `git blame`) plus optional GitHub API lookups. The scoring heuristics live in `analyze.py` and are auditable. The codebase has been built with agent assistance; every AI-assisted change is human-reviewed, tested, and signed off.
 
+## Reporting
+
+### How do I report a wrong owner?
+
+Open a [false-positive report](https://github.com/smusali/checkowners/issues/new?template=false-positive.yml). The form asks for the path, inferred owner, expected owner, command, configuration, repository shape, and merge strategy. Those reports feed the public false-positive ledger. Crashes and CLI defects use the [bug form](https://github.com/smusali/checkowners/issues/new?template=bug.yml). Usage questions go to [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a).
+
 ## Troubleshooting
 
 ### `networkx` is not installed but I want `checkowners graph`.

@@ -28,7 +28,7 @@ _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
 
 def _entry(handle: str, confidence: float, commits: int = 5) -> OwnerEntry:
-    return OwnerEntry(handle=handle, confidence=confidence, last_commit=_NOW, commits=commits)
+    return OwnerEntry(handle=handle, ownership_score=confidence, last_commit=_NOW, commits=commits)
 
 
 def _ownership() -> OwnershipMap:

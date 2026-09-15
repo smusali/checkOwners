@@ -6,7 +6,7 @@ import fnmatch
 import math
 import os
 import subprocess
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,6 +20,7 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
     ScoringConfig,
+    SignalScore,
 )
 
 _COMMIT_SENTINEL = "COMMIT_START"
@@ -62,8 +63,8 @@ def analyze_ownership(
     """Analyze git history and return a confidence-scored ownership map.
 
     When ``review_provider`` is supplied, its per-path, per-email review
-    coverage feeds the review factor of the confidence score; otherwise the
-    review factor is 0.0 (the pure-git default). ``on_progress`` receives
+    coverage feeds the review signal; otherwise review is unavailable and
+    remaining weights are renormalized. ``on_progress`` receives
     (done, total) updates while the per-file blame pass runs.
     """
     commits = _get_commit_history(repo_root, config.analysis.lookback_days)
@@ -78,7 +79,14 @@ def analyze_ownership(
     )
     review_coverage = _gather_review_coverage(contributions, review_provider)
     now = datetime.now(UTC)
-    paths = _build_path_ownerships(contributions, blame_coverage, review_coverage, config, now)
+    paths = _build_path_ownerships(
+        contributions,
+        blame_coverage,
+        review_coverage,
+        config,
+        now,
+        review_available=review_provider is not None,
+    )
     return OwnershipMap(paths=paths, last_analyzed=now)
 
 
@@ -101,8 +109,10 @@ def _build_path_ownerships(
     review_coverage: dict[str, dict[str, float]],
     config: Config,
     now: datetime,
+    *,
+    review_available: bool,
 ) -> dict[str, PathOwnership]:
-    """Compute confidence-scored owners + qualified owner count + decay per path."""
+    """Compute scored owners + qualified owner count + decay per path."""
     result: dict[str, PathOwnership] = {}
     for path, authors in contributions.items():
         qualified = {
@@ -122,6 +132,8 @@ def _build_path_ownerships(
             max_commits=max_commits,
             scoring=config.scoring,
             now=now,
+            blame_available=path in blame_coverage,
+            review_available=review_available,
         )
         filtered = tuple(e for e in entries if e.confidence >= config.analysis.confidence_threshold)
         if not filtered:
@@ -137,6 +149,52 @@ def _build_path_ownerships(
     return result
 
 
+def combine_available_signals(
+    signals: Mapping[str, tuple[float, bool]],
+    weights: Mapping[str, float],
+    reliabilities: Mapping[str, float],
+) -> tuple[float, float]:
+    """Return ``(ownership_score, evidence_quality)`` over available signals.
+
+    ``ownership_score`` is the weighted mean of available scores so the range
+    is always ``[0, 1]``. ``evidence_quality`` is the share of configured
+    weight that was observed, scaled by each signal's reliability.
+    """
+    score_num = 0.0
+    score_den = 0.0
+    quality_num = 0.0
+    quality_den = 0.0
+    for name, (score, available) in signals.items():
+        weight = weights.get(name, 0.0)
+        quality_den += weight
+        if not available:
+            continue
+        score_num += weight * score
+        score_den += weight
+        quality_num += weight * reliabilities.get(name, 1.0)
+    ownership_score = _clamp(score_num / score_den) if score_den else 0.0
+    evidence_quality = _clamp(quality_num / quality_den) if quality_den else 0.0
+    return ownership_score, evidence_quality
+
+
+def signal_weights(scoring: ScoringConfig) -> dict[str, float]:
+    return {
+        "recency": scoring.recency_weight,
+        "frequency": scoring.frequency_weight,
+        "blame": scoring.blame_weight,
+        "review": scoring.review_weight,
+    }
+
+
+def signal_reliabilities(scoring: ScoringConfig) -> dict[str, float]:
+    return {
+        "recency": scoring.recency_reliability,
+        "frequency": scoring.frequency_reliability,
+        "blame": scoring.blame_reliability,
+        "review": scoring.review_reliability,
+    }
+
+
 def _score_owners(
     qualified: dict[str, _Contribution],
     path_blame: dict[str, float],
@@ -145,32 +203,38 @@ def _score_owners(
     max_commits: int,
     scoring: ScoringConfig,
     now: datetime,
+    blame_available: bool,
+    review_available: bool,
 ) -> tuple[OwnerEntry, ...]:
     scored: list[OwnerEntry] = []
+    weights = signal_weights(scoring)
+    reliabilities = signal_reliabilities(scoring)
     for author, contrib in qualified.items():
         recency = _recency_score(contrib.last_commit, now, scoring.recency_half_life_days)
         frequency = _frequency_score(contrib.commits, max_commits)
-        blame = path_blame.get(author, 0.0)
-        review = _clamp(path_review.get(author, 0.0))
-        total = _clamp(
-            scoring.recency_weight * recency
-            + scoring.frequency_weight * frequency
-            + scoring.blame_weight * blame
-            + scoring.review_weight * review
-        )
+        blame = path_blame.get(author, 0.0) if blame_available else 0.0
+        review = _clamp(path_review.get(author, 0.0)) if review_available else 0.0
+        signals = {
+            "recency": (recency, True),
+            "frequency": (frequency, True),
+            "blame": (blame, blame_available),
+            "review": (review, review_available),
+        }
+        total, quality = combine_available_signals(signals, weights, reliabilities)
         breakdown = ConfidenceScore(
             total=total,
-            recency=recency,
-            frequency=frequency,
-            blame=blame,
-            review=review,
+            recency=SignalScore(available=True, score=recency),
+            frequency=SignalScore(available=True, score=frequency),
+            blame=SignalScore(available=blame_available, score=blame),
+            review=SignalScore(available=review_available, score=review),
         )
         scored.append(
             OwnerEntry(
                 handle=author,
-                confidence=total,
+                ownership_score=total,
                 last_commit=contrib.last_commit,
                 commits=contrib.commits,
+                evidence_quality=quality,
                 score_breakdown=breakdown,
             )
         )

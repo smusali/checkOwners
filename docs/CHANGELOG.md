@@ -14,6 +14,15 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
 - The composite Action runs `checkowners github-action` once for drift,
   qualified owners, decay, the job summary, and `GITHUB_OUTPUT`. Output
   names and `schema_version: 2` summary shapes are unchanged.
+- Ownership scoring renormalizes over available signals so the attainable
+  range is `[0, 1]` with or without a review provider. Missing review or
+  blame is skipped rather than scored as zero, and a separate
+  `evidence_quality` plus per-signal availability are emitted. The primary
+  JSON key is `ownership_score`; `confidence` remains a deprecated alias
+  for one cycle. Analyze JSON and cached state carry
+  `model_version: ownership-v2`. Per-repo state is schema v5 (older caches
+  are ignored). **Migration:** if CI gates on `confidence >= X`, re-check
+  the threshold. Offline scores rise and are no longer capped at `0.85`.
 
 ## [0.5.1] - 2026-09-15
 

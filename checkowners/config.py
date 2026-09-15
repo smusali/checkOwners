@@ -148,6 +148,14 @@ def _build_scoring_config(data: dict[str, Any]) -> ScoringConfig:
         kwargs["blame_weight"] = float(data["blame_weight"])
     if "review_weight" in data:
         kwargs["review_weight"] = float(data["review_weight"])
+    if "recency_reliability" in data:
+        kwargs["recency_reliability"] = float(data["recency_reliability"])
+    if "frequency_reliability" in data:
+        kwargs["frequency_reliability"] = float(data["frequency_reliability"])
+    if "blame_reliability" in data:
+        kwargs["blame_reliability"] = float(data["blame_reliability"])
+    if "review_reliability" in data:
+        kwargs["review_reliability"] = float(data["review_reliability"])
     return ScoringConfig(**kwargs)
 
 

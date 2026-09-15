@@ -24,7 +24,11 @@ from checkowners.analyze import (
     _parse_log_output,
     _RawCommit,
     _recency_score,
+    _score_owners,
     analyze_ownership,
+    combine_available_signals,
+    signal_reliabilities,
+    signal_weights,
 )
 from checkowners.models import AnalysisConfig, Config, DecayConfig, ScoringConfig
 
@@ -126,7 +130,8 @@ def test_analyze_review_provider_feeds_review_factor() -> None:
     alice = result.paths["src/main.py"].owners[0]
     assert alice.handle == "alice@example.com"
     assert alice.score_breakdown is not None
-    assert alice.score_breakdown.review == 1.0
+    assert alice.score_breakdown.review.available is True
+    assert alice.score_breakdown.review.score == 1.0
     assert captured["emails"] == {"alice@example.com"}
 
 
@@ -142,9 +147,12 @@ def test_analyze_review_factor_zero_without_provider() -> None:
     ):
         result = analyze_ownership(Path("/fake"), config)
 
-    breakdown = result.paths["src/main.py"].owners[0].score_breakdown
+    owner = result.paths["src/main.py"].owners[0]
+    breakdown = owner.score_breakdown
     assert breakdown is not None
-    assert breakdown.review == 0.0
+    assert breakdown.review.available is False
+    assert "score" not in breakdown.review.as_payload()
+    assert 0.0 <= owner.ownership_score <= 1.0
 
 
 def test_analyze_lookback_days() -> None:
@@ -327,6 +335,56 @@ def test_is_excluded_patterns() -> None:
     assert _is_excluded("dist/sub/file.js", ("dist/**",))
     assert _is_excluded("vendor/a/b.go", ("vendor/**",))
     assert _is_excluded("src/main.py", ("*.lock", "dist/**", "vendor/**")) is False
+
+
+def test_analyze_score_scale_with_and_without_review_provider() -> None:
+    contrib = _Contribution(commits=3, last_commit=_NOW)
+    qualified = {"alice@example.com": contrib}
+    scoring = ScoringConfig()
+    path_blame = {"alice@example.com": 1.0}
+
+    offline = _score_owners(
+        qualified,
+        path_blame,
+        {},
+        max_commits=3,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=True,
+        review_available=False,
+    )
+    online = _score_owners(
+        qualified,
+        path_blame,
+        {"alice@example.com": 1.0},
+        max_commits=3,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=True,
+        review_available=True,
+    )
+    assert offline[0].ownership_score == pytest.approx(1.0)
+    assert online[0].ownership_score == pytest.approx(1.0)
+    assert offline[0].evidence_quality == pytest.approx(0.85)
+    assert online[0].evidence_quality == pytest.approx(1.0)
+    assert offline[0].evidence_quality != online[0].evidence_quality
+
+
+def test_combine_available_signals_recency_only_is_unit_scale() -> None:
+    scoring = ScoringConfig()
+    score, quality = combine_available_signals(
+        {
+            "recency": (1.0, True),
+            "frequency": (0.0, False),
+            "blame": (0.0, False),
+            "review": (0.0, False),
+        },
+        signal_weights(scoring),
+        signal_reliabilities(scoring),
+    )
+    assert score == pytest.approx(1.0)
+    assert 0.0 <= score <= 1.0
+    assert quality == pytest.approx(0.35)
 
 
 def test_recency_score_decays_exponentially() -> None:

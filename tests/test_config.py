@@ -56,6 +56,10 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.scoring.frequency_weight == 0.25
     assert cfg.scoring.blame_weight == 0.25
     assert cfg.scoring.review_weight == 0.15
+    assert cfg.scoring.recency_reliability == 1.0
+    assert cfg.scoring.frequency_reliability == 1.0
+    assert cfg.scoring.blame_reliability == 1.0
+    assert cfg.scoring.review_reliability == 1.0
     assert cfg.decay.threshold_days == 180
     assert cfg.decay.alert_on_decay is True
     assert cfg.bus_factor.critical_threshold == 1
@@ -106,6 +110,10 @@ scoring:
   frequency_weight: 0.2
   blame_weight: 0.2
   review_weight: 0.1
+  recency_reliability: 0.9
+  frequency_reliability: 0.8
+  blame_reliability: 0.7
+  review_reliability: 0.6
 decay:
   threshold_days: 90
   alert_on_decay: false
@@ -144,6 +152,10 @@ github:
     assert cfg.scoring.frequency_weight == 0.2
     assert cfg.scoring.blame_weight == 0.2
     assert cfg.scoring.review_weight == 0.1
+    assert cfg.scoring.recency_reliability == 0.9
+    assert cfg.scoring.frequency_reliability == 0.8
+    assert cfg.scoring.blame_reliability == 0.7
+    assert cfg.scoring.review_reliability == 0.6
     assert cfg.decay.threshold_days == 90
     assert cfg.decay.alert_on_decay is False
     assert cfg.bus_factor.critical_threshold == 2

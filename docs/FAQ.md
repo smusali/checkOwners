@@ -41,7 +41,7 @@ No. The core inference is pure git and runs offline. A token is only needed for 
 
 Noreply emails (`login@users.noreply.github.com`) resolve to `@login` without any token. The API-backed features also need the `github` extra (`pip install "checkowners[github]"`); without it they degrade gracefully with a log hint.
 
-Without a token you still get confidence-scored ownership, drift detection, qualified owner counts, expertise decay, and onboarding paths; they just operate on email handles and skip the review-activity signal in the confidence score.
+Without a token you still get scored ownership, drift detection, qualified owner counts, expertise decay, and onboarding paths; they just operate on email handles and skip the review-activity signal. Remaining weights are renormalized so the score stays on `[0, 1]`.
 
 ### What environment variable holds the token?
 
@@ -103,20 +103,25 @@ Note that `generate` and `sync` refuse to overwrite a CODEOWNERS that was not ge
 
 ### Where is the state cache?
 
-`~/.checkowners/state/<repo-hash>.json` (schema v4, one file per repo; the payload embeds the absolute repo path and is verified on load, so state from one repo can never leak into another). Downstream commands (`qualified-owners`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) read it so they don't re-run `git log`, and print a stderr hint when they do. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#environment-variables).
+`~/.checkowners/state/<repo-hash>.json` (schema v5, one file per repo; the payload embeds the absolute repo path and is verified on load, so state from one repo can never leak into another). Downstream commands (`qualified-owners`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) read it so they don't re-run `git log`, and print a stderr hint when they do. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#environment-variables).
 
 ## Inference behavior
 
-### How is confidence computed?
+### How is the ownership score computed?
 
-A weighted sum of four signals, each in `[0.0, 1.0]`:
+A weighted mean over **available** signals, each in `[0.0, 1.0]`:
 
 - **Recency**: `exp(-ln 2 × days_since_last_commit / half_life)`. Default half-life is 90 days.
 - **Frequency**: contributor's commits on the path divided by the path's max contributor.
 - **Blame coverage**: fraction of current lines `git blame --line-porcelain` attributes to the contributor.
-- **Review activity**: PR reviews on the path divided by total reviews; `0.0` unless `github.api_enabled` is true.
+- **Review activity**: PR reviews on the path divided by total reviews. Unavailable unless `github.api_enabled` is true; missing review is skipped, not scored as `0.0`.
 
-Weights are configurable under `scoring`. The final score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS.
+```text
+ownership_score  = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
+evidence_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
+```
+
+Weights and per-signal `*_reliability` defaults live under `scoring`. The score is always on `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. JSON emits `ownership_score` plus a deprecated `confidence` alias for one cycle. This is a ranking signal, not a calibrated probability. If you gate CI on a threshold, re-check it after upgrading: offline scores are no longer capped at `0.85`.
 
 ### Can I tune the inference for a high-turnover team?
 
@@ -163,7 +168,7 @@ The example workflow in `.github/workflows/checkowners-example.yml` does this wi
 
 ### How does CheckOwners compare to other CODEOWNERS tools?
 
-CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, calibrated per-path confidence, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
+CheckOwners treats code ownership as a scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
 
 Dedicated validators still go further on owner validity: they verify that accounts exist and that users and teams belong to the organization. Formal bus/truck-factor research tools run a removal simulation over a knowledge distribution. CheckOwners `qualified_owner_count` is a capped count of owners above the confidence threshold; it is not truck factor, bus factor, or lottery factor. See [Qualified owner count](USAGE.md#qualified-owner-count).
 

@@ -7,9 +7,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from checkowners.analyze import _RawCommit
+import pytest
+
+from checkowners.analyze import _Contribution, _RawCommit, _score_owners
 from checkowners.models import AnalysisConfig, Config, ScoringConfig
-from checkowners.trends import analyze_trends, build_trends
+from checkowners.trends import _two_factor_confidence, analyze_trends, build_trends
 
 _NOW = datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC)
 
@@ -86,6 +88,23 @@ def test_build_trends_confidence_in_unit_range() -> None:
     report = build_trends(commits, _config(), periods=2, period_days=30, now=_NOW)
     for point in report.points:
         assert 0.0 <= point.avg_top_confidence <= 1.0
+
+
+def test_analyze_and_trends_match_on_same_available_signals() -> None:
+    contrib = _Contribution(commits=4, last_commit=_NOW)
+    scoring = ScoringConfig()
+    trend = _two_factor_confidence(contrib, 4, scoring, _NOW)
+    owners = _score_owners(
+        {"alice@example.com": contrib},
+        {},
+        {},
+        max_commits=4,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=False,
+        review_available=False,
+    )
+    assert owners[0].ownership_score == pytest.approx(trend)
 
 
 def test_analyze_trends_fetches_history_span() -> None:

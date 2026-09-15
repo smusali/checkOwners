@@ -22,7 +22,7 @@ _MOCK_LS_FILES = "checkowners.drift._tracked_files"
 
 
 def _owner(handle: str, confidence: float = 0.8) -> OwnerEntry:
-    return OwnerEntry(handle=handle, confidence=confidence, last_commit=_NOW, commits=5)
+    return OwnerEntry(handle=handle, ownership_score=confidence, last_commit=_NOW, commits=5)
 
 
 def _ownership(paths: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:

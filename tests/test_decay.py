@@ -21,7 +21,12 @@ _OLD = _NOW - timedelta(days=300)
 
 
 def _entry(handle: str, confidence: float, last_commit: datetime = _NOW) -> OwnerEntry:
-    return OwnerEntry(handle=handle, confidence=confidence, last_commit=last_commit, commits=10)
+    return OwnerEntry(
+        handle=handle,
+        ownership_score=confidence,
+        last_commit=last_commit,
+        commits=10,
+    )
 
 
 def _make_warning(handle: str, path: str, days: int = 300) -> DecayWarning:

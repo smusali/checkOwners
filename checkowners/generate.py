@@ -122,7 +122,7 @@ def _format_line(
     line = f"{escaped_pattern} {' '.join(written_handles)}"
     if not config.output.include_confidence:
         return line
-    annotations = " ".join(f"{o.handle}({o.confidence:.2f})" for o in owners)
+    annotations = " ".join(f"{o.handle}({o.score_label})" for o in owners)
     return f"{line}  # {annotations}"
 
 
@@ -235,15 +235,17 @@ def _merge_owners(owner_lists: list[tuple[OwnerEntry, ...]]) -> tuple[OwnerEntry
             by_handle.setdefault(owner.handle, []).append(owner)
     merged: list[OwnerEntry] = []
     for handle, entries in by_handle.items():
-        confidences = [e.confidence for e in entries]
+        scores = [e.ownership_score for e in entries]
+        qualities = [e.evidence_quality for e in entries]
         last_commits = [e.last_commit for e in entries if e.last_commit is not None]
         latest: datetime | None = max(last_commits) if last_commits else None
         merged.append(
             OwnerEntry(
                 handle=handle,
-                confidence=sum(confidences) / len(confidences),
+                ownership_score=sum(scores) / len(scores),
                 last_commit=latest,
                 commits=sum(e.commits for e in entries),
+                evidence_quality=sum(qualities) / len(qualities),
                 score_breakdown=None,
             )
         )

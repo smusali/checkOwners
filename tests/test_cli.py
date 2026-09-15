@@ -18,14 +18,17 @@ from checkowners.action_report import (
     summarize_decay,
     summarize_drift,
 )
-from checkowners.cli import _merge_identities, app
+from checkowners.cli import _merge_identities, _owner_payload, app
 from checkowners.models import (
+    OWNERSHIP_MODEL_VERSION,
+    ConfidenceScore,
     DecayWarning,
     DriftEntry,
     DriftResult,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    SignalScore,
 )
 from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationError
@@ -36,7 +39,20 @@ _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
 
 def _entry(handle: str, confidence: float = 0.8, commits: int = 7) -> OwnerEntry:
-    return OwnerEntry(handle=handle, confidence=confidence, last_commit=_NOW, commits=commits)
+    return OwnerEntry(
+        handle=handle,
+        ownership_score=confidence,
+        last_commit=_NOW,
+        commits=commits,
+        evidence_quality=1.0,
+        score_breakdown=ConfidenceScore(
+            total=confidence,
+            recency=SignalScore(available=True, score=1.0),
+            frequency=SignalScore(available=True, score=1.0),
+            blame=SignalScore(available=True, score=1.0),
+            review=SignalScore(available=False),
+        ),
+    )
 
 
 _OWNERSHIP = OwnershipMap(
@@ -105,12 +121,17 @@ def test_analyze_json() -> None:
     assert "src/main.py" in data["inferred"]
     owners = data["inferred"]["src/main.py"]["owners"]
     assert owners[0]["handle"] == "alice@example.com"
+    assert owners[0]["ownership_score"] == 0.92
     assert owners[0]["confidence"] == 0.92
+    assert owners[0]["evidence_quality"] == 1.0
+    assert owners[0]["signals"]["recency"] == {"score": 1.0, "available": True}
+    assert owners[0]["signals"]["review"] == {"available": False}
     path_data = data["inferred"]["src/main.py"]
     assert path_data["qualified_owner_count"] == 2
     assert path_data["bus_factor"] == 2
     assert path_data["qualified_owner_count_cap"] == 3
-    assert data["deprecated_keys"] == ["bus_factor"]
+    assert data["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert data["deprecated_keys"] == ["bus_factor", "confidence"]
 
 
 def test_analyze_table() -> None:
@@ -118,7 +139,7 @@ def test_analyze_table() -> None:
         result = runner.invoke(app, ["analyze"])
     assert result.exit_code == 0
     assert "alice@example.com" in result.stdout
-    assert "0.92" in result.stdout
+    assert "0.92/1.00" in result.stdout
 
 
 def test_analyze_empty() -> None:
@@ -177,6 +198,10 @@ def test_print_json() -> None:
     assert data["src/main.py"]["qualified_owner_count"] == 2
     assert data["src/main.py"]["bus_factor"] == 2
     assert data["src/main.py"]["qualified_owner_count_cap"] == 3
+    bare = OwnerEntry(handle="@bare", ownership_score=0.4, last_commit=None, commits=1)
+    payload = _owner_payload(bare)
+    assert payload["last_commit"] is None
+    assert "signals" not in payload
 
 
 def test_print_plain_shows_confidence() -> None:
@@ -184,7 +209,7 @@ def test_print_plain_shows_confidence() -> None:
         result = runner.invoke(app, ["print"])
     assert result.exit_code == 0
     assert "src/main.py" in result.stdout
-    assert "alice@example.com(0.92)" in result.stdout
+    assert "alice@example.com(0.92/1.00)" in result.stdout
 
 
 # --- validate ---
@@ -628,8 +653,8 @@ def test_version_flag() -> None:
 def test_merge_identities_dedupes_same_handle() -> None:
     noreply = "1+a@users.noreply.github.com"
     entries = (
-        OwnerEntry(handle="a@x.com", confidence=0.9, last_commit=None, commits=4),
-        OwnerEntry(handle=noreply, confidence=0.5, last_commit=None, commits=6),
+        OwnerEntry(handle="a@x.com", ownership_score=0.9, last_commit=None, commits=4),
+        OwnerEntry(handle=noreply, ownership_score=0.5, last_commit=None, commits=6),
     )
     mapping = {"a@x.com": "@a", "1+a@users.noreply.github.com": "@a"}
     merged = _merge_identities(entries, mapping)

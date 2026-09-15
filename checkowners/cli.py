@@ -59,6 +59,8 @@ from checkowners.graph import (
     to_text,
 )
 from checkowners.models import (
+    DEPRECATED_SCORE_KEY,
+    OWNERSHIP_MODEL_VERSION,
     Config,
     DecayWarning,
     DriftEntry,
@@ -181,9 +183,10 @@ def _merge_identities(
         merged.append(
             OwnerEntry(
                 handle=identity,
-                confidence=best.confidence,
+                ownership_score=best.ownership_score,
                 last_commit=max(last_commits) if last_commits else None,
                 commits=sum(e.commits for e in entries),
+                evidence_quality=best.evidence_quality,
                 score_breakdown=best.score_breakdown,
             )
         )
@@ -204,12 +207,17 @@ def _format_last_commit(value: datetime | None) -> str:
 
 
 def _owner_payload(owner: OwnerEntry) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "handle": owner.handle,
+        "ownership_score": round(owner.ownership_score, 4),
         "confidence": round(owner.confidence, 4),
+        "evidence_quality": round(owner.evidence_quality, 4),
         "commits": owner.commits,
         "last_commit": owner.last_commit.isoformat() if owner.last_commit else None,
     }
+    if owner.score_breakdown is not None:
+        payload["signals"] = owner.score_breakdown.signals_payload()
+    return payload
 
 
 def _path_payload(po: PathOwnership, cap: int) -> dict[str, Any]:
@@ -248,13 +256,13 @@ def _render_ownership_table(ownership: OwnershipMap, cap: int) -> None:
         return
     table = Table(title="Inferred Ownership")
     table.add_column("Path", style="cyan")
-    table.add_column("Owners (confidence)", style="white")
+    table.add_column("Owners (score/quality)", style="white")
     table.add_column("Qualified owners", justify="right")
     table.add_column("Decay", justify="right")
     for path in sorted(ownership.paths):
         po = ownership.paths[path]
         owners_str = ", ".join(
-            f"[{_confidence_style(o.confidence)}]{escape(o.handle)} ({o.confidence:.2f})[/]"
+            f"[{_confidence_style(o.confidence)}]{escape(o.handle)} ({o.score_label})[/]"
             for o in po.owners
         )
         count = format_qualified_owner_count(po.qualified_owner_count, cap)
@@ -278,8 +286,8 @@ def _review_provider(config: Config) -> ReviewProvider | None:
     """Build a GitHub-backed review provider when the API is enabled.
 
     Requires github.api_enabled, a resolvable token, and the GITHUB_REPOSITORY
-    slug (set in GitHub Actions). Returns None otherwise, leaving the review
-    factor at 0.0.
+    slug (set in GitHub Actions). Returns None otherwise, leaving review
+    unavailable so remaining weights are renormalized.
     """
     if not config.github.api_enabled:
         return None
@@ -364,9 +372,10 @@ def analyze(json_output: JsonOption = False) -> None:
     cap = config.analysis.top_n_owners
     if json_output:
         data = {
+            "model_version": OWNERSHIP_MODEL_VERSION,
             "inferred": {path: _path_payload(po, cap) for path, po in ownership.paths.items()},
             "last_analyzed": ownership.last_analyzed.isoformat(),
-            "deprecated_keys": [DEPRECATED_COUNT_KEY],
+            "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
         }
         typer.echo(json.dumps(data, indent=2))
     else:
@@ -431,9 +440,7 @@ def print_cmd(json_output: JsonOption = False) -> None:
         typer.echo(json.dumps(data, indent=2))
     else:
         for path in sorted(ownership.paths):
-            owners = " ".join(
-                f"{o.handle}({o.confidence:.2f})" for o in ownership.paths[path].owners
-            )
+            owners = " ".join(f"{o.handle}({o.score_label})" for o in ownership.paths[path].owners)
             typer.echo(f"{path}\t{owners}")
 
 

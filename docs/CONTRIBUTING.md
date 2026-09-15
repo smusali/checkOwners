@@ -82,8 +82,6 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 - New CLI subcommand? Wire it in `cli.py`, give it a `--json` mode, and persist results through `state.write_state` when appropriate.
 - Ownership is never binary: every owner carries a confidence score, clamped to `[0.0, 1.0]`.
 
-For the architecture overview and module map, see [CLAUDE.md](../CLAUDE.md).
-
 ## Tests
 
 - Every module has a `tests/test_<module>.py`.

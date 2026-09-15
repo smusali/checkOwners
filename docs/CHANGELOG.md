@@ -110,6 +110,14 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   and the configuration reference. Callers who omitted `mode` previously
   got `both` (including stale-rule detection) and must pass `mode: both`
   to keep that behavior.
+- Positioning copy no longer claims priority. The comparison table credits
+  competitors, including where they exceed CheckOwners (owner-existence
+  checks, formal truck factor, compile-time `check` mode). The runtime
+  sentence now matches the 0.5.0 dogfood figure of under three minutes
+  on a 24k-commit, 12k-file monorepo. The README and FAQ state the
+  AI-assistance posture explicitly: inference is deterministic git
+  analysis, and the codebase has been built with reviewed agent
+  assistance. Unused `CLAUDE.md` agent instructions are removed.
 
 ## [0.5.0] - 2026-07-04
 

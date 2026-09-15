@@ -7,15 +7,19 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/checkowners.svg)](https://pypi.org/project/checkowners/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/smusali/checkowners/blob/main/LICENSE)
 
-Infer CODEOWNERS from git history with confidence scoring, a knowledge graph, expertise decay detection, team topology inference, review load balancing, and onboarding paths. Pure git, no LLMs. CI-native: structured JSON output, GITHUB_OUTPUT integration, composite GitHub Action.
+Infer CODEOWNERS from git history with confidence scoring, a knowledge graph, expertise decay detection, team topology inference, review load balancing, and onboarding paths. Core inference is deterministic git analysis; no LLM is in that path. CI-native: structured JSON output, GITHUB_OUTPUT integration, composite GitHub Action.
 
 This repository moved here from a previous GitHub organization; Sigstore attestations for 0.5.0 and earlier record that earlier publisher.
 
-> Ownership is not binary. CheckOwners treats it as a confidence-scored spectrum and surfaces second-order risks (qualified owner count, expertise decay, team topology) that come with it.
+> CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration.
+
+> No other open-source tool combines git-history inference, calibrated per-path confidence, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
+
+Inference is deterministic git analysis; the scoring heuristics live in `analyze.py` and are auditable. The codebase has been built with agent assistance. Every AI-assisted change is human-reviewed, tested, and signed off.
 
 ## How it works
 
-`checkowners analyze` reads `git log` and `git blame` (in parallel, only over paths that can actually produce owners; a 24k-commit monorepo analyzes in under two minutes) into a confidence-scored ownership map cached per repo under `~/.checkowners/`. Commit emails resolve to GitHub `@handles` (noreply emails locally with no token, the rest via the GitHub API), and same-person identities merge so qualified owner counts count people, not email addresses. From that map, `generate` writes a CODEOWNERS file with uniform directories consolidated into `dir/` rules, and `drift` compares the committed file against inference using real CODEOWNERS pattern matching (directory rules, globs, last-match-wins). `qualified-owners`, `decay`, `topology`, `balance`, `onboard`, and `trends` emit their own reports. In CI, the composite GitHub Action runs the same flow, writes structured `GITHUB_OUTPUT` and a job summary, and maintains a single up-to-date PR comment on same-repo pull requests. See [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md) for the full pipeline and a diagram.
+`checkowners analyze` reads `git log` and `git blame` (in parallel, only over paths that can actually produce owners; a 24k-commit, 12k-file production monorepo completed a 365-day analyze in under three minutes on the 0.5.0 dogfood run) into a confidence-scored ownership map cached per repo under `~/.checkowners/`. Commit emails resolve to GitHub `@handles` (noreply emails locally with no token, the rest via the GitHub API), and same-person identities merge so qualified owner counts count people, not email addresses. From that map, `generate` writes a CODEOWNERS file with uniform directories consolidated into `dir/` rules, and `drift` compares the committed file against inference using real CODEOWNERS pattern matching (directory rules, globs, last-match-wins). `qualified-owners`, `decay`, `topology`, `balance`, `onboard`, and `trends` emit their own reports. In CI, the composite GitHub Action runs the same flow, writes structured `GITHUB_OUTPUT` and a job summary, and maintains a single up-to-date PR comment on same-repo pull requests. See [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md) for the full pipeline and a diagram.
 
 ## Installation
 

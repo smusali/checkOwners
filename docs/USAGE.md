@@ -136,7 +136,7 @@ flowchart LR
 
 Weights are configurable under `scoring`. The final score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
-The blame pass only runs on paths where at least one author reaches `min_commits`, and runs on a thread pool sized to the CPU count; on a 24k-commit production monorepo a full 365-day analyze completes in under two minutes.
+The blame pass only runs on paths where at least one author reaches `min_commits`, and runs on a thread pool sized to the CPU count. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness.
 
 ## Qualified owner count
 
@@ -248,13 +248,29 @@ Advanced install inputs:
 
 ## How checkowners compares
 
-| Tool | Inference | Confidence | Drift | Qualified owners | Decay | Topology | Onboarding |
-|------|-----------|------------|-------|------------------|-------|----------|------------|
-| **checkowners** | git log + blame | yes (four-factor) | yes (pattern-aware, delta + severity) | capped count + backups | yes (transfer suggestions) | yes (inferred + GitHub reconcile) | yes (Markdown checklist) |
-| git-codeowners (PyPI) | no | no | no | no | no | no | no |
-| codeowners-validator (Action) | no | no | no | no | no | no | no |
-| GitHub native CODEOWNERS | no | no | no | no | no | no | no |
-| Manual CODEOWNERS | no | no | no | no | no | no | no |
+CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, calibrated per-path confidence, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract. Individual pieces exist elsewhere; the table credits them.
+
+| Tool | Infers from history | Confidence score | Drift detection | Owner validity | Knowledge risk | Forges |
+|---|---|---|---|---|---|---|
+| **checkowners** | yes | yes, four-factor | yes, pattern-aware with severity | syntax and handle format | qualified-owner depth, decay, topology, balance | GitHub |
+| History-based generator | **yes** | no, threshold only | no | no | no | git |
+| Monorepo CODEOWNERS compiler | no, composes files | no | **yes, `check` mode** | no | no | GitHub |
+| Dedicated CODEOWNERS validator | no | no | partial: not-owned plus file-exist | **yes: verifies accounts, org membership, teams** | no | GitHub |
+| Ownership-audit CLI | no | no | no | no | ownership stats only | GitHub |
+| GitHub-endpoint linter | no | no | no | **yes, via GitHub's own endpoint** | no | GitHub |
+| Bus/truck-factor research tooling | yes | knowledge model | no | no | **yes, formal bus/truck factor** | GitHub / git |
+| GitHub native | no | no | no | partial, UI errors | no | GitHub |
+
+Representative tools, so the credits are reviewable: [tomasbjerre/generate-codeowners](https://github.com/tomasbjerre/generate-codeowners) (`--since`, `--minimumcommitcount`, `--maximumnumberofcommitters`, `--identifier`); [gagoar/codeowners-generator](https://github.com/gagoar/codeowners-generator) (compose plus `--check`); [mszostok/codeowners-validator](https://github.com/mszostok/codeowners-validator) (`files`, `notowned`, and `owners` checks that verify accounts, org membership, and teams); [snyk/github-codeowners](https://github.com/snyk/github-codeowners) (`audit -s` coverage stats); [heaths/gh-codeowners](https://github.com/heaths/gh-codeowners) wrapping `GET /repos/{owner}/{repo}/codeowners/errors`; [aserg-ufmg/Truck-Factor](https://github.com/aserg-ufmg/Truck-Factor) (Avelino et al., ICPC 2016; degree-of-authorship plus removal simulation); GitHub CODEOWNERS UI and branch protection.
+
+### Competitive positioning
+
+- **GitHub CODEOWNERS.** Native, trusted, and wired into review enforcement. Static declaration; infers nothing. CheckOwners is the intelligence and reconciliation layer above it.
+- **Dedicated validators.** Account, org, and team checks that CheckOwners `validate` does not do. Use a validator for integrity; use CheckOwners for observed-versus-declared drift.
+- **Generators and compilers.** Distributed declarations and a compile/`check` mode that fails CI when the composed file is stale. CheckOwners infers from history; it does not compose satellite CODEOWNERS files.
+- **Ownership-audit CLIs.** Coverage stats over the committed file (owned vs unowned, per-owner counts). CheckOwners scores inferred expertise and knowledge risk.
+- **Bus/truck-factor research tools.** Formal removal simulation over a knowledge distribution. CheckOwners reports a capped `qualified_owner_count` plus decay, topology, and balance. Those are not the same metric; see [Qualified owner count](#qualified-owner-count).
+- **Commercial behavioral analysis.** Mature framing around knowledge distribution, key-person risk, and team/code alignment. CheckOwners is the local-first open-source ownership-intelligence layer, not a commercial suite clone.
 
 ## Development
 

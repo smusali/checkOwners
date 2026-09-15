@@ -158,6 +158,20 @@ Four filters can drop a path: it matches a `paths.exclude` pattern, it no longer
 
 The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.checkowners_drift).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want the job summary and optional PR comment without blocking.
 
+## Positioning
+
+### How does CheckOwners compare to other CODEOWNERS tools?
+
+CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, calibrated per-path confidence, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
+
+Dedicated validators still go further on owner validity: they verify that accounts exist and that users and teams belong to the organization. Formal bus/truck-factor research tools run a removal simulation over a knowledge distribution. CheckOwners `qualified_owner_count` is a capped count of owners above the confidence threshold; it is not truck factor, bus factor, or lottery factor. See [Qualified owner count](USAGE.md#qualified-owner-count).
+
+The full matrix and what each category does well live in [How checkowners compares](USAGE.md#how-checkowners-compares).
+
+### Does CheckOwners use LLMs?
+
+No LLM is in the inference path. Core analysis is deterministic git work (`git log`, `git blame`) plus optional GitHub API lookups. The scoring heuristics live in `analyze.py` and are auditable. The codebase has been built with agent assistance; every AI-assisted change is human-reviewed, tested, and signed off.
+
 ## Troubleshooting
 
 ### `networkx` is not installed but I want `checkowners graph`.

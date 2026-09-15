@@ -18,6 +18,7 @@ from checkowners.action_report import (
     summarize_decay,
     summarize_drift,
 )
+from checkowners.analyze import resolve_as_of
 from checkowners.cli import _merge_identities, _owner_payload, app
 from checkowners.models import (
     OWNERSHIP_MODEL_VERSION,
@@ -76,9 +77,10 @@ _OWNERSHIP = OwnershipMap(
         ),
     },
     last_analyzed=_NOW,
+    analysis_ref="deadbeef",
 )
 
-_EMPTY_OWNERSHIP = OwnershipMap(paths={}, last_analyzed=_NOW)
+_EMPTY_OWNERSHIP = OwnershipMap(paths={}, last_analyzed=_NOW, analysis_ref="deadbeef")
 
 _DRIFT_DETECTED = DriftResult(
     stale=(DriftEntry(path="/old.py", confidence_delta=1.0, reason="stale path"),),
@@ -106,7 +108,11 @@ _MOCK_PATH = patch(
 
 @pytest.fixture(autouse=True)
 def _isolate_state(tmp_path: Path) -> None:
-    with patch.dict("os.environ", {"CHECKOWNERS_STATE_DIR": str(tmp_path)}):
+    with (
+        patch.dict("os.environ", {"CHECKOWNERS_STATE_DIR": str(tmp_path)}),
+        patch("checkowners.cli.resolve_as_of", return_value=_NOW),
+        patch("checkowners.cli.head_commit_sha", return_value="deadbeef"),
+    ):
         yield
 
 
@@ -132,6 +138,34 @@ def test_analyze_json() -> None:
     assert path_data["qualified_owner_count_cap"] == 3
     assert data["model_version"] == OWNERSHIP_MODEL_VERSION
     assert data["deprecated_keys"] == ["bus_factor", "confidence"]
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
+
+
+def test_analyze_as_of_overrides() -> None:
+    pinned = datetime(2024, 1, 1, tzinfo=UTC)
+    with (
+        patch("checkowners.cli.resolve_as_of", return_value=pinned) as mock_as_of,
+        patch("checkowners.cli.head_commit_sha", return_value="deadbeef"),
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["--as-of", "2024-01-01T00:00:00+00:00", "analyze", "--json"])
+    assert result.exit_code == 0
+    assert mock_as_of.call_args[0][0] == "2024-01-01T00:00:00+00:00"
+
+
+def test_analyze_honors_source_date_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1700000000")
+    with (
+        patch("checkowners.cli.resolve_as_of", side_effect=resolve_as_of),
+        patch("checkowners.cli.head_commit_sha", return_value="deadbeef"),
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP) as mock_an,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["analyze", "--json"])
+    assert result.exit_code == 0
+    assert mock_an.call_args.kwargs["as_of"] == datetime.fromtimestamp(1_700_000_000, tz=UTC)
 
 
 def test_analyze_table() -> None:

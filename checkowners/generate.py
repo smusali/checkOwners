@@ -129,12 +129,13 @@ def _format_line(
 def _collect_rows(ownership: OwnershipMap, config: Config) -> list[_Row]:
     """Confidence-filtered rows, consolidated to directories when uniform."""
     filtered: list[_FileRow] = []
-    for path, path_ownership in ownership.paths.items():
+    for path, path_ownership in sorted(ownership.paths.items()):
         owners = tuple(
             o for o in path_ownership.owners if o.confidence >= config.analysis.confidence_threshold
         )
         if owners:
             filtered.append((path.lstrip("/"), owners))
+    filtered.sort(key=lambda row: row[0])
     if config.output.consolidate:
         rows = _consolidate(filtered)
     else:

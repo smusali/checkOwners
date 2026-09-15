@@ -52,6 +52,7 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.output.consolidate is True
     assert cfg.drift.mode == "commit"
     assert cfg.drift.min_confidence_delta == 0.2
+    assert cfg.drift.hysteresis_runs == 1
     assert cfg.notifications.webhook_url == ""
     assert cfg.notifications.include_unchanged is False
     assert cfg.notifications.severity_threshold == "medium"
@@ -136,6 +137,7 @@ output:
 drift:
   mode: repo
   min_confidence_delta: 0.4
+  hysteresis_runs: 3
 notifications:
   webhook_url: "https://hooks.example.com/drift"
   include_unchanged: true
@@ -172,6 +174,7 @@ github:
     assert cfg.output.include_confidence is True
     assert cfg.drift.mode == "repo"
     assert cfg.drift.min_confidence_delta == 0.4
+    assert cfg.drift.hysteresis_runs == 3
     assert cfg.notifications.webhook_url == "https://hooks.example.com/drift"
     assert cfg.notifications.include_unchanged is True
     assert cfg.notifications.severity_threshold == "high"
@@ -219,6 +222,12 @@ def test_drift_mode_literal(tmp_path: Path) -> None:
 def test_drift_mode_invalid_rejected(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "drift:\n  mode: nonsense\n")
     with pytest.raises(ValueError, match=r"Invalid drift\.mode"):
+        load_config(repo_root=root)
+
+
+def test_hysteresis_runs_invalid_rejected(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "drift:\n  hysteresis_runs: 0\n")
+    with pytest.raises(ValueError, match=r"Invalid drift\.hysteresis_runs"):
         load_config(repo_root=root)
 
 

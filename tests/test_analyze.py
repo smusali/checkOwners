@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from checkowners.analyze import (
+    SOURCE_DATE_EPOCH_ENV,
     _aggregate_contributions,
     _blame_for_path,
     _Contribution,
@@ -25,8 +27,12 @@ from checkowners.analyze import (
     _RawCommit,
     _recency_score,
     _score_owners,
+    analysis_epoch,
     analyze_ownership,
     combine_available_signals,
+    parse_as_of,
+    parse_source_date_epoch,
+    resolve_as_of,
     signal_reliabilities,
     signal_weights,
 )
@@ -34,6 +40,7 @@ from checkowners.models import (
     AnalysisConfig,
     Config,
     DecayConfig,
+    OwnershipMap,
     QualificationConfig,
     ScoringConfig,
 )
@@ -71,6 +78,7 @@ def _no_blame(
     _root: Path,
     *,
     on_progress: object = None,  # noqa: ARG001
+    max_workers: object = None,  # noqa: ARG001
 ) -> dict[str, dict[str, float]]:
     return {}
 
@@ -97,7 +105,7 @@ def test_analyze_basic_confidence_scoring() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     main_owners = result.paths["src/main.py"].owners
     assert main_owners[0].handle == "alice@example.com"
@@ -131,7 +139,9 @@ def test_analyze_review_provider_feeds_review_factor() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config, review_provider=provider)
+        result = analyze_ownership(
+            Path("/fake"), config, review_provider=provider, as_of=_NOW, analysis_ref="deadbeef"
+        )
 
     alice = result.paths["src/main.py"].owners[0]
     assert alice.handle == "alice@example.com"
@@ -151,7 +161,7 @@ def test_analyze_review_factor_zero_without_provider() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     owner = result.paths["src/main.py"].owners[0]
     breakdown = owner.score_breakdown
@@ -169,10 +179,12 @@ def test_analyze_lookback_days() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        analyze_ownership(Path("/fake"), config)
+        analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     args = mock.call_args[0][0]
-    assert "--since=90 days ago" in args
+    since = _NOW - timedelta(days=90)
+    assert f"--since={since.isoformat()}" in args
+    assert f"--until={_NOW.isoformat()}" in args
 
 
 def test_analyze_min_commits_filter() -> None:
@@ -193,7 +205,7 @@ def test_analyze_min_commits_filter() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     handles = [o.handle for o in result.paths["src/main.py"].owners]
     assert handles == ["alice@example.com"]
@@ -217,6 +229,7 @@ def test_analyze_adaptive_keeps_high_blame_author() -> None:
         _root: Path,
         *,
         on_progress: object = None,  # noqa: ARG001
+        max_workers: object = None,  # noqa: ARG001
     ) -> dict[str, dict[str, float]]:
         return {"src/main.py": {"alice@example.com": 0.4, "bob@example.com": 0.6}}
 
@@ -225,7 +238,7 @@ def test_analyze_adaptive_keeps_high_blame_author() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=blame_bob),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     handles = {o.handle for o in result.paths["src/main.py"].owners}
     assert handles == {"alice@example.com", "bob@example.com"}
@@ -247,7 +260,7 @@ def test_analyze_top_n_owners() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     handles = [o.handle for o in result.paths["f.py"].owners]
     assert handles == ["alice@example.com", "bob@example.com"]
@@ -279,7 +292,7 @@ def test_analyze_path_exclusions() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     assert "src/main.py" in result.paths
     assert "yarn.lock" not in result.paths
@@ -295,7 +308,7 @@ def test_analyze_empty_repo() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
     assert result.paths == {}
 
 
@@ -315,7 +328,7 @@ def test_analyze_confidence_threshold_filters() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
     assert "f.py" not in result.paths
 
 
@@ -336,7 +349,7 @@ def test_analyze_decay_warning_flagged() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     warnings = result.paths["src/auth.py"].decay_warnings
     assert len(warnings) == 1
@@ -360,7 +373,7 @@ def test_analyze_bus_factor_counts_qualified_owners() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     count = result.paths["src/main.py"].qualified_owner_count
     assert count == 3
@@ -492,7 +505,7 @@ def test_get_commit_history_subprocess_error() -> None:
         patch(_MOCK_GIT, side_effect=subprocess.CalledProcessError(128, "git")),
         pytest.raises(subprocess.CalledProcessError),
     ):
-        _get_commit_history(Path("/fake"), 180)
+        _get_commit_history(Path("/fake"), 180, _NOW)
 
 
 def test_parse_log_output_empty() -> None:
@@ -558,6 +571,7 @@ def _record_blame(blamed: list[str]) -> object:
         _root: Path,
         *,
         on_progress: object = None,  # noqa: ARG001
+        max_workers: object = None,  # noqa: ARG001
     ) -> dict[str, dict[str, float]]:
         blamed.extend(paths)
         return {}
@@ -577,7 +591,7 @@ def test_unqualified_paths_not_blamed() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_record_blame(blamed)),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     assert blamed == ["hot.py"]
     assert set(result.paths) == {"hot.py"}
@@ -595,7 +609,7 @@ def test_adaptive_blames_all_contributed_paths() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_record_blame(blamed)),
     ):
-        analyze_ownership(Path("/fake"), config)
+        analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     assert set(blamed) == {"hot.py", "cold.py"}
 
@@ -618,7 +632,13 @@ def test_progress_hook_reports_blame_progress() -> None:
         patch(_MOCK_GIT, side_effect=fake_git),
         patch(_MOCK_EXIST, side_effect=_passthrough),
     ):
-        analyze_ownership(Path("/fake"), config, on_progress=lambda d, t: updates.append((d, t)))
+        analyze_ownership(
+            Path("/fake"),
+            config,
+            on_progress=lambda d, t: updates.append((d, t)),
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+        )
 
     assert updates == [(1, 2), (2, 2)]
 
@@ -640,7 +660,7 @@ def test_bot_authors_excluded_by_default() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_record_blame(blamed)),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
     assert set(result.paths) == {"src/main.py"}
     assert blamed == ["src/main.py"]
 
@@ -658,7 +678,7 @@ def test_bot_authors_kept_when_disabled() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
     assert set(result.paths) == {"gen.md"}
 
 
@@ -671,6 +691,7 @@ def test_adaptive_single_commit_full_blame_is_owner() -> None:
         _root: Path,
         *,
         on_progress: object = None,  # noqa: ARG001
+        max_workers: object = None,  # noqa: ARG001
     ) -> dict[str, dict[str, float]]:
         return {"new.py": {"alice@example.com": 1.0}}
 
@@ -679,7 +700,7 @@ def test_adaptive_single_commit_full_blame_is_owner() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=full_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     owner = result.paths["new.py"].owners[0]
     assert owner.handle == "alice@example.com"
@@ -701,6 +722,7 @@ def test_adaptive_squash_merge_produces_owners() -> None:
         _root: Path,
         *,
         on_progress: object = None,  # noqa: ARG001
+        max_workers: object = None,  # noqa: ARG001
     ) -> dict[str, dict[str, float]]:
         return {"svc.py": {"alice@example.com": 0.7, "bob@example.com": 0.3}}
 
@@ -709,7 +731,7 @@ def test_adaptive_squash_merge_produces_owners() -> None:
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=split_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config)
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
     assert "svc.py" in result.paths
     assert {o.handle for o in result.paths["svc.py"].owners} == {
@@ -761,3 +783,118 @@ def test_frequency_score_monotonic_and_damped(commits: int) -> None:
 def test_threshold_frequency_undamped() -> None:
     assert _frequency_score(3, 3) == 1.0
     assert _frequency_score(3, 3, 0.0) == 1.0
+
+
+def _ownership_json(ownership: OwnershipMap) -> str:
+    return json.dumps(
+        {
+            "analysis_epoch": analysis_epoch(ownership.last_analyzed),
+            "analysis_ref": ownership.analysis_ref,
+            "inferred": {
+                path: {
+                    "owners": [
+                        {
+                            "handle": owner.handle,
+                            "ownership_score": round(owner.ownership_score, 4),
+                        }
+                        for owner in po.owners
+                    ]
+                }
+                for path, po in sorted(ownership.paths.items())
+            },
+        },
+        indent=2,
+        sort_keys=True,
+    )
+
+
+def _sample_commits() -> str:
+    return _make_git_log_output(
+        [
+            ("alice@example.com", _RECENT, ["src/main.py"]),
+            ("alice@example.com", _RECENT, ["src/main.py"]),
+        ]
+    )
+
+
+def test_parse_as_of_naive_is_utc() -> None:
+    assert parse_as_of("2026-05-28T12:00:00") == _NOW
+    assert parse_as_of("2026-05-28T12:00:00+00:00") == _NOW
+
+
+def test_parse_source_date_epoch_rejects_garbage() -> None:
+    with pytest.raises(ValueError, match="SOURCE_DATE_EPOCH"):
+        parse_source_date_epoch("not-an-int")
+
+
+def test_resolve_as_of_cli_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(SOURCE_DATE_EPOCH_ENV, "1000000000")
+    assert resolve_as_of("2026-05-28T12:00:00+00:00", tmp_path) == _NOW
+
+
+def test_resolve_as_of_source_date_epoch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(SOURCE_DATE_EPOCH_ENV, "1000000000")
+    with patch("checkowners.analyze.head_commit_datetime", side_effect=AssertionError):
+        got = resolve_as_of(None, tmp_path)
+    assert got == datetime.fromtimestamp(1_000_000_000, tz=UTC)
+
+
+def test_same_as_of_is_byte_identical() -> None:
+    stdout = _sample_commits()
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        first = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
+        second = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
+    assert _ownership_json(first) == _ownership_json(second)
+    later = _NOW + timedelta(days=30)
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        shifted = analyze_ownership(Path("/fake"), config, as_of=later, analysis_ref="deadbeef")
+    assert _ownership_json(first) != _ownership_json(shifted)
+
+
+def test_source_date_epoch_same_value_matches(monkeypatch: pytest.MonkeyPatch) -> None:
+    stdout = _sample_commits()
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    monkeypatch.setenv(SOURCE_DATE_EPOCH_ENV, "1716900000")
+    pinned = resolve_as_of(None, Path("/fake"))
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        first = analyze_ownership(Path("/fake"), config, as_of=pinned, analysis_ref="deadbeef")
+        second = analyze_ownership(Path("/fake"), config, as_of=pinned, analysis_ref="deadbeef")
+    assert _ownership_json(first) == _ownership_json(second)
+    other = datetime.fromtimestamp(1_720_000_000, tz=UTC)
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        different = analyze_ownership(Path("/fake"), config, as_of=other, analysis_ref="deadbeef")
+    assert _ownership_json(first) != _ownership_json(different)
+
+
+def test_max_workers_does_not_change_output() -> None:
+    stdout = _sample_commits()
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        one = analyze_ownership(
+            Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef", max_workers=1
+        )
+        many = analyze_ownership(
+            Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef", max_workers=16
+        )
+    assert _ownership_json(one) == _ownership_json(many)

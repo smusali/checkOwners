@@ -10,7 +10,7 @@ For contributor `u` on path `p`:
 
 | Signal | Meaning | Available when |
 |--------|---------|----------------|
-| Recency | Exponential decay from last commit, half-life `scoring.recency_half_life_days` (default 90) | The owner has a last-commit timestamp |
+| Recency | Exponential decay from last commit, half-life `scoring.recency_half_life_days` (default 90), aged against `analysis_epoch` (HEAD committer time by default, never the wall clock) | The owner has a last-commit timestamp |
 | Frequency | `commits(u, p) / (max_commits(p) + prior)` over the lookback window. `prior` is `3` when `qualification.strategy` is `adaptive`, and `0` when it is `threshold` | Commit counts exist for the path |
 | Blame | Share of current lines `git blame --line-porcelain` attributes to `u` | Blame ran and produced lines for the path |
 | Review | Share of PR reviews on `p` attributed to `u` | A review provider was injected (`github.api_enabled` plus token and `GITHUB_REPOSITORY`) |
@@ -60,8 +60,10 @@ Human output shows both values as `handle (score/quality)`, for example
 ## Versioning
 
 Analyze JSON and cached state include `model_version: ownership-v3`. Per-repo
-state is schema v5; older files, and files whose `model_version` is not
-`ownership-v3`, are ignored and replaced on the next analyze.
+state is schema v6; older files, and files whose `model_version` is not
+`ownership-v3`, are ignored and replaced on the next analyze. Recency and the
+lookback window are evaluated at `analysis_epoch`, not the wall clock. JSON
+payloads emit `analysis_ref` (HEAD SHA) and `analysis_epoch`.
 Changing this formula is a breaking change for anyone gating CI on a threshold.
 
 `qualification.strategy: adaptive` (the default) treats commit count as evidence:

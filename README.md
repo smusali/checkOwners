@@ -61,7 +61,7 @@ checkowners drift
 checkowners validate
 ```
 
-All commands accept `--json` (except `graph`, which exports DOT via `--export dot`) and persist their results per repo under `~/.checkowners/` so downstream commands can reuse the analysis.
+All commands accept `--json` (except `graph`, which exports DOT via `--export dot`) and persist their results per repo under `~/.checkowners/` so downstream commands can reuse the analysis. Scoring commands also accept `--as-of` and honor `SOURCE_DATE_EPOCH`; the default analysis instant is the HEAD committer timestamp.
 
 ## Commands
 

@@ -23,6 +23,7 @@ from checkowners.models import (
 from checkowners.state import (
     SCHEMA_VERSION,
     _state_path,
+    load_hysteresis,
     load_ownership,
     read_graph_cache,
     read_handle_cache,
@@ -66,7 +67,7 @@ def _make_ownership() -> OwnershipMap:
         historical_confidence=0.4,
     )
     po = PathOwnership(owners=(owner,), qualified_owner_count=1, decay_warnings=(decay,))
-    return OwnershipMap(paths={"src/auth.py": po}, last_analyzed=_NOW)
+    return OwnershipMap(paths={"src/auth.py": po}, last_analyzed=_NOW, analysis_ref="deadbeef")
 
 
 def _write_raw_state(repo_root: Path, payload: object) -> None:
@@ -159,6 +160,10 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
     assert data["model_version"] == OWNERSHIP_MODEL_VERSION
     assert data["deprecated_keys"] == ["bus_factor", "confidence"]
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["drift_reported_severity"] is None
+    assert data["drift_pending_severity"] is None
+    assert data["drift_pending_streak"] == 0
     assert "src/auth.py" in data["inferred"]
     inferred = data["inferred"]["src/auth.py"]
     assert inferred["qualified_owner_count"] == 1
@@ -194,6 +199,7 @@ def test_load_ownership_roundtrip(repo: Path) -> None:
     decay = loaded.paths["src/auth.py"].decay_warnings[0]
     assert decay.handle == "@bob"
     assert decay.days_since_last_commit == 200
+    assert loaded.analysis_ref == "deadbeef"
 
 
 def test_load_ownership_missing_returns_none(repo: Path) -> None:
@@ -366,6 +372,19 @@ def test_load_ownership_skips_malformed_path(repo: Path) -> None:
     loaded = load_ownership(repo)
     assert loaded is not None
     assert set(loaded.paths) == {"src/good.py"}
+
+
+def test_hysteresis_roundtrip_and_preserve(repo: Path) -> None:
+    write_state(
+        repo,
+        _make_ownership(),
+        drift_reported_severity="low",
+        drift_pending_severity="medium",
+        drift_pending_streak=2,
+    )
+    assert load_hysteresis(repo) == ("low", "medium", 2)
+    write_state(repo, _make_ownership())
+    assert load_hysteresis(repo) == ("low", "medium", 2)
 
 
 def test_write_state_creates_parent_dirs(tmp_path: Path, repo: Path) -> None:

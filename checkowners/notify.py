@@ -17,7 +17,14 @@ logger = logging.getLogger(__name__)
 _SEVERITY_ORDER: tuple[Severity, ...] = ("low", "medium", "high", "critical")
 
 
-def send_notification(result: DriftResult, config: Config) -> bool:
+def send_notification(
+    result: DriftResult,
+    config: Config,
+    *,
+    severity: Severity | None = None,
+    analysis_ref: str = "",
+    analysis_epoch: str = "",
+) -> bool:
     """POST drift result to the configured webhook URL.
 
     Returns True if the payload was sent, False if skipped (no webhook URL,
@@ -28,10 +35,16 @@ def send_notification(result: DriftResult, config: Config) -> bool:
         return False
     if not result.drift_detected and not config.notifications.include_unchanged:
         return False
-    severity = compute_severity(result, config)
-    if not _meets_threshold(severity, config.notifications.severity_threshold):
+    resolved = severity if severity is not None else compute_severity(result, config)
+    if not _meets_threshold(resolved, config.notifications.severity_threshold):
         return False
-    payload = _build_payload(result, severity, config)
+    payload = _build_payload(
+        result,
+        resolved,
+        config,
+        analysis_ref=analysis_ref,
+        analysis_epoch=analysis_epoch,
+    )
     return _post_webhook(config.notifications.webhook_url, payload)
 
 
@@ -50,6 +63,36 @@ def compute_severity(result: DriftResult, config: Config | None = None) -> Sever
     if delta >= 0.3:
         return "medium"
     return "low"
+
+
+def apply_severity_hysteresis(
+    raw: Severity,
+    max_delta: float,
+    config: Config,
+    previous: tuple[Severity | None, Severity | None, int],
+) -> tuple[Severity, Severity, int]:
+    """Hold a severity flip until it persists or the delta clears a margin.
+
+    Returns ``(reported, pending, streak)``. ``hysteresis_runs <= 1`` or a
+    missing prior report is first-run and returns ``raw`` unchanged. A delta
+    at least ``2 * min_confidence_delta`` accepts immediately.
+    """
+    runs = config.drift.hysteresis_runs
+    reported, pending, streak = previous
+    if runs <= 1 or reported is None:
+        return raw, raw, 1
+    if max_delta >= config.drift.min_confidence_delta * 2:
+        return raw, raw, 1
+    if raw == reported:
+        return raw, raw, 1
+    if raw == pending:
+        streak += 1
+    else:
+        streak = 1
+        pending = raw
+    if streak >= runs:
+        return raw, raw, streak
+    return reported, pending, streak
 
 
 def _has_critical_signal(result: DriftResult, critical_threshold: int) -> bool:
@@ -73,8 +116,13 @@ def _build_payload(
     result: DriftResult,
     severity: Severity,
     config: Config,
+    *,
+    analysis_ref: str = "",
+    analysis_epoch: str = "",
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
+        "analysis_epoch": analysis_epoch,
+        "analysis_ref": analysis_ref,
         "drift_detected": result.drift_detected,
         "severity": severity,
         "max_confidence_delta": result.max_confidence_delta,

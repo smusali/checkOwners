@@ -233,6 +233,8 @@ def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
     trimmed_notes, notes_cut = _trim(notes, limit)
     return {
         "schema_version": OUTPUT_SCHEMA_VERSION,
+        "analysis_ref": data.get("analysis_ref", ""),
+        "analysis_epoch": data.get("analysis_epoch", ""),
         "drift_detected": bool(data.get("drift_detected")),
         "severity": data.get("severity"),
         "max_confidence_delta": data.get("max_confidence_delta"),
@@ -268,6 +270,8 @@ def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, objec
         cap = 3
     return {
         "schema_version": OUTPUT_SCHEMA_VERSION,
+        "analysis_ref": data.get("analysis_ref", ""),
+        "analysis_epoch": data.get("analysis_epoch", ""),
         "repo_average": data.get("repo_average"),
         "qualified_owner_count_cap": cap,
         "deprecated_keys": ["bus_factor"],
@@ -283,6 +287,8 @@ def summarize_decay(data: dict[str, object], limit: int) -> dict[str, object]:
     trimmed, cut = _trim(reports, limit)
     return {
         "schema_version": OUTPUT_SCHEMA_VERSION,
+        "analysis_ref": data.get("analysis_ref", ""),
+        "analysis_epoch": data.get("analysis_epoch", ""),
         "counts": {"reports": len(reports)},
         "reports": trimmed,
         "truncated": cut,

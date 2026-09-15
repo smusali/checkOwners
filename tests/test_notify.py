@@ -10,12 +10,14 @@ from unittest.mock import MagicMock, patch
 from checkowners.models import (
     BusFactorConfig,
     Config,
+    DriftConfig,
     DriftEntry,
     DriftResult,
     NotificationsConfig,
 )
 from checkowners.notify import (
     _build_payload,
+    apply_severity_hysteresis,
     compute_severity,
     send_notification,
 )
@@ -85,6 +87,32 @@ def test_compute_severity_low_medium_high_critical() -> None:
 
 def test_compute_severity_no_drift_is_low() -> None:
     assert compute_severity(_drift_with(detected=False)) == "low"
+
+
+def test_hysteresis_default_reports_raw() -> None:
+    config = Config()
+    reported, pending, streak = apply_severity_hysteresis("medium", 0.35, config, (None, None, 0))
+    assert (reported, pending, streak) == ("medium", "medium", 1)
+
+
+def test_hysteresis_holds_until_streak() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3))
+    first = apply_severity_hysteresis("medium", 0.35, config, ("low", None, 0))
+    assert first[0] == "low"
+    assert first[1] == "medium"
+    assert first[2] == 1
+    second = apply_severity_hysteresis("medium", 0.35, config, first)
+    assert second[0] == "low"
+    assert second[2] == 2
+    third = apply_severity_hysteresis("medium", 0.35, config, second)
+    assert third[0] == "medium"
+    assert third[2] == 3
+
+
+def test_hysteresis_margin_flips_immediately() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3, min_confidence_delta=0.2))
+    reported, pending, streak = apply_severity_hysteresis("high", 0.45, config, ("low", None, 0))
+    assert (reported, pending, streak) == ("high", "high", 1)
 
 
 def test_compute_severity_uses_configured_critical_threshold() -> None:

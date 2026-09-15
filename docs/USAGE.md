@@ -83,6 +83,7 @@ output:
 drift:
   mode: commit                # commit | repo | both
   min_confidence_delta: 0.2   # suppress small-delta drift
+  hysteresis_runs: 1          # severity flips on first observation; raise to require N runs
 
 notifications:
   webhook_url: ""             # literal, or ${ENV_VAR} to read from the environment
@@ -108,8 +109,21 @@ The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` enviro
 | `GITHUB_TOKEN` | Action `github_token` input, or the user | Only supported token source | Never read from YAML (`github.token` is rejected) |
 | `GITHUB_REPOSITORY` | GitHub runner | `owner/repo` for review coverage, topology, balance | Required for those API features; ignored otherwise |
 | `GITHUB_OUTPUT` | GitHub runner | `github-action` writes bounded `schema_version: 2` summaries when set | Full `drift.json` / `bus_factor.json` / `decay.json` payloads are the uploaded artifact; summaries stay under the 1 MB per-output cap |
+| `SOURCE_DATE_EPOCH` | User or CI | Integer POSIX seconds used as the analysis instant when `--as-of` is omitted | After `--as-of`; before HEAD committer time |
 
 The composite Action sets `CHECKOWNERS_STATE_DIR` to `${{ runner.temp }}/checkowners-state`. CLI and hand-rolled CI must set it themselves if they want an ephemeral cache.
+
+## Determinism
+
+Scoring and lookback are a pure function of the repository, the commit, and the config. Recency and decay age against one resolved instant, never the wall clock:
+
+1. `--as-of <ISO8601>` (naive values are UTC)
+2. `SOURCE_DATE_EPOCH` (integer POSIX seconds, UTC)
+3. The HEAD committer timestamp (`git log -1 --format=%cI`)
+
+`--deterministic` documents that contract. It does not change the resolution order. JSON payloads include `analysis_ref` (HEAD SHA) and `analysis_epoch` (the resolved instant as ISO 8601 UTC). `git log` uses `--since` / `--until` pinned to that instant, so the same commit scored twice with a clock offset is byte-identical.
+
+`drift.hysteresis_runs` (default `1`) holds a severity flip until the new tier appears on N consecutive drift runs, unless `max_confidence_delta` is at least `2 * min_confidence_delta`. Default `1` matches previous behavior.
 
 ## Identity resolution
 
@@ -156,7 +170,7 @@ flowchart LR
 
 Weights and reliabilities are configurable under `scoring`. Review weight is omitted from the score when `github.api_enabled` is false; it is not filled in as `0.0`. The score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
-**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3`. Per-repo state is schema v5; files whose `model_version` is not `ownership-v3` are ignored. To restore the previous gate and undamped frequency for one cycle:
+**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3`. Per-repo state is schema v6; files whose `model_version` is not `ownership-v3` are ignored. To restore the previous gate and undamped frequency for one cycle:
 
 ```yaml
 qualification:

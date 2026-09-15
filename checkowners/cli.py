@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -29,7 +30,13 @@ from checkowners.action_report import (
     publish_outputs,
     write_step_summary,
 )
-from checkowners.analyze import ReviewProvider, analyze_ownership
+from checkowners.analyze import (
+    ReviewProvider,
+    analysis_epoch,
+    analyze_ownership,
+    head_commit_sha,
+    resolve_as_of,
+)
 from checkowners.balance import BalanceReport, analyze_balance
 from checkowners.busfactor import (
     DEPRECATED_AVG_COUNT_KEY,
@@ -69,10 +76,12 @@ from checkowners.models import (
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    Severity,
 )
-from checkowners.notify import compute_severity, send_notification
+from checkowners.notify import apply_severity_hysteresis, compute_severity, send_notification
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
 from checkowners.state import (
+    load_hysteresis,
     load_ownership,
     read_graph_cache,
     write_graph_cache,
@@ -101,6 +110,8 @@ err_console = Console(stderr=True)
 
 JsonOption = Annotated[bool, typer.Option("--json", help="Output as JSON.")]
 
+_CLI_AS_OF: ContextVar[str | None] = ContextVar("cli_as_of", default=None)
+
 
 def _version_callback(value: bool) -> None:
     if value:
@@ -110,7 +121,8 @@ def _version_callback(value: bool) -> None:
 
 @app.callback()
 def _app_callback(
-    version: Annotated[
+    ctx: typer.Context,
+    version: Annotated[  # noqa: ARG001
         bool,
         typer.Option(
             "--version",
@@ -119,8 +131,75 @@ def _app_callback(
             help="Show the version and exit.",
         ),
     ] = False,
+    as_of: Annotated[
+        str | None,
+        typer.Option(
+            "--as-of",
+            help="Score recency as of this UTC instant (ISO 8601).",
+        ),
+    ] = None,
+    deterministic: Annotated[
+        bool,
+        typer.Option(
+            "--deterministic",
+            help=(
+                "Documented guarantee: analysis is a pure function of "
+                "the repository, commit, and config."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Infer and maintain CODEOWNERS from git history."""
+    ctx.ensure_object(dict)
+    ctx.obj["as_of"] = as_of
+    ctx.obj["deterministic"] = deterministic
+    _CLI_AS_OF.set(as_of)
+
+
+def _analysis_stamp(ownership: OwnershipMap) -> dict[str, str]:
+    return {
+        "analysis_ref": ownership.analysis_ref,
+        "analysis_epoch": analysis_epoch(ownership.last_analyzed),
+    }
+
+
+def _emit_json(data: dict[str, Any]) -> None:
+    typer.echo(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _resolve_clock(repo_root: Path) -> tuple[datetime, str]:
+    try:
+        as_of = resolve_as_of(_CLI_AS_OF.get(), repo_root)
+        ref = head_commit_sha(repo_root)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Git command failed:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+    return as_of, ref
+
+
+def _severity_with_hysteresis(
+    repo_root: Path,
+    ownership: OwnershipMap,
+    result: DriftResult,
+    config: Config,
+) -> Severity:
+    raw = compute_severity(result, config)
+    reported, pending, streak = apply_severity_hysteresis(
+        raw, result.max_confidence_delta, config, load_hysteresis(repo_root)
+    )
+    write_state(
+        repo_root,
+        ownership,
+        drift_detected=result.drift_detected,
+        qualified_owner_count_cap=config.analysis.top_n_owners,
+        drift_reported_severity=reported,
+        drift_pending_severity=pending,
+        drift_pending_streak=streak,
+    )
+    return reported
 
 
 def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> OwnershipMap:
@@ -164,7 +243,11 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
             qualified_owner_count=qualified_owner_count,
             decay_warnings=decay_warnings,
         )
-    return OwnershipMap(paths=new_paths, last_analyzed=ownership.last_analyzed)
+    return OwnershipMap(
+        paths=new_paths,
+        last_analyzed=ownership.last_analyzed,
+        analysis_ref=ownership.analysis_ref,
+    )
 
 
 def _merge_identities(
@@ -306,6 +389,7 @@ def _review_provider(config: Config) -> ReviewProvider | None:
 
 def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
     _warn_missing_api_token(config)
+    as_of, analysis_ref = _resolve_clock(repo_root)
     progress = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -328,6 +412,8 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
                 config,
                 review_provider=_review_provider(config),
                 on_progress=on_progress,
+                as_of=as_of,
+                analysis_ref=analysis_ref,
             )
     except subprocess.CalledProcessError as exc:
         console.print(f"[red]Git command failed:[/red] {exc}")
@@ -373,11 +459,14 @@ def analyze(json_output: JsonOption = False) -> None:
     if json_output:
         data = {
             "model_version": OWNERSHIP_MODEL_VERSION,
-            "inferred": {path: _path_payload(po, cap) for path, po in ownership.paths.items()},
+            "inferred": {
+                path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())
+            },
             "last_analyzed": ownership.last_analyzed.isoformat(),
             "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
+            **_analysis_stamp(ownership),
         }
-        typer.echo(json.dumps(data, indent=2))
+        _emit_json(data)
     else:
         _render_ownership_table(ownership, cap)
 
@@ -424,7 +513,7 @@ def generate(json_output: JsonOption = False, force: ForceOption = False) -> Non
         raise typer.Exit(code=1) from None
     rel_path = codeowners_path.relative_to(repo_root)
     if json_output:
-        typer.echo(json.dumps({"path": str(rel_path), "content": content}, indent=2))
+        _emit_json({"path": str(rel_path), "content": content, **_analysis_stamp(ownership)})
     else:
         console.print(f"[green]Generated {rel_path}[/green]")
 
@@ -436,8 +525,11 @@ def print_cmd(json_output: JsonOption = False) -> None:
     ownership = _run_analyze(config, Path.cwd())
     cap = config.analysis.top_n_owners
     if json_output:
-        data = {path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())}
-        typer.echo(json.dumps(data, indent=2))
+        data: dict[str, Any] = {
+            path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())
+        }
+        data.update(_analysis_stamp(ownership))
+        _emit_json(data)
     else:
         for path in sorted(ownership.paths):
             owners = " ".join(f"{o.handle}({o.score_label})" for o in ownership.paths[path].owners)
@@ -508,9 +600,15 @@ def drift(json_output: JsonOption = False) -> None:
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
-    severity = compute_severity(result, config)
+    severity = _severity_with_hysteresis(repo_root, ownership, result, config)
     cap = config.analysis.top_n_owners
-    write_github_output(result, cap)
+    stamp = _analysis_stamp(ownership)
+    write_github_output(
+        result,
+        cap,
+        analysis_ref=stamp["analysis_ref"],
+        analysis_epoch=stamp["analysis_epoch"],
+    )
     if json_output:
         data = {
             "stale": [_drift_entry_payload(e, cap) for e in result.stale],
@@ -521,8 +619,9 @@ def drift(json_output: JsonOption = False) -> None:
             "max_confidence_delta": round(result.max_confidence_delta, 4),
             "notes": list(result.notes),
             "deprecated_keys": [DEPRECATED_COUNT_KEY],
+            **stamp,
         }
-        typer.echo(json.dumps(data, indent=2))
+        _emit_json(data)
         return
     for note in result.notes:
         console.print(f"[yellow]note:[/yellow] {escape(note)}")
@@ -548,15 +647,24 @@ def notify(json_output: JsonOption = False) -> None:
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
-    sent = send_notification(result, config)
-    severity = compute_severity(result, config)
+    severity = _severity_with_hysteresis(repo_root, ownership, result, config)
+    stamp = _analysis_stamp(ownership)
+    sent = send_notification(
+        result,
+        config,
+        severity=severity,
+        analysis_ref=stamp["analysis_ref"],
+        analysis_epoch=stamp["analysis_epoch"],
+    )
     if json_output:
-        data = {
-            "sent": sent,
-            "drift_detected": result.drift_detected,
-            "severity": severity,
-        }
-        typer.echo(json.dumps(data, indent=2))
+        _emit_json(
+            {
+                "sent": sent,
+                "drift_detected": result.drift_detected,
+                "severity": severity,
+                **_analysis_stamp(ownership),
+            }
+        )
         return
     if sent:
         console.print(f"[green]Notification sent ({severity}).[/green]")
@@ -594,8 +702,14 @@ def sync(json_output: JsonOption = False, force: ForceOption = False) -> None:
     rel_path = codeowners_path.relative_to(repo_root)
     if not _has_uncommitted_changes(repo_root, rel_path):
         if json_output:
-            data = {"path": str(rel_path), "committed": False, "content": content}
-            typer.echo(json.dumps(data, indent=2))
+            _emit_json(
+                {
+                    "path": str(rel_path),
+                    "committed": False,
+                    "content": content,
+                    **_analysis_stamp(ownership),
+                }
+            )
         else:
             console.print(f"[green]{rel_path} is already in sync; nothing to commit.[/green]")
         return
@@ -619,8 +733,14 @@ def sync(json_output: JsonOption = False, force: ForceOption = False) -> None:
         console.print(f"[red]Git commit failed:[/red] {detail}")
         raise typer.Exit(code=1) from None
     if json_output:
-        data = {"path": str(rel_path), "committed": True, "content": content}
-        typer.echo(json.dumps(data, indent=2))
+        _emit_json(
+            {
+                "path": str(rel_path),
+                "committed": True,
+                "content": content,
+                **_analysis_stamp(ownership),
+            }
+        )
     else:
         console.print(f"[green]Generated and committed {rel_path}[/green]")
 
@@ -647,7 +767,7 @@ def _positive_entry_limit(value: int) -> int:
 
 
 def _write_action_json(path: Path, payload: dict[str, object]) -> None:
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _publish_action_failure() -> None:
@@ -700,7 +820,8 @@ def github_action(
         ownership = _run_analyze(config, repo_root)
         cap = config.analysis.top_n_owners
         result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
-        severity = compute_severity(result, config)
+        severity = _severity_with_hysteresis(repo_root, ownership, result, config)
+        stamp = _analysis_stamp(ownership)
         drift_payload: dict[str, object] = {
             "drift_detected": result.drift_detected,
             "severity": severity,
@@ -710,6 +831,7 @@ def github_action(
             "changed": [_drift_entry_payload(e, cap) for e in result.changed],
             "notes": list(result.notes),
             "deprecated_keys": [DEPRECATED_COUNT_KEY],
+            **stamp,
         }
         bus_payload: dict[str, object] | None = None
         decay_payload: dict[str, object] | None = None
@@ -717,11 +839,14 @@ def github_action(
         decay_count = 0
         if include_bus_factor:
             owners_report = compute_qualified_owners(ownership, config, target=None)
-            bus_payload = _qualified_owners_payload(owners_report, config)
+            bus_payload = {**_qualified_owners_payload(owners_report, config), **stamp}
             critical_paths = len(owners_report.critical_paths)
         if include_decay:
             decay_reports = detect_decay(ownership, config)
-            decay_payload = {"reports": [_decay_report_payload(r) for r in decay_reports]}
+            decay_payload = {
+                "reports": [_decay_report_payload(r) for r in decay_reports],
+                **stamp,
+            }
             decay_count = len(decay_reports)
     except typer.Exit:
         _publish_action_failure()
@@ -745,7 +870,7 @@ def github_action(
             printed["bus_factor_summary"] = bus_payload
         if decay_payload is not None:
             printed["decay_summary"] = decay_payload
-        typer.echo(json.dumps(printed, indent=2))
+        typer.echo(json.dumps(printed, indent=2, sort_keys=True))
     else:
         console.print(
             f"[bold]drift:[/bold] {result.drift_detected} "
@@ -818,11 +943,11 @@ def decay(json_output: JsonOption = False) -> None:
     ownership = _load_or_analyze(config, Path.cwd())
     reports = detect_decay(ownership, config)
     if json_output:
-        typer.echo(
-            json.dumps(
-                {"reports": [_decay_report_payload(r) for r in reports]},
-                indent=2,
-            )
+        _emit_json(
+            {
+                "reports": [_decay_report_payload(r) for r in reports],
+                **_analysis_stamp(ownership),
+            }
         )
         return
     if not reports:
@@ -862,8 +987,8 @@ def _qualified_owners_impl(
     target = path if path else None
     report = compute_qualified_owners(ownership, config, target=target)
     if json_output:
-        data = _qualified_owners_payload(report, config)
-        typer.echo(json.dumps(data, indent=2))
+        data = {**_qualified_owners_payload(report, config), **_analysis_stamp(ownership)}
+        _emit_json(data)
         return
     if not report.entries:
         console.print("[yellow]No paths matched.[/yellow]")
@@ -990,7 +1115,7 @@ def balance(json_output: JsonOption = False) -> None:
     ownership = _load_or_analyze(config, Path.cwd())
     report = analyze_balance(ownership, config)
     if json_output:
-        typer.echo(json.dumps(_balance_payload(report), indent=2))
+        _emit_json({**_balance_payload(report), **_analysis_stamp(ownership)})
         return
     if not report.loads:
         console.print("[yellow]No review load data available.[/yellow]")
@@ -1031,7 +1156,7 @@ def topology(json_output: JsonOption = False) -> None:
     declared = declared_teams_from_github(config)
     report = infer_topology(ownership, config, declared_teams=declared)
     if json_output:
-        typer.echo(json.dumps(_topology_payload(report), indent=2))
+        _emit_json({**_topology_payload(report), **_analysis_stamp(ownership)})
         return
     if not report.clusters:
         console.print("[yellow]No clusters inferred.[/yellow]")
@@ -1087,7 +1212,7 @@ def onboard(
     ownership = _load_or_analyze(config, Path.cwd())
     report = generate_onboarding_path(ownership, config, target=path)
     if json_output:
-        typer.echo(json.dumps(_onboarding_payload(report), indent=2))
+        _emit_json({**_onboarding_payload(report), **_analysis_stamp(ownership)})
         return
     if markdown:
         typer.echo(report.to_markdown())
@@ -1125,8 +1250,9 @@ def expertise(
         data = {
             "path": path,
             "ranking": [_expertise_rank_payload(r) for r in ranking],
+            **_analysis_stamp(ownership),
         }
-        typer.echo(json.dumps(data, indent=2))
+        _emit_json(data)
         return
     if not ranking:
         console.print(f"[yellow]No experts found for {path!r}.[/yellow]")
@@ -1176,8 +1302,12 @@ def trends(
     """Show how ownership confidence and qualified owner count have evolved."""
     config = load_config()
     cap = config.analysis.top_n_owners
+    repo_root = Path.cwd()
+    as_of, analysis_ref = _resolve_clock(repo_root)
     try:
-        report = analyze_trends(Path.cwd(), config, periods=periods, period_days=period_days)
+        report = analyze_trends(
+            repo_root, config, periods=periods, period_days=period_days, as_of=as_of
+        )
     except subprocess.CalledProcessError as exc:
         console.print(f"[red]Git command failed:[/red] {exc}")
         raise typer.Exit(code=1) from None
@@ -1188,8 +1318,10 @@ def trends(
             "qualified_owner_count_cap": cap,
             "deprecated_keys": [DEPRECATED_AVG_COUNT_KEY],
             "points": [_trend_point_payload(p, cap) for p in report.points],
+            "analysis_ref": analysis_ref,
+            "analysis_epoch": analysis_epoch(as_of),
         }
-        typer.echo(json.dumps(data, indent=2))
+        _emit_json(data)
         return
     if not report.points or all(p.commits == 0 for p in report.points):
         console.print("[yellow]No history available for the requested range.[/yellow]")

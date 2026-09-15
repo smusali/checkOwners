@@ -203,6 +203,132 @@ def test_load_ownership_invalid_returns_none(repo: Path) -> None:
     assert load_ownership(repo) is None
 
 
+def test_write_state_owner_without_breakdown(repo: Path) -> None:
+    owner = OwnerEntry(handle="@x", ownership_score=0.2, last_commit=None, commits=1)
+    write_state(
+        repo,
+        OwnershipMap(
+            paths={"a.py": PathOwnership(owners=(owner,), qualified_owner_count=1)},
+            last_analyzed=_NOW,
+        ),
+    )
+    loaded = load_ownership(repo)
+    assert loaded is not None
+    entry = loaded.paths["a.py"].owners[0]
+    assert entry.last_commit is None
+    assert entry.score_breakdown is None
+    raw = read_state(repo)
+    assert raw is not None
+    serialized = raw["inferred"]["a.py"]["owners"][0]
+    assert serialized["last_commit"] is None
+    assert serialized["ownership_score"] == 0.2
+    assert "signals" not in serialized
+
+
+def test_load_ownership_skips_invalid_owner_fields(repo: Path) -> None:
+    owners = [
+        {"handle": "@bool-score", "ownership_score": True, "commits": 1},
+        {"handle": "@bad-score", "ownership_score": "high", "commits": 1},
+        {"handle": "@bool-quality", "ownership_score": 0.4, "evidence_quality": True, "commits": 1},
+        {"handle": "@bad-quality", "ownership_score": 0.4, "evidence_quality": "low", "commits": 1},
+        {"handle": "@bad-commits", "ownership_score": 0.4, "commits": 1.5},
+        {"handle": 12, "ownership_score": 0.4, "commits": 1},
+        "not-an-object",
+        {
+            "handle": "@ok",
+            "ownership_score": 0.4,
+            "commits": 2,
+            "last_commit": None,
+        },
+    ]
+    _write_raw_state(
+        repo,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "repo": str(repo.resolve()),
+            "inferred": {
+                "p.py": {
+                    "owners": owners,
+                    "qualified_owner_count": 1,
+                    "decay_warnings": [],
+                }
+            },
+            "last_analyzed": _NOW.isoformat(),
+        },
+    )
+    loaded = load_ownership(repo)
+    assert loaded is not None
+    assert [o.handle for o in loaded.paths["p.py"].owners] == ["@ok"]
+    assert loaded.paths["p.py"].owners[0].last_commit is None
+
+
+def test_load_ownership_signal_and_timestamp_edges(repo: Path) -> None:
+    _write_raw_state(
+        repo,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "repo": str(repo.resolve()),
+            "inferred": {
+                "p.py": {
+                    "owners": [
+                        {
+                            "handle": "@invalid-date",
+                            "ownership_score": 0.6,
+                            "commits": 2,
+                            "last_commit": "not-a-date",
+                            "signals": {
+                                "recency": {"available": True, "score": 0.9},
+                                "frequency": {"available": True, "score": False},
+                                "blame": {"available": False},
+                                "review": {"available": False},
+                            },
+                        },
+                        {
+                            "handle": "@partial-signals",
+                            "ownership_score": 0.5,
+                            "commits": 1,
+                            "last_commit": 123,
+                            "signals": {
+                                "recency": {"available": True, "score": 1.0},
+                                "frequency": {"available": "yes"},
+                                "blame": "nope",
+                                "review": {"available": False},
+                            },
+                        },
+                        {
+                            "handle": "@ok",
+                            "ownership_score": 0.5,
+                            "commits": 1,
+                            "signals": {
+                                "recency": {"available": True, "score": 1.0},
+                                "frequency": {"available": True},
+                                "blame": {"available": False},
+                                "review": {"available": False},
+                            },
+                        },
+                    ],
+                    "qualified_owner_count": 1,
+                    "decay_warnings": [],
+                }
+            },
+            "last_analyzed": _NOW.isoformat(),
+        },
+    )
+    loaded = load_ownership(repo)
+    assert loaded is not None
+    by_handle = {o.handle: o for o in loaded.paths["p.py"].owners}
+    assert by_handle["@invalid-date"].last_commit is None
+    assert by_handle["@invalid-date"].score_breakdown is None
+    assert by_handle["@partial-signals"].last_commit is None
+    assert by_handle["@partial-signals"].score_breakdown is None
+    ok = by_handle["@ok"]
+    assert ok.score_breakdown is not None
+    assert ok.score_breakdown.frequency.available is True
+    assert ok.score_breakdown.frequency.score == 0.0
+    assert ok.score_breakdown.blame.available is False
+    assert "score" not in ok.score_breakdown.review.as_payload()
+
+
 def test_load_ownership_skips_malformed_path(repo: Path) -> None:
     payload = {
         "schema_version": SCHEMA_VERSION,

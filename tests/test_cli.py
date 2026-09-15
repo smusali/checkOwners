@@ -18,7 +18,7 @@ from checkowners.action_report import (
     summarize_decay,
     summarize_drift,
 )
-from checkowners.cli import _merge_identities, app
+from checkowners.cli import _merge_identities, _owner_payload, app
 from checkowners.models import (
     OWNERSHIP_MODEL_VERSION,
     ConfidenceScore,
@@ -198,6 +198,10 @@ def test_print_json() -> None:
     assert data["src/main.py"]["qualified_owner_count"] == 2
     assert data["src/main.py"]["bus_factor"] == 2
     assert data["src/main.py"]["qualified_owner_count_cap"] == 3
+    bare = OwnerEntry(handle="@bare", ownership_score=0.4, last_commit=None, commits=1)
+    payload = _owner_payload(bare)
+    assert payload["last_commit"] is None
+    assert "signals" not in payload
 
 
 def test_print_plain_shows_confidence() -> None:

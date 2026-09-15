@@ -20,9 +20,20 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   `evidence_quality` plus per-signal availability are emitted. The primary
   JSON key is `ownership_score`; `confidence` remains a deprecated alias
   for one cycle. Analyze JSON and cached state carry
-  `model_version: ownership-v2`. Per-repo state is schema v5 (older caches
-  are ignored). **Migration:** if CI gates on `confidence >= X`, re-check
-  the threshold. Offline scores rise and are no longer capped at `0.85`.
+  `model_version: ownership-v3`. Per-repo state is schema v5 (older caches,
+  and caches whose `model_version` is not `ownership-v3`, are ignored).
+  **Migration:** if CI gates on `confidence >= X`, re-check the threshold.
+  Offline scores rise and are no longer capped at `0.85`.
+- Commit count is evidence, not an eligibility gate. The default
+  `qualification.strategy` is `adaptive` with `min_commits: 1` and
+  `strong_blame_override: 0.5`: a one-commit author who owns the blame of
+  a new file appears as an owner, and frequency uses Bayesian shrinkage
+  (`commits / (max_commits + 3)`) so a three-commit sole contributor
+  scores `0.5` rather than `1.0`. `qualification.strategy: threshold`
+  plus `analysis.min_commits: 3` restores the previous gate and undamped
+  frequency for one cycle. Adaptive blames every path that still has a
+  human author after the exclude, missing-file, and bot filters;
+  threshold still skips paths where no author reaches `min_commits`.
 
 ## [0.5.1] - 2026-09-15
 

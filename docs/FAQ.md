@@ -141,7 +141,7 @@ analysis:
 
 ### Why are some paths missing from `checkowners analyze`?
 
-Four filters can drop a path: it matches a `paths.exclude` pattern, it no longer exists on disk (deleted files are filtered automatically so CODEOWNERS doesn't pin removed paths), its only contributors are bots (`analysis.exclude_bots`, on by default), or no contributor reaches `analysis.min_commits` within the lookback window.
+Three filters can drop a path: it matches a `paths.exclude` pattern, it no longer exists on disk (deleted files are filtered automatically so CODEOWNERS doesn't pin removed paths), or its only contributors are bots (`analysis.exclude_bots`, on by default). With `qualification.strategy: threshold`, a fourth filter still drops paths where no contributor reaches `analysis.min_commits` within the lookback window. The default `adaptive` strategy keeps those sparse paths and scores them; a one-commit author of a new file can appear as an owner.
 
 ## Drift, severity, and CI
 

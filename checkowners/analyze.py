@@ -19,11 +19,13 @@ from checkowners.models import (
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    QualificationStrategy,
     ScoringConfig,
     SignalScore,
 )
 
 _COMMIT_SENTINEL = "COMMIT_START"
+FREQUENCY_SHRINKAGE_PRIOR = 3.0
 
 #: A review provider maps a set of contributor emails to per-path, per-email
 #: review-coverage fractions (path -> {email: fraction in [0, 1]}). It is
@@ -73,7 +75,8 @@ def analyze_ownership(
     contributions = _filter_nonexistent(contributions, repo_root)
     if config.analysis.exclude_bots:
         contributions = _filter_bot_authors(contributions)
-    contributions = _filter_unqualified(contributions, config.analysis.min_commits)
+    if config.qualification.strategy == "threshold":
+        contributions = _filter_unqualified(contributions, config.analysis.min_commits)
     blame_coverage = _gather_blame_coverage(
         contributions.keys(), repo_root, on_progress=on_progress
     )
@@ -114,16 +117,19 @@ def _build_path_ownerships(
 ) -> dict[str, PathOwnership]:
     """Compute scored owners + qualified owner count + decay per path."""
     result: dict[str, PathOwnership] = {}
+    frequency_prior = frequency_prior_for(config.qualification.strategy)
     for path, authors in contributions.items():
-        qualified = {
-            author: contrib
-            for author, contrib in authors.items()
-            if contrib.commits >= config.analysis.min_commits
-        }
+        path_blame = blame_coverage.get(path, {})
+        qualified = _qualify_authors(
+            authors,
+            min_commits=config.analysis.min_commits,
+            strategy=config.qualification.strategy,
+            path_blame=path_blame,
+            blame_override=config.qualification.strong_blame_override,
+        )
         if not qualified:
             continue
         max_commits = max(c.commits for c in qualified.values())
-        path_blame = blame_coverage.get(path, {})
         path_review = review_coverage.get(path, {})
         entries = _score_owners(
             qualified,
@@ -134,6 +140,7 @@ def _build_path_ownerships(
             now=now,
             blame_available=path in blame_coverage,
             review_available=review_available,
+            frequency_prior=frequency_prior,
         )
         filtered = tuple(e for e in entries if e.confidence >= config.analysis.confidence_threshold)
         if not filtered:
@@ -195,6 +202,29 @@ def signal_reliabilities(scoring: ScoringConfig) -> dict[str, float]:
     }
 
 
+def frequency_prior_for(strategy: QualificationStrategy) -> float:
+    return FREQUENCY_SHRINKAGE_PRIOR if strategy == "adaptive" else 0.0
+
+
+def _qualify_authors(
+    authors: Mapping[str, _Contribution],
+    *,
+    min_commits: int,
+    strategy: QualificationStrategy,
+    path_blame: Mapping[str, float],
+    blame_override: float,
+) -> dict[str, _Contribution]:
+    if strategy == "threshold":
+        return {
+            author: contrib for author, contrib in authors.items() if contrib.commits >= min_commits
+        }
+    return {
+        author: contrib
+        for author, contrib in authors.items()
+        if contrib.commits >= min_commits or path_blame.get(author, 0.0) >= blame_override
+    }
+
+
 def _score_owners(
     qualified: dict[str, _Contribution],
     path_blame: dict[str, float],
@@ -205,13 +235,14 @@ def _score_owners(
     now: datetime,
     blame_available: bool,
     review_available: bool,
+    frequency_prior: float = 0.0,
 ) -> tuple[OwnerEntry, ...]:
     scored: list[OwnerEntry] = []
     weights = signal_weights(scoring)
     reliabilities = signal_reliabilities(scoring)
     for author, contrib in qualified.items():
         recency = _recency_score(contrib.last_commit, now, scoring.recency_half_life_days)
-        frequency = _frequency_score(contrib.commits, max_commits)
+        frequency = _frequency_score(contrib.commits, max_commits, frequency_prior)
         blame = path_blame.get(author, 0.0) if blame_available else 0.0
         review = _clamp(path_review.get(author, 0.0)) if review_available else 0.0
         signals = {
@@ -249,10 +280,10 @@ def _recency_score(last_commit: datetime, now: datetime, half_life_days: int) ->
     return _clamp(math.pow(0.5, delta_days / half_life_days))
 
 
-def _frequency_score(commits: int, max_commits: int) -> float:
+def _frequency_score(commits: int, max_commits: int, prior: float = 0.0) -> float:
     if max_commits <= 0:
         return 0.0
-    return _clamp(commits / max_commits)
+    return _clamp(commits / (max_commits + prior))
 
 
 def _clamp(value: float) -> float:
@@ -395,12 +426,6 @@ def _filter_unqualified(
     contributions: dict[str, dict[str, _Contribution]],
     min_commits: int,
 ) -> dict[str, dict[str, _Contribution]]:
-    """Drop paths where no author reaches min_commits.
-
-    Those paths can never produce owners, so filtering them before the blame
-    pass avoids running git blame on files that would be discarded anyway
-    (on active monorepos this cuts the blame workload several-fold).
-    """
     return {
         path: authors
         for path, authors in contributions.items()

@@ -20,6 +20,8 @@ from checkowners.models import (
     NotificationsConfig,
     OutputConfig,
     PathsConfig,
+    QualificationConfig,
+    QualificationStrategy,
     ScoringConfig,
     Severity,
 )
@@ -45,6 +47,7 @@ _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 _VALID_DRIFT_MODES: frozenset[str] = frozenset(get_args(DriftMode))
 _VALID_SEVERITIES: frozenset[str] = frozenset(get_args(Severity))
+_VALID_QUALIFICATION_STRATEGIES: frozenset[str] = frozenset(get_args(QualificationStrategy))
 
 
 def _is_drift_mode(value: str) -> TypeGuard[DriftMode]:
@@ -53,6 +56,10 @@ def _is_drift_mode(value: str) -> TypeGuard[DriftMode]:
 
 def _is_severity(value: str) -> TypeGuard[Severity]:
     return value in _VALID_SEVERITIES
+
+
+def _is_qualification_strategy(value: str) -> TypeGuard[QualificationStrategy]:
+    return value in _VALID_QUALIFICATION_STRATEGIES
 
 
 def find_codeowners_path(repo_root: Path) -> Path:
@@ -118,6 +125,13 @@ def _merge_config(raw: dict[str, Any]) -> Config:
         section = raw.get(key)
         if isinstance(section, dict):
             kwargs[field_name] = builder(section)
+    analysis_raw = _mapping_section(raw, "analysis")
+    qualification_raw = _mapping_section(raw, "qualification")
+    analysis = kwargs.get("analysis", AnalysisConfig())
+    qualification = _build_qualification_config(qualification_raw)
+    min_commits = _resolve_min_commits(analysis_raw, qualification_raw)
+    kwargs["analysis"] = replace(analysis, min_commits=min_commits)
+    kwargs["qualification"] = replace(qualification, min_commits=min_commits)
     return Config(**kwargs)
 
 
@@ -134,6 +148,40 @@ def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
     if "exclude_bots" in data:
         kwargs["exclude_bots"] = bool(data["exclude_bots"])
     return AnalysisConfig(**kwargs)
+
+
+def _mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
+    section = raw.get(key)
+    return section if isinstance(section, dict) else {}
+
+
+def _resolve_min_commits(
+    analysis_raw: dict[str, Any],
+    qualification_raw: dict[str, Any],
+) -> int:
+    if "min_commits" in qualification_raw:
+        return int(qualification_raw["min_commits"])
+    if "min_commits" in analysis_raw:
+        return int(analysis_raw["min_commits"])
+    return AnalysisConfig().min_commits
+
+
+def _build_qualification_config(data: dict[str, Any]) -> QualificationConfig:
+    kwargs: dict[str, Any] = {}
+    if "strategy" in data:
+        strategy = str(data["strategy"])
+        if not _is_qualification_strategy(strategy):
+            msg = (
+                f"Invalid qualification.strategy: {strategy!r}; "
+                f"expected one of {sorted(_VALID_QUALIFICATION_STRATEGIES)}"
+            )
+            raise ValueError(msg)
+        kwargs["strategy"] = strategy
+    if "min_commits" in data:
+        kwargs["min_commits"] = int(data["min_commits"])
+    if "strong_blame_override" in data:
+        kwargs["strong_blame_override"] = float(data["strong_blame_override"])
+    return QualificationConfig(**kwargs)
 
 
 def _build_scoring_config(data: dict[str, Any]) -> ScoringConfig:

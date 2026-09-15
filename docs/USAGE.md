@@ -28,10 +28,15 @@ Create `.github/checkowners.yml`. Every field is optional; defaults shown.
 ```yaml
 analysis:
   lookback_days: 365
-  min_commits: 3
+  min_commits: 1
   top_n_owners: 3
   confidence_threshold: 0.3   # owners below this are dropped from CODEOWNERS
   exclude_bots: true          # drop dependabot[bot] & friends from inference
+
+qualification:
+  strategy: adaptive          # adaptive | threshold (legacy, one cycle)
+  min_commits: 1              # alias of analysis.min_commits; this key wins if both are set
+  strong_blame_override: 0.5  # adaptive: keep authors at or above this blame share
 
 scoring:
   recency_half_life_days: 90  # exponential decay half-life
@@ -123,7 +128,7 @@ Each path-owner pair gets an `ownership_score` in `[0.0, 1.0]` from the availabl
 | Signal | Source | Weight (default) | Reliability (default) |
 |--------|--------|------------------|------------------------|
 | Recency | `exp(-ln 2 × days_since_last_commit / half_life)` | 0.35 | 1.0 |
-| Frequency | `commits / max_commits_for_path` | 0.25 | 1.0 |
+| Frequency | `commits / (max_commits_for_path + prior)` (`prior` is 3 under `adaptive`, 0 under `threshold`) | 0.25 | 1.0 |
 | Blame coverage | `git blame --line-porcelain` lines / total lines | 0.25 | 1.0 |
 | Review activity | PR reviews on the path (requires `github.api_enabled`) | 0.15 | 1.0 |
 
@@ -151,9 +156,18 @@ flowchart LR
 
 Weights and reliabilities are configurable under `scoring`. Review weight is omitted from the score when `github.api_enabled` is false; it is not filled in as `0.0`. The score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
-**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. Analyze JSON includes `model_version: ownership-v2`. Per-repo state is schema v5; older caches are ignored.
+**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3`. Per-repo state is schema v5; files whose `model_version` is not `ownership-v3` are ignored. To restore the previous gate and undamped frequency for one cycle:
 
-The blame pass only runs on paths where at least one author reaches `min_commits`, and runs on a thread pool sized to the CPU count. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness. See [METHODOLOGY.md](METHODOLOGY.md) for availability rules and the full formula.
+```yaml
+qualification:
+  strategy: threshold
+analysis:
+  min_commits: 3
+```
+
+A bare `analysis.min_commits: 3` without `strategy: threshold` stays adaptive: authors below the bar still qualify when blame is at least `strong_blame_override`.
+
+The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it covers every path that still has a human author after exclude, missing-file, and bot filters. Under `threshold` it still skips paths where no author reaches `min_commits`. Adaptive may therefore blame several times more paths than threshold; it does not blame excluded, deleted, or bot-only paths. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness. See [METHODOLOGY.md](METHODOLOGY.md) for availability rules and the full formula.
 
 ## Qualified owner count
 

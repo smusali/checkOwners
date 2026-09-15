@@ -97,6 +97,15 @@ def test_read_state_invalid_json_returns_none(repo: Path) -> None:
 def test_read_state_wrong_schema_returns_none(repo: Path) -> None:
     _write_raw_state(repo, {"schema_version": 2, "repo": str(repo.resolve())})
     assert read_state(repo) is None
+    _write_raw_state(
+        repo,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "model_version": "ownership-v2",
+            "repo": str(repo.resolve()),
+        },
+    )
+    assert read_state(repo) is None
 
 
 def test_read_state_non_dict_returns_none(repo: Path) -> None:

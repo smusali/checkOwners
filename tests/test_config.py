@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from checkowners.config import find_codeowners_path, load_config
-from checkowners.models import Config, DriftConfig
+from checkowners.models import Config, DriftConfig, QualificationConfig
 
 
 def _write_config(tmp_path: Path, content: str) -> Path:
@@ -23,7 +23,11 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     cfg = load_config(repo_root=tmp_path)
     assert cfg == Config()
     assert cfg.analysis.lookback_days == 365
-    assert cfg.analysis.min_commits == 3
+    assert cfg.analysis.min_commits == 1
+    assert cfg.qualification == QualificationConfig()
+    assert cfg.qualification.strategy == "adaptive"
+    assert cfg.qualification.min_commits == 1
+    assert cfg.qualification.strong_blame_override == 0.5
     assert cfg.analysis.top_n_owners == 3
     assert cfg.analysis.confidence_threshold == 0.3
     assert cfg.paths.exclude == (
@@ -91,7 +95,8 @@ def test_load_config_partial_override(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "analysis:\n  lookback_days: 180\n")
     cfg = load_config(repo_root=root)
     assert cfg.analysis.lookback_days == 180
-    assert cfg.analysis.min_commits == 3
+    assert cfg.analysis.min_commits == 1
+    assert cfg.qualification.min_commits == 1
     assert cfg.analysis.top_n_owners == 3
     assert cfg.paths == Config().paths
     assert cfg.output == Config().output
@@ -145,6 +150,7 @@ github:
     cfg = load_config(repo_root=root)
     assert cfg.analysis.lookback_days == 90
     assert cfg.analysis.min_commits == 5
+    assert cfg.qualification.min_commits == 5
     assert cfg.analysis.top_n_owners == 2
     assert cfg.analysis.confidence_threshold == 0.5
     assert cfg.scoring.recency_half_life_days == 60
@@ -310,6 +316,34 @@ def test_load_config_scoring_section(tmp_path: Path) -> None:
     cfg = load_config(repo_root=root)
     assert cfg.scoring.recency_weight == 0.5
     assert cfg.scoring.frequency_weight == 0.25
+
+
+def test_load_config_qualification_section(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        "qualification:\n  strategy: threshold\n  min_commits: 3\n  strong_blame_override: 0.7\n",
+    )
+    cfg = load_config(repo_root=root)
+    assert cfg.qualification.strategy == "threshold"
+    assert cfg.qualification.min_commits == 3
+    assert cfg.qualification.strong_blame_override == 0.7
+    assert cfg.analysis.min_commits == 3
+
+
+def test_qualification_min_commits_wins_over_analysis(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        "analysis:\n  min_commits: 5\nqualification:\n  min_commits: 2\n",
+    )
+    cfg = load_config(repo_root=root)
+    assert cfg.analysis.min_commits == 2
+    assert cfg.qualification.min_commits == 2
+
+
+def test_qualification_strategy_invalid_rejected(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "qualification:\n  strategy: fuzzy\n")
+    with pytest.raises(ValueError, match=r"Invalid qualification\.strategy"):
+        load_config(repo_root=root)
 
 
 def test_find_codeowners_path_github_dir(tmp_path: Path) -> None:

@@ -10,6 +10,11 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
+### Changed
+- The composite Action runs `checkowners github-action` once for drift,
+  qualified owners, decay, the job summary, and `GITHUB_OUTPUT`. Output
+  names and `schema_version: 2` summary shapes are unchanged.
+
 ## [0.5.1] - 2026-09-15
 
 Corrective release: identity, Action supply chain, metric naming, and the

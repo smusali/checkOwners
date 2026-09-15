@@ -88,22 +88,22 @@ outputs:
       Bounded JSON drift summary (schema_version 2): drift_detected, severity,
       max_confidence_delta, notes, counts, top entries, and truncated.
       Full drift.json is in the uploaded artifact.
-    value: ${{ steps.summary.outputs.checkowners_drift }}
+    value: ${{ steps.run.outputs.checkowners_drift }}
   bus_factor_summary:
     description: >-
       Bounded JSON qualified-owner summary (schema_version 2): repo_average,
       qualified_owner_count_cap, counts, critical_paths, and truncated.
       Per-path entries are omitted here and live in the uploaded artifact.
       bus_factor remains as a deprecated alias inside the full payload.
-    value: ${{ steps.summary.outputs.bus_factor_summary }}
+    value: ${{ steps.run.outputs.bus_factor_summary }}
   decay_summary:
     description: >-
       Bounded JSON decay summary (schema_version 2): counts, top reports,
       and truncated. Full decay.json is in the uploaded artifact.
-    value: ${{ steps.summary.outputs.decay_summary }}
+    value: ${{ steps.run.outputs.decay_summary }}
   artifact_name:
     description: Name of the uploaded artifact that holds the full JSON payloads.
-    value: ${{ steps.summary.outputs.artifact_name }}
+    value: ${{ steps.run.outputs.artifact_name }}
 
 runs:
   using: composite
@@ -198,54 +198,26 @@ runs:
           exit 1
         fi
 
-    - name: Run checkowners drift
+    - name: Run checkowners
       id: run
       shell: bash
       env:
-        # Action inputs win over the repo's checkowners.yml.
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
         CHECKOWNERS_DRIFT_MODE: ${{ inputs.mode }}
         CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
         GITHUB_TOKEN: ${{ inputs.github_token }}
-      run: |
-        env -u GITHUB_OUTPUT checkowners drift --json > drift.json
-
-    - name: Compute qualified owner summary
-      id: bus_factor
-      if: ${{ inputs.include_bus_factor == 'true' }}
-      shell: bash
-      env:
-        CHECKOWNERS_CONFIG: ${{ inputs.config }}
-        CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-      run: |
-        env -u GITHUB_OUTPUT checkowners qualified-owners --all --json > bus_factor.json
-
-    - name: Compute decay summary
-      id: decay
-      if: ${{ inputs.include_decay == 'true' }}
-      shell: bash
-      env:
-        CHECKOWNERS_CONFIG: ${{ inputs.config }}
-        CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-      run: |
-        env -u GITHUB_OUTPUT checkowners decay --json > decay.json
-
-    - name: Render job summary
-      id: summary
-      if: ${{ always() }}
-      shell: bash
-      env:
+        CHECKOWNERS_FAIL_ON_DRIFT: ${{ inputs.fail_on_drift }}
+        CHECKOWNERS_INCLUDE_BUS_FACTOR: ${{ inputs.include_bus_factor }}
+        CHECKOWNERS_INCLUDE_DECAY: ${{ inputs.include_decay }}
         MAX_OUTPUT_ENTRIES: ${{ inputs.max_output_entries }}
         CHECKOWNERS_ARTIFACT_NAME: checkowners-reports
-      run: python "${GITHUB_ACTION_PATH}/tools/render_job_summary.py"
+      run: checkowners github-action
 
     - name: Upload checkowners reports
       if: ${{ always() }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ${{ steps.summary.outputs.artifact_name }}
+        name: ${{ steps.run.outputs.artifact_name }}
         path: |
           drift.json
           bus_factor.json
@@ -264,16 +236,3 @@ runs:
         HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: python "${GITHUB_ACTION_PATH}/tools/comment_on_pr.py"
-
-    - name: Fail on drift
-      if: ${{ inputs.fail_on_drift == 'true' }}
-      shell: bash
-      run: |
-        python - <<'PY'
-        import json, sys
-        with open("drift.json") as f:
-            data = json.load(f)
-        if data.get("drift_detected"):
-            print("drift detected:", data.get("severity"), "max_delta=", data.get("max_confidence_delta"))
-            sys.exit(1)
-        PY

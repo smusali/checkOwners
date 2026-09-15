@@ -23,6 +23,12 @@ from rich.progress import (
 from rich.table import Table
 
 from checkowners import __version__
+from checkowners.action_report import (
+    DIAGNOSTIC,
+    build,
+    publish_outputs,
+    write_step_summary,
+)
 from checkowners.analyze import ReviewProvider, analyze_ownership
 from checkowners.balance import BalanceReport, analyze_balance
 from checkowners.busfactor import (
@@ -36,7 +42,7 @@ from checkowners.busfactor import (
 )
 from checkowners.config import find_codeowners_path, load_config
 from checkowners.decay import DecayReport, detect_decay
-from checkowners.drift import detect_drift
+from checkowners.drift import detect_drift, write_github_output
 from checkowners.expertise import rank_expertise
 from checkowners.generate import (
     CodeownersOverwriteError,
@@ -497,6 +503,7 @@ def drift(json_output: JsonOption = False) -> None:
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
     severity = compute_severity(result, config)
     cap = config.analysis.top_n_owners
+    write_github_output(result, cap)
     if json_output:
         data = {
             "stale": [_drift_entry_payload(e, cap) for e in result.stale],
@@ -626,14 +633,19 @@ def _has_uncommitted_changes(repo_root: Path, rel_path: Path) -> bool:
     return bool(result.stdout.strip())
 
 
-def _write_github_outputs(outputs: dict[str, Any]) -> None:
-    """Append compact JSON outputs to GITHUB_OUTPUT when running in Actions."""
-    output_file = os.environ.get("GITHUB_OUTPUT")
-    if not output_file:
-        return
-    with Path(output_file).open("a", encoding="utf-8") as fh:
-        for key, value in outputs.items():
-            fh.write(f"{key}={json.dumps(value, separators=(',', ':'))}\n")
+def _positive_entry_limit(value: int) -> int:
+    if value < 1:
+        raise typer.BadParameter("must be a positive integer")
+    return value
+
+
+def _write_action_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _publish_action_failure() -> None:
+    write_step_summary(DIAGNOSTIC)
+    publish_outputs()
 
 
 @app.command(name="github-action")
@@ -642,61 +654,97 @@ def github_action(
         bool,
         typer.Option(
             "--fail-on-drift/--no-fail-on-drift",
+            envvar="CHECKOWNERS_FAIL_ON_DRIFT",
             help="Exit non-zero when drift is detected.",
         ),
     ] = True,
+    include_bus_factor: Annotated[
+        bool,
+        typer.Option(
+            "--include-bus-factor/--no-include-bus-factor",
+            envvar="CHECKOWNERS_INCLUDE_BUS_FACTOR",
+            help="Write bus_factor.json and the bus_factor_summary output.",
+        ),
+    ] = True,
+    include_decay: Annotated[
+        bool,
+        typer.Option(
+            "--include-decay/--no-include-decay",
+            envvar="CHECKOWNERS_INCLUDE_DECAY",
+            help="Write decay.json and the decay_summary output.",
+        ),
+    ] = True,
+    max_output_entries: Annotated[
+        int,
+        typer.Option(
+            "--max-output-entries",
+            envvar="MAX_OUTPUT_ENTRIES",
+            callback=_positive_entry_limit,
+            help="Maximum entries per list in GITHUB_OUTPUT summaries.",
+        ),
+    ] = 50,
     json_output: JsonOption = False,
 ) -> None:
     """Run the full CI flow (drift + qualified owners + decay) and write GITHUB_OUTPUT."""
-    config = load_config()
-    repo_root = Path.cwd()
-    codeowners_path = find_codeowners_path(repo_root)
-    ownership = _run_analyze(config, repo_root)
-    cap = config.analysis.top_n_owners
-
-    result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
-    severity = compute_severity(result, config)
-    owners_report = compute_qualified_owners(ownership, config, target=None)
-    decay_reports = detect_decay(ownership, config)
-
-    drift_payload = {
-        "drift_detected": result.drift_detected,
-        "severity": severity,
-        "max_confidence_delta": round(result.max_confidence_delta, 4),
-        "stale": [_drift_entry_payload(e, cap) for e in result.stale],
-        "missing": [_drift_entry_payload(e, cap) for e in result.missing],
-        "changed": [_drift_entry_payload(e, cap) for e in result.changed],
-        "notes": list(result.notes),
-        "deprecated_keys": [DEPRECATED_COUNT_KEY],
-    }
-    bus_payload = _qualified_owners_payload(owners_report, config)
-    decay_payload = {"reports": [_decay_report_payload(r) for r in decay_reports]}
-
-    _write_github_outputs(
-        {
-            "checkowners_drift": drift_payload,
-            "bus_factor_summary": bus_payload,
-            "decay_summary": decay_payload,
+    try:
+        config = load_config()
+        repo_root = Path.cwd()
+        codeowners_path = find_codeowners_path(repo_root)
+        ownership = _run_analyze(config, repo_root)
+        cap = config.analysis.top_n_owners
+        result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+        severity = compute_severity(result, config)
+        drift_payload: dict[str, object] = {
+            "drift_detected": result.drift_detected,
+            "severity": severity,
+            "max_confidence_delta": round(result.max_confidence_delta, 4),
+            "stale": [_drift_entry_payload(e, cap) for e in result.stale],
+            "missing": [_drift_entry_payload(e, cap) for e in result.missing],
+            "changed": [_drift_entry_payload(e, cap) for e in result.changed],
+            "notes": list(result.notes),
+            "deprecated_keys": [DEPRECATED_COUNT_KEY],
         }
-    )
+        bus_payload: dict[str, object] | None = None
+        decay_payload: dict[str, object] | None = None
+        critical_paths = 0
+        decay_count = 0
+        if include_bus_factor:
+            owners_report = compute_qualified_owners(ownership, config, target=None)
+            bus_payload = _qualified_owners_payload(owners_report, config)
+            critical_paths = len(owners_report.critical_paths)
+        if include_decay:
+            decay_reports = detect_decay(ownership, config)
+            decay_payload = {"reports": [_decay_report_payload(r) for r in decay_reports]}
+            decay_count = len(decay_reports)
+    except typer.Exit:
+        _publish_action_failure()
+        raise
+    except Exception:
+        _publish_action_failure()
+        raise typer.Exit(code=1) from None
+
+    _write_action_json(Path("drift.json"), drift_payload)
+    if bus_payload is not None:
+        _write_action_json(Path("bus_factor.json"), bus_payload)
+    if decay_payload is not None:
+        _write_action_json(Path("decay.json"), decay_payload)
+
+    write_step_summary(build(limit=max_output_entries))
+    publish_outputs(limit=max_output_entries)
 
     if json_output:
-        typer.echo(
-            json.dumps(
-                {
-                    "checkowners_drift": drift_payload,
-                    "bus_factor_summary": bus_payload,
-                    "decay_summary": decay_payload,
-                },
-                indent=2,
-            )
-        )
+        printed: dict[str, object] = {"checkowners_drift": drift_payload}
+        if bus_payload is not None:
+            printed["bus_factor_summary"] = bus_payload
+        if decay_payload is not None:
+            printed["decay_summary"] = decay_payload
+        typer.echo(json.dumps(printed, indent=2))
     else:
         console.print(
             f"[bold]drift:[/bold] {result.drift_detected} "
             f"([{_severity_style(severity)}]{severity}[/]) "
-            f"· critical paths: {len(owners_report.critical_paths)} "
-            f"· decay warnings: {len(decay_reports)}"
+            f"· critical paths: {critical_paths} "
+            f"· decay warnings: {decay_count}"
         )
 
     if fail_on_drift and result.drift_detected:

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from checkowners.drift import detect_drift
+from checkowners.drift import detect_drift, write_github_output
 from checkowners.models import (
     Config,
     DriftConfig,
@@ -207,7 +207,9 @@ def test_github_output_written(tmp_path: Path) -> None:
         patch.dict(os.environ, {"GITHUB_OUTPUT": str(output_file)}),
     ):
         result = detect_drift(tmp_path, ownership, _config())
-    assert result.drift_detected
+        assert result.drift_detected
+        assert not output_file.exists()
+        write_github_output(result, 3)
     content = output_file.read_text(encoding="utf-8")
     assert content.startswith("checkowners_drift=")
     assert '"drift_detected": true' in content

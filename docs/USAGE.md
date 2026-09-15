@@ -98,7 +98,7 @@ The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` enviro
 | `CHECKOWNERS_STATE_DIR` | Action, or the user | State / handle / graph cache root | Wins over `~/.checkowners` |
 | `GITHUB_TOKEN` | Action `github_token` input, or the user | Only supported token source | Never read from YAML (`github.token` is rejected) |
 | `GITHUB_REPOSITORY` | GitHub runner | `owner/repo` for review coverage, topology, balance | Required for those API features; ignored otherwise |
-| `GITHUB_OUTPUT` | GitHub runner | CLI may append step outputs when set | The Action unsets it on CLI steps (`env -u GITHUB_OUTPUT`) so the job-summary renderer owns the outputs |
+| `GITHUB_OUTPUT` | GitHub runner | `github-action` writes bounded `schema_version: 2` summaries when set | Full `drift.json` / `bus_factor.json` / `decay.json` payloads are the uploaded artifact; summaries stay under the 1 MB per-output cap |
 
 The composite Action sets `CHECKOWNERS_STATE_DIR` to `${{ runner.temp }}/checkowners-state`. CLI and hand-rolled CI must set it themselves if they want an ephemeral cache.
 
@@ -231,7 +231,7 @@ The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_v
 
 Set `max_output_entries` (default `50`) to cap each list in those summaries and in the job-summary / PR-comment report. Workflows that need every entry should `actions/download-artifact` using the `artifact_name` output (`checkowners-reports`) and branch on `schema_version`.
 
-The composite action exports `GITHUB_TOKEN` on every CLI step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
+The composite action exports `GITHUB_TOKEN` on the `github-action` step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
 
 The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
 

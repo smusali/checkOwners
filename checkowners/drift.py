@@ -57,15 +57,13 @@ def detect_drift(
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     rules = _load_rules(target)
     tracked = _tracked_files(repo_root)
-    result = _compare(
+    return _compare(
         rules,
         ownership.paths,
         tracked,
         config.drift.mode,
         config.drift.min_confidence_delta,
     )
-    _write_github_output(result, config.analysis.top_n_owners)
-    return result
 
 
 def _load_rules(codeowners_path: Path) -> tuple[CodeownersRule, ...]:
@@ -269,7 +267,7 @@ def _sort_by_delta(entries: list[DriftEntry]) -> tuple[DriftEntry, ...]:
     return tuple(entries)
 
 
-def _write_github_output(result: DriftResult, cap: int) -> None:
+def write_github_output(result: DriftResult, cap: int) -> None:
     """Write drift result to GITHUB_OUTPUT if running in Actions."""
     output_file = os.environ.get("GITHUB_OUTPUT")
     if not output_file:

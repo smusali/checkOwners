@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from render_job_summary import DIAGNOSTIC, has_actionable_findings, load
+from checkowners.action_report import DIAGNOSTIC, has_actionable_findings, load
 
 MARKER = "<!-- checkowners-drift-report -->"
 RESOLVED = (

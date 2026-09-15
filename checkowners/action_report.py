@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+"""Job-summary markdown and bounded GITHUB_OUTPUT assembly for CI."""
+
 from __future__ import annotations
 
 import json
@@ -9,8 +10,7 @@ from typing import TypeVar
 
 REPORT = Path("checkowners-report.md")
 DIAGNOSTIC = (
-    "## CheckOwners\n\n"
-    "Drift analysis did not finish. See the **Run checkowners drift** step logs.\n"
+    "## CheckOwners\n\nDrift analysis did not finish. See the **Run checkowners** step logs.\n"
 )
 MAX_RISK_PATHS = 8
 MAX_PATH_DISPLAY = 80
@@ -43,6 +43,8 @@ def load(path: str) -> dict[str, object] | None:
 
 
 def fmt_delta(value: object) -> str:
+    if not isinstance(value, (int, float, str)):
+        return "0.00"
     try:
         return f"{float(value):.2f}"
     except (TypeError, ValueError):
@@ -204,6 +206,14 @@ def _max_output_entries() -> int:
     return value
 
 
+def _resolve_limit(limit: int | None) -> int:
+    if limit is None:
+        return _max_output_entries()
+    if limit < 1:
+        raise SystemExit(f"max_output_entries must be a positive integer, got {limit!r}")
+    return limit
+
+
 def _trim(items: list[T], limit: int) -> tuple[list[T], bool]:
     """Return the first `limit` items and whether any were dropped."""
     if len(items) > limit:
@@ -297,8 +307,8 @@ def _write_multiline_output(name: str, payload: str) -> None:
         fh.write(f"\n{delim}\n")
 
 
-def publish_outputs() -> None:
-    limit = _max_output_entries()
+def publish_outputs(*, limit: int | None = None) -> None:
+    resolved = _resolve_limit(limit)
     artifact = os.environ.get("CHECKOWNERS_ARTIFACT_NAME", DEFAULT_ARTIFACT_NAME)
     _write_multiline_output("artifact_name", artifact)
 
@@ -306,21 +316,21 @@ def publish_outputs() -> None:
     if drift is not None:
         _write_multiline_output(
             "checkowners_drift",
-            json.dumps(summarize_drift(drift, limit), separators=(",", ":")),
+            json.dumps(summarize_drift(drift, resolved), separators=(",", ":")),
         )
 
     bus = load("bus_factor.json")
     if bus is not None:
         _write_multiline_output(
             "bus_factor_summary",
-            json.dumps(summarize_bus_factor(bus, limit), separators=(",", ":")),
+            json.dumps(summarize_bus_factor(bus, resolved), separators=(",", ":")),
         )
 
     decay = load("decay.json")
     if decay is not None:
         _write_multiline_output(
             "decay_summary",
-            json.dumps(summarize_decay(decay, limit), separators=(",", ":")),
+            json.dumps(summarize_decay(decay, resolved), separators=(",", ":")),
         )
 
 
@@ -374,18 +384,18 @@ def _more_line(extra: int) -> str:
     return f"Full report is in the {artifact} artifact."
 
 
-def build() -> str:
+def build(*, limit: int | None = None) -> str:
     drift = load("drift.json")
     if drift is None:
         return DIAGNOSTIC
 
-    limit = _max_output_entries()
+    resolved = _resolve_limit(limit)
     parts: list[str] = ["## CheckOwners", "", "### CODEOWNERS drift"]
     raw_notes = drift.get("notes")
     notes = (
         [note for note in raw_notes if isinstance(note, str)] if isinstance(raw_notes, list) else []
     )
-    shown_notes, notes_cut = _trim(notes, limit)
+    shown_notes, notes_cut = _trim(notes, resolved)
     for note in shown_notes:
         parts.append(f"note: {md_cell(note)}")
 
@@ -394,13 +404,13 @@ def build() -> str:
         + _drift_entries(drift.get("missing"), "missing")
         + _drift_entries(drift.get("changed"), "changed")
     )
-    shown_pairs, entries_cut = _trim(pairs, limit)
+    shown_pairs, entries_cut = _trim(pairs, resolved)
     entries, path_cut = entry_lines(shown_pairs)
     extra = 0
     if notes_cut:
-        extra += len(notes) - limit
+        extra += len(notes) - resolved
     if entries_cut:
-        extra += len(pairs) - limit
+        extra += len(pairs) - resolved
     if entries:
         if shown_notes:
             parts.append("")
@@ -427,11 +437,7 @@ def build() -> str:
     return "\n".join(parts) + "\n"
 
 
-def main() -> int:
-    try:
-        text = build()
-    except Exception:
-        text = DIAGNOSTIC
+def write_step_summary(text: str) -> None:
     try:
         REPORT.write_text(text, encoding="utf-8")
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -440,9 +446,3 @@ def main() -> int:
                 fh.write(text)
     except OSError:
         pass
-    publish_outputs()
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

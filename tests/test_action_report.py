@@ -8,11 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from checkowners.action_report import build, md_cell
+
 _TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(_TOOLS))
 
 from comment_on_pr import MARKER, _existing_id  # noqa: E402
-from render_job_summary import build, md_cell  # noqa: E402
 
 
 def test_md_cell_escapes_backticks_pipes_newlines_and_html() -> None:

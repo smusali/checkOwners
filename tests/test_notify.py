@@ -10,12 +10,14 @@ from unittest.mock import MagicMock, patch
 from checkowners.models import (
     BusFactorConfig,
     Config,
+    DriftConfig,
     DriftEntry,
     DriftResult,
     NotificationsConfig,
 )
 from checkowners.notify import (
     _build_payload,
+    apply_severity_hysteresis,
     compute_severity,
     send_notification,
 )
@@ -43,6 +45,13 @@ def _drift_with(
 def test_send_notification_skips_empty_url() -> None:
     config = Config(notifications=NotificationsConfig(webhook_url=""))
     assert send_notification(_drift_with(), config) is False
+    rejected = Config(
+        notifications=NotificationsConfig(
+            webhook_url="ftp://hooks.example.com/drift",
+            severity_threshold="low",
+        ),
+    )
+    assert send_notification(_drift_with(), rejected) is False
 
 
 def test_send_notification_posts_webhook() -> None:
@@ -52,14 +61,30 @@ def test_send_notification_posts_webhook() -> None:
             severity_threshold="low",
         ),
     )
-    with patch("checkowners.notify.urllib.request.urlopen") as mock_urlopen:
-        mock_urlopen.return_value = MagicMock()
-        sent = send_notification(_drift_with(delta=0.9), config)
+    captured: list[bytes] = []
+
+    def _capture(req: urllib.request.Request, timeout: float) -> MagicMock:  # noqa: ARG001
+        captured.append(req.data)
+        return MagicMock()
+
+    with patch("checkowners.notify.urllib.request.urlopen", side_effect=_capture) as mock_urlopen:
+        sent = send_notification(
+            _drift_with(delta=0.9, decay=True),
+            config,
+            severity="high",
+            analysis_ref="abc123",
+            analysis_epoch="2026-05-28T12:00:00+00:00",
+        )
     assert sent is True
     mock_urlopen.assert_called_once()
     req = mock_urlopen.call_args[0][0]
     assert req.full_url == "https://hooks.example.com/drift"
     assert req.get_header("Content-type") == "application/json"
+    body = json.loads(captured[0].decode("utf-8"))
+    assert body["severity"] == "high"
+    assert body["analysis_ref"] == "abc123"
+    assert body["analysis_epoch"] == "2026-05-28T12:00:00+00:00"
+    assert body["stale"][0]["decay"] is True
 
 
 def test_send_notification_skipped_when_below_threshold() -> None:
@@ -85,6 +110,46 @@ def test_compute_severity_low_medium_high_critical() -> None:
 
 def test_compute_severity_no_drift_is_low() -> None:
     assert compute_severity(_drift_with(detected=False)) == "low"
+
+
+def test_hysteresis_default_reports_raw() -> None:
+    config = Config()
+    reported, pending, streak = apply_severity_hysteresis("medium", 0.35, config, (None, None, 0))
+    assert (reported, pending, streak) == ("medium", "medium", 1)
+
+
+def test_hysteresis_holds_until_streak() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3))
+    first = apply_severity_hysteresis("medium", 0.35, config, ("low", None, 0))
+    assert first[0] == "low"
+    assert first[1] == "medium"
+    assert first[2] == 1
+    second = apply_severity_hysteresis("medium", 0.35, config, first)
+    assert second[0] == "low"
+    assert second[2] == 2
+    third = apply_severity_hysteresis("medium", 0.35, config, second)
+    assert third[0] == "medium"
+    assert third[2] == 3
+
+
+def test_hysteresis_margin_flips_immediately() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3, min_confidence_delta=0.2))
+    reported, pending, streak = apply_severity_hysteresis("high", 0.45, config, ("low", None, 0))
+    assert (reported, pending, streak) == ("high", "high", 1)
+
+
+def test_hysteresis_same_as_reported_resets() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3))
+    reported, pending, streak = apply_severity_hysteresis("low", 0.1, config, ("low", "medium", 2))
+    assert (reported, pending, streak) == ("low", "low", 1)
+
+
+def test_hysteresis_pending_resets_when_severity_changes() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3))
+    reported, pending, streak = apply_severity_hysteresis(
+        "high", 0.35, config, ("low", "medium", 2)
+    )
+    assert (reported, pending, streak) == ("low", "high", 1)
 
 
 def test_compute_severity_uses_configured_critical_threshold() -> None:

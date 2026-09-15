@@ -267,20 +267,29 @@ def _sort_by_delta(entries: list[DriftEntry]) -> tuple[DriftEntry, ...]:
     return tuple(entries)
 
 
-def write_github_output(result: DriftResult, cap: int) -> None:
+def write_github_output(
+    result: DriftResult,
+    cap: int,
+    *,
+    analysis_ref: str = "",
+    analysis_epoch: str = "",
+) -> None:
     """Write drift result to GITHUB_OUTPUT if running in Actions."""
     output_file = os.environ.get("GITHUB_OUTPUT")
     if not output_file:
         return
     payload = json.dumps(
         {
+            "analysis_epoch": analysis_epoch,
+            "analysis_ref": analysis_ref,
             "drift_detected": result.drift_detected,
             "max_confidence_delta": result.max_confidence_delta,
             "stale": [_entry_payload(e, cap) for e in result.stale],
             "missing": [_entry_payload(e, cap) for e in result.missing],
             "changed": [_entry_payload(e, cap) for e in result.changed],
             "notes": list(result.notes),
-        }
+        },
+        sort_keys=True,
     )
     with Path(output_file).open("a", encoding="utf-8") as f:
         f.write(f"checkowners_drift={payload}\n")

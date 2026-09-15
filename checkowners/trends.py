@@ -11,7 +11,7 @@ the trend confidence uses the recency and frequency factors (renormalized).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from checkowners.analyze import (
@@ -25,6 +25,7 @@ from checkowners.analyze import (
     _recency_score,
     combine_available_signals,
     frequency_prior_for,
+    resolve_as_of,
     signal_reliabilities,
     signal_weights,
 )
@@ -59,16 +60,22 @@ def analyze_trends(
     *,
     periods: int = _DEFAULT_PERIODS,
     period_days: int = _DEFAULT_PERIOD_DAYS,
+    as_of: datetime | None = None,
 ) -> TrendReport:
-    """Fetch history and build the trend report for `repo_root`."""
+    """Fetch history and build the trend report for `repo_root`.
+
+    ``as_of`` is the newest period end. When omitted, ``resolve_as_of``
+    supplies it (SOURCE_DATE_EPOCH or HEAD, never the wall clock).
+    """
+    when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     span_days = max(1, periods * period_days)
-    commits = _get_commit_history(repo_root, span_days)
+    commits = _get_commit_history(repo_root, span_days, when)
     return build_trends(
         commits,
         config,
         periods=periods,
         period_days=period_days,
-        now=datetime.now(UTC),
+        now=when,
     )
 
 

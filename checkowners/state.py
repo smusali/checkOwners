@@ -3,7 +3,7 @@
 The state file is the cache of the most recent analyze run for a repo.
 Downstream commands (drift, decay, qualified-owners, topology, balance, onboard)
 read from it to avoid re-running git log on every invocation. State is keyed
-per repo (schema v5): each repo gets its own file, and the payload embeds the
+per repo (schema v6): each repo gets its own file, and the payload embeds the
 absolute repo path so state from one repo can never leak into another.
 
 Schema is versioned. Older state files are not auto-migrated; they are
@@ -30,11 +30,12 @@ from checkowners.models import (
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    Severity,
     SignalScore,
     TeamCluster,
 )
 
-SCHEMA_VERSION: int = 5
+SCHEMA_VERSION: int = 6
 _STATE_DIR = Path.home() / ".checkowners"
 _STATE_SUBDIR = "state"
 _GRAPH_CACHE_SUBDIR = "graph"
@@ -125,8 +126,19 @@ def write_state(
     bus_factor_summary: tuple[BusFactor, ...] = (),
     drift_detected: bool = False,
     qualified_owner_count_cap: int = 3,
+    drift_reported_severity: str | None = None,
+    drift_pending_severity: str | None = None,
+    drift_pending_streak: int = 0,
 ) -> Path:
     """Persist the latest ownership map and derived intelligence to disk."""
+    existing = read_state(repo_root)
+    if drift_reported_severity is None and existing is not None:
+        prior_reported = existing.get("drift_reported_severity")
+        prior_pending = existing.get("drift_pending_severity")
+        prior_streak = existing.get("drift_pending_streak", 0)
+        drift_reported_severity = prior_reported if isinstance(prior_reported, str) else None
+        drift_pending_severity = prior_pending if isinstance(prior_pending, str) else None
+        drift_pending_streak = prior_streak if isinstance(prior_streak, int) else 0
     target = _state_path(repo_root)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
@@ -135,7 +147,7 @@ def write_state(
         "repo": str(repo_root.resolve()),
         "inferred": {
             path: _serialize_path(po, qualified_owner_count_cap)
-            for path, po in ownership.paths.items()
+            for path, po in sorted(ownership.paths.items())
         },
         "topology": {"clusters": [asdict(c) for c in topology]},
         "bus_factor_summary": _serialize_bus_factor_summary(
@@ -144,7 +156,11 @@ def write_state(
         "qualified_owner_count_cap": qualified_owner_count_cap,
         "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
         "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
+        "analysis_ref": ownership.analysis_ref,
         "drift_detected": drift_detected,
+        "drift_reported_severity": drift_reported_severity,
+        "drift_pending_severity": drift_pending_severity,
+        "drift_pending_streak": drift_pending_streak,
     }
     target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return target
@@ -198,7 +214,33 @@ def load_ownership(repo_root: Path) -> OwnershipMap | None:
         last_analyzed = datetime.fromisoformat(last_analyzed_raw)
     except ValueError:
         return None
-    return OwnershipMap(paths=paths, last_analyzed=last_analyzed)
+    analysis_ref_raw = data.get("analysis_ref", "")
+    analysis_ref = analysis_ref_raw if isinstance(analysis_ref_raw, str) else ""
+    return OwnershipMap(paths=paths, last_analyzed=last_analyzed, analysis_ref=analysis_ref)
+
+
+def load_hysteresis(repo_root: Path) -> tuple[Severity | None, Severity | None, int]:
+    """Return persisted drift severity hysteresis, or first-run defaults."""
+    data = read_state(repo_root)
+    if data is None:
+        return None, None, 0
+    reported = _read_severity(data.get("drift_reported_severity"))
+    pending = _read_severity(data.get("drift_pending_severity"))
+    streak_raw = data.get("drift_pending_streak", 0)
+    streak = streak_raw if isinstance(streak_raw, int) and not isinstance(streak_raw, bool) else 0
+    return reported, pending, streak
+
+
+def _read_severity(raw: object) -> Severity | None:
+    if raw == "low":
+        return "low"
+    if raw == "medium":
+        return "medium"
+    if raw == "high":
+        return "high"
+    if raw == "critical":
+        return "critical"
+    return None
 
 
 def _serialize_path(po: PathOwnership, cap: int) -> dict[str, Any]:

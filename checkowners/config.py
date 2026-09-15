@@ -255,6 +255,12 @@ def _build_drift_config(data: dict[str, Any]) -> DriftConfig:
         kwargs["mode"] = mode_str
     if "min_confidence_delta" in data:
         kwargs["min_confidence_delta"] = float(data["min_confidence_delta"])
+    if "hysteresis_runs" in data:
+        runs = int(data["hysteresis_runs"])
+        if runs < 1:
+            msg = f"Invalid drift.hysteresis_runs: {runs!r}; expected an integer >= 1"
+            raise ValueError(msg)
+        kwargs["hysteresis_runs"] = runs
     return DriftConfig(**kwargs)
 
 

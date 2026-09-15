@@ -9,7 +9,7 @@ import subprocess
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from checkowners.models import (
@@ -26,6 +26,7 @@ from checkowners.models import (
 
 _COMMIT_SENTINEL = "COMMIT_START"
 FREQUENCY_SHRINKAGE_PRIOR = 3.0
+SOURCE_DATE_EPOCH_ENV = "SOURCE_DATE_EPOCH"
 
 #: A review provider maps a set of contributor emails to per-path, per-email
 #: review-coverage fractions (path -> {email: fraction in [0, 1]}). It is
@@ -55,12 +56,88 @@ class _RawCommit:
     files: tuple[str, ...]
 
 
+def parse_as_of(value: str) -> datetime:
+    """Parse an ISO 8601 instant. Naive values are treated as UTC."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        msg = f"Invalid as-of value: {value!r}"
+        raise ValueError(msg) from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def parse_source_date_epoch(raw: str) -> datetime:
+    """Parse SOURCE_DATE_EPOCH as integer POSIX seconds in UTC."""
+    try:
+        seconds = int(raw)
+    except ValueError as exc:
+        msg = f"Invalid SOURCE_DATE_EPOCH: {raw!r}"
+        raise ValueError(msg) from exc
+    return datetime.fromtimestamp(seconds, tz=UTC)
+
+
+def head_commit_datetime(repo_root: Path) -> datetime:
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%cI"],  # noqa: S607  # git from PATH; not user-supplied
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        check=True,
+    )
+    parsed = _parse_timestamp(result.stdout.strip())
+    if parsed is None:
+        msg = "HEAD commit has no parseable committer timestamp"
+        raise ValueError(msg)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def head_commit_sha(repo_root: Path) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],  # noqa: S607  # git from PATH; not user-supplied
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        check=True,
+    )
+    sha = result.stdout.strip()
+    if not sha:
+        msg = "Could not resolve HEAD commit SHA"
+        raise ValueError(msg)
+    return sha
+
+
+def resolve_as_of(cli_value: str | None, repo_root: Path) -> datetime:
+    """Resolve the analysis instant from CLI, SOURCE_DATE_EPOCH, or HEAD.
+
+    Priority: ``cli_value`` (ISO 8601), then ``SOURCE_DATE_EPOCH``, then the
+    HEAD committer timestamp. Never uses the wall clock.
+    """
+    if cli_value:
+        return parse_as_of(cli_value)
+    epoch = os.environ.get(SOURCE_DATE_EPOCH_ENV)
+    if epoch:
+        return parse_source_date_epoch(epoch)
+    return head_commit_datetime(repo_root)
+
+
+def analysis_epoch(when: datetime) -> str:
+    aware = when if when.tzinfo is not None else when.replace(tzinfo=UTC)
+    return aware.astimezone(UTC).isoformat()
+
+
 def analyze_ownership(
     repo_root: Path,
     config: Config,
     *,
     review_provider: ReviewProvider | None = None,
     on_progress: ProgressHook | None = None,
+    as_of: datetime | None = None,
+    analysis_ref: str | None = None,
+    max_workers: int | None = None,
 ) -> OwnershipMap:
     """Analyze git history and return a confidence-scored ownership map.
 
@@ -68,8 +145,15 @@ def analyze_ownership(
     coverage feeds the review signal; otherwise review is unavailable and
     remaining weights are renormalized. ``on_progress`` receives
     (done, total) updates while the per-file blame pass runs.
+
+    ``as_of`` is the instant recency and decay are scored against. When
+    omitted, ``resolve_as_of(None, repo_root)`` supplies it (SOURCE_DATE_EPOCH
+    or HEAD, never the wall clock). ``analysis_ref`` is the commit SHA; when
+    omitted, HEAD is used.
     """
-    commits = _get_commit_history(repo_root, config.analysis.lookback_days)
+    when = as_of if as_of is not None else resolve_as_of(None, repo_root)
+    ref = analysis_ref if analysis_ref is not None else head_commit_sha(repo_root)
+    commits = _get_commit_history(repo_root, config.analysis.lookback_days, when)
     contributions = _aggregate_contributions(commits)
     contributions = _filter_excluded(contributions, config.paths.exclude)
     contributions = _filter_nonexistent(contributions, repo_root)
@@ -78,19 +162,25 @@ def analyze_ownership(
     if config.qualification.strategy == "threshold":
         contributions = _filter_unqualified(contributions, config.analysis.min_commits)
     blame_coverage = _gather_blame_coverage(
-        contributions.keys(), repo_root, on_progress=on_progress
+        contributions.keys(),
+        repo_root,
+        on_progress=on_progress,
+        max_workers=max_workers,
     )
     review_coverage = _gather_review_coverage(contributions, review_provider)
-    now = datetime.now(UTC)
     paths = _build_path_ownerships(
         contributions,
         blame_coverage,
         review_coverage,
         config,
-        now,
+        when,
         review_available=review_provider is not None,
     )
-    return OwnershipMap(paths=paths, last_analyzed=now)
+    return OwnershipMap(
+        paths=dict(sorted(paths.items())),
+        last_analyzed=when,
+        analysis_ref=ref,
+    )
 
 
 def _gather_review_coverage(
@@ -153,7 +243,7 @@ def _build_path_ownerships(
             qualified_owner_count=qualified_owner_count,
             decay_warnings=decay,
         )
-    return result
+    return dict(sorted(result.items()))
 
 
 def combine_available_signals(
@@ -320,15 +410,17 @@ def _count_qualified_owners(top: tuple[OwnerEntry, ...], threshold: float) -> in
     return sum(1 for entry in top if entry.confidence >= threshold)
 
 
-def _get_commit_history(repo_root: Path, since_days: int) -> list[_RawCommit]:
+def _get_commit_history(repo_root: Path, since_days: int, as_of: datetime) -> list[_RawCommit]:
     """Run git log and parse (author, timestamp, files) triples."""
+    since = as_of - timedelta(days=since_days)
     result = subprocess.run(  # noqa: S603  # literal git argv, no shell
         [  # noqa: S607  # git from PATH; not user-supplied
             "git",
             "log",
             f"--format={_COMMIT_SENTINEL}%n%ae%n%cI",
             "--name-only",
-            f"--since={since_days} days ago",
+            f"--since={since.isoformat()}",
+            f"--until={as_of.isoformat()}",
         ],
         capture_output=True,
         text=True,
@@ -379,10 +471,11 @@ def _aggregate_contributions(
             if prior is None or commit.timestamp > prior:
                 latest[file_path][commit.author] = commit.timestamp
     result: dict[str, dict[str, _Contribution]] = {}
-    for path, authors in counts.items():
+    for path in sorted(counts):
+        authors = counts[path]
         result[path] = {
             author: _Contribution(commits=commits_n, last_commit=latest[path][author])
-            for author, commits_n in authors.items()
+            for author, commits_n in sorted(authors.items())
         }
     return result
 
@@ -442,18 +535,20 @@ def _gather_blame_coverage(
     repo_root: Path,
     *,
     on_progress: ProgressHook | None = None,
+    max_workers: int | None = None,
 ) -> dict[str, dict[str, float]]:
     """Run git blame per path (in parallel) and return author -> coverage.
 
     git blame is a subprocess, so threads parallelize cleanly; the worker
     count tracks the CPU count since blame is compute-bound inside git.
     """
-    path_list = list(paths)
+    path_list = sorted(paths)
     total = len(path_list)
     if total == 0:
         return {}
     coverage: dict[str, dict[str, float]] = {}
-    workers = min(32, os.cpu_count() or 4)
+    workers = max_workers if max_workers is not None else min(32, os.cpu_count() or 4)
+    workers = max(workers, 1)
     done = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for path, per_author in zip(
@@ -464,7 +559,7 @@ def _gather_blame_coverage(
                 on_progress(done, total)
             if per_author:
                 coverage[path] = per_author
-    return coverage
+    return dict(sorted(coverage.items()))
 
 
 def _blame_for_path(repo_root: Path, path: str) -> dict[str, float]:
@@ -494,4 +589,4 @@ def _parse_blame_output(stdout: str) -> dict[str, float]:
             total += 1
     if total == 0:
         return {}
-    return {author: count / total for author, count in counts.items()}
+    return dict(sorted((author, count / total) for author, count in counts.items()))

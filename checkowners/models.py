@@ -90,6 +90,7 @@ class OutputConfig:
 class DriftConfig:
     mode: DriftMode = "commit"
     min_confidence_delta: float = 0.2
+    hysteresis_runs: int = 1
 
 
 @dataclass(frozen=True)
@@ -195,6 +196,7 @@ class OwnershipMap:
 
     paths: dict[str, PathOwnership]
     last_analyzed: datetime
+    analysis_ref: str = ""
 
 
 @dataclass(frozen=True)

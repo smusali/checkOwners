@@ -103,7 +103,7 @@ Note that `generate` and `sync` refuse to overwrite a CODEOWNERS that was not ge
 
 ### Where is the state cache?
 
-`~/.checkowners/state/<repo-hash>.json` (schema v5, one file per repo; the payload embeds the absolute repo path and is verified on load, so state from one repo can never leak into another). Downstream commands (`qualified-owners`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) read it so they don't re-run `git log`, and print a stderr hint when they do. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#environment-variables).
+`~/.checkowners/state/<repo-hash>.json` (schema v6, one file per repo; the payload embeds the absolute repo path and is verified on load, so state from one repo can never leak into another). Downstream commands (`qualified-owners`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) read it so they don't re-run `git log`, and print a stderr hint when they do. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#environment-variables).
 
 ## Inference behavior
 
@@ -173,6 +173,10 @@ CheckOwners treats code ownership as a scored spectrum rather than a static bina
 Dedicated validators still go further on owner validity: they verify that accounts exist and that users and teams belong to the organization. Formal bus/truck-factor research tools run a removal simulation over a knowledge distribution. CheckOwners `qualified_owner_count` is a capped count of owners above the confidence threshold; it is not truck factor, bus factor, or lottery factor. See [Qualified owner count](USAGE.md#qualified-owner-count).
 
 The full matrix and what each category does well live in [How checkowners compares](USAGE.md#how-checkowners-compares).
+
+### Why did scores used to change overnight with no commits?
+
+Recency used to age against the wall clock, so the same commit scored differently each day. Analysis now uses one instant: `--as-of`, else `SOURCE_DATE_EPOCH`, else the HEAD committer timestamp. The same repository, commit, and config produce the same JSON. Pass `--as-of 2026-01-15T00:00:00+00:00` to pin an audit instant. `--deterministic` is the documented name for that guarantee.
 
 ### Does CheckOwners use LLMs?
 

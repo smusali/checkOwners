@@ -9,6 +9,9 @@ from typing import Literal
 Severity = Literal["low", "medium", "high", "critical"]
 DriftMode = Literal["commit", "repo", "both"]
 
+OWNERSHIP_MODEL_VERSION = "ownership-v2"
+DEPRECATED_SCORE_KEY = "confidence"
+
 
 @dataclass(frozen=True)
 class AnalysisConfig:
@@ -26,6 +29,10 @@ class ScoringConfig:
     frequency_weight: float = 0.25
     blame_weight: float = 0.25
     review_weight: float = 0.15
+    recency_reliability: float = 1.0
+    frequency_reliability: float = 1.0
+    blame_reliability: float = 1.0
+    review_reliability: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -106,25 +113,53 @@ class Config:
 
 
 @dataclass(frozen=True)
+class SignalScore:
+    available: bool
+    score: float = 0.0
+
+    def as_payload(self) -> dict[str, bool | float]:
+        if not self.available:
+            return {"available": False}
+        return {"score": round(self.score, 4), "available": True}
+
+
+@dataclass(frozen=True)
 class ConfidenceScore:
-    """Breakdown of a single owner's confidence score for a path."""
+    """Per-signal breakdown of a single owner's ownership score for a path."""
 
     total: float
-    recency: float
-    frequency: float
-    blame: float
-    review: float
+    recency: SignalScore
+    frequency: SignalScore
+    blame: SignalScore
+    review: SignalScore
+
+    def signals_payload(self) -> dict[str, dict[str, bool | float]]:
+        return {
+            "recency": self.recency.as_payload(),
+            "frequency": self.frequency.as_payload(),
+            "blame": self.blame.as_payload(),
+            "review": self.review.as_payload(),
+        }
 
 
 @dataclass(frozen=True)
 class OwnerEntry:
-    """A single owner of a path with confidence and provenance."""
+    """A single owner of a path with score, evidence quality, and provenance."""
 
     handle: str
-    confidence: float
+    ownership_score: float
     last_commit: datetime | None
     commits: int
+    evidence_quality: float = 1.0
     score_breakdown: ConfidenceScore | None = None
+
+    @property
+    def confidence(self) -> float:
+        return self.ownership_score
+
+    @property
+    def score_label(self) -> str:
+        return f"{self.ownership_score:.2f}/{self.evidence_quality:.2f}"
 
 
 @dataclass(frozen=True)

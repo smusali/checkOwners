@@ -16,13 +16,15 @@ from pathlib import Path
 
 from checkowners.analyze import (
     _aggregate_contributions,
-    _clamp,
     _Contribution,
     _frequency_score,
     _get_commit_history,
     _is_excluded,
     _RawCommit,
     _recency_score,
+    combine_available_signals,
+    signal_reliabilities,
+    signal_weights,
 )
 from checkowners.models import Config, ScoringConfig
 
@@ -151,11 +153,17 @@ def _two_factor_confidence(
     scoring: ScoringConfig,
     as_of: datetime,
 ) -> float:
-    """Recency + frequency confidence, renormalized (no historical blame/review)."""
+    """Recency + frequency score; blame and review are historically unavailable."""
     recency = _recency_score(contrib.last_commit, as_of, scoring.recency_half_life_days)
     frequency = _frequency_score(contrib.commits, max_commits)
-    weight = scoring.recency_weight + scoring.frequency_weight
-    if weight <= 0:
-        return 0.0
-    blended = scoring.recency_weight * recency + scoring.frequency_weight * frequency
-    return _clamp(blended / weight)
+    score, _quality = combine_available_signals(
+        {
+            "recency": (recency, True),
+            "frequency": (frequency, True),
+            "blame": (0.0, False),
+            "review": (0.0, False),
+        },
+        signal_weights(scoring),
+        signal_reliabilities(scoring),
+    )
+    return score

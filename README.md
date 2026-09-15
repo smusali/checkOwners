@@ -13,7 +13,7 @@ This repository moved here from a previous GitHub organization; Sigstore attesta
 
 > CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration.
 
-> No other open-source tool combines git-history inference, calibrated per-path confidence, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
+> No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
 
 Inference is deterministic git analysis; the scoring heuristics live in `analyze.py` and are auditable. The codebase has been built with agent assistance. Every AI-assisted change is human-reviewed, tested, and signed off.
 
@@ -86,7 +86,8 @@ All commands accept `--json` (except `graph`, which exports DOT via `--export do
 
 ## Documentation
 
-- [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md): full configuration reference, confidence scoring formula, drift severity tiers, GitHub Actions integration, comparison table.
+- [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md): full configuration reference, ownership scoring formula, drift severity tiers, GitHub Actions integration, comparison table.
+- [docs/METHODOLOGY.md](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md): signal availability, renormalization, and evidence quality.
 - [docs/FAQ.md](https://github.com/smusali/checkowners/blob/main/docs/FAQ.md): identity (usernames vs emails, teams + subteams), GitHub API access, file locations, tuning, troubleshooting.
 - [docs/CONTRIBUTING.md](https://github.com/smusali/checkowners/blob/main/docs/CONTRIBUTING.md): dev setup, commands, conventional commits, code conventions, PR workflow.
 - [ROADMAP.md](https://github.com/smusali/checkowners/blob/main/ROADMAP.md): milestones and how to pick an issue. The [action-item register](https://github.com/smusali/checkowners/blob/main/docs/ACTION_ITEMS.md) is the full list.

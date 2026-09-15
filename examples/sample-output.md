@@ -6,14 +6,23 @@ Trimmed `analyze --json` and `drift --json` from this repository (0.5.0). Handle
 
 ```json
 {
+  "model_version": "ownership-v2",
   "inferred": {
     "README.md": {
       "owners": [
         {
           "handle": "@smusali",
+          "ownership_score": 0.85,
           "confidence": 0.85,
+          "evidence_quality": 0.85,
           "commits": 21,
-          "last_commit": "2026-09-15T14:28:35+04:00"
+          "last_commit": "2026-09-15T14:28:35+04:00",
+          "signals": {
+            "recency": { "score": 0.91, "available": true },
+            "frequency": { "score": 1.0, "available": true },
+            "blame": { "score": 0.86, "available": true },
+            "review": { "available": false }
+          }
         }
       ],
       "qualified_owner_count": 1,
@@ -25,9 +34,17 @@ Trimmed `analyze --json` and `drift --json` from this repository (0.5.0). Handle
       "owners": [
         {
           "handle": "@smusali",
+          "ownership_score": 0.85,
           "confidence": 0.85,
+          "evidence_quality": 0.85,
           "commits": 18,
-          "last_commit": "2026-09-15T14:28:35+04:00"
+          "last_commit": "2026-09-15T14:28:35+04:00",
+          "signals": {
+            "recency": { "score": 0.91, "available": true },
+            "frequency": { "score": 1.0, "available": true },
+            "blame": { "score": 0.86, "available": true },
+            "review": { "available": false }
+          }
         }
       ],
       "qualified_owner_count": 1,
@@ -36,7 +53,7 @@ Trimmed `analyze --json` and `drift --json` from this repository (0.5.0). Handle
       "decay_warnings": []
     }
   },
-  "deprecated_keys": ["bus_factor"]
+  "deprecated_keys": ["bus_factor", "confidence"]
 }
 ```
 

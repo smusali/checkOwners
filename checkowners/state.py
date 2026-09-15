@@ -3,7 +3,7 @@
 The state file is the cache of the most recent analyze run for a repo.
 Downstream commands (drift, decay, qualified-owners, topology, balance, onboard)
 read from it to avoid re-running git log on every invocation. State is keyed
-per repo (schema v4): each repo gets its own file, and the payload embeds the
+per repo (schema v5): each repo gets its own file, and the payload embeds the
 absolute repo path so state from one repo can never leak into another.
 
 Schema is versioned. Older state files are not auto-migrated; they are
@@ -22,16 +22,19 @@ from typing import Any
 
 from checkowners.busfactor import DEPRECATED_COUNT_KEY, qualified_owner_count_fields
 from checkowners.models import (
+    DEPRECATED_SCORE_KEY,
+    OWNERSHIP_MODEL_VERSION,
     BusFactor,
     ConfidenceScore,
     DecayWarning,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    SignalScore,
     TeamCluster,
 )
 
-SCHEMA_VERSION: int = 4
+SCHEMA_VERSION: int = 5
 _STATE_DIR = Path.home() / ".checkowners"
 _STATE_SUBDIR = "state"
 _GRAPH_CACHE_SUBDIR = "graph"
@@ -125,6 +128,7 @@ def write_state(
     target.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
+        "model_version": OWNERSHIP_MODEL_VERSION,
         "repo": str(repo_root.resolve()),
         "inferred": {
             path: _serialize_path(po, qualified_owner_count_cap)
@@ -135,7 +139,7 @@ def write_state(
             bus_factor_summary, qualified_owner_count_cap
         ),
         "qualified_owner_count_cap": qualified_owner_count_cap,
-        "deprecated_keys": [DEPRECATED_COUNT_KEY],
+        "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
         "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
         "drift_detected": drift_detected,
     }
@@ -205,12 +209,14 @@ def _serialize_path(po: PathOwnership, cap: int) -> dict[str, Any]:
 def _serialize_owner(entry: OwnerEntry) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "handle": entry.handle,
+        "ownership_score": entry.ownership_score,
         "confidence": entry.confidence,
+        "evidence_quality": entry.evidence_quality,
         "last_commit": entry.last_commit.astimezone(UTC).isoformat() if entry.last_commit else None,
         "commits": entry.commits,
     }
     if entry.score_breakdown is not None:
-        payload["score_breakdown"] = asdict(entry.score_breakdown)
+        payload["signals"] = entry.score_breakdown.signals_payload()
     return payload
 
 
@@ -282,10 +288,15 @@ def _read_qualified_owner_count(raw: dict[str, Any]) -> int:
 
 def _deserialize_owner(raw: dict[str, Any]) -> OwnerEntry | None:
     handle = raw.get("handle")
-    confidence = raw.get("confidence")
+    score_raw = raw.get("ownership_score", raw.get("confidence"))
+    quality_raw = raw.get("evidence_quality", 1.0)
     commits = raw.get("commits")
     last_commit_raw = raw.get("last_commit")
-    if not isinstance(handle, str) or not isinstance(confidence, int | float):
+    if not isinstance(handle, str) or isinstance(score_raw, bool):
+        return None
+    if not isinstance(score_raw, int | float):
+        return None
+    if isinstance(quality_raw, bool) or not isinstance(quality_raw, int | float):
         return None
     if not isinstance(commits, int):
         return None
@@ -297,26 +308,47 @@ def _deserialize_owner(raw: dict[str, Any]) -> OwnerEntry | None:
             last_commit = None
     else:
         last_commit = None
-    score_breakdown: ConfidenceScore | None = None
-    raw_breakdown = raw.get("score_breakdown")
-    if isinstance(raw_breakdown, dict):
-        try:
-            score_breakdown = ConfidenceScore(
-                total=float(raw_breakdown["total"]),
-                recency=float(raw_breakdown["recency"]),
-                frequency=float(raw_breakdown["frequency"]),
-                blame=float(raw_breakdown["blame"]),
-                review=float(raw_breakdown["review"]),
-            )
-        except (KeyError, TypeError, ValueError):
-            score_breakdown = None
+    score_breakdown = _deserialize_signals(raw.get("signals"), float(score_raw))
     return OwnerEntry(
         handle=handle,
-        confidence=float(confidence),
+        ownership_score=float(score_raw),
         last_commit=last_commit,
         commits=commits,
+        evidence_quality=float(quality_raw),
         score_breakdown=score_breakdown,
     )
+
+
+def _deserialize_signals(raw: object, total: float) -> ConfidenceScore | None:
+    if not isinstance(raw, dict):
+        return None
+    recency = _read_signal(raw.get("recency"))
+    frequency = _read_signal(raw.get("frequency"))
+    blame = _read_signal(raw.get("blame"))
+    review = _read_signal(raw.get("review"))
+    if recency is None or frequency is None or blame is None or review is None:
+        return None
+    return ConfidenceScore(
+        total=total,
+        recency=recency,
+        frequency=frequency,
+        blame=blame,
+        review=review,
+    )
+
+
+def _read_signal(raw: object) -> SignalScore | None:
+    if not isinstance(raw, dict):
+        return None
+    available = raw.get("available")
+    if not isinstance(available, bool):
+        return None
+    if not available:
+        return SignalScore(available=False)
+    score = raw.get("score", 0.0)
+    if isinstance(score, bool) or not isinstance(score, int | float):
+        return None
+    return SignalScore(available=True, score=float(score))
 
 
 def _deserialize_decay(raw: dict[str, Any]) -> DecayWarning | None:

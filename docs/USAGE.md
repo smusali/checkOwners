@@ -38,7 +38,11 @@ scoring:
   recency_weight: 0.35
   frequency_weight: 0.25
   blame_weight: 0.25
-  review_weight: 0.15         # only counted when github.api_enabled
+  review_weight: 0.15         # skipped (not zeroed) when github.api_enabled is false
+  recency_reliability: 1.0
+  frequency_reliability: 1.0
+  blame_reliability: 1.0
+  review_reliability: 1.0
 
 decay:
   threshold_days: 180         # flag owners idle longer than this
@@ -112,31 +116,44 @@ Commit emails are rewritten to GitHub `@handles` in three stages, cheapest first
 
 When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's qualified owner count is recomputed over distinct people.
 
-## Confidence scoring
+## Ownership scoring
 
-Each path-owner pair gets a confidence score in `[0.0, 1.0]` derived from four signals:
+Each path-owner pair gets an `ownership_score` in `[0.0, 1.0]` from the available signals only. Missing evidence is skipped, not scored as zero, so the attainable range is `[0, 1]` with or without a review provider. JSON still emits `confidence` as a deprecated alias of `ownership_score` for one cycle. This number is a ranking signal, not a calibrated probability.
 
-| Signal | Source | Weight (default) |
-|--------|--------|------------------|
-| Recency | `exp(-ln 2 × days_since_last_commit / half_life)` | 0.35 |
-| Frequency | `commits / max_commits_for_path` | 0.25 |
-| Blame coverage | `git blame --line-porcelain` lines / total lines | 0.25 |
-| Review activity | PR reviews on the path (requires `github.api_enabled`) | 0.15 |
+| Signal | Source | Weight (default) | Reliability (default) |
+|--------|--------|------------------|------------------------|
+| Recency | `exp(-ln 2 × days_since_last_commit / half_life)` | 0.35 | 1.0 |
+| Frequency | `commits / max_commits_for_path` | 0.25 | 1.0 |
+| Blame coverage | `git blame --line-porcelain` lines / total lines | 0.25 | 1.0 |
+| Review activity | PR reviews on the path (requires `github.api_enabled`) | 0.15 | 1.0 |
+
+```text
+ownership_score  = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
+evidence_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
+```
+
+`aᵢ` is 1 when that signal was observed for the path (blame ran; a review provider was injected) and 0 otherwise. An author with 0% blame or 0 reviews still has that signal available: that is a measured zero, not a missing signal. `evidence_quality` is a separate quantity. Two owners can share a score and still differ in quality, for example `@alice 0.91/0.93` versus `@bob 0.79/0.31`. Human output and CODEOWNERS annotations (`output.include_confidence`) show `score/quality`.
 
 ```mermaid
 flowchart LR
-    R[Recency] --> S[Confidence]
+    R[Recency] --> S[ownership_score]
     F[Frequency] --> S
     B[Blame] --> S
     V[Reviews] --> S
+    R --> Q[evidence_quality]
+    F --> Q
+    B --> Q
+    V --> Q
     S --> Filter{meets threshold?}
     Filter -->|yes| Generate[CODEOWNERS owner]
     Filter -->|no| Drop[dropped]
 ```
 
-Weights are configurable under `scoring`. The final score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
+Weights and reliabilities are configurable under `scoring`. Review weight is omitted from the score when `github.api_enabled` is false; it is not filled in as `0.0`. The score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
-The blame pass only runs on paths where at least one author reaches `min_commits`, and runs on a thread pool sized to the CPU count. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness.
+**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. Analyze JSON includes `model_version: ownership-v2`. Per-repo state is schema v5; older caches are ignored.
+
+The blame pass only runs on paths where at least one author reaches `min_commits`, and runs on a thread pool sized to the CPU count. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness. See [METHODOLOGY.md](METHODOLOGY.md) for availability rules and the full formula.
 
 ## Qualified owner count
 
@@ -250,7 +267,7 @@ Advanced install inputs:
 
 ## How checkowners compares
 
-CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, calibrated per-path confidence, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract. Individual pieces exist elsewhere; the table credits them.
+CheckOwners treats code ownership as a scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract. Individual pieces exist elsewhere; the table credits them.
 
 | Tool | Infers from history | Confidence score | Drift detection | Owner validity | Knowledge risk | Forges |
 |---|---|---|---|---|---|---|

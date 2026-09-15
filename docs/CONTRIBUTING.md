@@ -86,7 +86,7 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 - Type hints on **every** function signature; `mypy --strict` is enforced.
 - All paths via `pathlib.Path`; never hardcode strings. Ruff `PTH` enforces this.
 - New CLI subcommand? Wire it in `cli.py`, give it a `--json` mode, and persist results through `state.write_state` when appropriate.
-- Ownership is never binary: every owner carries a confidence score, clamped to `[0.0, 1.0]`.
+- Ownership is never binary: every owner carries an `ownership_score` in `[0.0, 1.0]` plus a separate `evidence_quality`. `confidence` is a deprecated alias of the score.
 
 ## Tests
 

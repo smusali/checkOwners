@@ -10,12 +10,14 @@ from unittest.mock import patch
 import pytest
 
 from checkowners.models import (
+    OWNERSHIP_MODEL_VERSION,
     BusFactor,
     ConfidenceScore,
     DecayWarning,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    SignalScore,
     TeamCluster,
 )
 from checkowners.state import (
@@ -41,12 +43,19 @@ def repo(tmp_path: Path) -> Path:
 
 
 def _make_ownership() -> OwnershipMap:
-    breakdown = ConfidenceScore(total=0.85, recency=0.9, frequency=0.7, blame=0.8, review=0.6)
+    breakdown = ConfidenceScore(
+        total=0.85,
+        recency=SignalScore(available=True, score=0.9),
+        frequency=SignalScore(available=True, score=0.7),
+        blame=SignalScore(available=True, score=0.8),
+        review=SignalScore(available=True, score=0.6),
+    )
     owner = OwnerEntry(
         handle="@alice",
-        confidence=0.85,
+        ownership_score=0.85,
         last_commit=_NOW,
         commits=12,
+        evidence_quality=1.0,
         score_breakdown=breakdown,
     )
     decay = DecayWarning(
@@ -139,7 +148,8 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["bus_factor_summary"]["critical_paths"] == ["src/auth.py"]
     assert data["bus_factor_summary"]["repo_average"] == 1.0
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
-    assert data["deprecated_keys"] == ["bus_factor"]
+    assert data["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert data["deprecated_keys"] == ["bus_factor", "confidence"]
     assert "src/auth.py" in data["inferred"]
     inferred = data["inferred"]["src/auth.py"]
     assert inferred["qualified_owner_count"] == 1
@@ -164,11 +174,14 @@ def test_load_ownership_roundtrip(repo: Path) -> None:
     assert set(loaded.paths) == set(original.paths)
     loaded_owner = loaded.paths["src/auth.py"].owners[0]
     assert loaded_owner.handle == "@alice"
+    assert loaded_owner.ownership_score == pytest.approx(0.85)
     assert loaded_owner.confidence == pytest.approx(0.85)
+    assert loaded_owner.evidence_quality == pytest.approx(1.0)
     assert loaded_owner.commits == 12
     assert loaded_owner.last_commit == _NOW
     assert loaded_owner.score_breakdown is not None
-    assert loaded_owner.score_breakdown.recency == pytest.approx(0.9)
+    assert loaded_owner.score_breakdown.recency.score == pytest.approx(0.9)
+    assert loaded_owner.score_breakdown.recency.available is True
     decay = loaded.paths["src/auth.py"].decay_warnings[0]
     assert decay.handle == "@bob"
     assert decay.days_since_last_commit == 200

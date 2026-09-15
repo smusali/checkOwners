@@ -31,7 +31,7 @@ _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 def _entry(handle: str, confidence: float, commits: int = 5) -> OwnerEntry:
     return OwnerEntry(
         handle=handle,
-        confidence=confidence,
+        ownership_score=confidence,
         last_commit=_NOW,
         commits=commits,
     )
@@ -233,7 +233,7 @@ def test_include_confidence_annotations() -> None:
     config = _zero_threshold(include_confidence=True)
     ownership = _make_ownership({"src/main.py": (_entry("@alice", 0.92),)})
     content = _build_codeowners_content(ownership, config)
-    assert "# @alice(0.92)" in content
+    assert "# @alice(0.92/1.00)" in content
 
 
 def test_no_confidence_annotations_by_default() -> None:

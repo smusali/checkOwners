@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "checkowners"
-version = "0.5.0"
+dynamic = ["version"]
 description = "Infer CODEOWNERS from git history with confidence scoring, knowledge graphs, expertise decay detection, and team topology inference. CI-native."
 readme = "README.md"
 license = "MIT"
@@ -34,6 +34,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Version Control :: Git",
     "Typing :: Typed",
@@ -42,21 +43,28 @@ classifiers = [
 # GitHub API features (handle search, teams, review coverage) live behind
 # the optional "github" extra and degrade gracefully when absent.
 dependencies = [
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-    "pyyaml>=6.0",
+    "typer>=0.9.0,<1",
+    "rich>=13.0.0,<16",
+    "pyyaml>=6.0,<7",
 ]
 
 [project.optional-dependencies]
 graph = [
-    "networkx>=3.0",
+    "networkx>=3.0,<4",
 ]
 github = [
-    "pygithub>=2.0.0",
+    "pygithub>=2.0.0,<3",
 ]
 all = [
-    "networkx>=3.0",
-    "pygithub>=2.0.0",
+    "checkowners[graph,github]",
+]
+dev = [
+    "checkowners[all]",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4.0",
+    "mypy>=1.0",
+    "types-PyYAML",
 ]
 
 [project.urls]
@@ -69,6 +77,9 @@ Changelog = "https://github.com/smusali/checkowners/blob/main/docs/CHANGELOG.md"
 [project.scripts]
 checkowners = "checkowners.cli:main"
 
+[tool.hatch.version]
+path = "checkowners/__init__.py"
+
 [tool.hatch.build.targets.sdist]
 exclude = [
     ".claude",
@@ -79,15 +90,7 @@ exclude = [
 ]
 
 [tool.hatch.envs.default]
-dependencies = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "ruff>=0.4.0",
-    "mypy>=1.0",
-    "types-PyYAML",
-    "networkx>=3.0",
-    "pygithub>=2.0.0",
-]
+features = ["dev"]
 
 [tool.hatch.envs.default.scripts]
 test = [
@@ -100,6 +103,7 @@ fmt = "ruff format ."
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 # S (bandit) and PTH (pathlib) are first-class: the core is subprocess git

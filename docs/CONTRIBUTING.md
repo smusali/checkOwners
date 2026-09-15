@@ -11,7 +11,16 @@ pip install hatch
 hatch run test
 ```
 
-`hatch run test` builds the env, installs the optional `[graph]` extra, runs the suite with coverage, fails if total coverage is below 85%, and prints a branch-coverage report for `patterns.py`, `analyze.py`, `drift.py`, and `generate.py`. Everything else (lint, format, build) flows through the same environment.
+`hatch run test` builds the env (including `[graph]` and `[github]` via the `dev` extra), runs the suite with coverage, fails if total coverage is below 85%, and prints a branch-coverage report for `patterns.py`, `analyze.py`, `drift.py`, and `generate.py`. Everything else (lint, format, build) flows through the same environment.
+
+Without hatch:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+```
 
 ## Common commands
 
@@ -24,7 +33,7 @@ hatch run test
 | `hatch run fmt` | ruff format |
 | `hatch build` | produce sdist and wheel in `dist/` |
 
-CI runs `hatch run test` across Python 3.11, 3.12, and 3.13, builds the wheel, smoke-tests every CLI subcommand against the built artifact, and runs `hatch run lint` plus a `hatch run fmt --check`. Match those locally before opening a PR.
+CI installs from `requirements-dev.lock` with hashes, then runs pytest across Python 3.11, 3.12, 3.13, and 3.14, builds the wheel, smoke-tests CLI subcommands against the built artifact (including `checkowners[all]` and `py.typed`), and runs ruff plus mypy `--strict`. Match those locally before opening a PR.
 
 Optionally, install the pre-commit hooks so ruff, formatting, and mypy run on every commit:
 
@@ -66,7 +75,7 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 
 ## Code conventions
 
-- Python 3.11 minimum. Use modern syntax (`X | Y` unions, `dict[str, int]`).
+- Python 3.11 minimum through 3.14. Use modern syntax (`X | Y` unions, `dict[str, int]`). Python 3.10 is not supported: it reaches upstream end of life in October 2026, and chasing it would only complicate the runtime. The Action installs its own interpreter. Older system Pythons are better served by standalone artifacts than by widening `requires-python`.
 - Functional style. The only classes allowed are dataclasses in `models.py` and small frozen dataclasses living inside the module that returns them.
 - Type hints on **every** function signature; `mypy --strict` is enforced.
 - All paths via `pathlib.Path`; never hardcode strings. Ruff `PTH` enforces this.
@@ -81,6 +90,14 @@ For the architecture overview and module map, see [CLAUDE.md](../CLAUDE.md).
 - Unit tests mock all subprocess calls (`git log`, `git blame`); they must not require a real git repo.
 - Tests that touch `~/.checkowners/state.json` set the `CHECKOWNERS_STATE_DIR` env var so they don't clobber the contributor's real state.
 - Coverage is enforced at 85% repo-wide (`--cov-fail-under=85`); new modules should land above that. The floor is a gate, not a substitute for tests against real git repositories and real CODEOWNERS files. For a focused run that should not apply the floor, pass `--no-cov`.
+
+## Dependencies
+
+Runtime dependencies are capped at the next untested major (`typer>=0.9.0,<1`, `rich>=13.0.0,<16`, and so on). Bump a ceiling when CI proves the new major. CI installs third-party test and lint deps from `requirements-dev.lock` with hashes. The composite Action installs runtime extras from `requirements.lock` with hashes.
+
+## Coverage uploads
+
+CI uploads `coverage.xml` to Codecov with the `CODECOV_TOKEN` repository secret. Install the [Codecov GitHub App](https://github.com/apps/codecov) on the account for PR comments and status checks. If the README badge still 500s after a green upload on `main` (typical leftover state after an organization move), erase the project in Codecov's Danger Zone and let the next CI run recreate it.
 
 ## Reporting bugs
 
@@ -101,14 +118,17 @@ Tagged releases trigger `.github/workflows/publish.yml` which builds and uploads
 
 Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.md) as they merge. Each dated heading is the UTC calendar day the GitHub Release will be published (that event uploads to PyPI), formatted `YYYY-MM-DD`. `Unreleased` has no date. If publish slips to another UTC day, update the heading before creating the Release.
 
-`python tools/check_changelog.py vX.Y.Z` must succeed before tagging. The publish job runs the same check and fails the upload if the heading is missing, has no date, or the Action pin / wheel / lockfile disagree with the tag.
+`python tools/check_changelog.py vX.Y.Z` must succeed before tagging. The publish job runs the same check and fails the upload if the heading is missing, has no date, or the Action pin / wheel / lockfiles disagree with the tag.
 
 Steps:
 
-1. Bump `version` in `pyproject.toml` and `__version__` in `checkowners/__init__.py`.
+1. Bump `__version__` in `checkowners/__init__.py` (hatch reads it for the package version).
 2. Set the Action pin to the same version: `checkowners_version` default and `CHECKOWNERS_PINNED_VERSION` in `action.yml`.
 3. Rebuild the Action wheel (`hatch build`) and replace `checkowners-X.Y.Z-py3-none-any.whl` at the repository root. Remove the previous version's wheel.
-4. Regenerate the hashed lockfile: `pip-compile --generate-hashes --extra graph --extra github -o requirements.lock pyproject.toml`.
+4. Regenerate the hashed lockfiles:
+   `pip-compile --generate-hashes --extra graph --extra github -o requirements.lock pyproject.toml`
+   and
+   `pip-compile --generate-hashes --extra graph --extra github --extra dev --unsafe-package checkowners -o requirements-dev.lock pyproject.toml`.
 5. Promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, leave a fresh `[Unreleased]`, and refresh the compare links at the bottom of the changelog.
 6. Confirm `python tools/check_changelog.py vX.Y.Z` succeeds.
 7. Tag the commit: `git tag -a v0.X.Y -m "v0.X.Y"` and push the tag.

@@ -19,6 +19,8 @@ This repository moved here from a previous GitHub organization; Sigstore attesta
 
 ## Installation
 
+Requires Python 3.11 through 3.14.
+
 ```bash
 pip install checkowners               # core CLI (pure git, zero API deps)
 pip install "checkowners[graph]"      # + networkx-backed graph / topology / onboard

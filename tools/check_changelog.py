@@ -3,21 +3,16 @@ from __future__ import annotations
 
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
+_ALL_EXTRA = ["checkowners[graph,github]"]
+_PY314 = "Programming Language :: Python :: 3.14"
 
 
 def _normalize(raw: str) -> str:
     return raw[1:] if raw.startswith(("v", "V")) else raw
-
-
-def _pyproject_version() -> str:
-    text = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    match = re.search(r'(?m)^version = "([^"]+)"', text)
-    if not match:
-        raise ValueError("version missing from pyproject.toml")
-    return match.group(1)
 
 
 def _init_version() -> str:
@@ -47,10 +42,26 @@ def _action_pinned_version() -> str:
     return match.group(1)
 
 
+def _check_packaging() -> list[str]:
+    text = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    errors: list[str] = []
+    if re.search(r'(?m)^version = "', text):
+        errors.append("pyproject.toml must not set a static version")
+    project = tomllib.loads(text).get("project", {})
+    if "version" not in project.get("dynamic", []):
+        errors.append('pyproject.toml must list "version" in project.dynamic')
+    extras = project.get("optional-dependencies", {})
+    all_extra = extras.get("all")
+    if all_extra != _ALL_EXTRA:
+        errors.append(f"all extra is {all_extra!r}, expected {_ALL_EXTRA!r}")
+    if _PY314 not in project.get("classifiers", []):
+        errors.append("missing Python 3.14 classifier")
+    return errors
+
+
 def _check_pins(expected: str) -> list[str]:
     errors: list[str] = []
     sources = {
-        "pyproject.toml": _pyproject_version(),
         "checkowners/__init__.py": _init_version(),
         "action.yml checkowners_version default": _action_input_default("checkowners_version"),
         "action.yml CHECKOWNERS_PINNED_VERSION": _action_pinned_version(),
@@ -63,9 +74,10 @@ def _check_pins(expected: str) -> list[str]:
     if not wheel.is_file():
         errors.append(f"missing {wheel.name}")
 
-    lock = _ROOT / "requirements.lock"
-    if not lock.is_file() or lock.stat().st_size == 0:
-        errors.append("requirements.lock is missing or empty")
+    for name in ("requirements.lock", "requirements-dev.lock"):
+        lock = _ROOT / name
+        if not lock.is_file() or lock.stat().st_size == 0:
+            errors.append(f"{name} is missing or empty")
     return errors
 
 
@@ -86,7 +98,7 @@ def main(argv: list[str]) -> int:
 
     if argv[1] == "--check-pins":
         try:
-            errors = _check_pins(_pyproject_version())
+            errors = _check_packaging() + _check_pins(_init_version())
         except ValueError as exc:
             print(f"::error::{exc}")
             return 1
@@ -101,7 +113,7 @@ def main(argv: list[str]) -> int:
 
     changelog_rc = _check_changelog(version)
     try:
-        pin_errors = _check_pins(version)
+        pin_errors = _check_packaging() + _check_pins(version)
     except ValueError as exc:
         print(f"::error::{exc}")
         return 1

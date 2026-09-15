@@ -9,6 +9,10 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 ## [Unreleased]
 
 ### Added
+- A `dev` extra bootstraps tests and linters via `pip install -e ".[dev]"`.
+- Python 3.14 classifier and CI matrix entry. `checkowners/py.typed` ships in
+  the wheel so the `Typing :: Typed` classifier is accurate.
+- `requirements-dev.lock` pins CI test and lint installs with hashes.
 - pytest `--cov-fail-under=85` so CI fails below the documented coverage
   floor. Branch coverage is collected repo-wide and reported for
   `patterns.py`, `analyze.py`, `drift.py`, and `generate.py`.
@@ -33,10 +37,12 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   or lockfile disagree with each other (or with the release tag).
 
 ### Fixed
+- Codecov uploads authenticate with `CODECOV_TOKEN` and fail the job if
+  the report is rejected, so the README coverage badge can receive data.
 - README monthly-download badge uses pepy.tech instead of shields.io
   `pypi/dm`, which was rendering "rate limited by upstream service".
-- CI pip installs retry with a longer timeout, and hatch env creation
-  retries on transient PyPI index failures.
+- CI pip installs retry with a longer timeout on transient PyPI index
+  failures.
 - The Action PR-comment lookup paginates past 100 comments, so the
   managed comment is updated instead of duplicated. Interpolated
   paths, notes, and reasons are escaped, long paths are truncated,
@@ -77,6 +83,12 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
   `GITHUB_OUTPUT`) are documented with their precedence over the config file.
 
 ### Changed
+- The `all` extra composes `checkowners[graph,github]` instead of duplicating
+  those dependency lists. Runtime dependencies are capped at the next
+  untested major. Package version is read from
+  `checkowners/__init__.py` only.
+- Test and lint CI install from `requirements-dev.lock` with hashes instead
+  of resolving a hatch environment unpinned.
 - The truncated owner count is now named `qualified_owner_count`. Human
   output always states the `top_n_owners` cap. JSON emits both
   `qualified_owner_count` and the deprecated `bus_factor` alias for one

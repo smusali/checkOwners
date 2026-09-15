@@ -20,9 +20,11 @@ from checkowners.analyze import (
     _frequency_score,
     _get_commit_history,
     _is_excluded,
+    _qualify_authors,
     _RawCommit,
     _recency_score,
     combine_available_signals,
+    frequency_prior_for,
     signal_reliabilities,
     signal_weights,
 )
@@ -130,16 +132,19 @@ def _score_path(
     as_of: datetime,
 ) -> list[float]:
     """Confidence scores (descending) for the qualified owners of one path."""
-    qualified = {
-        author: contrib
-        for author, contrib in authors.items()
-        if contrib.commits >= config.analysis.min_commits
-    }
+    qualified = _qualify_authors(
+        authors,
+        min_commits=config.analysis.min_commits,
+        strategy=config.qualification.strategy,
+        path_blame={},
+        blame_override=config.qualification.strong_blame_override,
+    )
     if not qualified:
         return []
     max_commits = max(contrib.commits for contrib in qualified.values())
+    prior = frequency_prior_for(config.qualification.strategy)
     scored = [
-        _two_factor_confidence(contrib, max_commits, config.scoring, as_of)
+        _two_factor_confidence(contrib, max_commits, config.scoring, as_of, prior)
         for contrib in qualified.values()
     ]
     scored = [c for c in scored if c >= config.analysis.confidence_threshold]
@@ -152,10 +157,11 @@ def _two_factor_confidence(
     max_commits: int,
     scoring: ScoringConfig,
     as_of: datetime,
+    frequency_prior: float = 0.0,
 ) -> float:
     """Recency + frequency score; blame and review are historically unavailable."""
     recency = _recency_score(contrib.last_commit, as_of, scoring.recency_half_life_days)
-    frequency = _frequency_score(contrib.commits, max_commits)
+    frequency = _frequency_score(contrib.commits, max_commits, frequency_prior)
     score, _quality = combine_available_signals(
         {
             "recency": (recency, True),

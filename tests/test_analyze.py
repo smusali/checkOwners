@@ -30,7 +30,13 @@ from checkowners.analyze import (
     signal_reliabilities,
     signal_weights,
 )
-from checkowners.models import AnalysisConfig, Config, DecayConfig, ScoringConfig
+from checkowners.models import (
+    AnalysisConfig,
+    Config,
+    DecayConfig,
+    QualificationConfig,
+    ScoringConfig,
+)
 
 
 def _make_git_log_output(
@@ -179,6 +185,7 @@ def test_analyze_min_commits_filter() -> None:
     stdout = _make_git_log_output(commits)
     config = Config(
         analysis=AnalysisConfig(min_commits=2, top_n_owners=5, confidence_threshold=0.0),
+        qualification=QualificationConfig(strategy="threshold", min_commits=2),
     )
 
     with (
@@ -190,6 +197,38 @@ def test_analyze_min_commits_filter() -> None:
 
     handles = [o.handle for o in result.paths["src/main.py"].owners]
     assert handles == ["alice@example.com"]
+
+
+def test_analyze_adaptive_keeps_high_blame_author() -> None:
+    commits = [
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("bob@example.com", _RECENT, ["src/main.py"]),
+    ]
+    stdout = _make_git_log_output(commits)
+    config = Config(
+        analysis=AnalysisConfig(min_commits=2, top_n_owners=5, confidence_threshold=0.0),
+        qualification=QualificationConfig(strategy="adaptive", min_commits=2),
+    )
+
+    def blame_bob(
+        _paths: object,
+        _root: Path,
+        *,
+        on_progress: object = None,  # noqa: ARG001
+    ) -> dict[str, dict[str, float]]:
+        return {"src/main.py": {"alice@example.com": 0.4, "bob@example.com": 0.6}}
+
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=blame_bob),
+    ):
+        result = analyze_ownership(Path("/fake"), config)
+
+    handles = {o.handle for o in result.paths["src/main.py"].owners}
+    assert handles == {"alice@example.com", "bob@example.com"}
 
 
 def test_analyze_top_n_owners() -> None:
@@ -352,6 +391,7 @@ def test_analyze_score_scale_with_and_without_review_provider() -> None:
         now=_NOW,
         blame_available=True,
         review_available=False,
+        frequency_prior=0.0,
     )
     online = _score_owners(
         qualified,
@@ -362,6 +402,7 @@ def test_analyze_score_scale_with_and_without_review_provider() -> None:
         now=_NOW,
         blame_available=True,
         review_available=True,
+        frequency_prior=0.0,
     )
     assert offline[0].ownership_score == pytest.approx(1.0)
     assert online[0].ownership_score == pytest.approx(1.0)
@@ -405,6 +446,9 @@ def test_frequency_score_normalizes() -> None:
     assert _frequency_score(5, 10) == 0.5
     assert _frequency_score(10, 10) == 1.0
     assert _frequency_score(0, 0) == 0.0
+    assert _frequency_score(3, 3, 3) == 0.5
+    assert _frequency_score(3, 3, 3) < 1.0
+    assert _frequency_score(1, 1, 3) == 0.25
 
 
 def test_aggregate_contributions_takes_latest_timestamp() -> None:
@@ -497,18 +541,18 @@ def test_gather_blame_coverage_aggregates() -> None:
     assert coverage["x.py"]["alice@example.com"] == 1.0
 
 
-def test_unqualified_paths_not_blamed() -> None:
-    """Paths where no author reaches min_commits must skip the blame pass."""
-    commits = [
-        ("alice@example.com", _RECENT, ["hot.py"]),
-        ("alice@example.com", _RECENT, ["hot.py"]),
-        ("alice@example.com", _RECENT, ["hot.py"]),
-        ("bob@example.com", _RECENT, ["cold.py"]),
-    ]
-    stdout = _make_git_log_output(commits)
-    config = Config(analysis=AnalysisConfig(min_commits=3, confidence_threshold=0.0))
-    blamed: list[str] = []
+def _hot_cold_commits() -> str:
+    return _make_git_log_output(
+        [
+            ("alice@example.com", _RECENT, ["hot.py"]),
+            ("alice@example.com", _RECENT, ["hot.py"]),
+            ("alice@example.com", _RECENT, ["hot.py"]),
+            ("bob@example.com", _RECENT, ["cold.py"]),
+        ]
+    )
 
+
+def _record_blame(blamed: list[str]) -> object:
     def record_blame(
         paths: Iterable[str],
         _root: Path,
@@ -518,15 +562,42 @@ def test_unqualified_paths_not_blamed() -> None:
         blamed.extend(paths)
         return {}
 
+    return record_blame
+
+
+def test_unqualified_paths_not_blamed() -> None:
+    config = Config(
+        analysis=AnalysisConfig(min_commits=3, confidence_threshold=0.0),
+        qualification=QualificationConfig(strategy="threshold", min_commits=3),
+    )
+    blamed: list[str] = []
+
     with (
-        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_GIT, return_value=_mock_run(_hot_cold_commits())),
         patch(_MOCK_EXIST, side_effect=_passthrough),
-        patch(_MOCK_BLAME, side_effect=record_blame),
+        patch(_MOCK_BLAME, side_effect=_record_blame(blamed)),
     ):
         result = analyze_ownership(Path("/fake"), config)
 
     assert blamed == ["hot.py"]
     assert set(result.paths) == {"hot.py"}
+
+
+def test_adaptive_blames_all_contributed_paths() -> None:
+    config = Config(
+        analysis=AnalysisConfig(min_commits=3, confidence_threshold=0.0),
+        qualification=QualificationConfig(strategy="adaptive", min_commits=3),
+    )
+    blamed: list[str] = []
+
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(_hot_cold_commits())),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_record_blame(blamed)),
+    ):
+        analyze_ownership(Path("/fake"), config)
+
+    assert set(blamed) == {"hot.py", "cold.py"}
 
 
 def test_progress_hook_reports_blame_progress() -> None:
@@ -563,13 +634,15 @@ def test_bot_authors_excluded_by_default() -> None:
     ]
     stdout = _make_git_log_output(commits)
     config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    blamed: list[str] = []
     with (
         patch(_MOCK_GIT, return_value=_mock_run(stdout)),
         patch(_MOCK_EXIST, side_effect=_passthrough),
-        patch(_MOCK_BLAME, side_effect=_no_blame),
+        patch(_MOCK_BLAME, side_effect=_record_blame(blamed)),
     ):
         result = analyze_ownership(Path("/fake"), config)
     assert set(result.paths) == {"src/main.py"}
+    assert blamed == ["src/main.py"]
 
 
 def test_bot_authors_kept_when_disabled() -> None:
@@ -587,3 +660,104 @@ def test_bot_authors_kept_when_disabled() -> None:
     ):
         result = analyze_ownership(Path("/fake"), config)
     assert set(result.paths) == {"gen.md"}
+
+
+def test_adaptive_single_commit_full_blame_is_owner() -> None:
+    stdout = _make_git_log_output([("alice@example.com", _RECENT, ["new.py"])])
+    config = Config(analysis=AnalysisConfig(confidence_threshold=0.3))
+
+    def full_blame(
+        _paths: object,
+        _root: Path,
+        *,
+        on_progress: object = None,  # noqa: ARG001
+    ) -> dict[str, dict[str, float]]:
+        return {"new.py": {"alice@example.com": 1.0}}
+
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=full_blame),
+    ):
+        result = analyze_ownership(Path("/fake"), config)
+
+    owner = result.paths["new.py"].owners[0]
+    assert owner.handle == "alice@example.com"
+    assert owner.ownership_score > 0.3
+    assert owner.evidence_quality == pytest.approx(0.85)
+
+
+def test_adaptive_squash_merge_produces_owners() -> None:
+    stdout = _make_git_log_output(
+        [
+            ("alice@example.com", _RECENT, ["svc.py"]),
+            ("bob@example.com", _RECENT, ["svc.py"]),
+        ]
+    )
+    config = Config(analysis=AnalysisConfig(confidence_threshold=0.0))
+
+    def split_blame(
+        _paths: object,
+        _root: Path,
+        *,
+        on_progress: object = None,  # noqa: ARG001
+    ) -> dict[str, dict[str, float]]:
+        return {"svc.py": {"alice@example.com": 0.7, "bob@example.com": 0.3}}
+
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=split_blame),
+    ):
+        result = analyze_ownership(Path("/fake"), config)
+
+    assert "svc.py" in result.paths
+    assert {o.handle for o in result.paths["svc.py"].owners} == {
+        "alice@example.com",
+        "bob@example.com",
+    }
+
+
+def test_adaptive_low_blame_scores_below_high_blame() -> None:
+    scoring = ScoringConfig()
+    low = _score_owners(
+        {"alice@example.com": _Contribution(commits=1, last_commit=_RECENT)},
+        {"alice@example.com": 0.03},
+        {},
+        max_commits=1,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=True,
+        review_available=False,
+        frequency_prior=3.0,
+    )
+    high = _score_owners(
+        {"alice@example.com": _Contribution(commits=1, last_commit=_RECENT)},
+        {"alice@example.com": 0.95},
+        {},
+        max_commits=1,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=True,
+        review_available=False,
+        frequency_prior=3.0,
+    )
+    assert low[0].ownership_score < high[0].ownership_score
+    assert high[0].ownership_score > 0.3
+    assert high[0].evidence_quality == pytest.approx(0.85)
+
+
+@pytest.mark.parametrize("commits", [1, 2, 3, 4, 5])
+def test_frequency_score_monotonic_and_damped(commits: int) -> None:
+    max_commits = 5
+    prior = 3.0
+    score = _frequency_score(commits, max_commits, prior)
+    if commits > 1:
+        assert score > _frequency_score(commits - 1, max_commits, prior)
+    if commits <= 3:
+        assert score < 1.0
+
+
+def test_threshold_frequency_undamped() -> None:
+    assert _frequency_score(3, 3) == 1.0
+    assert _frequency_score(3, 3, 0.0) == 1.0

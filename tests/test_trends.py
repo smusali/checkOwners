@@ -93,7 +93,7 @@ def test_build_trends_confidence_in_unit_range() -> None:
 def test_analyze_and_trends_match_on_same_available_signals() -> None:
     contrib = _Contribution(commits=4, last_commit=_NOW)
     scoring = ScoringConfig()
-    trend = _two_factor_confidence(contrib, 4, scoring, _NOW)
+    trend = _two_factor_confidence(contrib, 4, scoring, _NOW, 0.0)
     owners = _score_owners(
         {"alice@example.com": contrib},
         {},
@@ -103,6 +103,7 @@ def test_analyze_and_trends_match_on_same_available_signals() -> None:
         now=_NOW,
         blame_available=False,
         review_available=False,
+        frequency_prior=0.0,
     )
     assert owners[0].ownership_score == pytest.approx(trend)
 

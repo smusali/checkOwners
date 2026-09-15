@@ -109,6 +109,9 @@ def read_state(repo_root: Path) -> dict[str, Any] | None:
         return None
     if data.get("schema_version") != SCHEMA_VERSION:
         return None
+    model_version = data.get("model_version")
+    if model_version is not None and model_version != OWNERSHIP_MODEL_VERSION:
+        return None
     if data.get("repo") != str(repo_root.resolve()):
         return None
     return data

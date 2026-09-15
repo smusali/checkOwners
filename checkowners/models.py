@@ -8,18 +8,26 @@ from typing import Literal
 
 Severity = Literal["low", "medium", "high", "critical"]
 DriftMode = Literal["commit", "repo", "both"]
+QualificationStrategy = Literal["adaptive", "threshold"]
 
-OWNERSHIP_MODEL_VERSION = "ownership-v2"
+OWNERSHIP_MODEL_VERSION = "ownership-v3"
 DEPRECATED_SCORE_KEY = "confidence"
 
 
 @dataclass(frozen=True)
 class AnalysisConfig:
     lookback_days: int = 365
-    min_commits: int = 3
+    min_commits: int = 1
     top_n_owners: int = 3
     confidence_threshold: float = 0.3
     exclude_bots: bool = True
+
+
+@dataclass(frozen=True)
+class QualificationConfig:
+    strategy: QualificationStrategy = "adaptive"
+    min_commits: int = 1
+    strong_blame_override: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -102,6 +110,7 @@ class GithubConfig:
 @dataclass(frozen=True)
 class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    qualification: QualificationConfig = field(default_factory=QualificationConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     decay: DecayConfig = field(default_factory=DecayConfig)
     bus_factor: BusFactorConfig = field(default_factory=BusFactorConfig)

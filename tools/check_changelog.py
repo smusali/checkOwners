@@ -9,6 +9,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 _ALL_EXTRA = ["checkowners[graph,github]"]
 _PY314 = "Programming Language :: Python :: 3.14"
+_MARKETPLACE_DESC_LIMIT = 125
 
 
 def _normalize(raw: str) -> str:
@@ -42,6 +43,25 @@ def _action_pinned_version() -> str:
     return match.group(1)
 
 
+def _action_description() -> str:
+    lines = (_ROOT / "action.yml").read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("description:"):
+            continue
+        rest = line[len("description:") :].strip()
+        if rest in {">", ">-", "|", "|-"}:
+            parts: list[str] = []
+            for cont in lines[i + 1 :]:
+                if not cont.startswith(" "):
+                    break
+                parts.append(cont.strip())
+            return " ".join(part for part in parts if part)
+        if len(rest) >= 2 and rest[0] in {'"', "'"} and rest[-1] == rest[0]:
+            return rest[1:-1]
+        return rest
+    raise ValueError("description missing from action.yml")
+
+
 def _check_packaging() -> list[str]:
     text = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     errors: list[str] = []
@@ -56,6 +76,12 @@ def _check_packaging() -> list[str]:
         errors.append(f"all extra is {all_extra!r}, expected {_ALL_EXTRA!r}")
     if _PY314 not in project.get("classifiers", []):
         errors.append("missing Python 3.14 classifier")
+    desc = _action_description()
+    if len(desc) >= _MARKETPLACE_DESC_LIMIT:
+        errors.append(
+            f"action.yml description is {len(desc)} characters; "
+            f"Marketplace requires fewer than {_MARKETPLACE_DESC_LIMIT}"
+        )
     return errors
 
 

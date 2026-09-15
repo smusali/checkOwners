@@ -150,7 +150,7 @@ PyPI Trusted Publisher for project `checkowners` must match this repository exac
    git push origin vX.Y.Z
    ```
 
-8. Create a GitHub Release for **only** that full semver tag. Tick **Publish this Action to the GitHub Marketplace**. The REST API and `gh release create` cannot set that checkbox; if the Release is created from the CLI, edit it in the UI and tick the box. Do not create a Release for `v0` or `v0.5`; those tags must stay movable.
+8. Create a GitHub Release for **only** that full semver tag. Tick **Publish this Action to the GitHub Marketplace**. The REST API and `gh release create` cannot set that checkbox; if the Release is created from the CLI, edit it in the UI and tick the box. Do not create a Release for `v0` or `v0.5`; those tags must stay movable. The top-level `description` in `action.yml` must be under 125 characters or Marketplace blocks the listing. `python tools/check_changelog.py vX.Y.Z` enforces that.
 
    Publishing the Release triggers `.github/workflows/publish.yml`, which builds with hatch and uploads via Trusted Publishing (`id-token: write`, `pypa/gh-action-pypi-publish`). Sigstore attestations are on by default. Wait until that workflow is green before continuing.
 

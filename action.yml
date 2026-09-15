@@ -1,7 +1,7 @@
 name: checkOwners
 description: >-
-  Infer CODEOWNERS from git history with confidence scoring, drift detection,
-  qualified owner counts, and expertise decay alerts.
+  Infer CODEOWNERS from git history with confidence, drift, qualified
+  owners, and decay alerts.
 author: Samir Musali
 branding:
   icon: shield

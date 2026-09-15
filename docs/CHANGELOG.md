@@ -95,6 +95,8 @@ contributor on-ramp. No new inference behavior.
   (`CHECKOWNERS_CONFIG`, `CHECKOWNERS_DRIFT_MODE`, `CHECKOWNERS_STATE_DIR`,
   `GITHUB_TOKEN`, plus runner-provided `GITHUB_REPOSITORY` and
   `GITHUB_OUTPUT`) are documented with their precedence over the config file.
+- Composite Action `description` is under 125 characters so GitHub Marketplace
+  will accept the listing.
 
 ### Changed
 - The `all` extra composes `checkowners[graph,github]` instead of duplicating

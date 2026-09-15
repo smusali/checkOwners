@@ -387,6 +387,92 @@ def test_hysteresis_roundtrip_and_preserve(repo: Path) -> None:
     assert load_hysteresis(repo) == ("low", "medium", 2)
 
 
+def test_load_hysteresis_missing_and_invalid_fields(repo: Path) -> None:
+    assert load_hysteresis(repo) == (None, None, 0)
+    write_state(
+        repo,
+        _make_ownership(),
+        drift_reported_severity="high",
+        drift_pending_severity="critical",
+        drift_pending_streak=1,
+    )
+    assert load_hysteresis(repo) == ("high", "critical", 1)
+    data = read_state(repo)
+    assert data is not None
+    data["drift_reported_severity"] = 1
+    data["drift_pending_severity"] = True
+    data["drift_pending_streak"] = True
+    _write_raw_state(repo, data)
+    write_state(repo, _make_ownership())
+    assert load_hysteresis(repo) == (None, None, 0)
+    data = read_state(repo)
+    assert data is not None
+    data["drift_pending_streak"] = "nope"
+    _write_raw_state(repo, data)
+    assert load_hysteresis(repo) == (None, None, 0)
+
+
+def test_load_ownership_analysis_ref_and_timestamp_edges(repo: Path) -> None:
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "repo": str(repo.resolve()),
+        "inferred": {
+            "src/good.py": {
+                "owners": [
+                    {
+                        "handle": "@alice",
+                        "ownership_score": 0.5,
+                        "last_commit": _NOW.isoformat(),
+                        "commits": 3,
+                    }
+                ],
+                "qualified_owner_count": 1,
+                "decay_warnings": "not-a-list",
+            },
+            "src/skip.py": {"owners": "not-a-list"},
+            "src/decay.py": {
+                "owners": [
+                    {
+                        "handle": "@bob",
+                        "ownership_score": 0.4,
+                        "commits": 1,
+                    }
+                ],
+                "qualified_owner_count": True,
+                "decay_warnings": [
+                    "not-a-dict",
+                    {
+                        "handle": "@bob",
+                        "path": "src/decay.py",
+                        "last_commit": "not-a-date",
+                        "days_since_last_commit": 10,
+                        "historical_confidence": 0.4,
+                    },
+                    {
+                        "handle": "@bob",
+                        "path": "src/decay.py",
+                        "last_commit": _NOW.isoformat(),
+                        "days_since_last_commit": 10,
+                        "historical_confidence": 0.4,
+                    },
+                ],
+            },
+        },
+        "last_analyzed": _NOW.isoformat(),
+        "analysis_ref": 12,
+    }
+    _write_raw_state(repo, payload)
+    loaded = load_ownership(repo)
+    assert loaded is not None
+    assert loaded.analysis_ref == ""
+    assert set(loaded.paths) == {"src/good.py", "src/decay.py"}
+    assert loaded.paths["src/decay.py"].qualified_owner_count == 0
+    assert len(loaded.paths["src/decay.py"].decay_warnings) == 1
+    payload["last_analyzed"] = "not-a-date"
+    _write_raw_state(repo, payload)
+    assert load_ownership(repo) is None
+
+
 def test_write_state_creates_parent_dirs(tmp_path: Path, repo: Path) -> None:
     nested = tmp_path / "nested" / "dir"
     with patch.dict("os.environ", {"CHECKOWNERS_STATE_DIR": str(nested)}):
@@ -419,6 +505,11 @@ def test_handle_cache_merges_on_write() -> None:
 
 def test_handle_cache_missing_returns_empty() -> None:
     assert read_handle_cache() == {}
+    target = write_handle_cache({"x@example.com": "@x"})
+    target.write_text("{not json", encoding="utf-8")
+    assert read_handle_cache() == {}
+    target.write_text("[]", encoding="utf-8")
+    assert read_handle_cache() == {}
 
 
 def test_graph_cache_roundtrip(tmp_path: Path) -> None:
@@ -435,6 +526,11 @@ def test_graph_cache_stale_timestamp_ignored(tmp_path: Path) -> None:
 
 
 def test_graph_cache_missing_returns_none(tmp_path: Path) -> None:
+    assert read_graph_cache(tmp_path, _NOW) is None
+    target = write_graph_cache(tmp_path, _NOW, {"nodes": [], "edges": []})
+    target.write_text("{not json", encoding="utf-8")
+    assert read_graph_cache(tmp_path, _NOW) is None
+    target.write_text("[]", encoding="utf-8")
     assert read_graph_cache(tmp_path, _NOW) is None
 
 

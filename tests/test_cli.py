@@ -19,18 +19,24 @@ from checkowners.action_report import (
     summarize_drift,
 )
 from checkowners.analyze import resolve_as_of
-from checkowners.cli import _merge_identities, _owner_payload, app
+from checkowners.balance import BalanceReport
+from checkowners.cli import _merge_identities, _owner_payload, _resolve_github_owners, app
 from checkowners.models import (
     OWNERSHIP_MODEL_VERSION,
     ConfidenceScore,
+    Config,
     DecayWarning,
     DriftEntry,
     DriftResult,
+    ExpertiseRank,
+    GithubConfig,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
     SignalScore,
 )
+from checkowners.onboard import OnboardingPath
+from checkowners.topology import TopologyReport
 from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationError
 
@@ -142,6 +148,33 @@ def test_analyze_json() -> None:
     assert data["analysis_epoch"] == _NOW.isoformat()
 
 
+def test_analyze_invalid_as_of_exits() -> None:
+    with patch(
+        "checkowners.cli.resolve_as_of",
+        side_effect=ValueError("Invalid as-of value: 'nope'"),
+    ):
+        result = runner.invoke(app, ["--as-of", "nope", "analyze"])
+    assert result.exit_code == 1
+    assert "Invalid as-of" in result.stdout
+
+
+def test_analyze_clock_git_error() -> None:
+    with patch(
+        "checkowners.cli.head_commit_sha",
+        side_effect=subprocess.CalledProcessError(128, "git"),
+    ):
+        result = runner.invoke(app, ["analyze"])
+    assert result.exit_code == 1
+    assert "Git command failed" in result.stdout
+
+
+def test_analyze_deterministic_flag() -> None:
+    with patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP), _MOCK_TOKEN:
+        result = runner.invoke(app, ["--deterministic", "analyze", "--json"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["analysis_ref"] == "deadbeef"
+
+
 def test_analyze_as_of_overrides() -> None:
     pinned = datetime(2024, 1, 1, tzinfo=UTC)
     with (
@@ -218,6 +251,8 @@ def test_generate_json() -> None:
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert "CODEOWNERS" in data["path"]
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
 
 
 # --- print ---
@@ -232,6 +267,8 @@ def test_print_json() -> None:
     assert data["src/main.py"]["qualified_owner_count"] == 2
     assert data["src/main.py"]["bus_factor"] == 2
     assert data["src/main.py"]["qualified_owner_count_cap"] == 3
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
     bare = OwnerEntry(handle="@bare", ownership_score=0.4, last_commit=None, commits=1)
     payload = _owner_payload(bare)
     assert payload["last_commit"] is None
@@ -323,6 +360,8 @@ def test_drift_json_includes_severity() -> None:
     assert data["drift_detected"] is True
     assert data["severity"] == "critical"
     assert data["max_confidence_delta"] == 1.0
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
 
 
 # --- notify ---
@@ -367,6 +406,8 @@ def test_notify_json() -> None:
     data = json.loads(result.stdout)
     assert data["sent"] is True
     assert data["severity"] == "critical"
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
 
 
 # --- sync ---
@@ -673,6 +714,135 @@ def test_trends_json() -> None:
     assert data["points"][1]["avg_bus_factor"] == 1.8
     assert data["deprecated_keys"] == ["avg_bus_factor"]
     assert data["qualified_owner_count_cap"] == 3
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
+
+
+def test_trends_git_error() -> None:
+    with patch(
+        "checkowners.cli.analyze_trends",
+        side_effect=subprocess.CalledProcessError(1, "git"),
+    ):
+        result = runner.invoke(app, ["trends"])
+    assert result.exit_code == 1
+    assert "Git command failed" in result.stdout
+
+
+def test_decay_json_includes_stamp() -> None:
+    with patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP), _MOCK_TOKEN:
+        result = runner.invoke(app, ["decay", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert "reports" in data
+
+
+def test_qualified_owners_json_includes_stamp() -> None:
+    with patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP), _MOCK_TOKEN:
+        result = runner.invoke(app, ["qualified-owners", "--all", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert "entries" in data
+
+
+def test_balance_json_includes_stamp() -> None:
+    empty = BalanceReport(
+        loads=(),
+        average=0.0,
+        overloaded=(),
+        suggestions=(),
+        source="git_authorship",
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.analyze_balance", return_value=empty),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["balance", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["source"] == "git_authorship"
+
+
+def test_topology_json_includes_stamp() -> None:
+    empty = TopologyReport(clusters=(), mismatches=())
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.infer_topology", return_value=empty),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["topology", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["clusters"] == []
+
+
+def test_onboard_json_includes_stamp() -> None:
+    empty = OnboardingPath(target="src/", steps=())
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_onboarding_path", return_value=empty),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["onboard", "src/", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["target"] == "src/"
+
+
+def test_expertise_json_includes_stamp() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.rank_expertise", return_value=()),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["expertise", "src/main.py", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["path"] == "src/main.py"
+    assert data["ranking"] == []
+
+
+def test_resolve_github_owners_keeps_analysis_ref() -> None:
+    config = Config(github=GithubConfig(resolve_handles=True))
+    mapping = {
+        "alice@example.com": "@alice",
+        "bob@example.com": "@bob",
+        "dave@example.com": "@dave",
+    }
+    with patch("checkowners.cli.resolve_handles", return_value=mapping):
+        result = _resolve_github_owners(_OWNERSHIP, config)
+    assert result.analysis_ref == "deadbeef"
+    assert result.last_analyzed == _NOW
+    assert result.paths["src/main.py"].owners[0].handle == "@alice"
+    assert result.paths["src/auth.py"].decay_warnings[0].handle == "@dave"
+    skipped = _resolve_github_owners(_OWNERSHIP, Config(github=GithubConfig(resolve_handles=False)))
+    assert skipped is _OWNERSHIP
+
+
+def test_expertise_json_null_last_commit() -> None:
+    rank = ExpertiseRank(handle="@alice", confidence=0.8, commits=3, last_commit=None)
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.rank_expertise", return_value=(rank,)),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["expertise", "src/main.py", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["ranking"][0]["last_commit"] is None
 
 
 # --- version / identity merge ---

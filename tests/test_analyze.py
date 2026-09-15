@@ -16,10 +16,12 @@ from checkowners.analyze import (
     _aggregate_contributions,
     _blame_for_path,
     _Contribution,
+    _detect_decay,
     _filter_excluded,
     _filter_nonexistent,
     _frequency_score,
     _gather_blame_coverage,
+    _gather_review_coverage,
     _get_commit_history,
     _is_excluded,
     _parse_blame_output,
@@ -30,6 +32,8 @@ from checkowners.analyze import (
     analysis_epoch,
     analyze_ownership,
     combine_available_signals,
+    head_commit_datetime,
+    head_commit_sha,
     parse_as_of,
     parse_source_date_epoch,
     resolve_as_of,
@@ -40,6 +44,7 @@ from checkowners.models import (
     AnalysisConfig,
     Config,
     DecayConfig,
+    OwnerEntry,
     OwnershipMap,
     QualificationConfig,
     ScoringConfig,
@@ -303,13 +308,24 @@ def test_analyze_path_exclusions() -> None:
 
 def test_analyze_empty_repo() -> None:
     config = Config(analysis=AnalysisConfig(min_commits=1))
+
+    def _unused_reviews(emails: set[str]) -> dict[str, dict[str, float]]:
+        raise AssertionError(f"review provider should not run for empty history: {emails}")
+
     with (
         patch(_MOCK_GIT, return_value=_mock_run("")),
         patch(_MOCK_EXIST, side_effect=_passthrough),
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
-        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
+        result = analyze_ownership(
+            Path("/fake"),
+            config,
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+            review_provider=_unused_reviews,
+        )
     assert result.paths == {}
+    assert _gather_review_coverage({}, _unused_reviews) == {}
 
 
 def test_analyze_confidence_threshold_filters() -> None:
@@ -516,6 +532,10 @@ def test_parse_log_output_empty() -> None:
 def test_parse_log_output_skips_missing_timestamp() -> None:
     raw = "COMMIT_START\nalice@example.com\nnot-a-timestamp\nfile.py\n"
     assert _parse_log_output(raw) == []
+    short = "COMMIT_START\nalice@example.com\n"
+    assert _parse_log_output(short) == []
+    no_files = "COMMIT_START\nalice@example.com\n2026-05-28T12:00:00+00:00\n"
+    assert _parse_log_output(no_files) == []
 
 
 def test_parse_blame_output_counts_lines() -> None:
@@ -552,6 +572,9 @@ def test_gather_blame_coverage_aggregates() -> None:
     with patch(_MOCK_GIT, return_value=_mock_run(blame_stdout)):
         coverage = _gather_blame_coverage(["x.py"], Path("/fake"))
     assert coverage["x.py"]["alice@example.com"] == 1.0
+    assert _gather_blame_coverage([], Path("/fake")) == {}
+    with patch("checkowners.analyze._blame_for_path", return_value={}):
+        assert _gather_blame_coverage(["empty.py"], Path("/fake")) == {}
 
 
 def _hot_cold_commits() -> str:
@@ -820,6 +843,10 @@ def _sample_commits() -> str:
 def test_parse_as_of_naive_is_utc() -> None:
     assert parse_as_of("2026-05-28T12:00:00") == _NOW
     assert parse_as_of("2026-05-28T12:00:00+00:00") == _NOW
+    assert parse_as_of("2026-05-28T16:00:00+04:00") == _NOW
+    with pytest.raises(ValueError, match="Invalid as-of value"):
+        parse_as_of("not-a-date")
+    assert analysis_epoch(datetime(2026, 5, 28, 12, 0, 0)) == _NOW.isoformat()
 
 
 def test_parse_source_date_epoch_rejects_garbage() -> None:
@@ -837,6 +864,62 @@ def test_resolve_as_of_source_date_epoch(tmp_path: Path, monkeypatch: pytest.Mon
     with patch("checkowners.analyze.head_commit_datetime", side_effect=AssertionError):
         got = resolve_as_of(None, tmp_path)
     assert got == datetime.fromtimestamp(1_000_000_000, tz=UTC)
+
+
+def test_resolve_as_of_falls_back_to_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(SOURCE_DATE_EPOCH_ENV, raising=False)
+    with patch("checkowners.analyze.head_commit_datetime", return_value=_NOW) as mock_head:
+        assert resolve_as_of(None, tmp_path) == _NOW
+    mock_head.assert_called_once_with(tmp_path)
+
+
+def test_head_commit_datetime_parses_committer_time(tmp_path: Path) -> None:
+    with patch(_MOCK_GIT, return_value=_mock_run("2026-05-28T12:00:00+00:00\n")):
+        assert head_commit_datetime(tmp_path) == _NOW
+    with patch(_MOCK_GIT, return_value=_mock_run("2026-05-28T12:00:00\n")):
+        assert head_commit_datetime(tmp_path) == _NOW
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run("not-a-date\n")),
+        pytest.raises(ValueError, match="committer timestamp"),
+    ):
+        head_commit_datetime(tmp_path)
+
+
+def test_head_commit_sha_reads_head(tmp_path: Path) -> None:
+    with patch(_MOCK_GIT, return_value=_mock_run("abc123\n")):
+        assert head_commit_sha(tmp_path) == "abc123"
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run("\n")),
+        pytest.raises(ValueError, match="HEAD commit SHA"),
+    ):
+        head_commit_sha(tmp_path)
+
+
+def test_analyze_resolves_clock_when_omitted() -> None:
+    stdout = _sample_commits()
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    with (
+        patch("checkowners.analyze.resolve_as_of", return_value=_NOW) as mock_as_of,
+        patch("checkowners.analyze.head_commit_sha", return_value="abc123") as mock_sha,
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        result = analyze_ownership(Path("/fake"), config)
+    assert result.last_analyzed == _NOW
+    assert result.analysis_ref == "abc123"
+    mock_as_of.assert_called_once_with(None, Path("/fake"))
+    mock_sha.assert_called_once_with(Path("/fake"))
+
+
+def test_detect_decay_skips_owner_without_contribution() -> None:
+    orphan = OwnerEntry(
+        handle="ghost@example.com",
+        ownership_score=0.9,
+        last_commit=_NOW,
+        commits=3,
+    )
+    assert _detect_decay("src/main.py", {}, (orphan,), 100, _NOW) == ()
 
 
 def test_same_as_of_is_byte_identical() -> None:

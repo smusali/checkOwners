@@ -69,6 +69,9 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.decay.alert_on_decay is True
     assert cfg.bus_factor.critical_threshold == 1
     assert cfg.bus_factor.warn_threshold == 2
+    assert cfg.git.blame_ignore_revs_file == ".git-blame-ignore-revs"
+    assert cfg.git.detect_moves is True
+    assert cfg.git.mass_refactor_file_fraction == 0.5
 
 
 def test_drift_mode_default_matches_documented_surfaces() -> None:
@@ -147,6 +150,10 @@ github:
   resolve_handles: false
   resolve_teams: false
   api_enabled: true
+git:
+  blame_ignore_revs_file: ignore-revs.txt
+  detect_moves: false
+  mass_refactor_file_fraction: 0.3
 """
     root = _write_config(tmp_path, content)
     cfg = load_config(repo_root=root)
@@ -182,6 +189,9 @@ github:
     assert cfg.github.resolve_handles is False
     assert cfg.github.resolve_teams is False
     assert cfg.github.api_enabled is True
+    assert cfg.git.blame_ignore_revs_file == "ignore-revs.txt"
+    assert cfg.git.detect_moves is False
+    assert cfg.git.mass_refactor_file_fraction == 0.3
 
 
 def test_load_config_invalid_yaml(tmp_path: Path) -> None:
@@ -352,6 +362,12 @@ def test_qualification_min_commits_wins_over_analysis(tmp_path: Path) -> None:
 def test_qualification_strategy_invalid_rejected(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "qualification:\n  strategy: fuzzy\n")
     with pytest.raises(ValueError, match=r"Invalid qualification\.strategy"):
+        load_config(repo_root=root)
+
+
+def test_git_mass_refactor_fraction_invalid_rejected(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "git:\n  mass_refactor_file_fraction: 1.5\n")
+    with pytest.raises(ValueError, match=r"Invalid git\.mass_refactor_file_fraction"):
         load_config(repo_root=root)
 
 

@@ -109,6 +109,13 @@ class GithubConfig:
 
 
 @dataclass(frozen=True)
+class GitConfig:
+    blame_ignore_revs_file: str = ".git-blame-ignore-revs"
+    detect_moves: bool = True
+    mass_refactor_file_fraction: float = 0.5
+
+
+@dataclass(frozen=True)
 class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     qualification: QualificationConfig = field(default_factory=QualificationConfig)
@@ -120,6 +127,13 @@ class Config:
     drift: DriftConfig = field(default_factory=DriftConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     github: GithubConfig = field(default_factory=GithubConfig)
+    git: GitConfig = field(default_factory=GitConfig)
+
+
+@dataclass(frozen=True)
+class AnalysisCompleteness:
+    ignore_revs_applied: bool = False
+    ignore_revs_file: str = ""
 
 
 @dataclass(frozen=True)
@@ -197,6 +211,7 @@ class OwnershipMap:
     paths: dict[str, PathOwnership]
     last_analyzed: datetime
     analysis_ref: str = ""
+    analysis_completeness: AnalysisCompleteness = field(default_factory=AnalysisCompleteness)
 
 
 @dataclass(frozen=True)

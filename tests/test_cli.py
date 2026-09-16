@@ -146,6 +146,10 @@ def test_analyze_json() -> None:
     assert data["deprecated_keys"] == ["bus_factor", "confidence"]
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["analysis_completeness"] == {
+        "ignore_revs_applied": False,
+        "ignore_revs_file": "",
+    }
 
 
 def test_analyze_invalid_as_of_exits() -> None:
@@ -207,6 +211,7 @@ def test_analyze_table() -> None:
     assert result.exit_code == 0
     assert "alice@example.com" in result.stdout
     assert "0.92/1.00" in result.stdout
+    assert "Blame ignore-revs: not found" in result.stdout
 
 
 def test_analyze_empty() -> None:
@@ -223,6 +228,16 @@ def test_analyze_git_error() -> None:
     ):
         result = runner.invoke(app, ["analyze"])
     assert result.exit_code == 1
+
+
+def test_analyze_git_version_error() -> None:
+    with patch(
+        "checkowners.cli.analyze_ownership",
+        side_effect=ValueError("checkOwners requires Git 2.23 or newer; found 2.19.0"),
+    ):
+        result = runner.invoke(app, ["analyze"])
+    assert result.exit_code == 1
+    assert "requires Git 2.23" in result.stdout
 
 
 # --- generate ---

@@ -161,6 +161,10 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["model_version"] == OWNERSHIP_MODEL_VERSION
     assert data["deprecated_keys"] == ["bus_factor", "confidence"]
     assert data["analysis_ref"] == "deadbeef"
+    assert data["analysis_completeness"] == {
+        "ignore_revs_applied": False,
+        "ignore_revs_file": "",
+    }
     assert data["drift_reported_severity"] is None
     assert data["drift_pending_severity"] is None
     assert data["drift_pending_streak"] == 0
@@ -200,6 +204,8 @@ def test_load_ownership_roundtrip(repo: Path) -> None:
     assert decay.handle == "@bob"
     assert decay.days_since_last_commit == 200
     assert loaded.analysis_ref == "deadbeef"
+    assert loaded.analysis_completeness.ignore_revs_applied is False
+    assert loaded.analysis_completeness.ignore_revs_file == ""
 
 
 def test_load_ownership_missing_returns_none(repo: Path) -> None:

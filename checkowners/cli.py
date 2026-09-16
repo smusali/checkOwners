@@ -68,6 +68,7 @@ from checkowners.graph import (
 from checkowners.models import (
     DEPRECATED_SCORE_KEY,
     OWNERSHIP_MODEL_VERSION,
+    AnalysisCompleteness,
     Config,
     DecayWarning,
     DriftEntry,
@@ -247,6 +248,7 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
         paths=new_paths,
         last_analyzed=ownership.last_analyzed,
         analysis_ref=ownership.analysis_ref,
+        analysis_completeness=ownership.analysis_completeness,
     )
 
 
@@ -287,6 +289,13 @@ def _confidence_style(confidence: float) -> str:
 
 def _format_last_commit(value: datetime | None) -> str:
     return value.date().isoformat() if value else "-"
+
+
+def _completeness_payload(completeness: AnalysisCompleteness) -> dict[str, bool | str]:
+    return {
+        "ignore_revs_applied": completeness.ignore_revs_applied,
+        "ignore_revs_file": completeness.ignore_revs_file,
+    }
 
 
 def _owner_payload(owner: OwnerEntry) -> dict[str, Any]:
@@ -356,6 +365,14 @@ def _render_ownership_table(ownership: OwnershipMap, cap: int) -> None:
     console.print(table)
 
 
+def _render_ignore_revs_line(completeness: AnalysisCompleteness) -> None:
+    if completeness.ignore_revs_applied:
+        label = completeness.ignore_revs_file or "configured"
+        console.print(f"Blame ignore-revs: applied ({label})")
+        return
+    console.print("Blame ignore-revs: not found")
+
+
 def _warn_missing_api_token(config: Config) -> None:
     if config.github.api_enabled and not get_github_token():
         err_console.print(
@@ -415,6 +432,9 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
                 as_of=as_of,
                 analysis_ref=analysis_ref,
             )
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
     except subprocess.CalledProcessError as exc:
         console.print(f"[red]Git command failed:[/red] {exc}")
         raise typer.Exit(code=1) from None
@@ -459,6 +479,7 @@ def analyze(json_output: JsonOption = False) -> None:
     if json_output:
         data = {
             "model_version": OWNERSHIP_MODEL_VERSION,
+            "analysis_completeness": _completeness_payload(ownership.analysis_completeness),
             "inferred": {
                 path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())
             },
@@ -469,6 +490,7 @@ def analyze(json_output: JsonOption = False) -> None:
         _emit_json(data)
     else:
         _render_ownership_table(ownership, cap)
+        _render_ignore_revs_line(ownership.analysis_completeness)
 
 
 ForceOption = Annotated[

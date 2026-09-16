@@ -35,7 +35,7 @@ Trimmed JSON for the same run is in [examples/sample-output.md](https://github.c
 
 ## Installation
 
-Requires Python 3.11 through 3.14.
+Requires Python 3.11 through 3.14 and Git 2.23 or newer.
 
 ```bash
 pip install checkowners               # core CLI (pure git, zero API deps)

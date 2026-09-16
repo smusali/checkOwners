@@ -12,9 +12,11 @@ from unittest.mock import patch
 import pytest
 
 from checkowners.analyze import (
+    MIN_GIT_VERSION,
     SOURCE_DATE_EPOCH_ENV,
     _aggregate_contributions,
     _blame_for_path,
+    _BlamePass,
     _Contribution,
     _detect_decay,
     _filter_excluded,
@@ -35,6 +37,7 @@ from checkowners.analyze import (
     head_commit_datetime,
     head_commit_sha,
     parse_as_of,
+    parse_git_version,
     parse_source_date_epoch,
     resolve_as_of,
     signal_reliabilities,
@@ -44,11 +47,13 @@ from checkowners.models import (
     AnalysisConfig,
     Config,
     DecayConfig,
+    GitConfig,
     OwnerEntry,
     OwnershipMap,
     QualificationConfig,
     ScoringConfig,
 )
+from tests.conftest import git_commit, init_git_repo
 
 
 def _make_git_log_output(
@@ -82,10 +87,43 @@ def _no_blame(
     _paths: object,
     _root: Path,
     *,
+    git: object = None,  # noqa: ARG001
     on_progress: object = None,  # noqa: ARG001
     max_workers: object = None,  # noqa: ARG001
-) -> dict[str, dict[str, float]]:
-    return {}
+) -> _BlamePass:
+    return _BlamePass()
+
+
+_DEFAULT_BLAME = "abc 1 1 1\nauthor Alice\nauthor-mail <alice@example.com>\n\tline\n"
+
+
+def _dispatch_git(
+    *,
+    log_stdout: str = "",
+    blame_stdout: str = _DEFAULT_BLAME,
+    version: str = "git version 2.40.0",
+    ls_files: str = "",
+    config_value: str | None = None,
+    on_blame: object | None = None,
+) -> object:
+    def fake(cmd: list[str], **_kwargs: object) -> object:
+        if cmd[1] == "version":
+            return _mock_run(version)
+        if cmd[1] == "config":
+            if config_value is None:
+                raise subprocess.CalledProcessError(1, cmd)
+            return _mock_run(config_value)
+        if cmd[1] == "ls-files":
+            return _mock_run(ls_files)
+        if cmd[1] == "log":
+            return _mock_run(log_stdout)
+        if cmd[1] == "blame":
+            if on_blame is not None:
+                on_blame(cmd)
+            return _mock_run(blame_stdout)
+        return _mock_run("")
+
+    return fake
 
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
@@ -233,10 +271,13 @@ def test_analyze_adaptive_keeps_high_blame_author() -> None:
         _paths: object,
         _root: Path,
         *,
+        git: object = None,  # noqa: ARG001
         on_progress: object = None,  # noqa: ARG001
         max_workers: object = None,  # noqa: ARG001
-    ) -> dict[str, dict[str, float]]:
-        return {"src/main.py": {"alice@example.com": 0.4, "bob@example.com": 0.6}}
+    ) -> _BlamePass:
+        return _BlamePass(
+            coverage={"src/main.py": {"alice@example.com": 0.4, "bob@example.com": 0.6}}
+        )
 
     with (
         patch(_MOCK_GIT, return_value=_mock_run(stdout)),
@@ -564,17 +605,20 @@ def test_parse_blame_output_empty_returns_empty_dict() -> None:
 
 def test_blame_for_path_handles_error() -> None:
     with patch(_MOCK_GIT, side_effect=subprocess.CalledProcessError(128, "git")):
-        assert _blame_for_path(Path("/fake"), "x.py") == {}
+        assert _blame_for_path(Path("/fake"), "x.py", ["git", "blame"]) == {}
 
 
 def test_gather_blame_coverage_aggregates() -> None:
-    blame_stdout = "abc 1 1 1\nauthor Alice\nauthor-mail <alice@example.com>\n\tline\n"
-    with patch(_MOCK_GIT, return_value=_mock_run(blame_stdout)):
-        coverage = _gather_blame_coverage(["x.py"], Path("/fake"))
-    assert coverage["x.py"]["alice@example.com"] == 1.0
-    assert _gather_blame_coverage([], Path("/fake")) == {}
-    with patch("checkowners.analyze._blame_for_path", return_value={}):
-        assert _gather_blame_coverage(["empty.py"], Path("/fake")) == {}
+    with patch(_MOCK_GIT, side_effect=_dispatch_git()):
+        result = _gather_blame_coverage(["x.py"], Path("/fake"))
+    assert result.coverage["x.py"]["alice@example.com"] == 1.0
+    assert _gather_blame_coverage([], Path("/fake")) == _BlamePass()
+    with (
+        patch(_MOCK_GIT, side_effect=_dispatch_git()),
+        patch("checkowners.analyze._blame_for_path", return_value={}),
+    ):
+        empty = _gather_blame_coverage(["empty.py"], Path("/fake"))
+        assert empty.coverage == {}
 
 
 def _hot_cold_commits() -> str:
@@ -593,11 +637,12 @@ def _record_blame(blamed: list[str]) -> object:
         paths: Iterable[str],
         _root: Path,
         *,
+        git: object = None,  # noqa: ARG001
         on_progress: object = None,  # noqa: ARG001
         max_workers: object = None,  # noqa: ARG001
-    ) -> dict[str, dict[str, float]]:
+    ) -> _BlamePass:
         blamed.extend(paths)
-        return {}
+        return _BlamePass()
 
     return record_blame
 
@@ -647,8 +692,14 @@ def test_progress_hook_reports_blame_progress() -> None:
     blame_stdout = "abc 1 1 1\nauthor Alice\nauthor-mail <alice@example.com>\n\tline\n"
 
     def fake_git(cmd: list[str], **_kwargs: object) -> object:
-        if "blame" in cmd:
+        if cmd[1] == "blame":
             return _mock_run(blame_stdout)
+        if cmd[1] == "version":
+            return _mock_run("git version 2.40.0")
+        if cmd[1] == "config":
+            raise subprocess.CalledProcessError(1, cmd)
+        if cmd[1] == "ls-files":
+            return _mock_run("a.py\nb.py\n")
         return _mock_run(stdout)
 
     with (
@@ -713,10 +764,11 @@ def test_adaptive_single_commit_full_blame_is_owner() -> None:
         _paths: object,
         _root: Path,
         *,
+        git: object = None,  # noqa: ARG001
         on_progress: object = None,  # noqa: ARG001
         max_workers: object = None,  # noqa: ARG001
-    ) -> dict[str, dict[str, float]]:
-        return {"new.py": {"alice@example.com": 1.0}}
+    ) -> _BlamePass:
+        return _BlamePass(coverage={"new.py": {"alice@example.com": 1.0}})
 
     with (
         patch(_MOCK_GIT, return_value=_mock_run(stdout)),
@@ -744,10 +796,11 @@ def test_adaptive_squash_merge_produces_owners() -> None:
         _paths: object,
         _root: Path,
         *,
+        git: object = None,  # noqa: ARG001
         on_progress: object = None,  # noqa: ARG001
         max_workers: object = None,  # noqa: ARG001
-    ) -> dict[str, dict[str, float]]:
-        return {"svc.py": {"alice@example.com": 0.7, "bob@example.com": 0.3}}
+    ) -> _BlamePass:
+        return _BlamePass(coverage={"svc.py": {"alice@example.com": 0.7, "bob@example.com": 0.3}})
 
     with (
         patch(_MOCK_GIT, return_value=_mock_run(stdout)),
@@ -981,3 +1034,154 @@ def test_max_workers_does_not_change_output() -> None:
             Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef", max_workers=16
         )
     assert _ownership_json(one) == _ownership_json(many)
+
+
+def test_parse_git_version_variants() -> None:
+    assert parse_git_version("git version 2.40.0") == (2, 40, 0)
+    assert parse_git_version("git version 2.39.3 (Apple Git-146)") == (2, 39, 3)
+    assert parse_git_version("git version 2.43.0.windows.1") == (2, 43, 0)
+    assert MIN_GIT_VERSION == (2, 23, 0)
+    with pytest.raises(ValueError, match="Could not parse"):
+        parse_git_version("not a version")
+
+
+def test_gather_includes_fidelity_flags_by_default() -> None:
+    seen: list[list[str]] = []
+    with patch(_MOCK_GIT, side_effect=_dispatch_git(on_blame=seen.append)):
+        _gather_blame_coverage(["x.py"], Path("/fake"))
+    assert "-w" in seen[0]
+    assert "-M" in seen[0]
+    assert "-C" in seen[0]
+
+
+def test_gather_omits_move_flags_when_disabled() -> None:
+    seen: list[list[str]] = []
+    with patch(_MOCK_GIT, side_effect=_dispatch_git(on_blame=seen.append)):
+        _gather_blame_coverage(["x.py"], Path("/fake"), git=GitConfig(detect_moves=False))
+    assert "-w" in seen[0]
+    assert "-M" not in seen[0]
+    assert "-C" not in seen[0]
+
+
+def test_gather_rejects_old_git() -> None:
+    with (
+        patch(_MOCK_GIT, side_effect=_dispatch_git(version="git version 2.19.0")),
+        pytest.raises(ValueError, match=r"requires Git 2\.23"),
+    ):
+        _gather_blame_coverage(["x.py"], Path("/fake"))
+
+
+def test_gather_honors_git_config_ignore_revs(tmp_path: Path) -> None:
+    (tmp_path / "custom-revs").write_text("a" * 40 + "\n", encoding="utf-8")
+    seen: list[list[str]] = []
+    with patch(
+        _MOCK_GIT,
+        side_effect=_dispatch_git(on_blame=seen.append, config_value="custom-revs"),
+    ):
+        result = _gather_blame_coverage(
+            ["x.py"],
+            tmp_path,
+            git=GitConfig(blame_ignore_revs_file="missing-revs"),
+        )
+    ignore_args = [arg for arg in seen[0] if arg.startswith("--ignore-revs-file=")]
+    assert any(arg.endswith("custom-revs") for arg in ignore_args)
+    assert result.ignore_revs_applied is True
+    assert result.ignore_revs_file == "custom-revs"
+
+
+def test_gather_passes_ignore_revs_file(tmp_path: Path) -> None:
+    (tmp_path / ".git-blame-ignore-revs").write_text("a" * 40 + "\n", encoding="utf-8")
+    seen: list[list[str]] = []
+    with patch(_MOCK_GIT, side_effect=_dispatch_git(on_blame=seen.append)):
+        result = _gather_blame_coverage(["x.py"], tmp_path)
+    assert any(
+        arg.startswith("--ignore-revs-file=") and arg.endswith(".git-blame-ignore-revs")
+        for arg in seen[0]
+    )
+    assert result.ignore_revs_applied is True
+    assert result.ignore_revs_file == ".git-blame-ignore-revs"
+
+
+_PINNED = "2026-05-01T12:00:00+00:00"
+_BOB_DATE = "2026-05-02T12:00:00+00:00"
+_AS_OF = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+
+
+def _owner_handles(result: OwnershipMap, path: str) -> list[str]:
+    return [owner.handle for owner in result.paths[path].owners]
+
+
+def test_formatter_does_not_steal_blame_via_mass_refactor(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    for name, value in (("a.py", "one"), ("b.py", "two"), ("c.py", "three"), ("d.py", "four")):
+        (repo / name).write_text(f'x = "{value}"\n', encoding="utf-8")
+    git_commit(repo, "alice writes", author="Alice", email="alice@example.com", date=_PINNED)
+    for name, value in (("a.py", "one"), ("b.py", "two"), ("c.py", "three"), ("d.py", "four")):
+        (repo / name).write_text(f"x = '{value}'\n", encoding="utf-8")
+    git_commit(repo, "bob formats", author="Bob", email="bob@example.com", date=_BOB_DATE)
+    result = analyze_ownership(
+        repo,
+        Config(analysis=AnalysisConfig(confidence_threshold=0.0)),
+        as_of=_AS_OF,
+        analysis_ref="test",
+    )
+    assert _owner_handles(result, "a.py")[0] == "alice@example.com"
+    assert result.analysis_completeness.ignore_revs_applied is False
+
+
+def test_formatter_ignored_via_ignore_revs_file(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    for name, value in (("a.py", "one"), ("b.py", "two"), ("c.py", "three"), ("d.py", "four")):
+        (repo / name).write_text(f'x = "{value}"\n', encoding="utf-8")
+    git_commit(repo, "alice writes", author="Alice", email="alice@example.com", date=_PINNED)
+    for name, value in (("a.py", "one"), ("b.py", "two"), ("c.py", "three"), ("d.py", "four")):
+        (repo / name).write_text(f"x = '{value}'\n", encoding="utf-8")
+    bob_sha = git_commit(repo, "bob formats", author="Bob", email="bob@example.com", date=_BOB_DATE)
+    (repo / ".git-blame-ignore-revs").write_text(f"{bob_sha}\n", encoding="utf-8")
+    result = analyze_ownership(
+        repo,
+        Config(
+            analysis=AnalysisConfig(confidence_threshold=0.0),
+            git=GitConfig(mass_refactor_file_fraction=0.0),
+        ),
+        as_of=_AS_OF,
+        analysis_ref="test",
+    )
+    assert _owner_handles(result, "a.py")[0] == "alice@example.com"
+    assert result.analysis_completeness.ignore_revs_applied is True
+    assert result.analysis_completeness.ignore_revs_file == ".git-blame-ignore-revs"
+
+
+def test_moved_file_keeps_original_author(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    (repo / "a.py").write_text(
+        "def compute_total(items):\n    return sum(item.amount for item in items)\n",
+        encoding="utf-8",
+    )
+    git_commit(repo, "alice writes", author="Alice", email="alice@example.com", date=_PINNED)
+    (repo / "b.py").write_text(
+        "def compute_total(items):\n    return sum(item.amount for item in items)\n",
+        encoding="utf-8",
+    )
+    (repo / "a.py").unlink()
+    git_commit(repo, "bob moves", author="Bob", email="bob@example.com", date=_BOB_DATE)
+    blame = _gather_blame_coverage(["b.py"], repo)
+    assert blame.coverage["b.py"].get("alice@example.com", 0.0) > 0.5
+
+
+def test_whitespace_reindent_does_not_transfer_ownership(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    (repo / "indent.py").write_text("def foo():\n    return 1\n", encoding="utf-8")
+    git_commit(repo, "alice writes", author="Alice", email="alice@example.com", date=_PINNED)
+    (repo / "indent.py").write_text("def foo():\n        return 1\n", encoding="utf-8")
+    git_commit(repo, "bob reindents", author="Bob", email="bob@example.com", date=_BOB_DATE)
+    result = analyze_ownership(
+        repo,
+        Config(
+            analysis=AnalysisConfig(confidence_threshold=0.0),
+            git=GitConfig(mass_refactor_file_fraction=0.0),
+        ),
+        as_of=_AS_OF,
+        analysis_ref="test",
+    )
+    assert _owner_handles(result, "indent.py")[0] == "alice@example.com"

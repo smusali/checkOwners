@@ -113,7 +113,7 @@ A weighted mean over **available** signals, each in `[0.0, 1.0]`:
 
 - **Recency**: `exp(-ln 2 × days_since_last_commit / half_life)`. Default half-life is 90 days.
 - **Frequency**: contributor's commits on the path divided by the path's max contributor.
-- **Blame coverage**: fraction of current lines `git blame --line-porcelain` attributes to the contributor.
+- **Blame coverage**: fraction of current lines `git blame` attributes to the contributor, after whitespace ignore, optional move/copy detection, and ignore-revs.
 - **Review activity**: PR reviews on the path divided by total reviews. Unavailable unless `github.api_enabled` is true; missing review is skipped, not scored as `0.0`.
 
 ```text
@@ -138,6 +138,10 @@ decay:
 analysis:
   confidence_threshold: 0.4    # stricter cutoff
 ```
+
+### Why didn't a formatter commit take ownership?
+
+Blame ignores whitespace-only edits (`-w`), follows moved and copied lines when `git.detect_moves` is true, and omits commits listed in `.git-blame-ignore-revs` (or `blame.ignoreRevsFile`). Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default half the repository) are omitted the same way, so a `black .` or license-header sweep does not become the owner. Add the formatting SHA to `.git-blame-ignore-revs` for an explicit record. Analyze JSON reports whether an ignore-revs file was found under `analysis_completeness`.
 
 ### Why are some paths missing from `checkowners analyze`?
 

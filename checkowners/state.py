@@ -24,6 +24,7 @@ from checkowners.busfactor import DEPRECATED_COUNT_KEY, qualified_owner_count_fi
 from checkowners.models import (
     DEPRECATED_SCORE_KEY,
     OWNERSHIP_MODEL_VERSION,
+    AnalysisCompleteness,
     BusFactor,
     ConfidenceScore,
     DecayWarning,
@@ -157,6 +158,10 @@ def write_state(
         "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
         "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
         "analysis_ref": ownership.analysis_ref,
+        "analysis_completeness": {
+            "ignore_revs_applied": ownership.analysis_completeness.ignore_revs_applied,
+            "ignore_revs_file": ownership.analysis_completeness.ignore_revs_file,
+        },
         "drift_detected": drift_detected,
         "drift_reported_severity": drift_reported_severity,
         "drift_pending_severity": drift_pending_severity,
@@ -216,7 +221,12 @@ def load_ownership(repo_root: Path) -> OwnershipMap | None:
         return None
     analysis_ref_raw = data.get("analysis_ref", "")
     analysis_ref = analysis_ref_raw if isinstance(analysis_ref_raw, str) else ""
-    return OwnershipMap(paths=paths, last_analyzed=last_analyzed, analysis_ref=analysis_ref)
+    return OwnershipMap(
+        paths=paths,
+        last_analyzed=last_analyzed,
+        analysis_ref=analysis_ref,
+        analysis_completeness=_deserialize_completeness(data.get("analysis_completeness")),
+    )
 
 
 def load_hysteresis(repo_root: Path) -> tuple[Severity | None, Severity | None, int]:
@@ -295,6 +305,17 @@ def _serialize_bus_factor_summary(
         "deprecated_keys": [DEPRECATED_COUNT_KEY],
         "entries": serialized_entries,
     }
+
+
+def _deserialize_completeness(raw: object) -> AnalysisCompleteness:
+    if not isinstance(raw, dict):
+        return AnalysisCompleteness()
+    applied = raw.get("ignore_revs_applied", False)
+    path = raw.get("ignore_revs_file", "")
+    return AnalysisCompleteness(
+        ignore_revs_applied=applied is True,
+        ignore_revs_file=path if isinstance(path, str) else "",
+    )
 
 
 def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:

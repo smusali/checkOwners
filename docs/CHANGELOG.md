@@ -10,6 +10,14 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
+### Added
+- Blame honors `.git-blame-ignore-revs` (and `blame.ignoreRevsFile`), ignores
+  whitespace (`-w`), detects moved and copied lines (`-M`, `-C`), and omits
+  mass-refactor commits that modify at least
+  `git.mass_refactor_file_fraction` of tracked files (default `0.5`).
+  Analyze JSON and human output report whether an ignore-revs file was
+  applied. Git 2.23 or newer is required.
+
 ### Changed
 - The composite Action runs `checkowners github-action` once for drift,
   qualified owners, decay, the job summary, and `GITHUB_OUTPUT`. Output

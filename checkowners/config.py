@@ -16,6 +16,7 @@ from checkowners.models import (
     DecayConfig,
     DriftConfig,
     DriftMode,
+    GitConfig,
     GithubConfig,
     NotificationsConfig,
     OutputConfig,
@@ -119,6 +120,7 @@ def _merge_config(raw: dict[str, Any]) -> Config:
         "drift": ("drift", _build_drift_config),
         "notifications": ("notifications", _build_notifications_config),
         "github": ("github", _build_github_config),
+        "git": ("git", _build_git_config),
     }
     kwargs: dict[str, Any] = {}
     for key, (field_name, builder) in builders.items():
@@ -314,3 +316,21 @@ def _build_github_config(data: dict[str, Any]) -> GithubConfig:
     if "api_enabled" in data:
         kwargs["api_enabled"] = bool(data["api_enabled"])
     return GithubConfig(**kwargs)
+
+
+def _build_git_config(data: dict[str, Any]) -> GitConfig:
+    kwargs: dict[str, Any] = {}
+    if "blame_ignore_revs_file" in data:
+        kwargs["blame_ignore_revs_file"] = str(data["blame_ignore_revs_file"])
+    if "detect_moves" in data:
+        kwargs["detect_moves"] = bool(data["detect_moves"])
+    if "mass_refactor_file_fraction" in data:
+        fraction = float(data["mass_refactor_file_fraction"])
+        if fraction < 0.0 or fraction > 1.0:
+            msg = (
+                f"Invalid git.mass_refactor_file_fraction: {fraction!r}; "
+                "expected a number in [0, 1]"
+            )
+            raise ValueError(msg)
+        kwargs["mass_refactor_file_fraction"] = fraction
+    return GitConfig(**kwargs)

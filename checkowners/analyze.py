@@ -5,17 +5,21 @@ from __future__ import annotations
 import fnmatch
 import math
 import os
+import re
 import subprocess
+import tempfile
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from checkowners.models import (
+    AnalysisCompleteness,
     ConfidenceScore,
     Config,
     DecayWarning,
+    GitConfig,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
@@ -27,6 +31,9 @@ from checkowners.models import (
 _COMMIT_SENTINEL = "COMMIT_START"
 FREQUENCY_SHRINKAGE_PRIOR = 3.0
 SOURCE_DATE_EPOCH_ENV = "SOURCE_DATE_EPOCH"
+MIN_GIT_VERSION = (2, 23, 0)
+_GIT_VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+_FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 #: A review provider maps a set of contributor emails to per-path, per-email
 #: review-coverage fractions (path -> {email: fraction in [0, 1]}). It is
@@ -54,6 +61,13 @@ class _RawCommit:
     author: str
     timestamp: datetime
     files: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _BlamePass:
+    coverage: dict[str, dict[str, float]] = field(default_factory=dict)
+    ignore_revs_file: str = ""
+    ignore_revs_applied: bool = False
 
 
 def parse_as_of(value: str) -> datetime:
@@ -161,16 +175,17 @@ def analyze_ownership(
         contributions = _filter_bot_authors(contributions)
     if config.qualification.strategy == "threshold":
         contributions = _filter_unqualified(contributions, config.analysis.min_commits)
-    blame_coverage = _gather_blame_coverage(
+    blame_pass = _gather_blame_coverage(
         contributions.keys(),
         repo_root,
+        git=config.git,
         on_progress=on_progress,
         max_workers=max_workers,
     )
     review_coverage = _gather_review_coverage(contributions, review_provider)
     paths = _build_path_ownerships(
         contributions,
-        blame_coverage,
+        blame_pass.coverage,
         review_coverage,
         config,
         when,
@@ -180,6 +195,10 @@ def analyze_ownership(
         paths=dict(sorted(paths.items())),
         last_analyzed=when,
         analysis_ref=ref,
+        analysis_completeness=AnalysisCompleteness(
+            ignore_revs_applied=blame_pass.ignore_revs_applied,
+            ignore_revs_file=blame_pass.ignore_revs_file,
+        ),
     )
 
 
@@ -530,43 +549,204 @@ def _is_excluded(path: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
 
+def parse_git_version(raw: str) -> tuple[int, int, int]:
+    """Parse `git version` stdout into (major, minor, patch)."""
+    match = _GIT_VERSION_RE.search(raw)
+    if match is None:
+        msg = f"Could not parse git version from {raw!r}"
+        raise ValueError(msg)
+    major = int(match.group(1))
+    minor = int(match.group(2))
+    patch = int(match.group(3) or 0)
+    return (major, minor, patch)
+
+
+def _ensure_git_version(repo_root: Path) -> None:
+    result = subprocess.run(
+        ["git", "version"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        check=True,
+    )
+    found = parse_git_version(result.stdout)
+    if found < MIN_GIT_VERSION:
+        pretty = ".".join(str(part) for part in found)
+        required = ".".join(str(part) for part in MIN_GIT_VERSION)
+        msg = f"checkOwners requires Git {required} or newer; found {pretty}"
+        raise ValueError(msg)
+
+
+def _git_config_value(repo_root: Path, key: str) -> str:
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["git", "config", "--get", key],  # noqa: S607
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        return ""
+    return result.stdout.strip()
+
+
+def _resolve_ignore_revs_file(repo_root: Path, configured: str) -> Path | None:
+    if configured:
+        candidate = Path(configured)
+        resolved = candidate if candidate.is_absolute() else repo_root / candidate
+        if resolved.is_file():
+            return resolved
+    native = _git_config_value(repo_root, "blame.ignoreRevsFile")
+    if not native:
+        return None
+    native_path = Path(native)
+    resolved_native = native_path if native_path.is_absolute() else repo_root / native_path
+    if resolved_native.is_file():
+        return resolved_native
+    return None
+
+
+def _display_ignore_revs_path(repo_root: Path, path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(repo_root.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _tracked_file_count(repo_root: Path) -> int:
+    result = subprocess.run(
+        ["git", "ls-files"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        check=True,
+    )
+    return sum(1 for line in result.stdout.splitlines() if line)
+
+
+def _parse_mass_refactor_revs(stdout: str, tracked: int, fraction: float) -> tuple[str, ...]:
+    found: list[str] = []
+    current_sha = ""
+    modified = 0
+
+    def flush() -> None:
+        nonlocal current_sha, modified
+        if current_sha and tracked > 0 and modified / tracked >= fraction:
+            found.append(current_sha)
+        current_sha = ""
+        modified = 0
+
+    for line in stdout.splitlines():
+        if not line:
+            flush()
+            continue
+        if _FULL_SHA_RE.fullmatch(line):
+            flush()
+            current_sha = line
+            continue
+        if line.startswith("M\t") or line.startswith("M "):
+            modified += 1
+    flush()
+    return tuple(found)
+
+
+def _mass_refactor_revs(repo_root: Path, fraction: float) -> tuple[str, ...]:
+    if fraction <= 0.0:
+        return ()
+    tracked = _tracked_file_count(repo_root)
+    if tracked == 0:
+        return ()
+    result = subprocess.run(
+        ["git", "log", "--name-status", "--pretty=format:%H"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        check=True,
+    )
+    return _parse_mass_refactor_revs(result.stdout, tracked, fraction)
+
+
+def _write_ignore_revs(shas: tuple[str, ...]) -> Path:
+    handle = tempfile.NamedTemporaryFile(  # noqa: SIM115
+        mode="w",
+        encoding="utf-8",
+        suffix=".revs",
+        delete=False,
+    )
+    with handle:
+        handle.write("\n".join(shas) + "\n")
+    return Path(handle.name)
+
+
+def _blame_argv(
+    git: GitConfig,
+    ignore_revs: Path | None,
+    extra_revs: Path | None,
+) -> list[str]:
+    argv = ["git", "blame", "--line-porcelain", "-w"]
+    if git.detect_moves:
+        argv.extend(["-M", "-C"])
+    if ignore_revs is not None:
+        argv.append(f"--ignore-revs-file={ignore_revs}")
+    if extra_revs is not None:
+        argv.append(f"--ignore-revs-file={extra_revs}")
+    return argv
+
+
 def _gather_blame_coverage(
     paths: Iterable[str],
     repo_root: Path,
     *,
+    git: GitConfig | None = None,
     on_progress: ProgressHook | None = None,
     max_workers: int | None = None,
-) -> dict[str, dict[str, float]]:
-    """Run git blame per path (in parallel) and return author -> coverage.
-
-    git blame is a subprocess, so threads parallelize cleanly; the worker
-    count tracks the CPU count since blame is compute-bound inside git.
-    """
+) -> _BlamePass:
+    """Run git blame per path (in parallel) and return author coverage plus ignore-revs status."""
+    git_config = git if git is not None else GitConfig()
     path_list = sorted(paths)
     total = len(path_list)
     if total == 0:
-        return {}
-    coverage: dict[str, dict[str, float]] = {}
-    workers = max_workers if max_workers is not None else min(32, os.cpu_count() or 4)
-    workers = max(workers, 1)
-    done = 0
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for path, per_author in zip(
-            path_list, pool.map(lambda p: _blame_for_path(repo_root, p), path_list), strict=True
-        ):
-            done += 1
-            if on_progress is not None:
-                on_progress(done, total)
-            if per_author:
-                coverage[path] = per_author
-    return dict(sorted(coverage.items()))
-
-
-def _blame_for_path(repo_root: Path, path: str) -> dict[str, float]:
-    """Run `git blame --line-porcelain` on a single path; return coverage fractions."""
+        return _BlamePass()
+    _ensure_git_version(repo_root)
+    ignore_revs = _resolve_ignore_revs_file(repo_root, git_config.blame_ignore_revs_file)
+    extra_path: Path | None = None
     try:
-        result = subprocess.run(  # noqa: S603  # literal git argv, no shell
-            ["git", "blame", "--line-porcelain", "--", path],  # noqa: S607  # git from PATH; path follows --
+        mass = _mass_refactor_revs(repo_root, git_config.mass_refactor_file_fraction)
+        if mass:
+            extra_path = _write_ignore_revs(mass)
+        argv = _blame_argv(git_config, ignore_revs, extra_path)
+        coverage: dict[str, dict[str, float]] = {}
+        workers = max_workers if max_workers is not None else min(32, os.cpu_count() or 4)
+        workers = max(workers, 1)
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for path, per_author in zip(
+                path_list,
+                pool.map(lambda p: _blame_for_path(repo_root, p, argv), path_list),
+                strict=True,
+            ):
+                done += 1
+                if on_progress is not None:
+                    on_progress(done, total)
+                if per_author:
+                    coverage[path] = per_author
+        display = _display_ignore_revs_path(repo_root, ignore_revs) if ignore_revs else ""
+        return _BlamePass(
+            coverage=dict(sorted(coverage.items())),
+            ignore_revs_file=display,
+            ignore_revs_applied=ignore_revs is not None,
+        )
+    finally:
+        if extra_path is not None:
+            extra_path.unlink(missing_ok=True)
+
+
+def _blame_for_path(repo_root: Path, path: str, argv: list[str]) -> dict[str, float]:
+    """Run git blame with the prebuilt argv on one path; return coverage fractions."""
+    try:
+        result = subprocess.run(  # noqa: S603
+            [*argv, "--", path],
             capture_output=True,
             text=True,
             encoding="utf-8",

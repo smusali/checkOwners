@@ -463,20 +463,40 @@ def test_gitattributes_parsing_comments_negation_and_scoping() -> None:
         "generated/** linguist-generated\n"
         "generated/keep.py -linguist-generated\n"
         "!skip.py linguist-generated\n"
-        "vendor/** linguist-vendored linguist-generated\n",
+        "vendor/** linguist-vendored linguist-generated\n"
+        "pattern-only\n"
+        "other.py text -diff eol=lf\n"
+        "hist.py linguist-generated=true\n"
+        "off.py linguist-generated=false -text\n"
+        "mix.py -text linguist-vendored\n",
         "",
     )
-    assert [rule.pattern for rule in rules] == [
+    by_pattern = {rule.pattern: rule.values for rule in rules}
+    assert set(by_pattern) == {
         "generated/**",
         "generated/keep.py",
         "vendor/**",
-    ]
-    assert rules[1].values == (("linguist-generated", False),)
+        "hist.py",
+        "off.py",
+        "mix.py",
+    }
+    assert by_pattern["generated/keep.py"] == (("linguist-generated", False),)
+    assert by_pattern["hist.py"] == (("linguist-generated", True),)
+    assert by_pattern["off.py"] == (("linguist-generated", False),)
+    assert by_pattern["mix.py"] == (("linguist-vendored", True),)
     assert _gitattributes_pattern_matches("generated/*", "generated/foo.py", "")
     assert _gitattributes_pattern_matches("generated/*", "generated/nested/foo.py", "") is False
     assert _gitattributes_pattern_matches("generated/**", "generated/nested/foo.py", "")
     assert _gitattributes_pattern_matches("*.pb.go", "src/foo.pb.go", "src")
     assert _gitattributes_pattern_matches("*.pb.go", "other/foo.pb.go", "src") is False
+    assert _gitattributes_pattern_matches("f?.py", "fa.py", "")
+    assert _gitattributes_pattern_matches("f?.py", "fab.py", "") is False
+    assert _gitattributes_pattern_matches("a/**/b.py", "a/x/b.py", "")
+    assert _gitattributes_pattern_matches("/rooted.py", "rooted.py", "")
+    assert _gitattributes_pattern_matches("/rooted.py", "sub/rooted.py", "") is False
+    assert _gitattributes_pattern_matches("generated/", "generated/foo.py", "") is False
+    assert _gitattributes_pattern_matches("/", "anything.py", "") is False
+    assert _gitattributes_pattern_matches("*", "src/", "src") is False
 
 
 def test_linguist_nested_gitattributes_and_negation(tmp_path: Path) -> None:
@@ -489,6 +509,9 @@ def test_linguist_nested_gitattributes_and_negation(tmp_path: Path) -> None:
         ("src/foo.pb.go", "src/keep.pb.go", "src/main.py"),
     )
     assert excluded == frozenset({"src/foo.pb.go"})
+    assert _linguist_excluded_paths(tmp_path, ()) == frozenset()
+    with patch.object(Path, "read_text", side_effect=OSError("unreadable")):
+        assert _linguist_excluded_paths(tmp_path, ("src/foo.pb.go",)) == frozenset()
 
 
 def test_analyze_score_scale_with_and_without_review_provider() -> None:

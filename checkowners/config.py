@@ -153,6 +153,8 @@ def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
         kwargs["confidence_threshold"] = float(data["confidence_threshold"])
     if "exclude_bots" in data:
         kwargs["exclude_bots"] = bool(data["exclude_bots"])
+    if "respect_gitattributes" in data:
+        kwargs["respect_gitattributes"] = bool(data["respect_gitattributes"])
     return AnalysisConfig(**kwargs)
 
 

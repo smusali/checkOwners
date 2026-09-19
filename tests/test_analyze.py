@@ -25,8 +25,11 @@ from checkowners.analyze import (
     _gather_blame_coverage,
     _gather_review_coverage,
     _get_commit_history,
+    _gitattributes_pattern_matches,
     _is_excluded,
+    _linguist_excluded_paths,
     _parse_blame_output,
+    _parse_gitattributes,
     _parse_log_output,
     _RawCommit,
     _recency_score,
@@ -348,6 +351,8 @@ def test_analyze_path_exclusions() -> None:
     assert "dist/bundle.js" not in result.paths
     assert "vendor/lib/u.go" not in result.paths
     assert "node_modules/x" not in result.paths
+    assert result.analysis_completeness.excluded_gitattributes == 0
+    assert result.analysis_completeness.excluded_static == 4
 
 
 def test_analyze_empty_repo() -> None:
@@ -369,6 +374,8 @@ def test_analyze_empty_repo() -> None:
             review_provider=_unused_reviews,
         )
     assert result.paths == {}
+    assert result.analysis_completeness.excluded_gitattributes == 0
+    assert result.analysis_completeness.excluded_static == 0
     assert _gather_review_coverage({}, _unused_reviews) == {}
 
 
@@ -447,6 +454,64 @@ def test_is_excluded_patterns() -> None:
     assert _is_excluded("dist/sub/file.js", ("dist/**",))
     assert _is_excluded("vendor/a/b.go", ("vendor/**",))
     assert _is_excluded("src/main.py", ("*.lock", "dist/**", "vendor/**")) is False
+
+
+def test_gitattributes_parsing_comments_negation_and_scoping() -> None:
+    rules = _parse_gitattributes(
+        "# comment\n"
+        "\n"
+        "generated/** linguist-generated\n"
+        "generated/keep.py -linguist-generated\n"
+        "!skip.py linguist-generated\n"
+        "vendor/** linguist-vendored linguist-generated\n"
+        "pattern-only\n"
+        "other.py text -diff eol=lf\n"
+        "hist.py linguist-generated=true\n"
+        "off.py linguist-generated=false -text\n"
+        "mix.py -text linguist-vendored\n",
+        "",
+    )
+    by_pattern = {rule.pattern: rule.values for rule in rules}
+    assert set(by_pattern) == {
+        "generated/**",
+        "generated/keep.py",
+        "vendor/**",
+        "hist.py",
+        "off.py",
+        "mix.py",
+    }
+    assert by_pattern["generated/keep.py"] == (("linguist-generated", False),)
+    assert by_pattern["hist.py"] == (("linguist-generated", True),)
+    assert by_pattern["off.py"] == (("linguist-generated", False),)
+    assert by_pattern["mix.py"] == (("linguist-vendored", True),)
+    assert _gitattributes_pattern_matches("generated/*", "generated/foo.py", "")
+    assert _gitattributes_pattern_matches("generated/*", "generated/nested/foo.py", "") is False
+    assert _gitattributes_pattern_matches("generated/**", "generated/nested/foo.py", "")
+    assert _gitattributes_pattern_matches("*.pb.go", "src/foo.pb.go", "src")
+    assert _gitattributes_pattern_matches("*.pb.go", "other/foo.pb.go", "src") is False
+    assert _gitattributes_pattern_matches("f?.py", "fa.py", "")
+    assert _gitattributes_pattern_matches("f?.py", "fab.py", "") is False
+    assert _gitattributes_pattern_matches("a/**/b.py", "a/x/b.py", "")
+    assert _gitattributes_pattern_matches("/rooted.py", "rooted.py", "")
+    assert _gitattributes_pattern_matches("/rooted.py", "sub/rooted.py", "") is False
+    assert _gitattributes_pattern_matches("generated/", "generated/foo.py", "") is False
+    assert _gitattributes_pattern_matches("/", "anything.py", "") is False
+    assert _gitattributes_pattern_matches("*", "src/", "src") is False
+
+
+def test_linguist_nested_gitattributes_and_negation(tmp_path: Path) -> None:
+    (tmp_path / ".gitattributes").write_text("*.pb.go linguist-generated\n", encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / ".gitattributes").write_text("keep.pb.go -linguist-generated\n", encoding="utf-8")
+    excluded = _linguist_excluded_paths(
+        tmp_path,
+        ("src/foo.pb.go", "src/keep.pb.go", "src/main.py"),
+    )
+    assert excluded == frozenset({"src/foo.pb.go"})
+    assert _linguist_excluded_paths(tmp_path, ()) == frozenset()
+    with patch.object(Path, "read_text", side_effect=OSError("unreadable")):
+        assert _linguist_excluded_paths(tmp_path, ("src/foo.pb.go",)) == frozenset()
 
 
 def test_analyze_score_scale_with_and_without_review_provider() -> None:
@@ -1242,3 +1307,68 @@ def test_mailmap_collapses_three_addresses(tmp_path: Path) -> None:
     }
     assert raw.paths["owned.py"].qualified_owner_count == 3
     assert raw.analysis_completeness.mailmap_applied is False
+
+
+def test_gitattributes_generated_directory_excluded_before_blame(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    (repo / "generated").mkdir()
+    (repo / "generated" / "out.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "src").mkdir()
+    (repo / "src" / "main.py").write_text("y = 2\n", encoding="utf-8")
+    (repo / ".gitattributes").write_text("generated/** linguist-generated\n", encoding="utf-8")
+    git_commit(repo, "init", author="Alice", email="alice@example.com", date=_PINNED)
+    blamed: list[str] = []
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    with patch(_MOCK_BLAME, side_effect=_record_blame(blamed)):
+        result = analyze_ownership(repo, config, as_of=_AS_OF, analysis_ref="test")
+    assert "generated/out.py" not in result.paths
+    assert "src/main.py" in result.paths
+    assert "generated/out.py" not in blamed
+    assert "src/main.py" in blamed
+    assert result.analysis_completeness.excluded_gitattributes == 1
+    assert result.analysis_completeness.excluded_static == 0
+
+    blamed_off: list[str] = []
+    disabled = Config(
+        analysis=AnalysisConfig(
+            min_commits=1,
+            confidence_threshold=0.0,
+            respect_gitattributes=False,
+        )
+    )
+    with patch(_MOCK_BLAME, side_effect=_record_blame(blamed_off)):
+        off = analyze_ownership(repo, disabled, as_of=_AS_OF, analysis_ref="test")
+    assert "generated/out.py" in off.paths
+    assert "generated/out.py" in blamed_off
+    assert off.analysis_completeness.excluded_gitattributes == 0
+
+
+def test_gitattributes_and_static_exclusions_are_not_double_counted(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    (repo / "src").mkdir()
+    (repo / "src" / "main.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "vendor").mkdir()
+    (repo / "vendor" / "lib.go").write_text("package v\n", encoding="utf-8")
+    (repo / "dist").mkdir()
+    (repo / "dist" / "bundle.js").write_text("ok\n", encoding="utf-8")
+    (repo / "generated").mkdir()
+    (repo / "generated" / "out.py").write_text("x = 2\n", encoding="utf-8")
+    (repo / ".gitattributes").write_text(
+        "vendor/** linguist-vendored\ngenerated/** linguist-generated\n",
+        encoding="utf-8",
+    )
+    git_commit(repo, "init", author="Alice", email="alice@example.com", date=_PINNED)
+    result = analyze_ownership(
+        repo,
+        Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0)),
+        as_of=_AS_OF,
+        analysis_ref="test",
+    )
+    completeness = result.analysis_completeness
+    assert "src/main.py" in result.paths
+    assert "vendor/lib.go" not in result.paths
+    assert "dist/bundle.js" not in result.paths
+    assert "generated/out.py" not in result.paths
+    assert completeness.excluded_gitattributes == 2
+    assert completeness.excluded_static == 1
+    assert completeness.excluded_gitattributes + completeness.excluded_static == 3

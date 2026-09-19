@@ -115,6 +115,7 @@ analysis:
   min_commits: 5
   top_n_owners: 2
   confidence_threshold: 0.5
+  respect_gitattributes: false
 scoring:
   recency_half_life_days: 60
   recency_weight: 0.5
@@ -167,6 +168,7 @@ identity:
     assert cfg.qualification.min_commits == 5
     assert cfg.analysis.top_n_owners == 2
     assert cfg.analysis.confidence_threshold == 0.5
+    assert cfg.analysis.respect_gitattributes is False
     assert cfg.scoring.recency_half_life_days == 60
     assert cfg.scoring.recency_weight == 0.5
     assert cfg.scoring.frequency_weight == 0.2

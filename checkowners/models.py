@@ -21,6 +21,7 @@ class AnalysisConfig:
     top_n_owners: int = 3
     confidence_threshold: float = 0.3
     exclude_bots: bool = True
+    respect_gitattributes: bool = True
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,8 @@ class AnalysisCompleteness:
     ignore_revs_file: str = ""
     mailmap_applied: bool = False
     mailmap_file: str = ""
+    excluded_gitattributes: int = 0
+    excluded_static: int = 0
 
 
 @dataclass(frozen=True)

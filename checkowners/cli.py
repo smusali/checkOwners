@@ -291,12 +291,14 @@ def _format_last_commit(value: datetime | None) -> str:
     return value.date().isoformat() if value else "-"
 
 
-def _completeness_payload(completeness: AnalysisCompleteness) -> dict[str, bool | str]:
+def _completeness_payload(completeness: AnalysisCompleteness) -> dict[str, bool | str | int]:
     return {
         "ignore_revs_applied": completeness.ignore_revs_applied,
         "ignore_revs_file": completeness.ignore_revs_file,
         "mailmap_applied": completeness.mailmap_applied,
         "mailmap_file": completeness.mailmap_file,
+        "excluded_gitattributes": completeness.excluded_gitattributes,
+        "excluded_static": completeness.excluded_static,
     }
 
 
@@ -384,6 +386,13 @@ def _render_mailmap_line(completeness: AnalysisCompleteness, *, enabled: bool) -
         console.print(f"Mailmap: applied ({label})")
         return
     console.print("Mailmap: not found")
+
+
+def _render_exclusions_line(completeness: AnalysisCompleteness) -> None:
+    console.print(
+        f"Exclusions: {completeness.excluded_gitattributes} gitattributes, "
+        f"{completeness.excluded_static} static"
+    )
 
 
 def _warn_missing_api_token(config: Config) -> None:
@@ -505,6 +514,7 @@ def analyze(json_output: JsonOption = False) -> None:
         _render_ownership_table(ownership, cap)
         _render_ignore_revs_line(ownership.analysis_completeness)
         _render_mailmap_line(ownership.analysis_completeness, enabled=config.git.use_mailmap)
+        _render_exclusions_line(ownership.analysis_completeness)
 
 
 ForceOption = Annotated[

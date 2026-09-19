@@ -32,6 +32,7 @@ analysis:
   top_n_owners: 3
   confidence_threshold: 0.3   # owners below this are dropped from CODEOWNERS
   exclude_bots: true          # drop dependabot[bot] & friends from inference
+  respect_gitattributes: true # linguist-generated / linguist-vendored exclude paths first
 
 qualification:
   strategy: adaptive          # adaptive | threshold (legacy, one cycle)
@@ -59,7 +60,7 @@ bus_factor:
 
 paths:
   exclude:
-    - "*.lock"
+    - "*.lock"               # fallback when gitattributes do not mark the path
     - "package-lock.json"
     - "pnpm-lock.yaml"
     - "dist/**"
@@ -182,7 +183,7 @@ flowchart LR
 
 Weights and reliabilities are configurable under `scoring`. Review weight is omitted from the score when `github.api_enabled` is false; it is not filled in as `0.0`. The score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
-Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis_completeness.ignore_revs_applied` and `analysis_completeness.ignore_revs_file` so you can see whether that correction ran, and `analysis_completeness.mailmap_applied` / `analysis_completeness.mailmap_file` for `.mailmap`. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
+Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis_completeness.ignore_revs_applied` and `analysis_completeness.ignore_revs_file` so you can see whether that correction ran, `analysis_completeness.mailmap_applied` / `analysis_completeness.mailmap_file` for `.mailmap`, and `analysis_completeness.excluded_gitattributes` / `analysis_completeness.excluded_static` for how many paths each exclusion mechanism dropped. Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
 **Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3`. Per-repo state is schema v6; files whose `model_version` is not `ownership-v3` are ignored. To restore the previous gate and undamped frequency for one cycle:
 
@@ -195,7 +196,7 @@ analysis:
 
 A bare `analysis.min_commits: 3` without `strategy: threshold` stays adaptive: authors below the bar still qualify when blame is at least `strong_blame_override`.
 
-The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it covers every path that still has a human author after exclude, missing-file, and bot filters. Under `threshold` it still skips paths where no author reaches `min_commits`. Adaptive may therefore blame several times more paths than threshold; it does not blame excluded, deleted, or bot-only paths. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness. See [METHODOLOGY.md](METHODOLOGY.md) for availability rules and the full formula.
+The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it covers every path that still has a human author after gitattributes, exclude, missing-file, and bot filters. Under `threshold` it still skips paths where no author reaches `min_commits`. Adaptive may therefore blame several times more paths than threshold; it does not blame excluded, deleted, or bot-only paths. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness. See [METHODOLOGY.md](METHODOLOGY.md) for availability rules and the full formula.
 
 ## Qualified owner count
 

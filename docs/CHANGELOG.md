@@ -17,6 +17,11 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   `git.mass_refactor_file_fraction` of tracked files (default `0.5`).
   Analyze JSON and human output report whether an ignore-revs file was
   applied. Git 2.23 or newer is required.
+- `.mailmap` is the first identity stage: `git log` and `git blame` honor
+  `--use-mailmap` when `identity.mailmap` is true (default; `git.use_mailmap`
+  is the same flag). Analyze JSON and human output report whether a mapping
+  file was found and applied. Set `identity.mailmap: false` for raw commit
+  addresses.
 
 ### Changed
 - The composite Action runs `checkowners github-action` once for drift,

@@ -6,11 +6,13 @@ Common questions about configuring and operating checkowners. For the full confi
 
 ### Will the generated CODEOWNERS show GitHub usernames or commit email addresses?
 
-GitHub usernames whenever they can be resolved. `github.resolve_handles` (on by default) resolves in three stages, cheapest first: GitHub noreply emails (`12345+login@users.noreply.github.com`) parse to `@login` locally with no token and no network; previously resolved emails come from the on-disk cache (`~/.checkowners/handles.json`, misses remembered); everything else goes through the GitHub user-search API when `GITHUB_TOKEN` is set. When resolution misses (private email, no GitHub account, API unavailable) the entry falls back to the raw email so the output stays usable.
+GitHub usernames whenever they can be resolved. Start with a `.mailmap` at the repo root: that is the cheapest accuracy fix and the first identity stage (`identity.mailmap: true` by default). Git collapses one person's addresses before checkOwners parses GitHub noreply emails (`12345+login@users.noreply.github.com`) to `@login` locally, reads the on-disk cache (`~/.checkowners/handles.json`, misses remembered), or calls the GitHub user-search API when `GITHUB_TOKEN` is set. When resolution misses (private email, no GitHub account, API unavailable) the entry falls back to the raw email so the output stays usable.
 
-On squash-merge repos most contributors have noreply author emails, so usernames appear even without a token. When two emails resolve to the same username they merge into one owner and the path's qualified owner count is recomputed over distinct people.
+On squash-merge repos most contributors have noreply author emails, so usernames appear even without a token. When two emails resolve to the same username they merge into one owner and the path's qualified owner count is recomputed over distinct people. Set `identity.mailmap: false` to keep raw commit addresses.
 
 ```yaml
+identity:
+  mailmap: true          # default; set false for raw emails
 github:
   resolve_handles: true  # default
 ```
@@ -141,7 +143,7 @@ analysis:
 
 ### Why didn't a formatter commit take ownership?
 
-Blame ignores whitespace-only edits (`-w`), follows moved and copied lines when `git.detect_moves` is true, and omits commits listed in `.git-blame-ignore-revs` (or `blame.ignoreRevsFile`). Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default half the repository) are omitted the same way, so a `black .` or license-header sweep does not become the owner. Add the formatting SHA to `.git-blame-ignore-revs` for an explicit record. Analyze JSON reports whether an ignore-revs file was found under `analysis_completeness`.
+Blame ignores whitespace-only edits (`-w`), follows moved and copied lines when `git.detect_moves` is true, and omits commits listed in `.git-blame-ignore-revs` (or `blame.ignoreRevsFile`). Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default half the repository) are omitted the same way, so a `black .` or license-header sweep does not become the owner. Add the formatting SHA to `.git-blame-ignore-revs` for an explicit record. Analyze JSON reports whether an ignore-revs file was found, and whether a `.mailmap` was found and applied, under `analysis_completeness`.
 
 ### Why are some paths missing from `checkowners analyze`?
 

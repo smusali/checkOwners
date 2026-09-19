@@ -164,6 +164,8 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["analysis_completeness"] == {
         "ignore_revs_applied": False,
         "ignore_revs_file": "",
+        "mailmap_applied": False,
+        "mailmap_file": "",
     }
     assert data["drift_reported_severity"] is None
     assert data["drift_pending_severity"] is None
@@ -206,6 +208,8 @@ def test_load_ownership_roundtrip(repo: Path) -> None:
     assert loaded.analysis_ref == "deadbeef"
     assert loaded.analysis_completeness.ignore_revs_applied is False
     assert loaded.analysis_completeness.ignore_revs_file == ""
+    assert loaded.analysis_completeness.mailmap_applied is False
+    assert loaded.analysis_completeness.mailmap_file == ""
 
 
 def test_load_ownership_missing_returns_none(repo: Path) -> None:

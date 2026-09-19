@@ -161,6 +161,8 @@ def write_state(
         "analysis_completeness": {
             "ignore_revs_applied": ownership.analysis_completeness.ignore_revs_applied,
             "ignore_revs_file": ownership.analysis_completeness.ignore_revs_file,
+            "mailmap_applied": ownership.analysis_completeness.mailmap_applied,
+            "mailmap_file": ownership.analysis_completeness.mailmap_file,
         },
         "drift_detected": drift_detected,
         "drift_reported_severity": drift_reported_severity,
@@ -312,9 +314,13 @@ def _deserialize_completeness(raw: object) -> AnalysisCompleteness:
         return AnalysisCompleteness()
     applied = raw.get("ignore_revs_applied", False)
     path = raw.get("ignore_revs_file", "")
+    mailmap_applied = raw.get("mailmap_applied", False)
+    mailmap_file = raw.get("mailmap_file", "")
     return AnalysisCompleteness(
         ignore_revs_applied=applied is True,
         ignore_revs_file=path if isinstance(path, str) else "",
+        mailmap_applied=mailmap_applied is True,
+        mailmap_file=mailmap_file if isinstance(mailmap_file, str) else "",
     )
 
 

@@ -8,8 +8,9 @@ import os
 import re
 import subprocess
 import tempfile
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -167,7 +168,13 @@ def analyze_ownership(
     """
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     ref = analysis_ref if analysis_ref is not None else head_commit_sha(repo_root)
-    commits = _get_commit_history(repo_root, config.analysis.lookback_days, when)
+    mailmap_path = _resolve_mailmap_file(repo_root)
+    commits = _get_commit_history(
+        repo_root,
+        config.analysis.lookback_days,
+        when,
+        use_mailmap=config.git.use_mailmap,
+    )
     contributions = _aggregate_contributions(commits)
     contributions = _filter_excluded(contributions, config.paths.exclude)
     contributions = _filter_nonexistent(contributions, repo_root)
@@ -198,6 +205,10 @@ def analyze_ownership(
         analysis_completeness=AnalysisCompleteness(
             ignore_revs_applied=blame_pass.ignore_revs_applied,
             ignore_revs_file=blame_pass.ignore_revs_file,
+            mailmap_applied=mailmap_path is not None and config.git.use_mailmap,
+            mailmap_file=(
+                _display_ignore_revs_path(repo_root, mailmap_path) if mailmap_path else ""
+            ),
         ),
     )
 
@@ -429,14 +440,43 @@ def _count_qualified_owners(top: tuple[OwnerEntry, ...], threshold: float) -> in
     return sum(1 for entry in top if entry.confidence >= threshold)
 
 
-def _get_commit_history(repo_root: Path, since_days: int, as_of: datetime) -> list[_RawCommit]:
+_MAILMAP_FLAGS = frozenset({"--use-mailmap", "--no-use-mailmap"})
+
+
+def _mailmap_flag(enabled: bool) -> str:
+    return "--use-mailmap" if enabled else "--no-use-mailmap"
+
+
+@contextmanager
+def _suppress_workdir_mailmap(repo_root: Path, *, enabled: bool) -> Iterator[None]:
+    visible = repo_root / ".mailmap"
+    if enabled or not visible.is_file():
+        yield
+        return
+    hidden = repo_root / ".mailmap.checkowners-hidden"
+    visible.replace(hidden)
+    try:
+        yield
+    finally:
+        hidden.replace(visible)
+
+
+def _get_commit_history(
+    repo_root: Path,
+    since_days: int,
+    as_of: datetime,
+    *,
+    use_mailmap: bool = True,
+) -> list[_RawCommit]:
     """Run git log and parse (author, timestamp, files) triples."""
     since = as_of - timedelta(days=since_days)
+    email_fmt = "%aE" if use_mailmap else "%ae"
     result = subprocess.run(  # noqa: S603  # literal git argv, no shell
         [  # noqa: S607  # git from PATH; not user-supplied
             "git",
             "log",
-            f"--format={_COMMIT_SENTINEL}%n%ae%n%cI",
+            _mailmap_flag(use_mailmap),
+            f"--format={_COMMIT_SENTINEL}%n{email_fmt}%n%cI",
             "--name-only",
             f"--since={since.isoformat()}",
             f"--until={as_of.isoformat()}",
@@ -614,6 +654,13 @@ def _display_ignore_revs_path(repo_root: Path, path: Path) -> str:
         return str(path)
 
 
+def _resolve_mailmap_file(repo_root: Path) -> Path | None:
+    candidate = repo_root / ".mailmap"
+    if candidate.is_file():
+        return candidate
+    return None
+
+
 def _tracked_file_count(repo_root: Path) -> int:
     result = subprocess.run(
         ["git", "ls-files"],  # noqa: S607
@@ -684,7 +731,7 @@ def _blame_argv(
     ignore_revs: Path | None,
     extra_revs: Path | None,
 ) -> list[str]:
-    argv = ["git", "blame", "--line-porcelain", "-w"]
+    argv = ["git", "blame", "--line-porcelain", "-w", _mailmap_flag(git.use_mailmap)]
     if git.detect_moves:
         argv.extend(["-M", "-C"])
     if ignore_revs is not None:
@@ -716,11 +763,16 @@ def _gather_blame_coverage(
         if mass:
             extra_path = _write_ignore_revs(mass)
         argv = _blame_argv(git_config, ignore_revs, extra_path)
+        if not _blame_accepts_mailmap_flags(repo_root):
+            argv = _drop_mailmap_flags(argv)
         coverage: dict[str, dict[str, float]] = {}
         workers = max_workers if max_workers is not None else min(32, os.cpu_count() or 4)
         workers = max(workers, 1)
         done = 0
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        with (
+            _suppress_workdir_mailmap(repo_root, enabled=git_config.use_mailmap),
+            ThreadPoolExecutor(max_workers=workers) as pool,
+        ):
             for path, per_author in zip(
                 path_list,
                 pool.map(lambda p: _blame_for_path(repo_root, p, argv), path_list),
@@ -740,6 +792,21 @@ def _gather_blame_coverage(
     finally:
         if extra_path is not None:
             extra_path.unlink(missing_ok=True)
+
+
+def _drop_mailmap_flags(argv: list[str]) -> list[str]:
+    return [part for part in argv if part not in _MAILMAP_FLAGS]
+
+
+def _blame_accepts_mailmap_flags(repo_root: Path) -> bool:
+    result = subprocess.run(
+        ["git", "blame", "--use-mailmap"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        check=False,
+    )
+    return "unknown option" not in f"{result.stdout}{result.stderr}"
 
 
 def _blame_for_path(repo_root: Path, path: str, argv: list[str]) -> dict[str, float]:

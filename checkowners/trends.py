@@ -69,7 +69,7 @@ def analyze_trends(
     """
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     span_days = max(1, periods * period_days)
-    commits = _get_commit_history(repo_root, span_days, when)
+    commits = _get_commit_history(repo_root, span_days, when, use_mailmap=config.git.use_mailmap)
     return build_trends(
         commits,
         config,

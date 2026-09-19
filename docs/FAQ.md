@@ -147,7 +147,7 @@ Blame ignores whitespace-only edits (`-w`), follows moved and copied lines when 
 
 ### Why are some paths missing from `checkowners analyze`?
 
-Three filters can drop a path: it matches a `paths.exclude` pattern, it no longer exists on disk (deleted files are filtered automatically so CODEOWNERS doesn't pin removed paths), or its only contributors are bots (`analysis.exclude_bots`, on by default). With `qualification.strategy: threshold`, a fourth filter still drops paths where no contributor reaches `analysis.min_commits` within the lookback window. The default `adaptive` strategy keeps those sparse paths and scores them; a one-commit author of a new file can appear as an owner.
+Four filters can drop a path: `.gitattributes` marks it `linguist-generated` or `linguist-vendored` (`analysis.respect_gitattributes`, on by default), it matches a `paths.exclude` pattern (the fallback list), it no longer exists on disk (deleted files are filtered automatically so CODEOWNERS doesn't pin removed paths), or its only contributors are bots (`analysis.exclude_bots`, on by default). With `qualification.strategy: threshold`, a fifth filter still drops paths where no contributor reaches `analysis.min_commits` within the lookback window. The default `adaptive` strategy keeps those sparse paths and scores them; a one-commit author of a new file can appear as an owner. Analyze JSON reports `analysis_completeness.excluded_gitattributes` and `analysis_completeness.excluded_static` so a path counted under gitattributes is not counted again under the static list.
 
 ## Drift, severity, and CI
 

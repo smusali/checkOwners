@@ -11,6 +11,11 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- Analyze honors `.gitattributes` `linguist-generated` and
+  `linguist-vendored` when `analysis.respect_gitattributes` is true
+  (the default). `paths.exclude` remains the fallback. Analyze JSON and
+  human output report `excluded_gitattributes` and `excluded_static`.
+  Set `analysis.respect_gitattributes: false` to disable.
 - Blame honors `.git-blame-ignore-revs` (and `blame.ignoreRevsFile`), ignores
   whitespace (`-w`), detects moved and copied lines (`-M`, `-C`), and omits
   mass-refactor commits that modify at least

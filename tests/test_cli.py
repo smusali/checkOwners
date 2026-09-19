@@ -154,6 +154,8 @@ def test_analyze_json() -> None:
         "ignore_revs_file": "",
         "mailmap_applied": False,
         "mailmap_file": "",
+        "excluded_gitattributes": 0,
+        "excluded_static": 0,
     }
 
 
@@ -218,6 +220,7 @@ def test_analyze_table() -> None:
     assert "0.92/1.00" in result.stdout
     assert "Blame ignore-revs: not found" in result.stdout
     assert "Mailmap: not found" in result.stdout
+    assert "Exclusions: 0 gitattributes, 0 static" in result.stdout
 
     applied = replace(
         _OWNERSHIP,

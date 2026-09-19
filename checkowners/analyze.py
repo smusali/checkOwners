@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 from checkowners.models import (
@@ -69,6 +70,16 @@ class _BlamePass:
     coverage: dict[str, dict[str, float]] = field(default_factory=dict)
     ignore_revs_file: str = ""
     ignore_revs_applied: bool = False
+
+
+@dataclass(frozen=True)
+class _GitAttributeRule:
+    pattern: str
+    relative_to: str
+    values: tuple[tuple[str, bool], ...]
+
+
+_LINGUIST_ATTRS = frozenset({"linguist-generated", "linguist-vendored"})
 
 
 def parse_as_of(value: str) -> datetime:
@@ -176,7 +187,18 @@ def analyze_ownership(
         use_mailmap=config.git.use_mailmap,
     )
     contributions = _aggregate_contributions(commits)
+    linguist = (
+        _linguist_excluded_paths(repo_root, contributions)
+        if config.analysis.respect_gitattributes
+        else frozenset()
+    )
+    gitattributes_n = sum(1 for path in contributions if path in linguist)
+    contributions = {
+        path: authors for path, authors in contributions.items() if path not in linguist
+    }
+    before_static = len(contributions)
     contributions = _filter_excluded(contributions, config.paths.exclude)
+    static_n = before_static - len(contributions)
     contributions = _filter_nonexistent(contributions, repo_root)
     if config.analysis.exclude_bots:
         contributions = _filter_bot_authors(contributions)
@@ -209,6 +231,8 @@ def analyze_ownership(
             mailmap_file=(
                 _display_ignore_revs_path(repo_root, mailmap_path) if mailmap_path else ""
             ),
+            excluded_gitattributes=gitattributes_n,
+            excluded_static=static_n,
         ),
     )
 
@@ -587,6 +611,151 @@ def _filter_unqualified(
 
 def _is_excluded(path: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+
+
+def _parse_attribute_token(token: str) -> tuple[str, bool] | None:
+    if token.startswith("-"):
+        name = token[1:]
+        return (name, False) if name in _LINGUIST_ATTRS else None
+    if "=" in token:
+        name, _, value = token.partition("=")
+        if name not in _LINGUIST_ATTRS:
+            return None
+        return (name, value.lower() != "false")
+    if token in _LINGUIST_ATTRS:
+        return (token, True)
+    return None
+
+
+def _parse_gitattributes(content: str, relative_to: str) -> tuple[_GitAttributeRule, ...]:
+    rules: list[_GitAttributeRule] = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("!"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        values: list[tuple[str, bool]] = []
+        for token in parts[1:]:
+            parsed = _parse_attribute_token(token)
+            if parsed is not None:
+                values.append(parsed)
+        if values:
+            rules.append(
+                _GitAttributeRule(
+                    pattern=parts[0],
+                    relative_to=relative_to,
+                    values=tuple(values),
+                )
+            )
+    return tuple(rules)
+
+
+def _translate_gitattributes_segment(segment: str) -> str:
+    out: list[str] = []
+    for char in segment:
+        if char == "*":
+            out.append(r"[^/]*")
+        elif char == "?":
+            out.append(r"[^/]")
+        else:
+            out.append(re.escape(char))
+    return "".join(out)
+
+
+def _translate_gitattributes_pattern(pattern: str) -> str:
+    p = pattern.rstrip("/") if pattern.endswith("/") else pattern
+    anchored = p.startswith("/")
+    p = p.lstrip("/")
+    if "/" in p:
+        anchored = True
+    if not p:
+        return r"\A\Z"
+    segments = p.split("/")
+    parts: list[str] = []
+    for index, segment in enumerate(segments):
+        if segment == "**":
+            parts.append(r"(?:[^/]+/)*" if index < len(segments) - 1 else r".*")
+            continue
+        escaped = _translate_gitattributes_segment(segment)
+        parts.append(escaped + ("/" if index < len(segments) - 1 else ""))
+    body = "".join(parts)
+    prefix = r"" if anchored else r"(?:[^/]+/)*"
+    return prefix + body + r"\Z"
+
+
+@lru_cache(maxsize=4096)
+def _compile_gitattributes_pattern(pattern: str) -> re.Pattern[str]:
+    return re.compile(_translate_gitattributes_pattern(pattern))
+
+
+def _gitattributes_pattern_matches(pattern: str, path: str, relative_to: str) -> bool:
+    if relative_to:
+        prefix = f"{relative_to}/"
+        if not path.startswith(prefix):
+            return False
+        local = path[len(prefix) :]
+    else:
+        local = path
+    if not local:
+        return False
+    return _compile_gitattributes_pattern(pattern).match(local) is not None
+
+
+def _ancestor_dirs(path: str) -> tuple[str, ...]:
+    parent = path.rsplit("/", 1)[0] if "/" in path else ""
+    if not parent:
+        return ("",)
+    dirs = [""]
+    current = ""
+    for part in parent.split("/"):
+        current = f"{current}/{part}" if current else part
+        dirs.append(current)
+    return tuple(dirs)
+
+
+def _gitattributes_rules_for(
+    repo_root: Path,
+    rel_dir: str,
+    cache: dict[str, tuple[_GitAttributeRule, ...]],
+) -> tuple[_GitAttributeRule, ...]:
+    if rel_dir in cache:
+        return cache[rel_dir]
+    attrs_path = repo_root / rel_dir / ".gitattributes" if rel_dir else repo_root / ".gitattributes"
+    try:
+        rules = (
+            _parse_gitattributes(attrs_path.read_text(encoding="utf-8"), rel_dir)
+            if attrs_path.is_file()
+            else ()
+        )
+    except OSError:
+        rules = ()
+    cache[rel_dir] = rules
+    return rules
+
+
+def _path_has_linguist_attr(
+    path: str,
+    repo_root: Path,
+    cache: dict[str, tuple[_GitAttributeRule, ...]],
+) -> bool:
+    flags: dict[str, bool] = {}
+    for rel_dir in _ancestor_dirs(path):
+        for rule in _gitattributes_rules_for(repo_root, rel_dir, cache):
+            if not _gitattributes_pattern_matches(rule.pattern, path, rule.relative_to):
+                continue
+            for name, is_set in rule.values:
+                flags[name] = is_set
+    return flags.get("linguist-generated") is True or flags.get("linguist-vendored") is True
+
+
+def _linguist_excluded_paths(repo_root: Path, paths: Iterable[str]) -> frozenset[str]:
+    pending = tuple(paths)
+    if not pending:
+        return frozenset()
+    cache: dict[str, tuple[_GitAttributeRule, ...]] = {}
+    return frozenset(path for path in pending if _path_has_linguist_attr(path, repo_root, cache))
 
 
 def parse_git_version(raw: str) -> tuple[int, int, int]:

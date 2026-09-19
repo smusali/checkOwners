@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -23,12 +24,14 @@ from checkowners.balance import BalanceReport
 from checkowners.cli import _merge_identities, _owner_payload, _resolve_github_owners, app
 from checkowners.models import (
     OWNERSHIP_MODEL_VERSION,
+    AnalysisCompleteness,
     ConfidenceScore,
     Config,
     DecayWarning,
     DriftEntry,
     DriftResult,
     ExpertiseRank,
+    GitConfig,
     GithubConfig,
     OwnerEntry,
     OwnershipMap,
@@ -215,6 +218,25 @@ def test_analyze_table() -> None:
     assert "0.92/1.00" in result.stdout
     assert "Blame ignore-revs: not found" in result.stdout
     assert "Mailmap: not found" in result.stdout
+
+    applied = replace(
+        _OWNERSHIP,
+        analysis_completeness=AnalysisCompleteness(
+            mailmap_applied=True,
+            mailmap_file=".mailmap",
+        ),
+    )
+    with patch("checkowners.cli.analyze_ownership", return_value=applied), _MOCK_TOKEN:
+        applied_result = runner.invoke(app, ["analyze"])
+    assert "Mailmap: applied (.mailmap)" in applied_result.stdout
+
+    with (
+        patch("checkowners.cli.load_config", return_value=Config(git=GitConfig(use_mailmap=False))),
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        _MOCK_TOKEN,
+    ):
+        disabled = runner.invoke(app, ["analyze"])
+    assert "Mailmap: disabled" in disabled.stdout
 
 
 def test_analyze_empty() -> None:

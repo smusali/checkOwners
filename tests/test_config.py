@@ -97,7 +97,7 @@ def test_load_config_empty_file(tmp_path: Path) -> None:
 
 
 def test_load_config_partial_override(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "analysis:\n  lookback_days: 180\n")
+    root = _write_config(tmp_path, "analysis:\n  lookback_days: 180\ngit:\n  detect_moves: true\n")
     cfg = load_config(repo_root=root)
     assert cfg.analysis.lookback_days == 180
     assert cfg.analysis.min_commits == 1
@@ -105,6 +105,7 @@ def test_load_config_partial_override(tmp_path: Path) -> None:
     assert cfg.analysis.top_n_owners == 3
     assert cfg.paths == Config().paths
     assert cfg.output == Config().output
+    assert cfg.git.use_mailmap is True
 
 
 def test_load_config_full_override(tmp_path: Path) -> None:
@@ -155,6 +156,7 @@ git:
   blame_ignore_revs_file: ignore-revs.txt
   detect_moves: false
   mass_refactor_file_fraction: 0.3
+  use_mailmap: true
 identity:
   mailmap: false
 """

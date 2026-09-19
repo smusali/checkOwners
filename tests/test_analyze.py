@@ -105,6 +105,7 @@ def _dispatch_git(
     ls_files: str = "",
     config_value: str | None = None,
     on_blame: object | None = None,
+    reject_mailmap: bool = False,
 ) -> object:
     def fake(cmd: list[str], **_kwargs: object) -> object:
         if cmd[1] == "version":
@@ -118,6 +119,8 @@ def _dispatch_git(
         if cmd[1] == "log":
             return _mock_run(log_stdout)
         if cmd[1] == "blame":
+            if reject_mailmap and "--line-porcelain" not in cmd:
+                return _mock_run("error: unknown option `--use-mailmap'\n")
             if on_blame is not None and "--line-porcelain" in cmd:
                 on_blame(cmd)
             return _mock_run(blame_stdout)
@@ -1057,11 +1060,20 @@ def test_gather_includes_fidelity_flags_by_default() -> None:
 
 def test_gather_omits_move_flags_when_disabled() -> None:
     seen: list[list[str]] = []
-    with patch(_MOCK_GIT, side_effect=_dispatch_git(on_blame=seen.append)):
-        _gather_blame_coverage(["x.py"], Path("/fake"), git=GitConfig(detect_moves=False))
+    with patch(
+        _MOCK_GIT,
+        side_effect=_dispatch_git(on_blame=seen.append, reject_mailmap=True),
+    ):
+        _gather_blame_coverage(
+            ["x.py"],
+            Path("/fake"),
+            git=GitConfig(detect_moves=False, use_mailmap=False),
+        )
     assert "-w" in seen[0]
     assert "-M" not in seen[0]
     assert "-C" not in seen[0]
+    assert "--use-mailmap" not in seen[0]
+    assert "--no-use-mailmap" not in seen[0]
 
 
 def test_gather_rejects_old_git() -> None:

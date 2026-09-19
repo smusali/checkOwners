@@ -449,14 +449,11 @@ def _mailmap_flag(enabled: bool) -> str:
 
 @contextmanager
 def _suppress_workdir_mailmap(repo_root: Path, *, enabled: bool) -> Iterator[None]:
-    if enabled:
-        yield
-        return
     visible = repo_root / ".mailmap"
-    hidden = repo_root / ".mailmap.checkowners-hidden"
-    if not visible.is_file() or hidden.exists():
+    if enabled or not visible.is_file():
         yield
         return
+    hidden = repo_root / ".mailmap.checkowners-hidden"
     visible.replace(hidden)
     try:
         yield
@@ -661,19 +658,6 @@ def _resolve_mailmap_file(repo_root: Path) -> Path | None:
     candidate = repo_root / ".mailmap"
     if candidate.is_file():
         return candidate
-    try:
-        configured = _git_config_value(repo_root, "mailmap.file").strip()
-    except OSError:
-        return None
-    if not configured or "\n" in configured:
-        return None
-    native = Path(configured)
-    resolved = native if native.is_absolute() else repo_root / native
-    try:
-        if resolved.is_file():
-            return resolved
-    except OSError:
-        return None
     return None
 
 

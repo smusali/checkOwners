@@ -71,6 +71,7 @@ def resolve_handles(
 ) -> dict[str, str]:
     """Map git commit emails to GitHub @handles.
 
+    Incoming emails are already mailmap-canonical when that mapping ran.
     Resolution order: noreply-email parsing (local, free), then the on-disk
     cache (which also remembers misses as empty strings so unresolvable
     emails are not re-queried), then the rate-limited user-search API.

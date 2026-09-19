@@ -113,6 +113,7 @@ class GitConfig:
     blame_ignore_revs_file: str = ".git-blame-ignore-revs"
     detect_moves: bool = True
     mass_refactor_file_fraction: float = 0.5
+    use_mailmap: bool = True
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,8 @@ class Config:
 class AnalysisCompleteness:
     ignore_revs_applied: bool = False
     ignore_revs_file: str = ""
+    mailmap_applied: bool = False
+    mailmap_file: str = ""
 
 
 @dataclass(frozen=True)

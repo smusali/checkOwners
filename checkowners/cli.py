@@ -295,6 +295,8 @@ def _completeness_payload(completeness: AnalysisCompleteness) -> dict[str, bool 
     return {
         "ignore_revs_applied": completeness.ignore_revs_applied,
         "ignore_revs_file": completeness.ignore_revs_file,
+        "mailmap_applied": completeness.mailmap_applied,
+        "mailmap_file": completeness.mailmap_file,
     }
 
 
@@ -371,6 +373,17 @@ def _render_ignore_revs_line(completeness: AnalysisCompleteness) -> None:
         console.print(f"Blame ignore-revs: applied ({label})")
         return
     console.print("Blame ignore-revs: not found")
+
+
+def _render_mailmap_line(completeness: AnalysisCompleteness, *, enabled: bool) -> None:
+    if not enabled:
+        console.print("Mailmap: disabled")
+        return
+    if completeness.mailmap_applied:
+        label = completeness.mailmap_file or "configured"
+        console.print(f"Mailmap: applied ({label})")
+        return
+    console.print("Mailmap: not found")
 
 
 def _warn_missing_api_token(config: Config) -> None:
@@ -491,6 +504,7 @@ def analyze(json_output: JsonOption = False) -> None:
     else:
         _render_ownership_table(ownership, cap)
         _render_ignore_revs_line(ownership.analysis_completeness)
+        _render_mailmap_line(ownership.analysis_completeness, enabled=config.git.use_mailmap)
 
 
 ForceOption = Annotated[

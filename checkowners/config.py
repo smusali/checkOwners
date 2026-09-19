@@ -134,6 +134,10 @@ def _merge_config(raw: dict[str, Any]) -> Config:
     min_commits = _resolve_min_commits(analysis_raw, qualification_raw)
     kwargs["analysis"] = replace(analysis, min_commits=min_commits)
     kwargs["qualification"] = replace(qualification, min_commits=min_commits)
+    kwargs["git"] = _apply_identity_mailmap(
+        kwargs.get("git", GitConfig()),
+        _mapping_section(raw, "identity"),
+    )
     return Config(**kwargs)
 
 
@@ -333,4 +337,12 @@ def _build_git_config(data: dict[str, Any]) -> GitConfig:
             )
             raise ValueError(msg)
         kwargs["mass_refactor_file_fraction"] = fraction
+    if "use_mailmap" in data:
+        kwargs["use_mailmap"] = bool(data["use_mailmap"])
     return GitConfig(**kwargs)
+
+
+def _apply_identity_mailmap(git: GitConfig, identity: dict[str, Any]) -> GitConfig:
+    if "mailmap" not in identity:
+        return git
+    return replace(git, use_mailmap=bool(identity["mailmap"]))

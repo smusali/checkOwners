@@ -149,6 +149,8 @@ def test_analyze_json() -> None:
     assert data["analysis_completeness"] == {
         "ignore_revs_applied": False,
         "ignore_revs_file": "",
+        "mailmap_applied": False,
+        "mailmap_file": "",
     }
 
 
@@ -212,6 +214,7 @@ def test_analyze_table() -> None:
     assert "alice@example.com" in result.stdout
     assert "0.92/1.00" in result.stdout
     assert "Blame ignore-revs: not found" in result.stdout
+    assert "Mailmap: not found" in result.stdout
 
 
 def test_analyze_empty() -> None:

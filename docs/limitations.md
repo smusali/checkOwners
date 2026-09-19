@@ -7,8 +7,9 @@ claim that the listed people are the only experts or the assigned owners.
 
 - Squash merges collapse many authors into one commit, so recency and
   frequency can credit the merger more than the people who wrote the code.
-- `.mailmap` is not applied yet. The same person with two emails is two
-  identities until handle resolution merges them.
+- Unmapped emails stay distinct. `.mailmap` (on by default) collapses
+  addresses the repository already listed; anything left unmapped is still
+  two identities until handle resolution merges them.
 - Rename lineage across history is not followed. `-M` and `-C` on blame
   preserve line attribution when content moves in one commit; they do not
   rebuild a file's identity across later renames.

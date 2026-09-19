@@ -72,6 +72,7 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.git.blame_ignore_revs_file == ".git-blame-ignore-revs"
     assert cfg.git.detect_moves is True
     assert cfg.git.mass_refactor_file_fraction == 0.5
+    assert cfg.git.use_mailmap is True
 
 
 def test_drift_mode_default_matches_documented_surfaces() -> None:
@@ -154,6 +155,8 @@ git:
   blame_ignore_revs_file: ignore-revs.txt
   detect_moves: false
   mass_refactor_file_fraction: 0.3
+identity:
+  mailmap: false
 """
     root = _write_config(tmp_path, content)
     cfg = load_config(repo_root=root)
@@ -192,6 +195,7 @@ git:
     assert cfg.git.blame_ignore_revs_file == "ignore-revs.txt"
     assert cfg.git.detect_moves is False
     assert cfg.git.mass_refactor_file_fraction == 0.3
+    assert cfg.git.use_mailmap is False
 
 
 def test_load_config_invalid_yaml(tmp_path: Path) -> None:

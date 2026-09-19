@@ -100,6 +100,10 @@ git:
   blame_ignore_revs_file: .git-blame-ignore-revs
   detect_moves: true          # pass -M and -C to git blame
   mass_refactor_file_fraction: 0.5  # 0 disables; commits that modify this share of tracked files are omitted from blame
+  use_mailmap: true           # alias of identity.mailmap
+
+identity:
+  mailmap: true               # apply .mailmap in git log and git blame (default; cheapest identity fix)
 ```
 
 The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` environment variable instead. `checkowners.yml` is committed to your repo, so storing a token here would push it to GitHub. `load_config` raises a clear error if `github.token` is present. For the same reason, `notifications.webhook_url` supports a `${ENV_VAR}` reference (for example `${CHECKOWNERS_WEBHOOK_URL}`) so a committed config can point at a secret endpoint without storing it; an unset variable resolves to an empty string.
@@ -132,13 +136,16 @@ Scoring and lookback are a pure function of the repository, the commit, and the 
 
 ## Identity resolution
 
-Commit emails are rewritten to GitHub `@handles` in three stages, cheapest first:
+Maintaining a `.mailmap` at the repository root is the cheapest, most reliable way to improve checkOwners accuracy. Git already knows how to collapse one person's addresses; checkOwners applies that mapping first, offline, with no token and no rate limit.
 
-1. **Noreply parsing** (no token, no network): `12345+login@users.noreply.github.com` and `login@users.noreply.github.com` become `@login`. On squash-merge repos this resolves most contributors for free.
-2. **Disk cache** at `~/.checkowners/handles.json`, including remembered misses, so the search API is queried at most once per email.
-3. **GitHub user-search API** (needs `GITHUB_TOKEN` and the `github` extra) for the rest.
+Commit emails are then rewritten to GitHub `@handles`, cheapest first:
 
-When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's qualified owner count is recomputed over distinct people.
+1. **`.mailmap`** (default, `identity.mailmap: true`; `git.use_mailmap` is the same flag): `git log` and `git blame` emit canonical emails before any later stage sees them. Set `identity.mailmap: false` to keep raw commit addresses.
+2. **Noreply parsing** (no token, no network): `12345+login@users.noreply.github.com` and `login@users.noreply.github.com` become `@login`. On squash-merge repos this resolves most contributors for free.
+3. **Disk cache** at `~/.checkowners/handles.json`, including remembered misses, so the search API is queried at most once per email.
+4. **GitHub user-search API** (needs `GITHUB_TOKEN` and the `github` extra) for the rest.
+
+When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's qualified owner count is recomputed over distinct people. Analyze JSON reports `analysis_completeness.mailmap_applied` and `analysis_completeness.mailmap_file`.
 
 ## Ownership scoring
 
@@ -148,7 +155,7 @@ Each path-owner pair gets an `ownership_score` in `[0.0, 1.0]` from the availabl
 |--------|--------|------------------|------------------------|
 | Recency | `exp(-ln 2 × days_since_last_commit / half_life)` | 0.35 | 1.0 |
 | Frequency | `commits / (max_commits_for_path + prior)` (`prior` is 3 under `adaptive`, 0 under `threshold`) | 0.25 | 1.0 |
-| Blame coverage | `git blame` porcelain lines / total lines, after `-w`, optional `-M`/`-C`, and ignore-revs | 0.25 | 1.0 |
+| Blame coverage | `git blame` porcelain lines / total lines, after `-w`, optional `-M`/`-C`, ignore-revs, and `.mailmap` when enabled | 0.25 | 1.0 |
 | Review activity | PR reviews on the path (requires `github.api_enabled`) | 0.15 | 1.0 |
 
 ```text
@@ -175,7 +182,7 @@ flowchart LR
 
 Weights and reliabilities are configurable under `scoring`. Review weight is omitted from the score when `github.api_enabled` is false; it is not filled in as `0.0`. The score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
-Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis_completeness.ignore_revs_applied` and `analysis_completeness.ignore_revs_file` so you can see whether that correction ran. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
+Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis_completeness.ignore_revs_applied` and `analysis_completeness.ignore_revs_file` so you can see whether that correction ran, and `analysis_completeness.mailmap_applied` / `analysis_completeness.mailmap_file` for `.mailmap` (or `mailmap.file`). Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
 **Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3`. Per-repo state is schema v6; files whose `model_version` is not `ownership-v3` are ignored. To restore the previous gate and undamped frequency for one cycle:
 

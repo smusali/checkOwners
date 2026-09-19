@@ -118,7 +118,7 @@ def _dispatch_git(
         if cmd[1] == "log":
             return _mock_run(log_stdout)
         if cmd[1] == "blame":
-            if on_blame is not None:
+            if on_blame is not None and "--line-porcelain" in cmd:
                 on_blame(cmd)
             return _mock_run(blame_stdout)
         return _mock_run("")
@@ -1052,6 +1052,7 @@ def test_gather_includes_fidelity_flags_by_default() -> None:
     assert "-w" in seen[0]
     assert "-M" in seen[0]
     assert "-C" in seen[0]
+    assert "--use-mailmap" in seen[0]
 
 
 def test_gather_omits_move_flags_when_disabled() -> None:
@@ -1104,6 +1105,7 @@ def test_gather_passes_ignore_revs_file(tmp_path: Path) -> None:
 
 _PINNED = "2026-05-01T12:00:00+00:00"
 _BOB_DATE = "2026-05-02T12:00:00+00:00"
+_THIRD_DATE = "2026-05-03T12:00:00+00:00"
 _AS_OF = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
 
@@ -1185,3 +1187,46 @@ def test_whitespace_reindent_does_not_transfer_ownership(tmp_path: Path) -> None
         analysis_ref="test",
     )
     assert _owner_handles(result, "indent.py")[0] == "alice@example.com"
+
+
+def test_mailmap_collapses_three_addresses(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    target = repo / "owned.py"
+    target.write_text("v1\n", encoding="utf-8")
+    git_commit(repo, "work", author="Alice", email="alice@work.com", date=_PINNED)
+    target.write_text("v2\n", encoding="utf-8")
+    git_commit(repo, "home", author="Alice", email="alice@home.com", date=_BOB_DATE)
+    target.write_text("v3\n", encoding="utf-8")
+    git_commit(repo, "old", author="Alice", email="alice@old.com", date=_THIRD_DATE)
+    (repo / ".mailmap").write_text(
+        "Alice Example <alice@example.com> <alice@work.com>\n"
+        "Alice Example <alice@example.com> <alice@home.com>\n"
+        "Alice Example <alice@example.com> <alice@old.com>\n",
+        encoding="utf-8",
+    )
+    base = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.0),
+        git=GitConfig(mass_refactor_file_fraction=0.0),
+    )
+    merged = analyze_ownership(repo, base, as_of=_AS_OF, analysis_ref="test")
+    assert _owner_handles(merged, "owned.py") == ["alice@example.com"]
+    assert merged.paths["owned.py"].qualified_owner_count == 1
+    assert merged.analysis_completeness.mailmap_applied is True
+    assert merged.analysis_completeness.mailmap_file == ".mailmap"
+
+    raw = analyze_ownership(
+        repo,
+        Config(
+            analysis=AnalysisConfig(confidence_threshold=0.0),
+            git=GitConfig(mass_refactor_file_fraction=0.0, use_mailmap=False),
+        ),
+        as_of=_AS_OF,
+        analysis_ref="test",
+    )
+    assert set(_owner_handles(raw, "owned.py")) == {
+        "alice@work.com",
+        "alice@home.com",
+        "alice@old.com",
+    }
+    assert raw.paths["owned.py"].qualified_owner_count == 3
+    assert raw.analysis_completeness.mailmap_applied is False

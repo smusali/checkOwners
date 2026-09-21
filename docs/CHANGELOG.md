@@ -27,6 +27,15 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   is the same flag). Analyze JSON and human output report whether a mapping
   file was found and applied. Set `identity.mailmap: false` for raw commit
   addresses.
+- `generate` and `sync` re-resolve every assigned path against the generated
+  CODEOWNERS and fail when resolved owners differ from the intended set.
+  Disable with `output.verify_round_trip: false`. `--force` does not skip
+  verification.
+- `generate` warns at 2 MB and refuses above `output.max_bytes` (default
+  2_500_000) without `--force`. GitHub does not load CODEOWNERS files over
+  3 MB. `--json` includes `bytes_written` and `rules_written`.
+- `checkowners explain-path <path>` shows the winning CODEOWNERS rule and
+  the full match chain.
 
 ### Changed
 - The composite Action runs `checkowners github-action` once for drift,

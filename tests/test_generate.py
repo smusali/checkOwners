@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -10,10 +11,14 @@ import pytest
 
 from checkowners.generate import (
     CodeownersOverwriteError,
+    CodeownersSizeError,
+    CodeownersVerificationError,
     _build_codeowners_content,
     _collect_unowned_paths,
     _consolidate,
+    _render_codeowners,
     generate_codeowners,
+    verify_round_trip,
 )
 from checkowners.models import (
     AnalysisConfig,
@@ -24,6 +29,7 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
 )
+from checkowners.patterns import match_path, parse_rules
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
@@ -338,3 +344,107 @@ def test_codeowners_output_is_byte_stable() -> None:
     second = _build_codeowners_content(ownership, _zero_threshold())
     assert first == second
     assert first == _GOLDEN_CODEOWNERS
+
+
+def test_verify_round_trip_catches_later_broad_rule() -> None:
+    expected = {
+        "src/a.py": frozenset({"@alice"}),
+        "src/b.py": frozenset({"@alice"}),
+    }
+    content = "/src/ @alice\n* @bob\n"
+    with pytest.raises(CodeownersVerificationError) as exc_info:
+        verify_round_trip(content, expected)
+    msg = str(exc_info.value)
+    assert "src/a.py" in msg
+    assert "@alice" in msg
+    assert "@bob" in msg
+    assert "* @bob" in msg
+
+
+def test_generate_refuses_over_max_bytes(tmp_path: Path) -> None:
+    ownership = _make_ownership({"src/main.py": (_entry("@alice", 0.9),)})
+    config = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.0),
+        output=OutputConfig(max_bytes=20),
+    )
+    with pytest.raises(CodeownersSizeError, match=r"output\.max_bytes"):
+        generate_codeowners(tmp_path, ownership, config)
+    assert not (tmp_path / ".github" / "CODEOWNERS").exists()
+
+
+def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
+    ownership = _make_ownership({"src/main.py": (_entry("@alice", 0.9),)})
+    config = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.0),
+        output=OutputConfig(max_bytes=20),
+    )
+    content = generate_codeowners(tmp_path, ownership, config, force=True)
+    written = tmp_path / ".github" / "CODEOWNERS"
+    assert written.exists()
+    assert written.read_text(encoding="utf-8") == content
+
+
+@pytest.mark.parametrize(
+    ("raw", "token", "org"),
+    [
+        (
+            {
+                "src/a.py": (_entry("@alice", 0.9),),
+                "src/b.py": (_entry("@alice", 0.7),),
+            },
+            "",
+            "",
+        ),
+        (
+            {
+                "src/a.py": (_entry("@alice", 0.9),),
+                "src/b.py": (_entry("@bob", 0.8),),
+            },
+            "",
+            "",
+        ),
+        (
+            {
+                "a.py": (_entry("@alice", 0.9),),
+                "b.py": (_entry("@alice", 0.8),),
+            },
+            "",
+            "",
+        ),
+        (
+            {"src/main.py": (_entry("@alice", 0.9), _entry("@bob", 0.8))},
+            "t",
+            "acme",
+        ),
+    ],
+)
+def test_generated_file_round_trips_inference(
+    tmp_path: Path,
+    raw: dict[str, tuple[OwnerEntry, ...]],
+    token: str,
+    org: str,
+) -> None:
+    ownership = _make_ownership(raw)
+    config = _zero_threshold()
+    if org:
+        config = Config(
+            analysis=AnalysisConfig(confidence_threshold=0.0),
+            github=GithubConfig(org=org, resolve_teams=True),
+        )
+    team_patch = (
+        patch(
+            "checkowners.generate.create_team_resolver",
+            return_value=lambda _owners: "@acme/backend",
+        )
+        if org
+        else nullcontext()
+    )
+    with team_patch:
+        content = generate_codeowners(tmp_path, ownership, config, token=token, org=org)
+        _rendered, expected = _render_codeowners(ownership, config, token=token, org=org)
+    assert content == _rendered
+    rules = parse_rules(content)
+    for path, intended in expected.items():
+        rule = match_path(rules, path)
+        resolved = frozenset(o.casefold() for o in rule.owners) if rule else frozenset()
+        assert resolved == intended

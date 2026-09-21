@@ -7,6 +7,7 @@ import pytest
 from checkowners.patterns import (
     CodeownersRule,
     match_path,
+    matching_rules,
     parse_rules,
     pattern_matches,
 )
@@ -108,6 +109,36 @@ class TestMatchPath:
         matched = match_path(rules, "internal/README.md")
         assert matched is not None
         assert matched.owners == ()
+
+
+class TestMatchingRules:
+    def test_anchored_directory(self) -> None:
+        rules = parse_rules("/docs/ @docs-team\n")
+        matches = matching_rules(rules, "docs/index.md")
+        assert len(matches) == 1
+        assert matches[0].pattern == "/docs/"
+        assert matching_rules(rules, "src/docs/index.md") == ()
+
+    def test_floating_directory(self) -> None:
+        rules = parse_rules("src/ @backend\n")
+        matches = matching_rules(rules, "src/main.py")
+        assert len(matches) == 1
+        assert matches[0].owners == ("@backend",)
+
+    def test_glob(self) -> None:
+        rules = parse_rules("*.js @js-owner\n")
+        matches = matching_rules(rules, "app/index.js")
+        assert len(matches) == 1
+        assert matches[0].pattern == "*.js"
+        assert matching_rules(rules, "app/index.py") == ()
+
+    def test_last_match_wins_and_chain_is_complete(self) -> None:
+        rules = parse_rules("* @global\n/src/ @alice\n")
+        matches = matching_rules(rules, "src/a.py")
+        assert len(matches) == 2
+        assert matches[0].owners == ("@global",)
+        assert matches[-1].owners == ("@alice",)
+        assert match_path(rules, "src/a.py") is matches[-1]
 
 
 class TestEscapedSpaces:

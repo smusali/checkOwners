@@ -69,6 +69,7 @@ All commands accept `--json` (except `graph`, which exports DOT via `--export do
 |---------|--------------|
 | `checkowners analyze` | Infer ownership with confidence scores, qualified owner count, decay warnings |
 | `checkowners generate` | Write CODEOWNERS, ordered by confidence; optional inline annotations |
+| `checkowners explain-path <path>` | Show which CODEOWNERS rule owns a path, and the full match chain |
 | `checkowners print` | Print inferred ownership to stdout |
 | `checkowners validate` | Validate existing CODEOWNERS syntax |
 | `checkowners drift` | Compare inferred vs current; severity + max confidence delta |

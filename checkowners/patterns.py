@@ -65,17 +65,22 @@ def split_escaped(line: str) -> list[str]:
     return [token.replace("\\ ", " ") for token in re.split(r"(?<!\\)\s+", line) if token]
 
 
+def matching_rules(rules: tuple[CodeownersRule, ...], path: str) -> tuple[CodeownersRule, ...]:
+    """Rules that match ``path``, in file order. The last element is the winner.
+
+    ``path`` is a repo-relative file path without a leading slash.
+    """
+    normalized = path.lstrip("/")
+    return tuple(rule for rule in rules if pattern_matches(rule.pattern, normalized))
+
+
 def match_path(rules: tuple[CodeownersRule, ...], path: str) -> CodeownersRule | None:
     """Return the last rule whose pattern matches ``path``, or None.
 
     ``path`` is a repo-relative file path without a leading slash.
     """
-    normalized = path.lstrip("/")
-    matched: CodeownersRule | None = None
-    for rule in rules:
-        if pattern_matches(rule.pattern, normalized):
-            matched = rule
-    return matched
+    matches = matching_rules(rules, path)
+    return matches[-1] if matches else None
 
 
 def pattern_matches(pattern: str, path: str) -> bool:

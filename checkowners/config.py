@@ -250,6 +250,10 @@ def _build_output_config(data: dict[str, Any]) -> OutputConfig:
         kwargs["include_confidence"] = bool(data["include_confidence"])
     if "consolidate" in data:
         kwargs["consolidate"] = bool(data["consolidate"])
+    if "max_bytes" in data:
+        kwargs["max_bytes"] = int(data["max_bytes"])
+    if "verify_round_trip" in data:
+        kwargs["verify_round_trip"] = bool(data["verify_round_trip"])
     return OutputConfig(**kwargs)
 
 

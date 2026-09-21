@@ -50,6 +50,8 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.output.include_unowned is False
     assert cfg.output.include_confidence is False
     assert cfg.output.consolidate is True
+    assert cfg.output.max_bytes == 2_500_000
+    assert cfg.output.verify_round_trip is True
     assert cfg.drift.mode == "commit"
     assert cfg.drift.min_confidence_delta == 0.2
     assert cfg.drift.hysteresis_runs == 1
@@ -140,6 +142,8 @@ output:
   header: "# Custom header"
   include_unowned: true
   include_confidence: true
+  max_bytes: 1000000
+  verify_round_trip: false
 drift:
   mode: repo
   min_confidence_delta: 0.4
@@ -186,6 +190,8 @@ identity:
     assert cfg.output.header == "# Custom header"
     assert cfg.output.include_unowned is True
     assert cfg.output.include_confidence is True
+    assert cfg.output.max_bytes == 1_000_000
+    assert cfg.output.verify_round_trip is False
     assert cfg.drift.mode == "repo"
     assert cfg.drift.min_confidence_delta == 0.4
     assert cfg.drift.hysteresis_runs == 3

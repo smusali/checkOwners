@@ -22,6 +22,7 @@ from checkowners.action_report import (
 from checkowners.analyze import resolve_as_of
 from checkowners.balance import BalanceReport
 from checkowners.cli import _merge_identities, _owner_payload, _resolve_github_owners, app
+from checkowners.generate import SIZE_WARN_BYTES, CodeownersVerificationError
 from checkowners.models import (
     OWNERSHIP_MODEL_VERSION,
     AnalysisCompleteness,
@@ -296,6 +297,8 @@ def test_generate_json() -> None:
     assert "CODEOWNERS" in data["path"]
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["bytes_written"] == len(b"content")
+    assert data["rules_written"] == 1
 
 
 # --- print ---
@@ -483,6 +486,8 @@ def test_sync_json() -> None:
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["committed"] is True
+    assert data["bytes_written"] == len(b"content")
+    assert data["rules_written"] == 1
 
 
 def test_sync_git_commit_error() -> None:
@@ -922,7 +927,10 @@ def test_sync_noop_when_already_in_sync() -> None:
     ):
         result = runner.invoke(app, ["sync", "--json"])
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["committed"] is False
+    data = json.loads(result.stdout)
+    assert data["committed"] is False
+    assert data["bytes_written"] == len(b"content")
+    assert data["rules_written"] == 1
     mock_run.assert_not_called()
 
 
@@ -936,6 +944,106 @@ def test_generate_refuses_handwritten_before_analyzing(tmp_path: Path) -> None:
         result = runner.invoke(app, ["generate"])
     assert result.exit_code == 1
     mock_analyze.assert_not_called()
+
+
+def test_generate_verification_failure_exits() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch(
+            "checkowners.cli.generate_codeowners",
+            side_effect=CodeownersVerificationError(
+                "Round-trip verification failed for src/a.py: "
+                "intended @alice, resolved @bob, winning rule: * @bob"
+            ),
+        ),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["generate"])
+    assert result.exit_code == 1
+    assert "src/a.py" in result.stdout
+    assert "@alice" in result.stdout
+    assert "* @bob" in result.stdout
+
+
+def test_sync_verification_failure_does_not_commit() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch(
+            "checkowners.cli.generate_codeowners",
+            side_effect=CodeownersVerificationError("round-trip failed"),
+        ),
+        patch("checkowners.cli.subprocess.run") as mock_run,
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["sync"])
+    assert result.exit_code == 1
+    mock_run.assert_not_called()
+
+
+def test_generate_warns_at_two_megabytes() -> None:
+    huge = "x" * SIZE_WARN_BYTES
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_codeowners", return_value=huge),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["generate"])
+    assert result.exit_code == 0
+    combined = result.stdout + result.stderr
+    assert "2 MB" in combined
+
+
+def test_explain_path_json(tmp_path: Path) -> None:
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("* @global\n/src/ @alice\n", encoding="utf-8")
+    with patch("checkowners.cli.find_codeowners_path", return_value=target):
+        result = runner.invoke(app, ["explain-path", "src/a.py", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["path"] == "src/a.py"
+    assert data["winner"]["pattern"] == "/src/"
+    assert data["winner"]["owners"] == ["@alice"]
+    assert len(data["matches"]) == 2
+    assert data["matches"][0]["wins"] is False
+    assert data["matches"][-1]["wins"] is True
+
+
+def test_explain_path_missing_file(tmp_path: Path) -> None:
+    missing = tmp_path / "CODEOWNERS"
+    with patch("checkowners.cli.find_codeowners_path", return_value=missing):
+        result = runner.invoke(app, ["explain-path", "src/a.py"])
+    assert result.exit_code == 1
+    assert "No CODEOWNERS file found" in result.stdout
+
+
+def test_explain_path_human_chain(tmp_path: Path) -> None:
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("* @global\n/src/ @alice\ninternal/secret.py\n", encoding="utf-8")
+    with patch("checkowners.cli.find_codeowners_path", return_value=target):
+        owned = runner.invoke(app, ["explain-path", "src/a.py"])
+        exempt = runner.invoke(app, ["explain-path", "internal/secret.py"])
+    assert owned.exit_code == 0
+    assert "* @global" in owned.stdout
+    assert "/src/ @alice" in owned.stdout
+    assert "winner" in owned.stdout
+    assert exempt.exit_code == 0
+    assert "(none)" in exempt.stdout
+
+
+def test_explain_path_unmatched(tmp_path: Path) -> None:
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("/src/ @alice\n", encoding="utf-8")
+    with patch("checkowners.cli.find_codeowners_path", return_value=target):
+        human = runner.invoke(app, ["explain-path", "docs/readme.md"])
+        json_result = runner.invoke(app, ["explain-path", "docs/readme.md", "--json"])
+    assert human.exit_code == 0
+    assert "No CODEOWNERS rule matches" in human.stdout
+    data = json.loads(json_result.stdout)
+    assert data["winner"] is None
+    assert data["matches"] == []
 
 
 def test_validate_errors_render_brackets_verbatim() -> None:

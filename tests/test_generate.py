@@ -282,6 +282,20 @@ def test_team_resolution_collapses_owner_set() -> None:
     assert "/src/main.py @acme/backend" in content
 
 
+def test_team_resolution_keeps_handles_when_no_team() -> None:
+    config = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.0),
+        github=GithubConfig(org="acme", resolve_teams=True),
+    )
+    ownership = _make_ownership({"src/main.py": (_entry("@alice", 0.9),)})
+    with patch(
+        "checkowners.generate.create_team_resolver",
+        return_value=lambda _owners: None,
+    ):
+        content = _build_codeowners_content(ownership, config, token="t", org="acme")
+    assert "/src/main.py @alice" in content
+
+
 def test_output_ends_with_newline() -> None:
     ownership = _make_ownership({"src/main.py": (_entry("@alice", 0.9),)})
     content = _build_codeowners_content(ownership, _zero_threshold())
@@ -314,6 +328,18 @@ def test_colliding_sanitized_patterns_merge_owners() -> None:
     content = _build_codeowners_content(ownership, config)
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
     assert lines == ["/app/*/page.tsx @alice", "/app/*/view.tsx @bob"]
+
+
+def test_identical_sanitized_patterns_merge_owner_sets() -> None:
+    ownership = _make_ownership(
+        {
+            "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
+            "app/[userId]/page.tsx": (_entry("@bob", 0.6),),
+        }
+    )
+    content = _build_codeowners_content(ownership, _zero_threshold(consolidate=False))
+    lines = [line for line in content.splitlines() if line and not line.startswith("#")]
+    assert lines == ["/app/*/page.tsx @alice @bob"]
 
 
 def test_pattern_spaces_escaped_on_write() -> None:
@@ -370,6 +396,16 @@ def test_generate_refuses_over_max_bytes(tmp_path: Path) -> None:
     with pytest.raises(CodeownersSizeError, match=r"output\.max_bytes"):
         generate_codeowners(tmp_path, ownership, config)
     assert not (tmp_path / ".github" / "CODEOWNERS").exists()
+
+
+def test_generate_skips_round_trip_when_disabled(tmp_path: Path) -> None:
+    ownership = _make_ownership({"src/main.py": (_entry("@alice", 0.9),)})
+    config = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.0),
+        output=OutputConfig(verify_round_trip=False),
+    )
+    content = generate_codeowners(tmp_path, ownership, config)
+    assert "@alice" in content
 
 
 def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:

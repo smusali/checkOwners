@@ -1011,6 +1011,41 @@ def test_explain_path_json(tmp_path: Path) -> None:
     assert data["matches"][-1]["wins"] is True
 
 
+def test_explain_path_missing_file(tmp_path: Path) -> None:
+    missing = tmp_path / "CODEOWNERS"
+    with patch("checkowners.cli.find_codeowners_path", return_value=missing):
+        result = runner.invoke(app, ["explain-path", "src/a.py"])
+    assert result.exit_code == 1
+    assert "No CODEOWNERS file found" in result.stdout
+
+
+def test_explain_path_human_chain(tmp_path: Path) -> None:
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("* @global\n/src/ @alice\ninternal/secret.py\n", encoding="utf-8")
+    with patch("checkowners.cli.find_codeowners_path", return_value=target):
+        owned = runner.invoke(app, ["explain-path", "src/a.py"])
+        exempt = runner.invoke(app, ["explain-path", "internal/secret.py"])
+    assert owned.exit_code == 0
+    assert "* @global" in owned.stdout
+    assert "/src/ @alice" in owned.stdout
+    assert "winner" in owned.stdout
+    assert exempt.exit_code == 0
+    assert "(none)" in exempt.stdout
+
+
+def test_explain_path_unmatched(tmp_path: Path) -> None:
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("/src/ @alice\n", encoding="utf-8")
+    with patch("checkowners.cli.find_codeowners_path", return_value=target):
+        human = runner.invoke(app, ["explain-path", "docs/readme.md"])
+        json_result = runner.invoke(app, ["explain-path", "docs/readme.md", "--json"])
+    assert human.exit_code == 0
+    assert "No CODEOWNERS rule matches" in human.stdout
+    data = json.loads(json_result.stdout)
+    assert data["winner"] is None
+    assert data["matches"] == []
+
+
 def test_validate_errors_render_brackets_verbatim() -> None:
     """Rich markup must not swallow [segments] from user paths."""
     errors = [

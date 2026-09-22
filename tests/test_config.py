@@ -523,3 +523,84 @@ def test_unknown_config_version_and_keys_rejected(tmp_path: Path, content: str, 
     root = _write_config(tmp_path, content)
     with pytest.raises(ValueError, match=match):
         load_config(repo_root=root)
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        ("version: 2\nanalysis: []\n", "analysis must be a mapping"),
+        ("version: 2\nsuppressions: {}\n", "suppressions must be a list"),
+        ("version: 2\nanalysis:\n  max_owners: '4'\n", "analysis.max_owners must be an integer"),
+        (
+            "version: 2\nanalysis:\n  max_owners: 4\n  top_n_owners: 3\n",
+            "disagree",
+        ),
+        ("version: 2\nbots:\n  exclude: 1\n", "bots.exclude must be a boolean"),
+        (
+            "version: 2\nanalysis:\n  exclude_bots: true\nbots:\n  exclude: false\n",
+            "bots.exclude and analysis.exclude_bots disagree",
+        ),
+        (
+            "version: 2\nscoring:\n  review_weight: 0.2\n"
+            "model:\n  signals:\n    reviews:\n      weight: 0.3\n",
+            "scoring.review_weight disagree",
+        ),
+    ],
+)
+def test_v2_invalid_aliases_rejected(tmp_path: Path, content: str, match: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)
+
+
+def test_v2_without_model_keeps_defaults(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "version: 2\n")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cfg = load_config(repo_root=root)
+    assert caught == []
+    assert cfg == Config()
+
+
+def test_v2_alias_edges_load(tmp_path: Path) -> None:
+    agreed = """\
+version: 2
+analysis:
+  max_owners: 4
+  top_n_owners: 4
+  exclude_bots: false
+bots:
+  exclude: false
+scoring:
+  review_weight: 0.2
+model:
+  signals:
+    reviews:
+      weight: 0.2
+suppressions:
+  - path: legacy/**
+    rule: stale
+    reason: later
+"""
+    omitted = """\
+version: 2
+analysis:
+  lookback_days: 30
+bots: {}
+"""
+    agreed_dir = tmp_path / "agreed"
+    omitted_dir = tmp_path / "omitted"
+    agreed_dir.mkdir()
+    omitted_dir.mkdir()
+    agreed_root = _write_config(agreed_dir, agreed)
+    omitted_root = _write_config(omitted_dir, omitted)
+    agreed_cfg = load_config(repo_root=agreed_root)
+    omitted_cfg = load_config(repo_root=omitted_root)
+    assert agreed_cfg.analysis.top_n_owners == 4
+    assert agreed_cfg.analysis.exclude_bots is False
+    assert agreed_cfg.scoring.review_weight == 0.2
+    assert agreed_cfg.suppressions[0].path == "legacy/**"
+    assert agreed_cfg.suppressions[0].rule == "stale"
+    assert omitted_cfg.analysis.lookback_days == 30
+    assert omitted_cfg.analysis.top_n_owners == 3
+    assert omitted_cfg.analysis.exclude_bots is True

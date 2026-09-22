@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Protocol
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,6 +24,7 @@ from checkowners.action_report import (
 )
 from checkowners.analyze import resolve_as_of
 from checkowners.balance import BalanceReport
+from checkowners.busfactor import BusFactorReport
 from checkowners.cli import (
     _days_since,
     _declared_owners,
@@ -34,6 +36,7 @@ from checkowners.cli import (
     _signal_label,
     app,
 )
+from checkowners.decay import DecayReport
 from checkowners.explain import ExplainedOwner, PathExplanation
 from checkowners.generate import (
     SIZE_WARN_BYTES,
@@ -45,6 +48,7 @@ from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
     OWNERSHIP_MODEL_VERSION,
     AnalysisCompleteness,
+    BusFactor,
     ConfidenceScore,
     Config,
     DecayWarning,
@@ -57,6 +61,7 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
     SignalScore,
+    TeamCluster,
     models_payload,
 )
 from checkowners.onboard import OnboardingPath
@@ -988,6 +993,167 @@ def test_resolve_github_owners_keeps_analysis_ref() -> None:
     assert result.paths["src/auth.py"].decay_warnings[0].handle == "@dave"
     skipped = _resolve_github_owners(_OWNERSHIP, Config(github=GithubConfig(resolve_handles=False)))
     assert skipped is _OWNERSHIP
+
+
+class _CommandOutput(Protocol):
+    stdout: str
+    stderr: str
+
+
+def _models_text(result: _CommandOutput) -> str:
+    return result.stdout + result.stderr
+
+
+def test_graph_reports_topology_model() -> None:
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP),
+        patch("checkowners.cli._build_or_load_graph", return_value=object()),
+        patch("checkowners.cli.to_text", return_value="graph\n"),
+        patch("checkowners.cli.to_dot", return_value="graph {\n}\n"),
+    ):
+        plain = runner.invoke(app, ["graph"])
+        exported = runner.invoke(app, ["graph", "--export", "dot"])
+    assert plain.exit_code == 0
+    assert "models: topology" in _models_text(plain)
+    assert exported.exit_code == 0
+    assert "models: topology" in _models_text(exported)
+
+
+def test_decay_reports_ownership_and_risk_models() -> None:
+    warning = DecayWarning(
+        handle="@dave",
+        path="src/auth.py",
+        last_commit=_NOW,
+        days_since_last_commit=40,
+        historical_confidence=0.8,
+    )
+    report = DecayReport(warning=warning, recommended_transfer="@alice", departed=True)
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_decay", return_value=()),
+        _MOCK_TOKEN,
+    ):
+        quiet = runner.invoke(app, ["decay"])
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_decay", return_value=(report,)),
+        _MOCK_TOKEN,
+    ):
+        listed = runner.invoke(app, ["decay"])
+    assert quiet.exit_code == 0
+    assert "models: ownership" in _models_text(quiet)
+    assert "risk" in _models_text(quiet)
+    assert listed.exit_code == 0
+    assert "@dave" in listed.stdout
+    assert "models: ownership" in _models_text(listed)
+
+
+def test_qualified_owners_reports_risk_model() -> None:
+    empty = BusFactorReport(entries=(), repo_average=0.0, qualified_owner_count_cap=3)
+    filled = BusFactorReport(
+        entries=(
+            BusFactor(
+                path="src/main.py",
+                qualified_owner_count=1,
+                contributors_above_threshold=("@alice",),
+                recommended_backups=("@bob",),
+            ),
+        ),
+        repo_average=1.0,
+        qualified_owner_count_cap=3,
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.compute_qualified_owners", return_value=empty),
+        _MOCK_TOKEN,
+    ):
+        quiet = runner.invoke(app, ["qualified-owners", "--all"])
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.compute_qualified_owners", return_value=filled),
+        _MOCK_TOKEN,
+    ):
+        listed = runner.invoke(app, ["qualified-owners", "--all"])
+    assert quiet.exit_code == 0
+    assert "models: risk" in _models_text(quiet)
+    assert listed.exit_code == 0
+    assert "src/main.py" in listed.stdout
+    assert "models: risk" in _models_text(listed)
+
+
+def test_topology_reports_topology_model() -> None:
+    empty = TopologyReport(clusters=(), mismatches=())
+    filled = TopologyReport(
+        clusters=(
+            TeamCluster(
+                name="platform",
+                members=("@alice",),
+                primary_paths=("src/",),
+                declared=True,
+            ),
+        ),
+        mismatches=("platform is missing @bob",),
+    )
+    agreed = TopologyReport(clusters=filled.clusters, mismatches=())
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.infer_topology", return_value=empty),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        quiet = runner.invoke(app, ["topology"])
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.infer_topology", return_value=filled),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        listed = runner.invoke(app, ["topology"])
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.infer_topology", return_value=agreed),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        matched = runner.invoke(app, ["topology"])
+    assert quiet.exit_code == 0
+    assert "models: topology" in _models_text(quiet)
+    assert listed.exit_code == 0
+    assert "platform" in listed.stdout
+    assert "missing @bob" in listed.stdout
+    assert "models: topology" in _models_text(listed)
+    assert matched.exit_code == 0
+    assert "models: topology" in _models_text(matched)
+
+
+def test_expertise_reports_ownership_model() -> None:
+    rank = ExpertiseRank(handle="@alice", confidence=0.8, commits=3, last_commit=_NOW)
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.rank_expertise", return_value=()),
+        _MOCK_TOKEN,
+    ):
+        quiet = runner.invoke(app, ["expertise", "src/main.py"])
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.rank_expertise", return_value=(rank,)),
+        _MOCK_TOKEN,
+    ):
+        listed = runner.invoke(app, ["expertise", "src/main.py"])
+    assert quiet.exit_code == 0
+    assert "models: ownership" in _models_text(quiet)
+    assert listed.exit_code == 0
+    assert "@alice" in listed.stdout
+    assert "models: ownership" in _models_text(listed)
+
+
+def test_trends_without_history_reports_ownership_model() -> None:
+    empty = TrendReport(points=(), periods=6, period_days=30)
+    with patch("checkowners.cli.analyze_trends", return_value=empty):
+        result = runner.invoke(app, ["trends"])
+    assert result.exit_code == 0
+    assert "No history" in result.stdout
+    assert "models: ownership" in _models_text(result)
 
 
 def test_expertise_json_null_last_commit() -> None:

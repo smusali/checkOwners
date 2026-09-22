@@ -221,6 +221,31 @@ def _as_list(value: object) -> list[object]:
     return value if isinstance(value, list) else []
 
 
+def _as_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value
+
+
+def _ratchet_counts(data: dict[str, object]) -> dict[str, int]:
+    stale = data.get("stale_baseline")
+    stale_count = len(stale) if isinstance(stale, list) else _as_int(stale)
+    return {
+        "baselined": _as_int(data.get("baselined")),
+        "stale_baseline": stale_count,
+        "suppressed": _as_int(data.get("suppressed")),
+    }
+
+
+def _ratchet_line(data: dict[str, object]) -> str:
+    counts = _ratchet_counts(data)
+    return (
+        f"Baselined: {counts['baselined']}. "
+        f"Suppressed: {counts['suppressed']}. "
+        f"Stale baseline: {counts['stale_baseline']}."
+    )
+
+
 def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
     """Build a bounded drift summary from full CLI drift JSON (`data`, `limit`)."""
     missing = _as_list(data.get("missing"))
@@ -243,6 +268,7 @@ def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
             "missing": len(missing),
             "stale": len(stale),
             "changed": len(changed),
+            **_ratchet_counts(data),
         },
         "missing": trimmed_missing,
         "stale": trimmed_stale,
@@ -275,7 +301,7 @@ def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, objec
         "repo_average": data.get("repo_average"),
         "qualified_owner_count_cap": cap,
         "deprecated_keys": ["bus_factor"],
-        "counts": counts,
+        "counts": {**counts, **_ratchet_counts(data)},
         "critical_paths": trimmed_paths,
         "truncated": paths_cut or bool(entries),
     }
@@ -421,6 +447,7 @@ def build(*, limit: int | None = None) -> str:
             parts.pop()
     else:
         parts.append("No drift detected.")
+    parts.append(_ratchet_line(drift))
 
     need_artifact = extra > 0 or path_cut
     if need_artifact:

@@ -56,6 +56,8 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.drift.mode == "commit"
     assert cfg.drift.min_confidence_delta == 0.2
     assert cfg.drift.hysteresis_runs == 1
+    assert cfg.drift.baseline_file == ""
+    assert cfg.suppressions == ()
     assert cfg.notifications.webhook_url == ""
     assert cfg.notifications.include_unchanged is False
     assert cfg.notifications.severity_threshold == "medium"
@@ -198,6 +200,8 @@ identity:
     assert cfg.drift.mode == "repo"
     assert cfg.drift.min_confidence_delta == 0.4
     assert cfg.drift.hysteresis_runs == 3
+    assert cfg.drift.baseline_file == ""
+    assert cfg.suppressions == ()
     assert cfg.notifications.webhook_url == "https://hooks.example.com/drift"
     assert cfg.notifications.include_unchanged is True
     assert cfg.notifications.severity_threshold == "high"

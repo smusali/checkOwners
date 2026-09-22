@@ -159,6 +159,7 @@ def _find_stale(
                 path=rule.pattern,
                 confidence_delta=1.0,
                 reason=f"pattern matches no tracked file (line {rule.line_number})",
+                owners=rule.owners,
             )
         )
     return entries
@@ -213,6 +214,7 @@ def _find_changed(
                 ),
                 qualified_owner_count=qualified_owner_count,
                 decay=decay,
+                owners=rule.owners,
             )
         )
     if team_rules_skipped:

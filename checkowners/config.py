@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 from typing import Any, TypeGuard, get_args
 
@@ -16,6 +17,7 @@ from checkowners.models import (
     DecayConfig,
     DriftConfig,
     DriftMode,
+    FindingRule,
     GitConfig,
     GithubConfig,
     NotificationsConfig,
@@ -25,6 +27,7 @@ from checkowners.models import (
     QualificationStrategy,
     ScoringConfig,
     Severity,
+    Suppression,
 )
 
 CONFIG_FILENAME = ".github/checkowners.yml"
@@ -38,6 +41,10 @@ CONFIG_ENV_VAR = "CHECKOWNERS_CONFIG"
 #: its ``mode`` input regardless of the committed checkowners.yml).
 DRIFT_MODE_ENV_VAR = "CHECKOWNERS_DRIFT_MODE"
 
+#: Environment override for ``drift.baseline_file`` (used by the GitHub Action
+#: to honor its ``baseline`` input).
+BASELINE_ENV_VAR = "CHECKOWNERS_BASELINE"
+
 _CODEOWNERS_CANDIDATES: tuple[str, ...] = (
     ".github/CODEOWNERS",
     "CODEOWNERS",
@@ -49,6 +56,7 @@ _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 _VALID_DRIFT_MODES: frozenset[str] = frozenset(get_args(DriftMode))
 _VALID_SEVERITIES: frozenset[str] = frozenset(get_args(Severity))
 _VALID_QUALIFICATION_STRATEGIES: frozenset[str] = frozenset(get_args(QualificationStrategy))
+_VALID_FINDING_RULES: frozenset[str] = frozenset(get_args(FindingRule))
 
 
 def _is_drift_mode(value: str) -> TypeGuard[DriftMode]:
@@ -61,6 +69,10 @@ def _is_severity(value: str) -> TypeGuard[Severity]:
 
 def _is_qualification_strategy(value: str) -> TypeGuard[QualificationStrategy]:
     return value in _VALID_QUALIFICATION_STRATEGIES
+
+
+def _is_finding_rule(value: str) -> TypeGuard[FindingRule]:
+    return value in _VALID_FINDING_RULES
 
 
 def find_codeowners_path(repo_root: Path) -> Path:
@@ -98,15 +110,18 @@ def _resolve_config_path(repo_root: Path | None) -> Path:
 def _apply_env_overrides(config: Config) -> Config:
     """Apply environment-variable overrides on top of the loaded config."""
     mode_override = os.environ.get(DRIFT_MODE_ENV_VAR)
-    if not mode_override:
-        return config
-    if not _is_drift_mode(mode_override):
-        msg = (
-            f"Invalid {DRIFT_MODE_ENV_VAR}: {mode_override!r}; "
-            f"expected one of {sorted(_VALID_DRIFT_MODES)}"
-        )
-        raise ValueError(msg)
-    return replace(config, drift=replace(config.drift, mode=mode_override))
+    if mode_override:
+        if not _is_drift_mode(mode_override):
+            msg = (
+                f"Invalid {DRIFT_MODE_ENV_VAR}: {mode_override!r}; "
+                f"expected one of {sorted(_VALID_DRIFT_MODES)}"
+            )
+            raise ValueError(msg)
+        config = replace(config, drift=replace(config.drift, mode=mode_override))
+    baseline_override = os.environ.get(BASELINE_ENV_VAR, "").strip()
+    if baseline_override:
+        config = replace(config, drift=replace(config.drift, baseline_file=baseline_override))
+    return config
 
 
 def _merge_config(raw: dict[str, Any]) -> Config:
@@ -138,6 +153,8 @@ def _merge_config(raw: dict[str, Any]) -> Config:
         kwargs.get("git", GitConfig()),
         _mapping_section(raw, "identity"),
     )
+    if "suppressions" in raw:
+        kwargs["suppressions"] = _build_suppressions(raw["suppressions"])
     return Config(**kwargs)
 
 
@@ -275,7 +292,58 @@ def _build_drift_config(data: dict[str, Any]) -> DriftConfig:
             msg = f"Invalid drift.hysteresis_runs: {runs!r}; expected an integer >= 1"
             raise ValueError(msg)
         kwargs["hysteresis_runs"] = runs
+    if "baseline_file" in data:
+        kwargs["baseline_file"] = str(data["baseline_file"])
     return DriftConfig(**kwargs)
+
+
+def _build_suppressions(raw: object) -> tuple[Suppression, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        msg = "Invalid suppressions: expected a YAML list"
+        raise ValueError(msg)
+    return tuple(_build_suppression(item, index) for index, item in enumerate(raw))
+
+
+def _build_suppression(data: object, index: int) -> Suppression:
+    prefix = f"suppressions[{index}]"
+    if not isinstance(data, dict):
+        msg = f"Invalid {prefix}: expected a mapping"
+        raise ValueError(msg)
+    if "path" not in data:
+        msg = f"Invalid {prefix}: path is required"
+        raise ValueError(msg)
+    if "rule" not in data:
+        msg = f"Invalid {prefix}: rule is required"
+        raise ValueError(msg)
+    if "reason" not in data:
+        msg = f"Invalid {prefix}: reason is required"
+        raise ValueError(msg)
+    path = str(data["path"]).strip()
+    rule = str(data["rule"]).strip()
+    reason = str(data["reason"]).strip()
+    if not path:
+        msg = f"Invalid {prefix}: path is required"
+        raise ValueError(msg)
+    if not rule:
+        msg = f"Invalid {prefix}: rule is required"
+        raise ValueError(msg)
+    if not reason:
+        msg = f"Invalid {prefix}: reason is required"
+        raise ValueError(msg)
+    if not _is_finding_rule(rule):
+        msg = f"Invalid {prefix}.rule: {rule!r}; expected one of {sorted(_VALID_FINDING_RULES)}"
+        raise ValueError(msg)
+    expires: date | None = None
+    raw_expires = data.get("expires")
+    if raw_expires is not None and str(raw_expires).strip():
+        try:
+            expires = date.fromisoformat(str(raw_expires))
+        except ValueError:
+            msg = f"Invalid {prefix}.expires: {raw_expires!r}; expected YYYY-MM-DD"
+            raise ValueError(msg) from None
+    return Suppression(path=path, rule=rule, reason=reason, expires=expires)
 
 
 def _expand_env_ref(raw: str) -> str:

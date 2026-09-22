@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 Severity = Literal["low", "medium", "high", "critical"]
 DriftMode = Literal["commit", "repo", "both"]
 QualificationStrategy = Literal["adaptive", "threshold"]
+FindingRule = Literal["missing", "stale", "changed", "single-expert"]
 
 OWNERSHIP_MODEL_VERSION = "ownership-v3"
 COMMAND_SCHEMA_VERSION = "1.0"
@@ -96,6 +97,32 @@ class DriftConfig:
     mode: DriftMode = "commit"
     min_confidence_delta: float = 0.2
     hysteresis_runs: int = 1
+    baseline_file: str = ""
+
+
+@dataclass(frozen=True)
+class Suppression:
+    path: str
+    rule: FindingRule
+    reason: str
+    expires: date | None = None
+
+
+@dataclass(frozen=True)
+class Finding:
+    rule: FindingRule
+    path: str
+    owners: tuple[str, ...] = ()
+
+    def identity(self) -> tuple[str, str, tuple[str, ...]]:
+        return (self.rule, self.path, tuple(sorted(owner.casefold() for owner in self.owners)))
+
+
+@dataclass(frozen=True)
+class RatchetCounts:
+    baselined: int = 0
+    suppressed: int = 0
+    stale_baseline: int = 0
 
 
 @dataclass(frozen=True)
@@ -134,6 +161,7 @@ class Config:
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     github: GithubConfig = field(default_factory=GithubConfig)
     git: GitConfig = field(default_factory=GitConfig)
+    suppressions: tuple[Suppression, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -260,6 +288,7 @@ class DriftEntry:
     reason: str = ""
     qualified_owner_count: int | None = None
     decay: bool = False
+    owners: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

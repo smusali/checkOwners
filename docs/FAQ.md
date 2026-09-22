@@ -45,11 +45,11 @@ No. The core inference is pure git and runs offline. A token is only needed for 
 |---------|-------------|-----------------------|
 | Email to `@username` resolution (non-noreply emails) | `github.resolve_handles` | GitHub user-search API |
 | Team / subteam resolution | `github.resolve_teams` + `github.org` | List org teams + members |
-| Review-load + topology reconciliation | `github.api_enabled` | PR review API + team membership |
+| Review history and team reconciliation | `github.api_enabled` | PR review API + team membership |
 
 Noreply emails (`login@users.noreply.github.com`) resolve to `@login` without any token. The API-backed features also need the `github` extra (`pip install "checkowners[github]"`); without it they degrade gracefully with a log hint.
 
-Without a token you still get scored ownership, drift detection, qualified owner counts, expertise decay, and onboarding paths; they just operate on email handles and skip the review-activity signal. Remaining weights are renormalized so the score stays on `[0, 1]`.
+Without a token you still get scored ownership, drift detection, qualified owner counts, ownership freshness, and onboarding paths; they just operate on email handles and skip the review-activity signal. Remaining weights are renormalized so the score stays on `[0, 1]`. What that score is, and what it is not, is in [Methodology](METHODOLOGY.md). When it can be wrong is in [Limitations](limitations.md).
 
 ### What environment variable holds the token?
 
@@ -129,7 +129,7 @@ ownership_score  = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
 evidence_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
 ```
 
-Weights and per-signal `*_reliability` defaults live under `scoring`. The score is always on `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. JSON emits `ownership_score` plus a deprecated `confidence` alias for one cycle. This is a ranking signal, not a calibrated probability. If you gate CI on a threshold, re-check it after upgrading: offline scores are no longer capped at `0.85`.
+Weights and per-signal `*_reliability` defaults live under `scoring`. The score is always on `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. JSON emits `ownership_score` plus a deprecated `confidence` alias for one cycle. This is a ranking signal, not a calibrated probability. The formulas, what each signal proxies, the truck-factor divergence, and the project principles are in [Methodology](METHODOLOGY.md). When the tool can be wrong is in [Limitations](limitations.md). If you gate CI on a threshold, re-check it after upgrading: offline scores are no longer capped at `0.85`.
 
 ### Can I tune the inference for a high-turnover team?
 
@@ -137,7 +137,7 @@ Yes. Common tunings:
 
 ```yaml
 scoring:
-  recency_half_life_days: 45   # decay expertise faster
+  recency_half_life_days: 45   # shorten ownership freshness
   recency_weight: 0.5          # weigh "what did you touch last month" higher
 
 decay:
@@ -214,13 +214,13 @@ Any non-zero status fails the step. The Action fails from that process status wh
 
 ### Is this a performance-measurement tool?
 
-No. This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful. The project will not be positioned around who contributes least, who is really working, or which engineer is underperforming. Position it around repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. What is read, what leaves the machine, and how to delete the cache are in [Privacy](PRIVACY.md).
+No. This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful. The project will not be positioned around who contributes least, who is really working, or which engineer is underperforming. Position it around repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. The ten principles are in [Methodology](METHODOLOGY.md#principles). What repository evidence cannot prove is in [Limitations](limitations.md). What is read, what leaves the machine, and how to delete the cache are in [Privacy](PRIVACY.md).
 
 ### How does CheckOwners compare to other CODEOWNERS tools?
 
 CheckOwners treats code ownership as a scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
 
-Dedicated validators still go further on owner validity: they verify that accounts exist and that users and teams belong to the organization. Formal bus/truck-factor research tools run a removal simulation over a knowledge distribution. CheckOwners `qualified_owner_count` is a capped count of owners above the confidence threshold; it is not truck factor, bus factor, or lottery factor. See [Qualified owner count](USAGE.md#qualified-owner-count).
+Dedicated validators still go further on owner validity: they verify that accounts exist and that users and teams belong to the organization. Formal bus/truck-factor research tools run a removal simulation over a knowledge distribution. CheckOwners `qualified_owner_count` is a capped count of owners above the confidence threshold; it is not truck factor, bus factor, or lottery factor. See [Qualified owner count](USAGE.md#qualified-owner-count) and [Knowledge concentration](METHODOLOGY.md#knowledge-concentration).
 
 The full matrix and what each category does well live in [How checkowners compares](USAGE.md#how-checkowners-compares).
 

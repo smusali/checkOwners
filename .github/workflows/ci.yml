@@ -73,6 +73,9 @@ jobs:
       - name: Fail if the Action package pin is inconsistent
         run: python tools/check_changelog.py --check-pins
 
+      - name: Fail if a shipped metric has no methodology entry
+        run: python tools/check_methodology.py
+
   test:
     runs-on: ubuntu-latest
     permissions:

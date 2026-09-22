@@ -543,7 +543,12 @@ def test_payloads_include_why_not_and_null_last_commit() -> None:
     assert listed["schema_version"] == COMMAND_SCHEMA_VERSION
     assert listed["model_version"] == OWNERSHIP_MODEL_VERSION
     assert listed["models"] == models_payload()
-    assert listed["owners"] == [{"handle": "@alice", "ownership_score": 0.86}]
+    listed_owner = listed["owners"][0]
+    assert listed_owner["identity"] == "@alice"
+    assert listed_owner["handle"] == "@alice"
+    assert listed_owner["ownership_score"] == 0.86
+    assert listed_owner["last_commit"] is None
+    assert "review" not in listed_owner["signals"]
 
     explanation = PathExplanation(
         target="src/a.py",

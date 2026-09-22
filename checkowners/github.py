@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
+from contextvars import ContextVar
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from itertools import islice
 from typing import TYPE_CHECKING
 
@@ -18,6 +23,73 @@ if TYPE_CHECKING:
     from github.PullRequest import PullRequest
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _ApiEvidence:
+    collected_at: str
+    team_snapshot: str = ""
+
+
+_API_EVIDENCE: ContextVar[_ApiEvidence | None] = ContextVar(
+    "checkowners_api_evidence",
+    default=None,
+)
+
+
+def collection_timestamp() -> str:
+    """Return `SOURCE_DATE_EPOCH` as UTC ISO-8601, or the current UTC time."""
+    raw = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
+    if raw:
+        try:
+            seconds = int(raw)
+        except ValueError:
+            seconds = None
+        if seconds is not None:
+            return datetime.fromtimestamp(seconds, tz=UTC).isoformat()
+    return datetime.now(tz=UTC).isoformat()
+
+
+def team_snapshot_hash(teams: Mapping[str, Iterable[str]]) -> str:
+    """Return a stable sha256 of `teams` (sorted slugs and members)."""
+    canonical = {team: sorted(members) for team, members in sorted(teams.items())}
+    raw = json.dumps(canonical, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def note_api_call(teams: Mapping[str, Iterable[str]] | None = None) -> None:
+    """Record that a GitHub API call ran, keeping the first collection time."""
+    snapshot = team_snapshot_hash(teams) if teams is not None else ""
+    current = _API_EVIDENCE.get()
+    if current is None:
+        _API_EVIDENCE.set(_ApiEvidence(collected_at=collection_timestamp(), team_snapshot=snapshot))
+        return
+    _API_EVIDENCE.set(
+        _ApiEvidence(
+            collected_at=current.collected_at,
+            team_snapshot=snapshot or current.team_snapshot,
+        )
+    )
+
+
+def clear_api_evidence() -> None:
+    """Drop recorded API evidence for the current context."""
+    _API_EVIDENCE.set(None)
+
+
+def external_evidence_payload(repository_head: str) -> dict[str, str]:
+    """Return external-evidence fields when an API call ran, otherwise `{}`."""
+    record = _API_EVIDENCE.get()
+    if record is None:
+        return {}
+    payload = {
+        "github_evidence_collected_at": record.collected_at,
+        "repository_head": repository_head,
+    }
+    if record.team_snapshot:
+        payload["team_snapshot"] = record.team_snapshot
+    return payload
+
 
 #: GitHub noreply commit emails embed the login: "12345+login@users.noreply.
 #: github.com" (current form) or "login@users.noreply.github.com" (legacy).
@@ -114,6 +186,7 @@ def resolve_handles(
 
 def _lookup_handle(client: Github, email: str) -> str | None:
     """Look up a single email via GitHub user search API."""
+    note_api_call()
     try:
         users = client.search_users(f"{email} in:email")
         for user in users:
@@ -183,6 +256,7 @@ def _gather_review_counts_by_path(
     repo_full_name: str,
 ) -> dict[str, dict[str, int]]:
     """Count, per file path, how many reviews each reviewer login contributed."""
+    note_api_call()
     result: dict[str, dict[str, int]] = {}
     try:
         for pull in iter_recent_closed_pulls(client, repo_full_name):
@@ -241,7 +315,9 @@ def _get_org_teams(
         for team in gh_org.get_teams():
             members = {m.login for m in team.get_members()}
             teams[team.slug] = members
+        note_api_call(teams)
         return teams
     except Exception:
+        note_api_call()
         logger.warning("Failed to fetch teams for org %s", org)
         return {}

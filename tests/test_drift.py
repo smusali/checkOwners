@@ -7,10 +7,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from checkowners.drift import detect_drift, write_github_output
+from checkowners.drift import detect_drift, drift_entry_payload, write_github_output
 from checkowners.models import (
     Config,
+    DecayWarning,
     DriftConfig,
+    DriftEntry,
     DriftMode,
     OwnerEntry,
     OwnershipMap,
@@ -213,6 +215,62 @@ def test_github_output_written(tmp_path: Path) -> None:
     content = output_file.read_text(encoding="utf-8")
     assert content.startswith("checkowners_drift=")
     assert '"drift_detected": true' in content
+
+
+def test_stale_rule_payload_recommends_removal(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "/deleted-dir/ @alice\n/src/ @alice\n")
+    ownership = _ownership({"src/main.py": (_owner("@alice"),)})
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    payload = drift_entry_payload(result.stale[0], 3)
+    assert payload["drift"]["type"] == "stale_rule"
+    assert payload["recommendation"]["action"] == "remove_stale_rule"
+    assert "suggested_team" not in payload["recommendation"]
+
+
+def test_partial_overlap_with_decay_is_stale_declared_owner(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "src/ @alice @bob\n")
+    warning = DecayWarning(
+        handle="@alice",
+        path="src/main.py",
+        last_commit=_NOW,
+        days_since_last_commit=400,
+        historical_confidence=0.8,
+    )
+    ownership = OwnershipMap(
+        paths={
+            "src/main.py": PathOwnership(
+                owners=(_owner("@alice"), _owner("@carol")),
+                qualified_owner_count=2,
+                decay_warnings=(warning,),
+            )
+        },
+        last_analyzed=_NOW,
+    )
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    entry = result.changed[0]
+    assert entry.drift_type == "stale_declared_owner"
+    payload = drift_entry_payload(entry, 3)
+    assert payload["drift"]["type"] == "stale_declared_owner"
+    assert payload["recommendation"]["action"] == "review_codeowners_rule"
+    assert payload["decay"] is True
+
+
+def test_drift_entry_suggests_resolved_team() -> None:
+    entry = DriftEntry(
+        path="src/",
+        confidence_delta=0.4,
+        reason="owners diverge",
+        owners=("@alice",),
+        observed_owners=("@bob",),
+        observed_teams=("@org/backend", "@org/other"),
+        drift_type="owner_mismatch",
+        qualified_owner_count=1,
+    )
+    payload = drift_entry_payload(entry, 3)
+    assert payload["recommendation"]["suggested_team"] == "@org/backend"
+    assert payload["qualified_owner_count"] == 1
 
 
 def test_empty_ownership_and_no_codeowners(tmp_path: Path) -> None:

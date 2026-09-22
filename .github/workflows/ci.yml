@@ -152,6 +152,14 @@ jobs:
           # Confirm the artifacts have the expected top-level keys.
           python -c "import json; d=json.load(open('drift.json')); assert 'drift_detected' in d and 'severity' in d, d"
           python -c "import json; d=json.load(open('bus.json')); assert 'entries' in d, d"
+          python -m pip install --require-hashes -r requirements-dev.lock
+          python tools/check_json_contract.py \
+            analyze=analyze.json \
+            drift=drift.json \
+            qualified-owners=bus.json \
+            decay=decay.json \
+            topology=topology.json \
+            balance=balance.json
 
   token-missing-warning:
     runs-on: ubuntu-latest

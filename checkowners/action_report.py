@@ -10,6 +10,23 @@ from typing import TypeVar
 
 from checkowners.models import models_payload
 
+_PROVENANCE_KEYS = (
+    "checkowners_version",
+    "model_version",
+    "repository",
+    "head_sha",
+    "generated_at",
+    "analysis_completeness",
+    "github_evidence_collected_at",
+    "repository_head",
+    "team_snapshot",
+)
+
+
+def _copied_provenance(data: dict[str, object]) -> dict[str, object]:
+    return {key: data[key] for key in _PROVENANCE_KEYS if key in data}
+
+
 REPORT = Path("checkowners-report.md")
 DIAGNOSTIC = (
     "## CheckOwners\n\nDrift analysis did not finish. See the **Run checkowners** step logs.\n"
@@ -259,6 +276,7 @@ def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
     trimmed_changed, changed_cut = _trim(changed, limit)
     trimmed_notes, notes_cut = _trim(notes, limit)
     return {
+        **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "analysis_ref": data.get("analysis_ref", ""),
         "analysis_epoch": data.get("analysis_epoch", ""),
@@ -298,6 +316,7 @@ def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, objec
     if not isinstance(cap, int) or isinstance(cap, bool):
         cap = 3
     return {
+        **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "analysis_ref": data.get("analysis_ref", ""),
         "analysis_epoch": data.get("analysis_epoch", ""),
@@ -316,6 +335,7 @@ def summarize_decay(data: dict[str, object], limit: int) -> dict[str, object]:
     reports = _decay_reports(data)
     trimmed, cut = _trim(reports, limit)
     return {
+        **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "analysis_ref": data.get("analysis_ref", ""),
         "analysis_epoch": data.get("analysis_epoch", ""),

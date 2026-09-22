@@ -222,7 +222,7 @@ Commit emails are then rewritten to GitHub `@handles`, cheapest first:
 3. **Disk cache** at `~/.checkowners/handles.json`, including remembered misses, so the search API is queried at most once per email.
 4. **GitHub user-search API** (needs `GITHUB_TOKEN` and the `github` extra) for the rest.
 
-When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's qualified owner count is recomputed over distinct people. Analyze JSON reports `analysis_completeness.mailmap_applied` and `analysis_completeness.mailmap_file`.
+When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's qualified owner count is recomputed over distinct people. Analyze JSON reports `analysis.mailmap_applied` and `analysis.mailmap_file`.
 
 ## Ownership scoring
 
@@ -259,7 +259,7 @@ flowchart LR
 
 Weights and reliabilities are configurable under `scoring`. Review weight is omitted from the score when `github.api_enabled` is false; it is not filled in as `0.0`. The score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
-Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis_completeness.ignore_revs_applied` and `analysis_completeness.ignore_revs_file` so you can see whether that correction ran, `analysis_completeness.mailmap_applied` / `analysis_completeness.mailmap_file` for `.mailmap`, and `analysis_completeness.excluded_gitattributes` / `analysis_completeness.excluded_static` for how many paths each exclusion mechanism dropped. Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
+Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis.ignore_revs_applied` and `analysis.ignore_revs_file` so you can see whether that correction ran, `analysis.mailmap_applied` / `analysis.mailmap_file` for `.mailmap`, and `analysis.excluded_gitattributes` / `analysis.excluded_static` for how many paths each exclusion mechanism dropped. Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
 **Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3` and `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema v6; files whose model ids do not match are ignored. To restore the previous gate and undamped frequency for one cycle:
 
@@ -278,7 +278,9 @@ The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it
 
 `qualified_owner_count` is the number of owners on a path whose confidence is at or above `analysis.confidence_threshold`, taken from the list that has already been truncated to `analysis.top_n_owners` (default 3). Human output always states the cap: `3 (capped by top_n_owners=3)`. JSON emits `qualified_owner_count`, `qualified_owner_count_cap`, and the deprecated `bus_factor` alias for one minor cycle.
 
-This is not truck factor, bus factor, or lottery factor. Those metrics are a removal simulation over a knowledge distribution: the smallest set of contributors whose departure leaves a threshold fraction of files without an owner. CheckOwners does not compute knowledge shares, effective owner count, or TF50/75/90. Raising `top_n_owners` raises the maximum reportable count without any code changing hands. The `bus_factor:` config section still classifies this capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
+This is not truck factor, bus factor, or lottery factor. Those metrics are a removal simulation over a knowledge distribution: the smallest set of contributors whose departure leaves a threshold fraction of files without an owner. `qualified_owner_count` stays the capped threshold count. Raising `top_n_owners` raises the maximum reportable count without any code changing hands. It is not a repo-level truck factor.
+
+Per-path JSON also reports score mass under `risk`: `top_owner_share` (largest score divided by the sum of scores), `effective_owners` (the exponential of the Shannon entropy of the normalized scores), and `truck_factor_50` / `truck_factor_75` (the smallest owner count whose cumulative share reaches 0.50 / 0.75). Those numbers describe concentration of the scores already on that path. The `bus_factor:` config section still classifies the capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
 
 `checkowners qualified-owners` is the canonical command. `checkowners bus-factor` remains as a deprecated alias; that name will be redefined.
 
@@ -448,6 +450,41 @@ Representative tools, so the credits are reviewable: [tomasbjerre/generate-codeo
 - **Ownership-audit CLIs.** Coverage stats over the committed file (owned vs unowned, per-owner counts). CheckOwners scores inferred expertise and knowledge risk.
 - **Bus/truck-factor research tools.** Formal removal simulation over a knowledge distribution. CheckOwners reports a capped `qualified_owner_count` plus decay, topology, and balance. Those are not the same metric; see [Qualified owner count](#qualified-owner-count).
 - **Commercial behavioral analysis.** Mature framing around knowledge distribution, key-person risk, and team/code alignment. CheckOwners is the local-first open-source ownership-intelligence layer, not a commercial suite clone.
+
+## JSON contract
+
+Every `--json` command emits schema `1.0`. The document is [docs/schemas/commands-1.0.json](schemas/commands-1.0.json) (JSON Schema draft 2020-12). Each command is `#/$defs/<command>`. `bus-factor` uses `qualified-owners`. `who` uses `owners`.
+
+Shared fields on every command:
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | `"1.0"` |
+| `checkowners_version` | The installed package version |
+| `model_version` | `ownership-v3` |
+| `models` | `ownership`, `risk`, and `topology` ids |
+| `repository` | `GITHUB_REPOSITORY` when set, otherwise the repo directory name |
+| `head_sha` | HEAD at analysis time. Empty when HEAD cannot be read |
+| `generated_at` | The analysis instant (`--as-of`, `SOURCE_DATE_EPOCH`, or HEAD committer time), not the wall clock |
+| `analysis_completeness` | Fraction of scored `(owner, signal)` pairs that were available, over `recency`, `frequency`, `blame`, and `review`, rounded to 4 decimals. `null` when the command did not score owners (`validate`, `explain-path`, `trends`) |
+
+`analysis_ref` and `analysis_epoch` are still emitted and are deprecated copies of `head_sha` and `generated_at`. `print --json` puts path objects under `paths`, so a file cannot collide with an envelope key. On-disk baselines and `~/.checkowners` state are not stamped with this envelope. `baseline create --json` stdout is.
+
+`analyze` keeps ignore-revs, mailmap, and exclusion counts on `analysis`, next to `completeness` and `signals_available`. The envelope `analysis_completeness` is the float, not that object.
+
+When a GitHub API call ran in the process, the envelope also includes `github_evidence_collected_at` and `repository_head`. `team_snapshot` is present only when org teams were fetched. Cache-only and noreply-only resolution do not add these fields.
+
+Ownership objects (`owners`, `who`, and each path inside `analyze` and `print`) use `identity`, `ownership_score`, `evidence_quality`, and flat `signals` for available signals only. Unavailable signals are omitted. `handle` and `confidence` remain for one minor cycle. `explain` keeps its per-signal breakdown and only adds the envelope.
+
+Drift entries add a nested `drift` object (`severity`, `type`, `declared_observed_overlap`) and `recommendation`. The flat keys `confidence_delta`, `reason`, `decay`, `qualified_owner_count`, and `bus_factor` remain for one minor cycle.
+
+Stability:
+
+- The same `schema_version` may gain an optional property only when this schema file changes in the same commit. Do not remove, rename, or change the type of an existing property.
+- Those breaks bump `schema_version`.
+- A scoring-formula change bumps `model_version` even when the JSON types stay the same.
+- Deprecated properties remain through the next minor release, then disappear in a schema bump.
+- Action `GITHUB_OUTPUT` summaries are a separate integer contract, `schema_version: 2`. Adding fields there is allowed. Existing gates keep working: `checkowners_drift.drift_detected`, `checkowners_drift.severity`, `bus_factor_summary.critical_paths[0]`.
 
 ## Development
 

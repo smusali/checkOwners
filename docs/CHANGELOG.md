@@ -11,6 +11,20 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- `--json` output for every command uses schema `1.0` ([docs/schemas/commands-1.0.json](schemas/commands-1.0.json)).
+  The envelope carries `schema_version`, `checkowners_version`, `model_version`, `models`,
+  `repository`, `head_sha`, `generated_at`, and `analysis_completeness` (a float, or `null`
+  when the command did not score owners). `analysis_ref` and `analysis_epoch` stay as
+  deprecated copies. Analyze flags (ignore-revs, mailmap, exclusion counts) live under
+  `analysis`. `print --json` wraps paths under `paths`. Owner objects use `identity`,
+  flat available `signals`, and per-path `risk` (`top_owner_share`, `effective_owners`,
+  `truck_factor_50`, `truck_factor_75`). Drift entries add nested `drift` and
+  `recommendation` objects; the previous flat keys stay for one minor cycle. A GitHub
+  API call also stamps `github_evidence_collected_at`, `repository_head`, and, when teams
+  were fetched, `team_snapshot`. On-disk baselines and `~/.checkowners` state are unchanged.
+  Action `GITHUB_OUTPUT` summaries stay integer `schema_version: 2`. Within `1.0`, new
+  fields are optional and ship with a schema update; removals, renames, and type changes
+  bump `schema_version`. Formula changes bump `model_version`.
 - Configuration schema `version: 2` with `model.ownership`, `model.risk`, and
   `model.topology` pins (`ownership-v3`, `risk-v1`, `topology-v1`). Every JSON
   payload carries `models`. Human reports print the applicable ids on stderr.

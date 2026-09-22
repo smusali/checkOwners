@@ -426,6 +426,41 @@ checkowners --exit-zero drift --json
 
 A git failure is not a clean result. `drift` no longer treats a failed `git ls-files` as "no stale rules."
 
+## Pre-commit
+
+Other repositories adopt the hooks from `.pre-commit-hooks.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/smusali/checkowners
+    rev: <commit sha>
+    hooks:
+      - id: checkowners-validate
+      - id: checkowners-drift
+```
+
+Pin `rev` to a full commit SHA until the `0.6.0` tag exists. Pre-commit installs the package from that git ref (`language: python`).
+
+`checkowners-validate` runs `checkowners validate` at the `pre-commit`, `pre-merge-commit`, `pre-push`, and `manual` stages. It runs only when a changed path is `CODEOWNERS`, `.github/CODEOWNERS`, or `docs/CODEOWNERS`. A syntax error exits 3 and blocks the commit. A clean file exits 0.
+
+`checkowners-drift` runs `checkowners drift --baseline .checkowners-baseline.json` at `pre-push` only, on any pushed change. Create the baseline first:
+
+```bash
+checkowners baseline create
+```
+
+A missing or invalid baseline exits 2 and the push hook fails. Findings that remain after the baseline ratchet exit 3. A clean ratchet exits 0. A git failure exits 4.
+
+Pre-commit treats every non-zero status as a failed hook, so 1, 2, 3, and 4 all block. `--exit-zero` is not part of either hook. Hook `args` are appended after the subcommand, and `--exit-zero` is only accepted before the subcommand, so do not pass it through `args`.
+
+The drift hook installs the local `github` extra in its environment. Install the push hook or drift never runs:
+
+```bash
+pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+`default_install_hook_types: [pre-commit, pre-push]` makes a plain `pre-commit install` register both.
+
 ## GitHub Actions
 
 Least privilege (job summary only; no PR comment):

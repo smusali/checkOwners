@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- `.pre-commit-hooks.yaml` exposes `checkowners-validate` (CODEOWNERS changes only) and `checkowners-drift` (`pre-push`, against `.checkowners-baseline.json`). This repository runs both. See [docs/USAGE.md](USAGE.md#pre-commit).
 - CI runs OpenSSF Scorecard, CodeQL, dependency review, pip-audit, and zizmor. Dependabot also updates Python dependencies. Each GitHub Release carries a CycloneDX SBOM and a signed provenance attestation.
 - Human reports, the job summary, and pull-request comments state that CheckOwners is a knowledge-risk tool, not a performance-measurement tool. [docs/PRIVACY.md](PRIVACY.md) records what is read, what leaves the machine, the cache, `cache purge`, and the threat model.
 - A public CODEOWNERS compatibility corpus (`corpus/compatibility.jsonl`) and a license-checked parser corpus (`corpus/realworld.jsonl`). See `corpus/README.md`.

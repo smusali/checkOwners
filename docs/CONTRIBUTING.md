@@ -41,12 +41,14 @@ pytest
 
 CI installs from `requirements-dev.lock` with hashes, then runs pytest across Python 3.11, 3.12, 3.13, and 3.14, builds the wheel, smoke-tests CLI subcommands against the built artifact (including `checkowners[all]` and `py.typed`), and runs ruff plus mypy `--strict`. Match those locally before opening a PR.
 
-Optionally, install the pre-commit hooks so ruff, formatting, and mypy run on every commit:
+Optionally, install the pre-commit hooks so ruff, formatting, and mypy run on every commit. This repository also runs `checkowners validate` when a CODEOWNERS file changes, and `checkowners drift` on push against `.checkowners-baseline.json`.
 
 ```bash
 pip install pre-commit
 pre-commit install
 ```
+
+`pre-commit install` registers both the commit hook and the push hook (`default_install_hook_types`). Re-run it after pulling this change if the hooks were already installed. `checkowners` must be on `PATH` for those two hooks.
 
 ## Branch and PR workflow
 

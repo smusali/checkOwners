@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 
 import pytest
 import yaml
 
 from checkowners.config import find_codeowners_path, load_config
-from checkowners.models import Config, DriftConfig, QualificationConfig
+from checkowners.models import Config, DriftConfig, QualificationConfig, models_payload
 
 
 def _write_config(tmp_path: Path, content: str) -> Path:
@@ -418,3 +419,107 @@ def test_find_codeowners_path_priority(tmp_path: Path) -> None:
 
 def test_find_codeowners_path_none_exist(tmp_path: Path) -> None:
     assert find_codeowners_path(tmp_path) == tmp_path / ".github" / "CODEOWNERS"
+
+
+_V1_MOVED = """\
+analysis:
+  top_n_owners: 4
+  min_commits: 2
+  exclude_bots: false
+scoring:
+  recency_weight: 0.4
+  frequency_weight: 0.2
+  blame_weight: 0.2
+  review_weight: 0.2
+  recency_half_life_days: 30
+  recency_reliability: 0.9
+  frequency_reliability: 0.8
+  blame_reliability: 0.7
+  review_reliability: 0.6
+"""
+
+
+def _v2_alias() -> str:
+    models = models_payload()
+    return f"""\
+version: 2
+analysis:
+  max_owners: 4
+qualification:
+  min_commits: 2
+bots:
+  exclude: false
+model:
+  ownership: {models["ownership"]}
+  risk: {models["risk"]}
+  topology: {models["topology"]}
+  signals:
+    recency:
+      weight: 0.4
+      half_life_days: 30
+      reliability: 0.9
+    frequency:
+      weight: 0.2
+      reliability: 0.8
+    blame:
+      weight: 0.2
+      reliability: 0.7
+    reviews:
+      weight: 0.2
+      reliability: 0.6
+"""
+
+
+def test_v1_and_v2_load_the_same_config(tmp_path: Path) -> None:
+    v1 = tmp_path / "v1"
+    v2 = tmp_path / "v2"
+    v1.mkdir()
+    v2.mkdir()
+    _write_config(v1, _V1_MOVED)
+    _write_config(v2, _v2_alias())
+    with pytest.warns(DeprecationWarning, match="analysis.top_n_owners"):
+        loaded_v1 = load_config(repo_root=v1)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        loaded_v2 = load_config(repo_root=v2)
+    assert caught == []
+    assert loaded_v1 == loaded_v2
+    assert loaded_v1.analysis.top_n_owners == 4
+    assert loaded_v1.analysis.exclude_bots is False
+    assert loaded_v1.qualification.min_commits == 2
+    assert loaded_v1.scoring.recency_half_life_days == 30
+    assert loaded_v1.scoring.review_weight == 0.2
+    assert loaded_v1.scoring.blame_reliability == 0.7
+
+
+def test_missing_config_does_not_warn(tmp_path: Path) -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cfg = load_config(repo_root=tmp_path)
+    assert cfg == Config()
+    assert caught == []
+
+
+def test_model_pin_must_match_implementation(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "version: 2\nmodel:\n  ownership: ownership-v2\n")
+    with pytest.raises(ValueError, match=r"model\.ownership"):
+        load_config(repo_root=root)
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        ("version: 3\n", "Unsupported checkowners config version"),
+        ("version: '2'\n", "Unsupported checkowners config version"),
+        ("version: 2\ncriticality:\n  'docs/**': 0.1\n", "criticality"),
+        ("version: 2\nanalysis:\n  lookback_days: adaptive\n", "lookback_days"),
+        (
+            "version: 2\nmodel:\n  signals:\n    historical_depth:\n      weight: 0.1\n",
+            "historical_depth",
+        ),
+    ],
+)
+def test_unknown_config_version_and_keys_rejected(tmp_path: Path, content: str, match: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)

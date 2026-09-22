@@ -114,6 +114,21 @@ Usage questions belong in [Discussions](https://github.com/smusali/checkowners/d
 
 Do not open public issues for vulnerabilities. Use [private vulnerability reporting](https://github.com/smusali/checkowners/security/advisories/new). You can also email <fortyone.technologies@gmail.com> with a description and a proof-of-concept. We will respond and coordinate disclosure.
 
+## Breaking changes
+
+A breaking change is any of:
+
+- CLI command removal
+- JSON schema changes
+- scoring-model changes
+- default policy changes
+- Action input or output changes
+- configuration schema changes
+
+`0.x` may include those changes in a minor release when the changelog calls them out. `1.x` keeps those contracts stable until a major release.
+
+Scoring, risk classification, and topology each have a model id (`model.ownership`, `model.risk`, `model.topology`). Changing the algorithm bumps that id. Configuration files may pin the ids this release implements; an unknown pin is refused. Cached analyze state and the graph cache are reused only when those ids match.
+
 ## Releasing
 
 One merge commit becomes the git tag, the GitHub Release, the PyPI upload, the Marketplace listing, and the floating Action tags. Do not ship those surfaces independently.

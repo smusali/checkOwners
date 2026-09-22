@@ -8,6 +8,8 @@ import secrets
 from pathlib import Path
 from typing import TypeVar
 
+from checkowners.models import models_payload
+
 REPORT = Path("checkowners-report.md")
 DIAGNOSTIC = (
     "## CheckOwners\n\nDrift analysis did not finish. See the **Run checkowners** step logs.\n"
@@ -274,6 +276,7 @@ def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
         "stale": trimmed_stale,
         "changed": trimmed_changed,
         "truncated": missing_cut or stale_cut or changed_cut or notes_cut,
+        "models": models_payload(),
     }
 
 
@@ -304,6 +307,7 @@ def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, objec
         "counts": {**counts, **_ratchet_counts(data)},
         "critical_paths": trimmed_paths,
         "truncated": paths_cut or bool(entries),
+        "models": models_payload(),
     }
 
 
@@ -318,6 +322,7 @@ def summarize_decay(data: dict[str, object], limit: int) -> dict[str, object]:
         "counts": {"reports": len(reports)},
         "reports": trimmed,
         "truncated": cut,
+        "models": models_payload(),
     }
 
 
@@ -463,7 +468,15 @@ def build(*, limit: int | None = None) -> str:
             parts.append("")
             parts.append(_more_line(0))
 
+    parts.append("")
+    parts.append(_models_line())
     return "\n".join(parts) + "\n"
+
+
+def _models_line() -> str:
+    payload = models_payload()
+    body = ", ".join(f"{name} {payload[name]}" for name in ("ownership", "risk"))
+    return f"models: {body}"
 
 
 def write_step_summary(text: str) -> None:

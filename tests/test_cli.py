@@ -57,6 +57,7 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
     SignalScore,
+    models_payload,
 )
 from checkowners.onboard import OnboardingPath
 from checkowners.topology import TopologyReport
@@ -250,6 +251,7 @@ def test_analyze_json() -> None:
     assert path_data["bus_factor"] == 2
     assert path_data["qualified_owner_count_cap"] == 3
     assert data["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert data["models"] == models_payload()
     assert data["deprecated_keys"] == ["bus_factor", "confidence"]
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_epoch"] == _NOW.isoformat()
@@ -1121,6 +1123,7 @@ def test_explain_path_json(tmp_path: Path) -> None:
     assert data["path"] == "src/a.py"
     assert data["winner"]["pattern"] == "/src/"
     assert data["winner"]["owners"] == ["@alice"]
+    assert data["models"] == models_payload()
     assert len(data["matches"]) == 2
     assert data["matches"][0]["wins"] is False
     assert data["matches"][-1]["wins"] is True
@@ -1183,6 +1186,7 @@ def test_explain_json_decomposes_signals() -> None:
     data = json.loads(result.stdout)
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert data["models"] == models_payload()
     assert data["path"] == "src/main.py"
     assert data["analysis_ref"] == "deadbeef"
     alice = data["owners"][0]
@@ -1266,6 +1270,7 @@ def test_owners_and_who_are_minimal() -> None:
     assert owners.stdout == who.stdout
     data = json.loads(payload.stdout)
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
+    assert data["models"] == models_payload()
     assert data["owners"][0]["handle"] == "@alice"
     assert data["owners"][0]["ownership_score"] == 0.86
     assert "signals" not in data["owners"][0]
@@ -1468,3 +1473,85 @@ def test_render_explained_owner_without_optional_signals() -> None:
         why_not=None,
     )
     _render_explanation(explanation, _NOW)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["analyze", "--json"],
+        ["generate", "--json"],
+        ["print", "--json"],
+        ["validate", "--json"],
+        ["drift", "--json"],
+        ["notify", "--json"],
+        ["sync", "--json"],
+        ["decay", "--json"],
+        ["qualified-owners", "--all", "--json"],
+        ["bus-factor", "--all", "--json"],
+        ["balance", "--json"],
+        ["topology", "--json"],
+        ["onboard", "src/", "--json"],
+        ["expertise", "src/main.py", "--json"],
+        ["trends", "--json"],
+        ["explain", "src/main.py", "--json"],
+        ["owners", "src/main.py", "--json"],
+        ["who", "src/main.py", "--json"],
+        ["baseline", "create", "--json"],
+        ["github-action", "--json", "--no-fail-on-drift"],
+    ],
+)
+def test_command_json_includes_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    args: list[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    explanation = PathExplanation(
+        target="src/main.py",
+        kind="file",
+        files=("src/main.py",),
+        inferred=(),
+        candidates=(),
+        evidence_quality=1.0,
+        declared=(),
+        team_resolution=(),
+        assessment="aligned",
+        lineage=(),
+        knobs=(),
+        weights={},
+        why_not=None,
+    )
+    empty_balance = BalanceReport(
+        loads=(),
+        average=0.0,
+        overloaded=(),
+        suggestions=(),
+        source="git_authorship",
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
+        patch("checkowners.cli.send_notification", return_value=False),
+        patch("checkowners.cli.validate_codeowners", return_value=[]),
+        patch("checkowners.cli.analyze_trends", return_value=_TREND_REPORT),
+        patch("checkowners.cli.analyze_balance", return_value=empty_balance),
+        patch(
+            "checkowners.cli.infer_topology",
+            return_value=TopologyReport(clusters=(), mismatches=()),
+        ),
+        patch(
+            "checkowners.cli.generate_onboarding_path",
+            return_value=OnboardingPath(target="src/", steps=()),
+        ),
+        patch("checkowners.cli.rank_expertise", return_value=()),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        patch("checkowners.cli.build_explanation", return_value=explanation),
+        patch("checkowners.cli.subprocess.run", return_value=MagicMock(returncode=0, stdout="")),
+        patch("checkowners.cli.find_codeowners_path", return_value=tmp_path / "CODEOWNERS"),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["models"] == models_payload()

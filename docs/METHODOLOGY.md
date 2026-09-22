@@ -67,12 +67,17 @@ tuples. `--why-not` uses that same total against
 
 ## Versioning
 
-Analyze JSON and cached state include `model_version: ownership-v3`. Per-repo
-state is schema v6; older files, and files whose `model_version` is not
-`ownership-v3`, are ignored and replaced on the next analyze. Recency and the
-lookback window are evaluated at `analysis_epoch`, not the wall clock. JSON
-payloads emit `analysis_ref` (HEAD SHA) and `analysis_epoch`.
-Changing this formula is a breaking change for anyone gating CI on a threshold.
+Three model ids are stamped on JSON output and on human reports:
+
+| Id | Config key | What it names |
+| --- | --- | --- |
+| `ownership-v3` | `model.ownership` | The renormalized score in this page |
+| `risk-v1` | `model.risk` | Qualified-owner count and its critical/warn thresholds |
+| `topology-v1` | `model.topology` | Co-occurrence clusters |
+
+A formula change, a classifier change, or a topology-algorithm change bumps the matching id. That bump is a breaking change for anyone gating CI on a threshold, even when the JSON shape is unchanged. A config pin must equal the id this release implements, or be omitted. Cached analyze state and the graph cache are reused only when all three ids match.
+
+Analyze JSON still includes `model_version: ownership-v3` for one minor cycle. Per-repo state is schema v6. Files without a matching `models` object, and files whose `model_version` is not `ownership-v3`, are ignored and replaced on the next analyze. Recency and the lookback window are evaluated at `analysis_epoch`, not the wall clock. JSON payloads emit `analysis_ref` (HEAD SHA) and `analysis_epoch`.
 
 `qualification.strategy: adaptive` (the default) treats commit count as evidence:
 authors below `min_commits` still qualify when blame is at least

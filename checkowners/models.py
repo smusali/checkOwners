@@ -12,8 +12,18 @@ QualificationStrategy = Literal["adaptive", "threshold"]
 FindingRule = Literal["missing", "stale", "changed", "single-expert"]
 
 OWNERSHIP_MODEL_VERSION = "ownership-v3"
+RISK_MODEL_VERSION = "risk-v1"
+TOPOLOGY_MODEL_VERSION = "topology-v1"
 COMMAND_SCHEMA_VERSION = "1.0"
 DEPRECATED_SCORE_KEY = "confidence"
+
+
+def models_payload() -> dict[str, str]:
+    return {
+        "ownership": OWNERSHIP_MODEL_VERSION,
+        "risk": RISK_MODEL_VERSION,
+        "topology": TOPOLOGY_MODEL_VERSION,
+    }
 
 
 @dataclass(frozen=True)
@@ -149,6 +159,13 @@ class GitConfig:
 
 
 @dataclass(frozen=True)
+class ModelVersions:
+    ownership: str = OWNERSHIP_MODEL_VERSION
+    risk: str = RISK_MODEL_VERSION
+    topology: str = TOPOLOGY_MODEL_VERSION
+
+
+@dataclass(frozen=True)
 class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     qualification: QualificationConfig = field(default_factory=QualificationConfig)
@@ -161,6 +178,7 @@ class Config:
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     github: GithubConfig = field(default_factory=GithubConfig)
     git: GitConfig = field(default_factory=GitConfig)
+    models: ModelVersions = field(default_factory=ModelVersions)
     suppressions: tuple[Suppression, ...] = ()
 
 

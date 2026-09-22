@@ -11,6 +11,15 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- Configuration schema `version: 2` with `model.ownership`, `model.risk`, and
+  `model.topology` pins (`ownership-v3`, `risk-v1`, `topology-v1`). Every JSON
+  payload carries `models`. Human reports print the applicable ids on stderr.
+  A missing `version` or `version: 1` still loads for one minor cycle and warns
+  with the keys that moved (`analysis.top_n_owners`, `analysis.min_commits`,
+  `analysis.exclude_bots`, and `scoring.*`). Any other config version is
+  refused. Per-repo state and the graph cache require a matching `models`
+  object; older caches are ignored. Unimplemented v2 keys such as
+  `criticality`, `policy`, and `privacy` are refused rather than ignored.
 - `checkowners baseline create` writes a sorted accepted-findings file.
   `--baseline`, `drift.baseline_file`, `CHECKOWNERS_BASELINE`, and the Action
   `baseline` input suppress known findings so CI fails only on new ones.

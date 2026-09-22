@@ -19,6 +19,7 @@ from checkowners.models import (
     PathOwnership,
     SignalScore,
     TeamCluster,
+    models_payload,
 )
 from checkowners.state import (
     SCHEMA_VERSION,
@@ -34,6 +35,14 @@ from checkowners.state import (
 )
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+
+
+def _readable_state(payload: dict[str, object]) -> dict[str, object]:
+    return {
+        **payload,
+        "model_version": OWNERSHIP_MODEL_VERSION,
+        "models": models_payload(),
+    }
 
 
 @pytest.fixture()
@@ -103,6 +112,37 @@ def test_read_state_wrong_schema_returns_none(repo: Path) -> None:
         {
             "schema_version": SCHEMA_VERSION,
             "model_version": "ownership-v2",
+            "models": models_payload(),
+            "repo": str(repo.resolve()),
+        },
+    )
+    assert read_state(repo) is None
+    current = models_payload()
+    _write_raw_state(
+        repo,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "model_version": OWNERSHIP_MODEL_VERSION,
+            "models": {**current, "risk": "risk-v0"},
+            "repo": str(repo.resolve()),
+        },
+    )
+    assert read_state(repo) is None
+    _write_raw_state(
+        repo,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "model_version": OWNERSHIP_MODEL_VERSION,
+            "models": {**current, "topology": "topology-v0"},
+            "repo": str(repo.resolve()),
+        },
+    )
+    assert read_state(repo) is None
+    _write_raw_state(
+        repo,
+        {
+            "schema_version": SCHEMA_VERSION,
+            "model_version": OWNERSHIP_MODEL_VERSION,
             "repo": str(repo.resolve()),
         },
     )
@@ -118,7 +158,7 @@ def test_read_state_repo_mismatch_returns_none(repo: Path) -> None:
     """State written under this repo's digest but naming another repo is rejected."""
     _write_raw_state(
         repo,
-        {"schema_version": SCHEMA_VERSION, "repo": "/somewhere/else"},
+        _readable_state({"schema_version": SCHEMA_VERSION, "repo": "/somewhere/else"}),
     )
     assert read_state(repo) is None
 
@@ -159,6 +199,7 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["bus_factor_summary"]["repo_average"] == 1.0
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
     assert data["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert data["models"] == models_payload()
     assert data["deprecated_keys"] == ["bus_factor", "confidence"]
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_completeness"] == {
@@ -223,11 +264,13 @@ def test_load_ownership_missing_returns_none(repo: Path) -> None:
 def test_load_ownership_invalid_returns_none(repo: Path) -> None:
     _write_raw_state(
         repo,
-        {
-            "schema_version": SCHEMA_VERSION,
-            "repo": str(repo.resolve()),
-            "inferred": "not a dict",
-        },
+        _readable_state(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "repo": str(repo.resolve()),
+                "inferred": "not a dict",
+            }
+        ),
     )
     assert load_ownership(repo) is None
 
@@ -272,18 +315,20 @@ def test_load_ownership_skips_invalid_owner_fields(repo: Path) -> None:
     ]
     _write_raw_state(
         repo,
-        {
-            "schema_version": SCHEMA_VERSION,
-            "repo": str(repo.resolve()),
-            "inferred": {
-                "p.py": {
-                    "owners": owners,
-                    "qualified_owner_count": 1,
-                    "decay_warnings": [],
-                }
-            },
-            "last_analyzed": _NOW.isoformat(),
-        },
+        _readable_state(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "repo": str(repo.resolve()),
+                "inferred": {
+                    "p.py": {
+                        "owners": owners,
+                        "qualified_owner_count": 1,
+                        "decay_warnings": [],
+                    }
+                },
+                "last_analyzed": _NOW.isoformat(),
+            }
+        ),
     )
     loaded = load_ownership(repo)
     assert loaded is not None
@@ -294,54 +339,56 @@ def test_load_ownership_skips_invalid_owner_fields(repo: Path) -> None:
 def test_load_ownership_signal_and_timestamp_edges(repo: Path) -> None:
     _write_raw_state(
         repo,
-        {
-            "schema_version": SCHEMA_VERSION,
-            "repo": str(repo.resolve()),
-            "inferred": {
-                "p.py": {
-                    "owners": [
-                        {
-                            "handle": "@invalid-date",
-                            "ownership_score": 0.6,
-                            "commits": 2,
-                            "last_commit": "not-a-date",
-                            "signals": {
-                                "recency": {"available": True, "score": 0.9},
-                                "frequency": {"available": True, "score": False},
-                                "blame": {"available": False},
-                                "review": {"available": False},
+        _readable_state(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "repo": str(repo.resolve()),
+                "inferred": {
+                    "p.py": {
+                        "owners": [
+                            {
+                                "handle": "@invalid-date",
+                                "ownership_score": 0.6,
+                                "commits": 2,
+                                "last_commit": "not-a-date",
+                                "signals": {
+                                    "recency": {"available": True, "score": 0.9},
+                                    "frequency": {"available": True, "score": False},
+                                    "blame": {"available": False},
+                                    "review": {"available": False},
+                                },
                             },
-                        },
-                        {
-                            "handle": "@partial-signals",
-                            "ownership_score": 0.5,
-                            "commits": 1,
-                            "last_commit": 123,
-                            "signals": {
-                                "recency": {"available": True, "score": 1.0},
-                                "frequency": {"available": "yes"},
-                                "blame": "nope",
-                                "review": {"available": False},
+                            {
+                                "handle": "@partial-signals",
+                                "ownership_score": 0.5,
+                                "commits": 1,
+                                "last_commit": 123,
+                                "signals": {
+                                    "recency": {"available": True, "score": 1.0},
+                                    "frequency": {"available": "yes"},
+                                    "blame": "nope",
+                                    "review": {"available": False},
+                                },
                             },
-                        },
-                        {
-                            "handle": "@ok",
-                            "ownership_score": 0.5,
-                            "commits": 1,
-                            "signals": {
-                                "recency": {"available": True, "score": 1.0},
-                                "frequency": {"available": True},
-                                "blame": {"available": False},
-                                "review": {"available": False},
+                            {
+                                "handle": "@ok",
+                                "ownership_score": 0.5,
+                                "commits": 1,
+                                "signals": {
+                                    "recency": {"available": True, "score": 1.0},
+                                    "frequency": {"available": True},
+                                    "blame": {"available": False},
+                                    "review": {"available": False},
+                                },
                             },
-                        },
-                    ],
-                    "qualified_owner_count": 1,
-                    "decay_warnings": [],
-                }
-            },
-            "last_analyzed": _NOW.isoformat(),
-        },
+                        ],
+                        "qualified_owner_count": 1,
+                        "decay_warnings": [],
+                    }
+                },
+                "last_analyzed": _NOW.isoformat(),
+            }
+        ),
     )
     loaded = load_ownership(repo)
     assert loaded is not None
@@ -382,7 +429,7 @@ def test_load_ownership_skips_malformed_path(repo: Path) -> None:
         "last_analyzed": _NOW.isoformat(),
         "drift_detected": False,
     }
-    _write_raw_state(repo, payload)
+    _write_raw_state(repo, _readable_state(payload))
     loaded = load_ownership(repo)
     assert loaded is not None
     assert set(loaded.paths) == {"src/good.py"}
@@ -475,7 +522,7 @@ def test_load_ownership_analysis_ref_and_timestamp_edges(repo: Path) -> None:
         "last_analyzed": _NOW.isoformat(),
         "analysis_ref": 12,
     }
-    _write_raw_state(repo, payload)
+    _write_raw_state(repo, _readable_state(payload))
     loaded = load_ownership(repo)
     assert loaded is not None
     assert loaded.analysis_ref == ""
@@ -483,7 +530,7 @@ def test_load_ownership_analysis_ref_and_timestamp_edges(repo: Path) -> None:
     assert loaded.paths["src/decay.py"].qualified_owner_count == 0
     assert len(loaded.paths["src/decay.py"].decay_warnings) == 1
     payload["last_analyzed"] = "not-a-date"
-    _write_raw_state(repo, payload)
+    _write_raw_state(repo, _readable_state(payload))
     assert load_ownership(repo) is None
 
 
@@ -531,6 +578,13 @@ def test_graph_cache_roundtrip(tmp_path: Path) -> None:
     target = write_graph_cache(tmp_path, _NOW, graph_data)
     assert target.exists()
     assert read_graph_cache(tmp_path, _NOW) == graph_data
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["models"] = {**models_payload(), "topology": "topology-v0"}
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert read_graph_cache(tmp_path, _NOW) is None
+    stored.pop("models")
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert read_graph_cache(tmp_path, _NOW) is None
 
 
 def test_graph_cache_stale_timestamp_ignored(tmp_path: Path) -> None:

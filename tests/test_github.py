@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import os
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from checkowners.github import (
     build_review_coverage,
+    clear_api_evidence,
+    collection_timestamp,
     create_team_resolver,
+    external_evidence_payload,
     get_github_client,
     get_github_token,
+    note_api_call,
     resolve_handles,
     resolve_noreply_handle,
+    team_snapshot_hash,
 )
 from checkowners.state import read_handle_cache, write_handle_cache
 
@@ -213,6 +220,56 @@ def test_resolve_handles_uses_disk_cache_before_api() -> None:
         result = resolve_handles({"alice@example.com"}, "ghp_test")
     assert result == {"alice@example.com": "@alice"}
     mock_client.search_users.assert_not_called()
+
+
+def test_collection_timestamp_uses_source_date_epoch() -> None:
+    with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "1700000000"}):
+        assert collection_timestamp() == datetime.fromtimestamp(1700000000, tz=UTC).isoformat()
+
+
+def test_collection_timestamp_ignores_invalid_source_date_epoch() -> None:
+    with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "not-a-timestamp"}):
+        stamp = collection_timestamp()
+    parsed = datetime.fromisoformat(stamp)
+    assert parsed.tzinfo is not None
+
+
+def test_external_evidence_after_api_calls() -> None:
+    clear_api_evidence()
+    try:
+        assert external_evidence_payload("abc") == {}
+        with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "1700000000"}):
+            note_api_call()
+        payload = external_evidence_payload("abc")
+        assert payload == {
+            "github_evidence_collected_at": datetime.fromtimestamp(1700000000, tz=UTC).isoformat(),
+            "repository_head": "abc",
+        }
+        note_api_call({"backend": ["bob", "alice"]})
+        with_team = external_evidence_payload("abc")
+        assert with_team["github_evidence_collected_at"] == payload["github_evidence_collected_at"]
+        assert with_team["team_snapshot"] == team_snapshot_hash({"backend": ["alice", "bob"]})
+        note_api_call()
+        kept = external_evidence_payload("def")
+        assert kept["team_snapshot"] == with_team["team_snapshot"]
+        assert kept["repository_head"] == "def"
+    finally:
+        clear_api_evidence()
+
+
+def test_team_fetch_failure_records_api_evidence_without_snapshot() -> None:
+    clear_api_evidence()
+    try:
+        mock_client = MagicMock()
+        mock_client.get_organization.side_effect = RuntimeError("teams unavailable")
+        with patch("checkowners.github.get_github_client", return_value=mock_client):
+            assert create_team_resolver("ghp_test", "myorg") is None
+        payload = external_evidence_payload("head")
+        assert payload["repository_head"] == "head"
+        assert "github_evidence_collected_at" in payload
+        assert "team_snapshot" not in payload
+    finally:
+        clear_api_evidence()
 
 
 def test_resolve_handles_remembers_misses() -> None:

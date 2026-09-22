@@ -484,6 +484,20 @@ def test_validate_json_errors() -> None:
     assert len(data["errors"]) == 1
 
 
+def test_validate_json_when_git_metadata_unavailable() -> None:
+    with (
+        patch("checkowners.cli.validate_codeowners", return_value=[]),
+        patch("checkowners.cli.head_commit_sha", side_effect=ValueError("no head")),
+        patch("checkowners.cli.resolve_as_of", side_effect=ValueError("no clock")),
+        _MOCK_PATH,
+    ):
+        result = runner.invoke(app, ["validate", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["head_sha"] == ""
+    assert data["generated_at"] == ""
+
+
 # --- drift ---
 
 

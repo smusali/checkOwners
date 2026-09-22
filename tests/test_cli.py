@@ -23,7 +23,7 @@ from checkowners.action_report import (
     summarize_drift,
 )
 from checkowners.analyze import GitRequirementError, resolve_as_of
-from checkowners.balance import BalanceReport
+from checkowners.balance import BalanceReport, RebalanceSuggestion, ReviewLoad
 from checkowners.busfactor import BusFactorReport
 from checkowners.cli import (
     _days_since,
@@ -41,9 +41,11 @@ from checkowners.explain import ExplainedOwner, PathExplanation
 from checkowners.generate import (
     SIZE_WARN_BYTES,
     BroadPatternRecord,
+    CodeownersSizeError,
     CodeownersVerificationError,
     GenerateResult,
 )
+from checkowners.graph import GraphExtraMissingError
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
     OWNERSHIP_MODEL_VERSION,
@@ -64,7 +66,7 @@ from checkowners.models import (
     TeamCluster,
     models_payload,
 )
-from checkowners.onboard import OnboardingPath
+from checkowners.onboard import OnboardingPath, OnboardingStep
 from checkowners.topology import TopologyReport
 from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationError
@@ -374,6 +376,40 @@ def test_analyze_git_error() -> None:
     assert result.exit_code == 4
 
 
+def test_invalid_config_exits_config() -> None:
+    with patch("checkowners.cli.load_config", side_effect=ValueError("bad config")):
+        result = runner.invoke(app, ["analyze"])
+    assert result.exit_code == 2
+    assert "bad config" in result.stdout
+
+
+def test_fail_on_incomplete_stays_zero_when_signals_are_complete() -> None:
+    complete = _entry("alice@example.com")
+    breakdown = complete.score_breakdown
+    assert breakdown is not None
+    ownership = OwnershipMap(
+        paths={
+            "src/main.py": PathOwnership(
+                owners=(
+                    replace(
+                        complete,
+                        score_breakdown=replace(
+                            breakdown,
+                            review=SignalScore(available=True, score=1.0),
+                        ),
+                    ),
+                ),
+                qualified_owner_count=1,
+            )
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    with patch("checkowners.cli.analyze_ownership", return_value=ownership), _MOCK_TOKEN:
+        result = runner.invoke(app, ["--fail-on-incomplete", "analyze"])
+    assert result.exit_code == 0
+
+
 def test_analyze_git_version_error() -> None:
     with patch(
         "checkowners.cli.analyze_ownership",
@@ -624,6 +660,24 @@ def test_sync_json() -> None:
     assert data["broad_patterns"] == []
 
 
+def test_sync_git_os_error() -> None:
+    status = MagicMock(returncode=0, stdout=" M CODEOWNERS\n")
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
+        patch(
+            "checkowners.cli.subprocess.run",
+            side_effect=[status, OSError("git not found")],
+        ),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["sync"])
+    assert result.exit_code == 4
+    assert "Git commit failed" in result.stdout
+    assert "git not found" in result.stdout
+
+
 def test_sync_git_commit_error() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
@@ -828,6 +882,41 @@ def test_github_action_rejects_non_positive_max_entries(
     assert exit_code == 2
 
 
+@pytest.mark.parametrize(
+    ("exc", "message"),
+    [
+        (GitRequirementError("checkOwners requires Git 2.23 or newer"), "requires Git 2.23"),
+        (subprocess.CalledProcessError(1, "git"), "Git command failed"),
+        (OSError("git not found"), "Git command failed"),
+    ],
+)
+def test_github_action_classifies_leaked_integration_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    exc: Exception,
+    message: str,
+) -> None:
+    output_file = tmp_path / "gh_output"
+    summary_file = tmp_path / "step_summary"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CHECKOWNERS_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
+        patch("checkowners.cli.compute_qualified_owners", side_effect=exc),
+        patch("checkowners.action_report.secrets.token_hex", return_value=_FIXED_HEX),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["github-action", "--no-include-decay"])
+    assert result.exit_code == 4
+    assert message in result.stdout
+    assert summary_file.read_text(encoding="utf-8") == DIAGNOSTIC
+    assert not (tmp_path / "drift.json").exists()
+
+
 def test_github_action_unexpected_error_writes_diagnostic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -931,6 +1020,36 @@ def test_qualified_owners_json_includes_stamp() -> None:
     assert "entries" in data
 
 
+def test_balance_prints_loads_and_suggestions() -> None:
+    report = BalanceReport(
+        loads=(ReviewLoad(handle="@alice", reviews=10),),
+        average=10.0,
+        overloaded=(ReviewLoad(handle="@alice", reviews=10),),
+        suggestions=(
+            RebalanceSuggestion(
+                overloaded="@alice",
+                candidate="@bob",
+                confidence=0.8,
+                proposed_shift=3,
+            ),
+        ),
+        source="git_authorship",
+    )
+    quiet = replace(report, suggestions=())
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.analyze_balance", side_effect=[report, quiet]),
+        _MOCK_TOKEN,
+    ):
+        listed = runner.invoke(app, ["balance"])
+        plain = runner.invoke(app, ["balance"])
+    assert listed.exit_code == 0
+    assert "@alice" in listed.stdout
+    assert "@bob" in listed.stdout
+    assert plain.exit_code == 0
+    assert "Rebalance suggestions" not in plain.stdout
+
+
 def test_balance_json_includes_stamp() -> None:
     empty = BalanceReport(
         loads=(),
@@ -966,6 +1085,32 @@ def test_topology_json_includes_stamp() -> None:
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_epoch"] == _NOW.isoformat()
     assert data["clusters"] == []
+
+
+def test_onboard_markdown_and_table() -> None:
+    report = OnboardingPath(
+        target="src",
+        steps=(
+            OnboardingStep(
+                order=1,
+                path="src/main.py",
+                reviewer="@alice",
+                complexity="easy",
+                description="start here",
+            ),
+        ),
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_onboarding_path", return_value=report),
+        _MOCK_TOKEN,
+    ):
+        markdown = runner.invoke(app, ["onboard", "src", "--markdown"])
+        table = runner.invoke(app, ["onboard", "src"])
+    assert markdown.exit_code == 0
+    assert "src/main.py" in markdown.stdout
+    assert table.exit_code == 0
+    assert "start here" in table.stdout
 
 
 def test_onboard_json_includes_stamp() -> None:
@@ -1022,6 +1167,26 @@ class _CommandOutput(Protocol):
 
 def _models_text(result: _CommandOutput) -> str:
     return result.stdout + result.stderr
+
+
+def test_graph_missing_extra_and_bad_export_exit_config() -> None:
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP),
+        patch(
+            "checkowners.cli._build_or_load_graph",
+            side_effect=GraphExtraMissingError("networkx is required"),
+        ),
+    ):
+        missing = runner.invoke(app, ["graph"])
+    assert missing.exit_code == 2
+    assert "networkx is required" in missing.stdout
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP),
+        patch("checkowners.cli._build_or_load_graph", return_value=object()),
+    ):
+        exported = runner.invoke(app, ["graph", "--export", "png"])
+    assert exported.exit_code == 2
+    assert "png" in exported.stdout
 
 
 def test_graph_reports_topology_model() -> None:
@@ -1244,6 +1409,21 @@ def test_generate_refuses_handwritten_before_analyzing(tmp_path: Path) -> None:
         result = runner.invoke(app, ["generate"])
     assert result.exit_code == 2
     mock_analyze.assert_not_called()
+
+
+def test_generate_size_refusal_exits_config() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch(
+            "checkowners.cli.generate_codeowners",
+            side_effect=CodeownersSizeError("exceeds output.max_bytes"),
+        ),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["generate"])
+    assert result.exit_code == 2
+    assert "max_bytes" in result.stdout
 
 
 def test_generate_verification_failure_exits() -> None:

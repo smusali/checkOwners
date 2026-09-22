@@ -5,7 +5,7 @@ import re
 import tomllib
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from readme_renderer.markdown import render
 
@@ -27,11 +27,14 @@ class _HrefCollector(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.urls: list[str] = []
+        self.image_srcs: list[str] = []
 
-    def handle_starttag(self, _tag: str, attrs: list[tuple[str, str | None]]) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         for key, value in attrs:
-            if key in {"href", "src"} and value:
+            if value and key in {"href", "src"}:
                 self.urls.append(value)
+            if tag == "img" and key == "src" and value:
+                self.image_srcs.append(value)
 
 
 def _markdown_destinations(text: str) -> list[str]:
@@ -40,10 +43,24 @@ def _markdown_destinations(text: str) -> list[str]:
     return found
 
 
-def _rendered_urls(html: str) -> list[str]:
+def _rendered(html: str) -> _HrefCollector:
     collector = _HrefCollector()
     collector.feed(html)
-    return collector.urls
+    return collector
+
+
+def _repo_raw_path(url: str) -> str | None:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = unquote(parsed.path)
+    prefixes = {
+        "raw.githubusercontent.com": "/smusali/checkowners/main/",
+        "github.com": "/smusali/checkowners/raw/main/",
+    }
+    prefix = prefixes.get(host)
+    if prefix is None or not path.startswith(prefix):
+        return None
+    return path[len(prefix) :]
 
 
 def main() -> int:
@@ -65,10 +82,25 @@ def main() -> int:
         print("::error::readme_renderer failed to render README.md")
         return 1
 
-    relative_html = [url for url in _rendered_urls(html) if _is_relative(url)]
+    rendered = _rendered(html)
+    relative_html = [url for url in rendered.urls if _is_relative(url)]
     if relative_html:
         print("::error::Relative href/src after PyPI render:")
         print("\n".join(f"  {url}" for url in relative_html))
+        return 1
+
+    root = _ROOT.resolve()
+    missing: list[str] = []
+    for src in rendered.image_srcs:
+        rel = _repo_raw_path(src)
+        if rel is None:
+            continue
+        candidate = (root / rel).resolve()
+        if not candidate.is_relative_to(root) or not candidate.is_file():
+            missing.append(src)
+    if missing:
+        print("::error::README image does not match a file in this tree:")
+        print("\n".join(f"  {url}" for url in missing))
         return 1
 
     return 0

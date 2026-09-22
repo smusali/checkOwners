@@ -1,5 +1,3 @@
-# CheckOwners
-
 [![CI](https://github.com/smusali/checkowners/actions/workflows/ci.yml/badge.svg)](https://github.com/smusali/checkowners/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/smusali/checkowners/graph/badge.svg)](https://codecov.io/gh/smusali/checkowners)
 [![PyPI](https://img.shields.io/pypi/v/checkowners.svg)](https://pypi.org/project/checkowners/)
@@ -7,35 +5,49 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/checkowners.svg)](https://pypi.org/project/checkowners/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/smusali/checkowners/blob/main/LICENSE)
 
-Infer CODEOWNERS from git history with confidence scoring, a knowledge graph, expertise decay detection, team topology inference, review load balancing, and onboarding paths. Core inference is deterministic git analysis; no LLM is in that path. CI-native: structured JSON output, GITHUB_OUTPUT integration, composite GitHub Action.
+# CheckOwners
+
+**Keep CODEOWNERS aligned with reality.**
+
+Your CODEOWNERS says:
+
+```text
+/payments/ @platform
+```
+
+Confidence on that tree over the last year:
+
+```text
+@alice  0.65
+@bob    0.63
+```
+
+The rule still names `@platform`. The people who change `/payments/` are `@alice` and `@bob`, now on the payments team.
+
+```text
+$ checkowners --offline drift
+
+severity: HIGH (Δmax=1.00)
+                                CODEOWNERS Drift                                
+┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Category ┃ Path       ┃    Δ ┃ Reason                                        ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ changed  │ /payments/ │ 1.00 │ owners diverge on 2 of 2 covered path(s)      │
+│          │            │      │ (line 1)                                      │
+└──────────┴────────────┴──────┴───────────────────────────────────────────────┘
+```
+
+CheckOwners analyzes git and review history to infer who actually knows each part of your repository, then compares that evidence with your CODEOWNERS policy. Use it to detect stale or incorrect rules, find code with dangerously concentrated knowledge, recommend knowledgeable reviewers, and discover ownership gaps before they become operational risk.
+
+Local-first. Git-native. No source-code upload. No LLM required. The core install is pure git. With no token, CheckOwners sends nothing anywhere. `checkowners --offline` opens no network connection. PyPI releases use [Trusted Publishing](https://docs.pypi.org/trusted-publishers/). Sigstore signs each distribution.
 
 > This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful.
 
-This repository moved here from a previous GitHub organization; Sigstore attestations for 0.5.0 and earlier record that earlier publisher. 0.5.1 and later are published from `smusali/checkowners`.
+```bash
+uvx checkowners drift
+```
 
-> CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration.
-
-> No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
-
-Inference is deterministic git analysis; the scoring heuristics live in `analyze.py` and are auditable. The codebase has been built with agent assistance. Every AI-assisted change is human-reviewed, tested, and signed off.
-
-## See it
-
-`analyze` → `generate` → `drift` on this repository:
-
-![checkowners analyze, generate, and drift](https://github.com/smusali/checkowners/raw/main/examples/demo.svg)
-
-The composite Action keeps one comment on same-repo pull requests. When drift clears it looks like this (from the dogfood workflow on this repo):
-
-![CheckOwners pull-request comment](https://github.com/smusali/checkowners/raw/main/examples/pr-comment.svg)
-
-Trimmed JSON for the same run is in [examples/sample-output.md](https://github.com/smusali/checkowners/blob/main/examples/sample-output.md). Reference configs live under [examples/](https://github.com/smusali/checkowners/tree/main/examples).
-
-## How it works
-
-`checkowners analyze` reads `git log` and `git blame` (in parallel, over paths that still have human commit evidence; a 24k-commit, 12k-file production monorepo completed a 365-day analyze in under three minutes on the 0.5.0 dogfood run) into a confidence-scored ownership map cached per repo under `~/.checkowners/`. Commit emails resolve to GitHub `@handles` (noreply emails locally with no token, the rest via the GitHub API), and same-person identities merge so qualified owner counts count people, not email addresses. From that map, `generate` writes a CODEOWNERS file with uniform directories consolidated into `dir/` rules, and `drift` compares the committed file against inference using real CODEOWNERS pattern matching (directory rules, globs, last-match-wins). `qualified-owners`, `decay`, `topology`, `balance`, `onboard`, and `trends` emit their own reports. In CI, the composite GitHub Action runs the same flow, writes structured `GITHUB_OUTPUT` and a job summary, and maintains a single up-to-date PR comment on same-repo pull requests. See [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md) for the full pipeline and a diagram.
-
-## Installation
+## Install
 
 Requires Python 3.11 through 3.14 and Git 2.23 or newer.
 
@@ -46,39 +58,66 @@ pip install "checkowners[github]"     # + GitHub API handle/team/review resoluti
 pip install "checkowners[all]"        # everything
 ```
 
-## Pre-commit
-
-```yaml
-repos:
-  - repo: https://github.com/smusali/checkowners
-    rev: <commit sha>
-    hooks:
-      - id: checkowners-validate
-      - id: checkowners-drift
-```
-
-Pin `rev` to a full commit SHA until the `0.6.0` tag exists. `checkowners-validate` runs on commit when a CODEOWNERS file changes. `checkowners-drift` runs on push and reads `.checkowners-baseline.json`. Create that file with `checkowners baseline create` before enabling the drift hook. Install the push hook with `pre-commit install --hook-type pre-push`, or set `default_install_hook_types: [pre-commit, pre-push]`. Details are in [Pre-commit](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#pre-commit).
-
-## Quick start
+## Run
 
 ```bash
-# Confidence-scored ownership inference
-checkowners analyze
-
-# Write CODEOWNERS with owners ranked by expertise confidence
-# (refuses to overwrite a hand-written file unless you pass --force)
-checkowners generate
-
-# Compare inferred vs current CODEOWNERS, ranked by confidence delta
-checkowners drift
-
-# Validate syntax (no git access)
-checkowners validate
+checkowners --offline drift
 ```
 
-All commands accept `--json` (except `graph`, which exports DOT via `--export dot`) and persist their results per repo under `~/.checkowners/` so downstream commands can reuse the analysis. Scoring commands also accept `--as-of` and honor `SOURCE_DATE_EPOCH`; the default analysis instant is the HEAD committer timestamp.
+Exit status is the same for every command: 0 clean, 1 internal error, 2 configuration or usage, 3 findings, 4 git or GitHub failure. `checkowners --exit-zero` hides findings only. See [Exit codes](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#exit-codes).
 
-## Commands
+## CI
+
+Least privilege (job summary only; no pull-request comment):
+
+```yaml
+name: checkowners
+on: [pull_request]
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: smusali/checkowners@v0
+        with:
+          config: .github/checkowners.yml
+          comment_on_pr: false
+```
+
+Same-repo comments need `pull-requests: write`. The comment workflow and the pre-commit hooks are in [GitHub Actions](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#github-actions) and [Pre-commit](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#pre-commit).
+
+> CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration.
+
+> No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
+
+## See it
+
+`checkowners --offline drift` on a sanitized two-person tree. The committed rule is `/payments/ @platform`.
+
+![checkowners drift reporting high severity on /payments/](https://raw.githubusercontent.com/smusali/checkowners/main/examples/demo.gif)
+
+The composite Action posts that finding as one comment on same-repo pull requests:
+
+![CheckOwners pull-request comment for high-severity drift](https://raw.githubusercontent.com/smusali/checkowners/main/examples/pr-comment.png)
+
+`generate --force` on the same tree writes [examples/sample-CODEOWNERS](https://github.com/smusali/checkowners/blob/main/examples/sample-CODEOWNERS):
+
+```text
+# Generated by checkOwners. Do not edit manually.
+
+/payments/ @alice @bob
+```
+
+## After drift
+
+`checkowners analyze` reads `git log` and `git blame` (in parallel, over paths that still have human commit evidence; a 24k-commit, 12k-file production monorepo completed a 365-day analyze in under three minutes on the 0.5.0 dogfood run) into a confidence-scored ownership map cached per repo under `~/.checkowners/`. Commit emails resolve to GitHub `@handles` (noreply emails locally with no token, the rest via the GitHub API), and same-person identities merge so qualified owner counts count people, not email addresses. From that map, `generate` writes a CODEOWNERS file with uniform directories consolidated into `dir/` rules, and `drift` compares the committed file against inference using real CODEOWNERS pattern matching (directory rules, globs, last-match-wins). Reviewer suggestions, decay warnings, team boundaries, review load, and onboarding paths are separate reports from the same evidence. In CI, the composite GitHub Action runs the same flow, writes structured `GITHUB_OUTPUT` and a job summary, and maintains a single up-to-date pull-request comment on same-repo pull requests. See [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md) for the full pipeline and a diagram.
+
+All commands accept `--json` (except `graph`, which exports DOT via `--export dot`) and persist their results per repo under `~/.checkowners/` so downstream commands can reuse the analysis. Scoring commands also accept `--as-of` and honor `SOURCE_DATE_EPOCH`; the default analysis instant is the HEAD committer timestamp.
 
 | Command | What it does |
 |---------|--------------|
@@ -102,15 +141,19 @@ All commands accept `--json` (except `graph`, which exports DOT via `--export do
 | `checkowners trends [--periods N] [--period-days D]` | Show how ownership confidence and qualified owner count have evolved over time |
 | `checkowners github-action` | Run the full CI flow and write `GITHUB_OUTPUT`; used by the composite Action |
 
-Exit status is the same for every command: 0 clean, 1 internal error, 2 configuration or usage, 3 findings, 4 git or GitHub failure. `checkowners --exit-zero` hides findings only. See [Exit codes](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#exit-codes).
+Trimmed JSON from this repository is in [examples/sample-output.md](https://github.com/smusali/checkowners/blob/main/examples/sample-output.md). Reference configs live under [examples/](https://github.com/smusali/checkowners/tree/main/examples).
 
 ## Trust
 
-Core inference is local git. `checkowners --offline` opens no network connection.
+Core inference is local git. `checkowners --offline` opens no network connection. With no token, CheckOwners sends nothing anywhere.
 
 PyPI releases use [Trusted Publishing](https://docs.pypi.org/trusted-publishers/). The publish workflow authenticates with a GitHub OIDC token and does not store a PyPI API token. Sigstore signs each distribution.
 
 Each GitHub release also carries a CycloneDX SBOM and a signed build-provenance attestation. CI publishes an [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/smusali/checkowners) for the default branch.
+
+This repository moved here from a previous GitHub organization; Sigstore attestations for 0.5.0 and earlier record that earlier publisher. 0.5.1 and later are published from `smusali/checkowners`.
+
+Inference is deterministic git analysis; the scoring heuristics live in `analyze.py` and are auditable. The codebase has been built with agent assistance. Every AI-assisted change is human-reviewed, tested, and signed off.
 
 What the tool reads, what leaves the machine, what the cache holds, how tokens are handled, and which permissions are required is in [docs/PRIVACY.md](https://github.com/smusali/checkowners/blob/main/docs/PRIVACY.md).
 

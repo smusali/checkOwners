@@ -1,6 +1,6 @@
 # Usage
 
-Full configuration, scoring, and CI reference. For a quick command list see the [README](../README.md). For answers to common questions see [docs/FAQ.md](FAQ.md).
+Full configuration, scoring, and CI reference. The [README](../README.md) opens with a drift example, install, and CI. For answers to common questions see [docs/FAQ.md](FAQ.md).
 
 ## Pipeline
 
@@ -332,7 +332,7 @@ Per-path JSON also reports score mass under `risk`: `top_owner_share` (largest s
 
 ## Generated CODEOWNERS
 
-`checkowners generate` consolidates per-file inference into directory-level rules: when every inferred file under a directory shares the same owner set, one `/dir/ @owners` line replaces the per-file lines. That keeps the file reviewable and means brand-new files under the directory match a rule. Directories whose files disagree keep per-file lines. Set `output.consolidate: false` for raw per-file output.
+`checkowners generate` consolidates per-file inference into directory-level rules: when every inferred file under a directory shares the same owner set, one `/dir/ @owners` line replaces the per-file lines. That keeps the file reviewable and means brand-new files under the directory match a rule. Directories whose files disagree keep per-file lines. Set `output.consolidate: false` for raw per-file output. A sanitized generated file is [examples/sample-CODEOWNERS](../examples/sample-CODEOWNERS). Reference configs for a solo maintainer and an organization with teams are under [examples/](../examples/).
 
 After building the file, generate re-resolves every path that contributed a rule with the same pattern engine used by drift (`last matching rule wins`) and fails if any path's owners differ from the set generation assigned. The error names the path, the intended owners, the resolved owners, and the winning rule line. Set `output.verify_round_trip: false` to skip this check. `--force` does not skip it. `sync` runs the same verification before committing.
 

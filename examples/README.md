@@ -9,4 +9,4 @@ Reference configs for two common shapes. They are sanitized illustrations, not d
 
 Neither sample `CODEOWNERS` lives at a location GitHub (or CheckOwners) auto-detects at the repository root, so they will not be picked up as this project's ownership file.
 
-See [sample-output.md](sample-output.md) for trimmed `analyze` and `drift` JSON from this repository. The landing page also embeds [demo.svg](demo.svg) (analyze, generate, drift) and [pr-comment.svg](pr-comment.svg) (the Action comment when drift is clear).
+[demo.gif](demo.gif) is a `checkowners --offline drift` run on a sanitized tree: `/payments/` is declared `@platform`, and history belongs to `@alice` and `@bob`. [pr-comment.png](pr-comment.png) is the pull-request comment for that run. [sample-CODEOWNERS](sample-CODEOWNERS) is what `generate --force` wrote for the same tree. [sample-output.md](sample-output.md) is trimmed `analyze` and `drift` JSON from this repository.

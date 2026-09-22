@@ -324,8 +324,6 @@ resolution.
   ("already in sync"); it previously failed with an empty error because git
   prints "nothing to commit" on stdout.
 - Downstream commands print a stderr hint when reusing cached state.
-- `notifications.include_unchanged` now means "also notify when no drift was
-  detected"; without it, no-drift runs no longer fire webhooks.
 - Severity's critical signal honors `bus_factor.critical_threshold` instead
   of a hardcoded 1.
 - Review-coverage and balance GitHub scans are bounded to the 200 most
@@ -368,8 +366,6 @@ resolution.
 - Terminal output renders paths like `[companyId]` verbatim: user-derived
   text (paths, reasons, handles) is markup-escaped so Rich no longer swallows
   bracket segments as style tags.
-- Webhook notifications no longer crash the CLI on HTTP or network errors;
-  failures log a warning and `notify` reports `sent: false`.
 - Rebalance suggestions can no longer propose shifting reviews onto another
   overloaded reviewer.
 - Topology reports one mismatch line per overlapping declared team instead of
@@ -401,7 +397,6 @@ resolution.
 - Removed dead `generate._owners_for_path` helper.
 
 ### Security
-- `notifications.webhook_url` accepts a `${ENV_VAR}` reference (e.g. `${CHECKOWNERS_WEBHOOK_URL}`) so a committed config can point at a secret/internal endpoint without storing it; an unset variable resolves to "".
 - `.checkowners/` is git-ignored so a state or graph cache (contributor emails + ownership map) cannot be committed if `CHECKOWNERS_STATE_DIR` points inside a repo.
 - `github.token` remains refused inside `.github/checkowners.yml`; the only supported way to provide a token is the `GITHUB_TOKEN` environment variable.
 
@@ -418,8 +413,8 @@ resolution.
 - Onboarding path generator that walks the knowledge graph from broad-ownership files to deep-expertise files and emits a Markdown checklist via `checkowners onboard <path>`.
 - Persistent state cache at `~/.checkowners/state.json` (schema v2), with `CHECKOWNERS_STATE_DIR` override for CI and tests.
 - Composite GitHub Action (`action.yml`) exposing `checkowners_drift`, `bus_factor_summary`, and `decay_summary` outputs; example workflow at `.github/workflows/checkowners-example.yml`.
-- Drift severity tiers (`low` / `medium` / `high` / `critical`) computed from the max confidence delta plus bus-factor and decay signals; `notifications.severity_threshold` gates webhook delivery.
-- Config sections `scoring`, `decay`, `bus_factor` and new fields on existing sections (`confidence_threshold`, `min_confidence_delta`, `include_confidence`, `severity_threshold`, `github.api_enabled`).
+- Drift severity tiers (`low` / `medium` / `high` / `critical`) computed from the max confidence delta plus bus-factor and decay signals.
+- Config sections `scoring`, `decay`, `bus_factor` and new fields on existing sections (`confidence_threshold`, `min_confidence_delta`, `include_confidence`, `github.api_enabled`).
 
 ### Changed
 - `analysis.lookback_days` default lifted from 180 to 365.
@@ -427,7 +422,6 @@ resolution.
 - `paths.exclude` default now includes `node_modules/**`.
 - `OwnershipMap` reshaped to carry `PathOwnership` entries (confidence-scored owners, bus factor, decay warnings).
 - `DriftResult` now carries `DriftEntry` tuples with per-entry confidence delta and reason.
-- `notify` payload includes severity, max delta, and per-entry bus factor / decay flags.
 
 ### Fixed
 `validate` strips inline confidence comments so `output.include_confidence: true` does not fail the validator. Caught while dogfooding.
@@ -453,9 +447,8 @@ Repo now dogfoods its own generated CODEOWNERS.
 ## [0.1.0] - 2026-05-26
 
 ### Added
-- Initial CLI: `analyze`, `generate`, `print`, `validate`, `drift`, `notify`, `sync`.
+- Initial CLI: `analyze`, `generate`, `print`, `validate`, `drift`, `sync`.
 - Drift detection with three modes (`commit`, `repo`, `both`) and GITHUB_OUTPUT integration.
-- Webhook notifications on drift events.
 - Syntax-only CODEOWNERS validator.
 - Packaging via hatch; published to PyPI under `checkowners`.
 - CI workflow running tests and lint across Python 3.11, 3.12, 3.13.

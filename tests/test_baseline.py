@@ -44,7 +44,6 @@ from tests.test_cli import (
     _DRIFT_DETECTED,
     _MOCK_PATH,
     _MOCK_TOKEN,
-    _NO_DRIFT,
     _NOW,
     _OWNERSHIP,
     _run_github_action,
@@ -567,18 +566,3 @@ def test_filter_bus_payload_hidden_and_non_lists() -> None:
 
 def test_print_expired_suppression_without_date() -> None:
     _print_expired_suppressions((Suppression(path="legacy/**", rule="stale", reason="no date"),))
-
-
-def test_notify_skipped_below_threshold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, "notifications:\n  webhook_url: https://hooks.example.com/x\n")
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
-        patch("checkowners.cli.send_notification", return_value=False),
-        _MOCK_PATH,
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, ["notify"])
-    assert result.exit_code == 0
-    assert "below threshold" in result.stdout

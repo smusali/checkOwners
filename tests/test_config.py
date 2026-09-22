@@ -59,9 +59,6 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.drift.hysteresis_runs == 1
     assert cfg.drift.baseline_file == ""
     assert cfg.suppressions == ()
-    assert cfg.notifications.webhook_url == ""
-    assert cfg.notifications.include_unchanged is False
-    assert cfg.notifications.severity_threshold == "medium"
     assert cfg.scoring.recency_half_life_days == 90
     assert cfg.scoring.recency_weight == 0.35
     assert cfg.scoring.frequency_weight == 0.25
@@ -153,10 +150,6 @@ drift:
   mode: repo
   min_confidence_delta: 0.4
   hysteresis_runs: 3
-notifications:
-  webhook_url: "https://hooks.example.com/drift"
-  include_unchanged: true
-  severity_threshold: high
 github:
   org: myorg
   resolve_handles: false
@@ -203,9 +196,6 @@ identity:
     assert cfg.drift.hysteresis_runs == 3
     assert cfg.drift.baseline_file == ""
     assert cfg.suppressions == ()
-    assert cfg.notifications.webhook_url == "https://hooks.example.com/drift"
-    assert cfg.notifications.include_unchanged is True
-    assert cfg.notifications.severity_threshold == "high"
     assert cfg.github.org == "myorg"
     assert cfg.github.resolve_handles is False
     assert cfg.github.resolve_teams is False
@@ -301,33 +291,6 @@ def test_config_path_env_override_absolute(tmp_path: Path, monkeypatch: pytest.M
     # repo_root deliberately points somewhere without a config file.
     cfg = load_config(repo_root=tmp_path)
     assert cfg.analysis.top_n_owners == 9
-
-
-def test_webhook_url_env_interpolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CHECKOWNERS_WEBHOOK_URL", "https://hooks.example.com/secret")
-    root = _write_config(tmp_path, "notifications:\n  webhook_url: ${CHECKOWNERS_WEBHOOK_URL}\n")
-    cfg = load_config(repo_root=root)
-    assert cfg.notifications.webhook_url == "https://hooks.example.com/secret"
-
-
-def test_webhook_url_env_missing_resolves_empty(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "notifications:\n  webhook_url: ${UNSET_WEBHOOK}\n")
-    cfg = load_config(repo_root=root)
-    assert cfg.notifications.webhook_url == ""
-
-
-def test_webhook_url_literal_passthrough(tmp_path: Path) -> None:
-    root = _write_config(
-        tmp_path, "notifications:\n  webhook_url: https://hooks.example.com/plain\n"
-    )
-    cfg = load_config(repo_root=root)
-    assert cfg.notifications.webhook_url == "https://hooks.example.com/plain"
-
-
-def test_severity_threshold_invalid_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "notifications:\n  severity_threshold: extreme\n")
-    with pytest.raises(ValueError, match=r"Invalid notifications\.severity_threshold"):
-        load_config(repo_root=root)
 
 
 def test_paths_exclude_override(tmp_path: Path) -> None:

@@ -36,9 +36,6 @@ output:
 drift:
   mode: both
   min_confidence_delta: 0.2
-notifications:
-  webhook_url: ""
-  severity_threshold: high
 github:
   org: example-org
   resolve_handles: true

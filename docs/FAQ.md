@@ -155,7 +155,7 @@ Four filters can drop a path: `.gitattributes` marks it `linguist-generated` or 
 
 ### What does drift "severity" mean in CI?
 
-`notify.compute_severity` maps the max confidence delta plus qualified-owner / decay flags to a tier:
+Drift severity maps the max confidence delta plus qualified-owner / decay flags to a tier:
 
 | Severity | Trigger |
 |----------|---------|
@@ -164,7 +164,7 @@ Four filters can drop a path: `.gitattributes` marks it `linguist-generated` or 
 | `medium` | `max_confidence_delta >= 0.3` |
 | `low` | otherwise |
 
-`notifications.severity_threshold` decides when a webhook fires, and `--json` always includes the severity field so CI workflows can branch on it.
+`--json` and the Action output `checkowners_drift` include the severity field so a workflow can branch on it.
 
 ### How do I turn checkOwners on without failing on every existing finding?
 
@@ -172,7 +172,7 @@ Four filters can drop a path: `.gitattributes` marks it `linguist-generated` or 
 
 ### What is the difference between a baseline and a suppression?
 
-The baseline is a bulk snapshot of current debt so CI can start green. A suppression is a named exception with a mandatory reason and an optional expiry. Use a suppression when you can explain one rule on one path; use the baseline when you need to adopt on a large existing tree. Both counts appear in every `drift` / `notify` / Action summary.
+The baseline is a bulk snapshot of current debt so CI can start green. A suppression is a named exception with a mandatory reason and an optional expiry. Use a suppression when you can explain one rule on one path; use the baseline when you need to adopt on a large existing tree. Both counts appear in every `drift` and Action summary.
 
 ### Why does a suppression require a reason?
 

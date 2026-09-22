@@ -71,7 +71,6 @@ from checkowners.models import (
     TeamCluster,
     models_payload,
 )
-from checkowners.notify import _post_webhook
 from checkowners.onboard import OnboardingPath, OnboardingStep
 from checkowners.state import (
     load_ownership,
@@ -646,52 +645,6 @@ def test_drift_json_includes_severity() -> None:
     assert data["analysis_epoch"] == _NOW.isoformat()
 
 
-# --- notify ---
-
-
-def test_notify_sent() -> None:
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_drift", return_value=_DRIFT_DETECTED),
-        patch("checkowners.cli.send_notification", return_value=True),
-        _MOCK_PATH,
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, ["notify"])
-    assert result.exit_code == 0
-    assert "sent" in result.stdout.lower()
-
-
-def test_notify_skipped() -> None:
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
-        patch("checkowners.cli.send_notification", return_value=False),
-        _MOCK_PATH,
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, ["notify"])
-    assert result.exit_code == 0
-    assert "skipped" in result.stdout.lower()
-
-
-def test_notify_json() -> None:
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_drift", return_value=_DRIFT_DETECTED),
-        patch("checkowners.cli.send_notification", return_value=True),
-        _MOCK_PATH,
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, ["notify", "--json"])
-    assert result.exit_code == 0
-    data = json.loads(result.stdout)
-    assert data["sent"] is True
-    assert data["severity"] == "critical"
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
-
-
 # --- sync ---
 
 
@@ -839,6 +792,7 @@ def test_github_action_no_fail_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert exit_code == 0
     data = json.loads(stdout)
     assert data["checkowners_drift"]["drift_detected"] is True
+    assert data["checkowners_drift"]["severity"] == "critical"
     assert data["checkowners_drift"]["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert "entries" in data["bus_factor_summary"]
@@ -1919,7 +1873,6 @@ def test_render_explained_owner_without_optional_signals() -> None:
         ["print", "--json"],
         ["validate", "--json"],
         ["drift", "--json"],
-        ["notify", "--json"],
         ["sync", "--json"],
         ["decay", "--json"],
         ["qualified-owners", "--all", "--json"],
@@ -1968,7 +1921,6 @@ def test_command_json_includes_models(
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
         patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
-        patch("checkowners.cli.send_notification", return_value=False),
         patch("checkowners.cli.validate_codeowners", return_value=[]),
         patch("checkowners.cli.analyze_trends", return_value=_TREND_REPORT),
         patch("checkowners.cli.analyze_balance", return_value=empty_balance),
@@ -2003,7 +1955,6 @@ _EXIT_OK: tuple[tuple[str, list[str]], ...] = (
     ("owners", ["owners", "src/main.py"]),
     ("who", ["who", "src/main.py"]),
     ("drift", ["drift"]),
-    ("notify", ["notify"]),
     ("sync", ["sync"]),
     ("decay", ["decay"]),
     ("graph", ["graph"]),
@@ -2199,7 +2150,6 @@ def test_exit_code_contract(
         if isinstance(generate_effect, Exception)
         else patch("checkowners.cli.generate_codeowners", return_value=generate_effect),
         patch("checkowners.cli.validate_codeowners", return_value=validation),
-        patch("checkowners.cli.send_notification", return_value=False),
         patch("checkowners.cli.analyze_trends", side_effect=trends_effect)
         if isinstance(trends_effect, Exception)
         else patch("checkowners.cli.analyze_trends", return_value=trends_effect),
@@ -2411,4 +2361,3 @@ def test_offline_analyze_makes_no_network_calls(monkeypatch: pytest.MonkeyPatch)
     assert "Network access: disabled" in combined
     assert "Review evidence: unavailable" in combined
     assert "Team verification: unavailable" in combined
-    assert _post_webhook("https://example.invalid/hook", {"ok": True}) is False

@@ -41,6 +41,7 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
     RecommendationAction,
+    Severity,
     repository_label,
     stamp_json,
 )
@@ -358,14 +359,72 @@ def _recommendation_action(kind: DriftKind) -> RecommendationAction:
     return "review_codeowners_rule"
 
 
+def compute_severity(result: DriftResult, config: Config | None = None) -> Severity:
+    """Map `result` and optional `config` to `low`, `medium`, `high`, or `critical`.
+
+    `config.bus_factor.critical_threshold` sets the critical qualified-owner
+    cutoff. Without `config` the cutoff is 1.
+    """
+    critical_threshold = config.bus_factor.critical_threshold if config is not None else 1
+    if _has_critical_signal(result, critical_threshold):
+        return "critical"
+    delta = result.max_confidence_delta
+    if delta >= 0.7:
+        return "high"
+    if delta >= 0.3:
+        return "medium"
+    return "low"
+
+
+def apply_severity_hysteresis(
+    raw: Severity,
+    max_delta: float,
+    config: Config,
+    previous: tuple[Severity | None, Severity | None, int],
+) -> tuple[Severity, Severity, int]:
+    """Return `(reported, pending, streak)` after applying `config.drift` hysteresis.
+
+    `previous` is `(reported, pending, streak)`. `hysteresis_runs <= 1` or a
+    missing prior report returns `raw`. A delta of at least
+    `2 * min_confidence_delta` accepts `raw` immediately.
+    """
+    runs = config.drift.hysteresis_runs
+    reported, pending, streak = previous
+    if runs <= 1 or reported is None:
+        return raw, raw, 1
+    if max_delta >= config.drift.min_confidence_delta * 2:
+        return raw, raw, 1
+    if raw == reported:
+        return raw, raw, 1
+    if raw == pending:
+        streak += 1
+    else:
+        streak = 1
+        pending = raw
+    if streak >= runs:
+        return raw, raw, streak
+    return reported, pending, streak
+
+
+def _has_critical_signal(result: DriftResult, critical_threshold: int) -> bool:
+    for entries in (result.stale, result.missing, result.changed):
+        for entry in entries:
+            if (
+                entry.qualified_owner_count is not None
+                and entry.qualified_owner_count <= critical_threshold
+            ):
+                return True
+            if entry.decay:
+                return True
+    return False
+
+
 def drift_entry_payload(
     entry: DriftEntry,
     cap: int,
     config: Config | None = None,
 ) -> DriftEntryJson:
     """Return the machine-readable drift entry for `entry` at qualified-owner `cap`."""
-    from checkowners.notify import compute_severity  # noqa: PLC0415
-
     lone = DriftResult(stale=(), missing=(), changed=(entry,), drift_detected=True)
     payload: DriftEntryJson = {
         "path": entry.path,

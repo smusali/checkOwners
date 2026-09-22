@@ -12,17 +12,21 @@ import pytest
 
 from checkowners.drift import (
     _tracked_files,
+    apply_severity_hysteresis,
+    compute_severity,
     detect_drift,
     drift_entry_payload,
     evidence_gaps,
     write_github_output,
 )
 from checkowners.models import (
+    BusFactorConfig,
     Config,
     DecayWarning,
     DriftConfig,
     DriftEntry,
     DriftMode,
+    DriftResult,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
@@ -313,3 +317,81 @@ def test_empty_ownership_and_no_codeowners(tmp_path: Path) -> None:
     with patch(_MOCK_LS_FILES, return_value=()):
         result = detect_drift(tmp_path, ownership, _config())
     assert not result.drift_detected
+
+
+def _drift_with(
+    *,
+    delta: float = 1.0,
+    qualified_owner_count: int | None = None,
+    decay: bool = False,
+    detected: bool = True,
+) -> DriftResult:
+    if not detected:
+        return DriftResult(stale=(), missing=(), changed=(), drift_detected=False)
+    entry = DriftEntry(
+        path="/src/main.py",
+        confidence_delta=delta,
+        reason="test",
+        qualified_owner_count=qualified_owner_count,
+        decay=decay,
+    )
+    return DriftResult(stale=(entry,), missing=(), changed=(), drift_detected=True)
+
+
+def test_compute_severity_low_medium_high_critical() -> None:
+    assert compute_severity(_drift_with(delta=0.1)) == "low"
+    assert compute_severity(_drift_with(delta=0.4)) == "medium"
+    assert compute_severity(_drift_with(delta=0.8)) == "high"
+    assert compute_severity(_drift_with(delta=0.8, qualified_owner_count=1)) == "critical"
+    assert compute_severity(_drift_with(delta=0.1, decay=True)) == "critical"
+
+
+def test_compute_severity_no_drift_is_low() -> None:
+    assert compute_severity(_drift_with(detected=False)) == "low"
+
+
+def test_hysteresis_default_reports_raw() -> None:
+    config = Config()
+    reported, pending, streak = apply_severity_hysteresis("medium", 0.35, config, (None, None, 0))
+    assert (reported, pending, streak) == ("medium", "medium", 1)
+
+
+def test_hysteresis_holds_until_streak() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3))
+    first = apply_severity_hysteresis("medium", 0.35, config, ("low", None, 0))
+    assert first[0] == "low"
+    assert first[1] == "medium"
+    assert first[2] == 1
+    second = apply_severity_hysteresis("medium", 0.35, config, first)
+    assert second[0] == "low"
+    assert second[2] == 2
+    third = apply_severity_hysteresis("medium", 0.35, config, second)
+    assert third[0] == "medium"
+    assert third[2] == 3
+
+
+def test_hysteresis_margin_flips_immediately() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3, min_confidence_delta=0.2))
+    reported, pending, streak = apply_severity_hysteresis("high", 0.45, config, ("low", None, 0))
+    assert (reported, pending, streak) == ("high", "high", 1)
+
+
+def test_hysteresis_same_as_reported_resets() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3))
+    reported, pending, streak = apply_severity_hysteresis("low", 0.1, config, ("low", "medium", 2))
+    assert (reported, pending, streak) == ("low", "low", 1)
+
+
+def test_hysteresis_pending_resets_when_severity_changes() -> None:
+    config = Config(drift=DriftConfig(hysteresis_runs=3))
+    reported, pending, streak = apply_severity_hysteresis(
+        "high", 0.35, config, ("low", "medium", 2)
+    )
+    assert (reported, pending, streak) == ("low", "high", 1)
+
+
+def test_compute_severity_uses_configured_critical_threshold() -> None:
+    config = Config(bus_factor=BusFactorConfig(critical_threshold=2, warn_threshold=3))
+    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=2), config) == "critical"
+    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=2)) == "low"
+    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=1)) == "critical"

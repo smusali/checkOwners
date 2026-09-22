@@ -23,14 +23,12 @@ from checkowners.models import (
     GitConfig,
     GithubConfig,
     ModelVersions,
-    NotificationsConfig,
     OutputConfig,
     PathsConfig,
     PolicyConfig,
     QualificationConfig,
     QualificationStrategy,
     ScoringConfig,
-    Severity,
     Suppression,
     models_payload,
 )
@@ -59,7 +57,6 @@ _CODEOWNERS_CANDIDATES: tuple[str, ...] = (
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 _VALID_DRIFT_MODES: frozenset[str] = frozenset(get_args(DriftMode))
-_VALID_SEVERITIES: frozenset[str] = frozenset(get_args(Severity))
 _VALID_QUALIFICATION_STRATEGIES: frozenset[str] = frozenset(get_args(QualificationStrategy))
 _VALID_FINDING_RULES: frozenset[str] = frozenset(get_args(FindingRule))
 
@@ -76,7 +73,6 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
         "paths",
         "output",
         "drift",
-        "notifications",
         "github",
         "git",
         "suppressions",
@@ -132,9 +128,6 @@ _V2_OUTPUT: frozenset[str] = frozenset(
 _V2_DRIFT: frozenset[str] = frozenset(
     {"mode", "min_confidence_delta", "hysteresis_runs", "baseline_file"}
 )
-_V2_NOTIFICATIONS: frozenset[str] = frozenset(
-    {"webhook_url", "include_unchanged", "severity_threshold"}
-)
 _V2_GITHUB: frozenset[str] = frozenset(
     {"org", "resolve_handles", "resolve_teams", "api_enabled", "token"}
 )
@@ -181,7 +174,6 @@ _V2_SECTIONS: dict[str, frozenset[str]] = {
     "paths": _V2_PATHS,
     "output": _V2_OUTPUT,
     "drift": _V2_DRIFT,
-    "notifications": _V2_NOTIFICATIONS,
     "github": _V2_GITHUB,
     "git": _V2_GIT,
     "identity": _V2_IDENTITY,
@@ -206,10 +198,6 @@ _MOVED_KEYS: tuple[tuple[tuple[str, str], str], ...] = (
 
 def _is_drift_mode(value: str) -> TypeGuard[DriftMode]:
     return value in _VALID_DRIFT_MODES
-
-
-def _is_severity(value: str) -> TypeGuard[Severity]:
-    return value in _VALID_SEVERITIES
 
 
 def _is_qualification_strategy(value: str) -> TypeGuard[QualificationStrategy]:
@@ -468,7 +456,6 @@ def _merge_config(raw: dict[str, Any]) -> Config:
         "paths": ("paths", _build_paths_config),
         "output": ("output", _build_output_config),
         "drift": ("drift", _build_drift_config),
-        "notifications": ("notifications", _build_notifications_config),
         "github": ("github", _build_github_config),
         "git": ("git", _build_git_config),
         "policy": ("policy", _build_policy_config),
@@ -701,38 +688,6 @@ def _build_suppression(data: object, index: int) -> Suppression:
             msg = f"Invalid {prefix}.expires: {raw_expires!r}; expected YYYY-MM-DD"
             raise ValueError(msg) from None
     return Suppression(path=path, rule=rule, reason=reason, expires=expires)
-
-
-def _expand_env_ref(raw: str) -> str:
-    """Expand a ``${VAR}`` reference from the environment; pass literals through.
-
-    Lets a committed checkowners.yml point at a secret without storing it, e.g.
-    ``webhook_url: ${CHECKOWNERS_WEBHOOK_URL}``. An unset variable expands to "".
-    """
-    stripped = raw.strip()
-    if stripped.startswith("${") and stripped.endswith("}"):
-        var = stripped[2:-1]
-        if var.isidentifier():
-            return os.environ.get(var, "")
-    return raw
-
-
-def _build_notifications_config(data: dict[str, Any]) -> NotificationsConfig:
-    kwargs: dict[str, Any] = {}
-    if "webhook_url" in data:
-        kwargs["webhook_url"] = _expand_env_ref(str(data["webhook_url"]))
-    if "include_unchanged" in data:
-        kwargs["include_unchanged"] = bool(data["include_unchanged"])
-    if "severity_threshold" in data:
-        sev_str = str(data["severity_threshold"])
-        if not _is_severity(sev_str):
-            msg = (
-                f"Invalid notifications.severity_threshold: {sev_str!r}; "
-                f"expected one of {sorted(_VALID_SEVERITIES)}"
-            )
-            raise ValueError(msg)
-        kwargs["severity_threshold"] = sev_str
-    return NotificationsConfig(**kwargs)
 
 
 def _build_github_config(data: dict[str, Any]) -> GithubConfig:

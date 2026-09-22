@@ -22,7 +22,7 @@ Review evidence: unavailable
 Team verification: unavailable
 ```
 
-Without that flag, a `GITHUB_TOKEN` can be used to resolve emails, fetch review coverage, and read team membership. `notify` can POST a drift payload to `notifications.webhook_url`. Both are skipped when `--offline` is set. Noreply addresses, `.mailmap`, and an existing handle file still resolve locally.
+Without that flag, a `GITHUB_TOKEN` can be used to resolve emails, fetch review coverage, and read team membership. That access is skipped when `--offline` is set. Noreply addresses, `.mailmap`, and an existing handle file still resolve locally.
 
 ## Deleting it
 

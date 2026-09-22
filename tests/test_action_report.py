@@ -11,6 +11,7 @@ import pytest
 from checkowners.action_report import (
     DIAGNOSTIC,
     SOLO_LINE,
+    _completeness_lines,
     _write_multiline_output,
     build,
     entry_lines,
@@ -32,6 +33,24 @@ _TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(_TOOLS))
 
 from comment_on_pr import MARKER, _existing_id  # noqa: E402
+
+
+def test_completeness_lines_skip_unreadable_gaps() -> None:
+    assert _completeness_lines({}) == []
+    assert _completeness_lines({"analysis_completeness": True}) == []
+    assert _completeness_lines({"analysis_completeness": 1}) == ["analysis completeness: 100%"]
+    lines = _completeness_lines(
+        {
+            "analysis_completeness": 0.5,
+            "analysis_gaps": [
+                "skip",
+                {"code": "missing_mailmap"},
+                {"reason": ""},
+                {"reason": "Missing .mailmap."},
+            ],
+        }
+    )
+    assert lines == ["analysis completeness: 50%", "Missing .mailmap."]
 
 
 def test_md_cell_escapes_backticks_pipes_newlines_and_html() -> None:

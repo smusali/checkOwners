@@ -625,6 +625,38 @@ def test_analysis_budgets_and_incomplete_policy(tmp_path: Path) -> None:
     assert cfg.policy.incomplete_analysis_fail is True
 
 
+def test_policy_without_a_fail_flag_stays_off(tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    omitted = tmp_path / "omitted"
+    blank = tmp_path / "blank"
+    empty.mkdir()
+    omitted.mkdir()
+    blank.mkdir()
+    _write_config(empty, "version: 2\npolicy: {}\n")
+    _write_config(omitted, "version: 2\npolicy:\n  incomplete_analysis: {}\n")
+    _write_config(blank, "policy:\n  incomplete_analysis: []\n")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        assert load_config(repo_root=empty).policy.incomplete_analysis_fail is False
+        assert load_config(repo_root=omitted).policy.incomplete_analysis_fail is False
+        assert load_config(repo_root=blank).policy.incomplete_analysis_fail is False
+
+
+def test_policy_fail_rejects_non_booleans(tmp_path: Path) -> None:
+    current = tmp_path / "current"
+    legacy = tmp_path / "legacy"
+    current.mkdir()
+    legacy.mkdir()
+    _write_config(current, "version: 2\npolicy:\n  incomplete_analysis:\n    fail: 1\n")
+    _write_config(legacy, "policy:\n  incomplete_analysis:\n    fail: 1\n")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with pytest.raises(ValueError, match="must be a boolean"):
+            load_config(repo_root=current)
+        with pytest.raises(ValueError, match="must be a boolean"):
+            load_config(repo_root=legacy)
+
+
 @pytest.mark.parametrize(
     ("content", "match"),
     [

@@ -17,6 +17,7 @@ from checkowners.github import (
     get_github_client,
     get_github_token,
     note_api_call,
+    note_collection_gap,
     resolve_handles,
     resolve_noreply_handle,
     review_was_omitted,
@@ -27,6 +28,7 @@ from checkowners.models import (
     API_RATE_LIMIT_REASON,
     API_RATE_LIMIT_TRUNCATED_REASON,
     SEARCH_RATE_LIMIT_REASON,
+    AnalysisGap,
 )
 from checkowners.state import read_handle_cache, write_handle_cache
 
@@ -128,6 +130,149 @@ def test_resolve_handles_omits_when_search_budget_is_exhausted() -> None:
     assert result == {}
     assert client.search_users.called is False
     assert any(gap.reason == SEARCH_RATE_LIMIT_REASON for gap in collection_gaps())
+    clear_api_evidence()
+
+
+def test_collection_gap_keeps_the_first_reason_until_replaced() -> None:
+    clear_api_evidence()
+    note_collection_gap(AnalysisGap("api_rate_limit", "first"))
+    note_collection_gap(AnalysisGap("api_rate_limit", "second"))
+    assert collection_gaps()[0].reason == "first"
+    note_collection_gap(AnalysisGap("api_rate_limit", "third"), replace=True)
+    assert collection_gaps()[0].reason == "third"
+    clear_api_evidence()
+
+
+def test_resolve_handles_stops_when_the_request_budget_is_already_spent() -> None:
+    clear_api_evidence()
+    begin_api_budget(0)
+    client = MagicMock()
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.read_handle_cache", return_value={}),
+    ):
+        result = resolve_handles({"spent@example.com"}, "ghp_test")
+    assert result == {}
+    assert client.get_rate_limit.called is False
+    assert any(gap.reason == API_BUDGET_REASON for gap in collection_gaps())
+    clear_api_evidence()
+
+
+def test_resolve_handles_stops_mid_lookup_when_the_request_budget_is_spent() -> None:
+    clear_api_evidence()
+    begin_api_budget(1)
+    client = MagicMock()
+    client.get_rate_limit.return_value.search.remaining = 5
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.read_handle_cache", return_value={}),
+    ):
+        result = resolve_handles({"one@example.com", "two@example.com"}, "ghp_test")
+    assert result == {}
+    assert client.search_users.called is False
+    assert any(gap.reason == API_BUDGET_REASON for gap in collection_gaps())
+    clear_api_evidence()
+
+
+def test_search_rate_limit_failure_still_looks_up_handles() -> None:
+    clear_api_evidence()
+    client = MagicMock()
+    client.get_rate_limit.side_effect = RuntimeError("down")
+    user = MagicMock()
+    user.login = "ada"
+    client.search_users.return_value = [user]
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.read_handle_cache", return_value={}),
+    ):
+        result = resolve_handles({"ada@example.com"}, "ghp_test")
+    assert result == {"ada@example.com": "@ada"}
+    clear_api_evidence()
+
+
+def test_review_rate_limit_failure_keeps_the_planned_scan() -> None:
+    clear_api_evidence()
+    client = MagicMock()
+    client.get_rate_limit.side_effect = RuntimeError("down")
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
+        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter(())) as pulls,
+    ):
+        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
+    assert coverage == {}
+    assert pulls.call_args.args[2] == 200
+    assert review_was_omitted() is False
+    clear_api_evidence()
+
+
+def test_review_scan_keeps_the_planned_limit_when_quota_covers_it() -> None:
+    clear_api_evidence()
+    client = MagicMock()
+    client.get_rate_limit.return_value.core.remaining = 400
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
+        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter(())) as pulls,
+    ):
+        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
+    assert coverage == {}
+    assert pulls.call_args.args[2] == 200
+    assert collection_gaps() == ()
+    clear_api_evidence()
+
+
+def test_review_page_fetch_stops_when_the_request_budget_is_spent() -> None:
+    clear_api_evidence()
+    begin_api_budget(1)
+    client = MagicMock()
+    client.get_rate_limit.return_value.core.remaining = 400
+    pull = _fake_pull(["ada"], ["a.py"])
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
+        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter([pull])),
+    ):
+        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
+    assert coverage == {}
+    pull.get_reviews.assert_not_called()
+    clear_api_evidence()
+
+
+def test_review_file_fetch_stops_when_the_request_budget_is_spent() -> None:
+    clear_api_evidence()
+    begin_api_budget(2)
+    client = MagicMock()
+    client.get_rate_limit.return_value.core.remaining = 400
+    pull = _fake_pull(["ada"], ["a.py"])
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
+        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter([pull])),
+    ):
+        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
+    assert coverage == {}
+    pull.get_reviews.assert_called_once()
+    pull.get_files.assert_not_called()
+    clear_api_evidence()
+
+
+def test_review_without_a_user_does_not_fetch_files() -> None:
+    clear_api_evidence()
+    client = MagicMock()
+    client.get_rate_limit.return_value.core.remaining = 400
+    pull = MagicMock()
+    review = MagicMock()
+    review.user = None
+    pull.get_reviews.return_value = [review]
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
+        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter([pull])),
+    ):
+        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
+    assert coverage == {}
+    pull.get_files.assert_not_called()
     clear_api_evidence()
 
 

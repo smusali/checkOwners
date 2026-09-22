@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from checkowners.analyze import (
+    _BLAME_DEADLINE,
     MIN_GIT_VERSION,
     SOURCE_DATE_EPOCH_ENV,
     GitRequirementError,
@@ -20,14 +21,19 @@ from checkowners.analyze import (
     _BlamePass,
     _Contribution,
     _detect_decay,
+    _display_ignore_revs_path,
+    _existing_file,
     _filter_excluded,
     _filter_nonexistent,
     _frequency_score,
     _gather_blame_coverage,
     _gather_review_coverage,
     _get_commit_history,
+    _git_stdout,
     _gitattributes_pattern_matches,
+    _insufficient_history,
     _is_excluded,
+    _is_shallow_repository,
     _linguist_excluded_paths,
     _parse_blame_output,
     _parse_gitattributes,
@@ -35,8 +41,11 @@ from checkowners.analyze import (
     _RawCommit,
     _recency_score,
     _score_owners,
+    _stdout_has_rename,
+    _window_has_renames,
     analysis_epoch,
     analyze_ownership,
+    apply_completeness,
     combine_available_signals,
     head_commit_datetime,
     head_commit_sha,
@@ -49,12 +58,14 @@ from checkowners.analyze import (
 )
 from checkowners.explain import signal_tuples
 from checkowners.models import (
+    AnalysisCompleteness,
     AnalysisConfig,
     Config,
     DecayConfig,
     GitConfig,
     OwnerEntry,
     OwnershipMap,
+    PathOwnership,
     QualificationConfig,
     ScoringConfig,
 )
@@ -882,6 +893,88 @@ def test_runtime_budget_marks_unblamed_paths_incomplete() -> None:
     assert any(gap.code == "runtime_budget" for gap in result.analysis_completeness.gaps)
     assert result.analysis_completeness.score is not None
     assert result.analysis_completeness.score < 1
+
+
+def test_git_probes_ignore_unexpected_output(tmp_path: Path) -> None:
+    with patch(_MOCK_GIT, side_effect=OSError("down")):
+        assert _git_stdout(tmp_path, ["git", "rev-parse"]) is None
+        assert _is_shallow_repository(tmp_path) is False
+        assert _insufficient_history(tmp_path, []) is False
+        assert _window_has_renames(tmp_path, _RECENT, _NOW) is False
+    failed = subprocess.CompletedProcess(args=[], returncode=1, stdout="true\n", stderr="")
+    with patch(_MOCK_GIT, return_value=failed):
+        assert _git_stdout(tmp_path, ["git", "status"]) is None
+    shallow = subprocess.CompletedProcess(args=[], returncode=0, stdout="true\n", stderr="")
+    with patch(_MOCK_GIT, return_value=shallow):
+        assert _is_shallow_repository(tmp_path) is True
+    head = subprocess.CompletedProcess(args=[], returncode=0, stdout=f"{'a' * 40}\n", stderr="")
+    commit = _RawCommit(author="alice@example.com", timestamp=_RECENT, files=("a.py",))
+    with patch(_MOCK_GIT, return_value=head):
+        assert _insufficient_history(tmp_path, []) is True
+        assert _insufficient_history(tmp_path, [commit]) is False
+        assert _window_has_renames(tmp_path, _RECENT, _NOW) is False
+    renamed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="R100\told.py\tnew.py\n",
+        stderr="",
+    )
+    with patch(_MOCK_GIT, return_value=renamed):
+        assert _window_has_renames(tmp_path, _RECENT, _NOW) is True
+    assert _stdout_has_rename("R\told.py\tnew.py\n") is True
+    assert _stdout_has_rename("R100\told.py\tnew.py\n") is True
+    assert _stdout_has_rename("RX\told.py\tnew.py\n") is False
+    assert _stdout_has_rename("R\n") is False
+    assert _stdout_has_rename("M\told.py\n") is False
+
+
+def test_ignore_revs_path_rejects_unexpected_names(tmp_path: Path) -> None:
+    assert _existing_file(tmp_path, "") is None
+    assert _existing_file(tmp_path, "a\nb") is None
+    assert _existing_file(tmp_path, "a\x00b") is None
+    present = tmp_path / "ignore"
+    present.write_text("abc\n", encoding="utf-8")
+    assert _existing_file(tmp_path, "ignore") == present
+    assert _existing_file(tmp_path, str(present)) == present
+    with patch.object(Path, "is_file", side_effect=OSError("too long")):
+        assert _existing_file(tmp_path, "ignore") is None
+    assert _display_ignore_revs_path(tmp_path, Path("/etc/hosts")) == "/etc/hosts"
+
+
+def test_apply_completeness_leaves_unscored_owners_unchanged() -> None:
+    bare = OwnerEntry(
+        handle="alice@example.com",
+        ownership_score=0.4,
+        last_commit=_NOW,
+        commits=1,
+        evidence_quality=0.2,
+    )
+    ownership = OwnershipMap(
+        paths={"a.py": PathOwnership(owners=(bare,), qualified_owner_count=1)},
+        last_analyzed=_NOW,
+        analysis_ref="abc",
+    )
+    scaled = apply_completeness(ownership, AnalysisCompleteness(score=0.5), ScoringConfig())
+    assert scaled.paths["a.py"].owners[0].evidence_quality == 0.2
+    assert scaled.paths["a.py"].owners[0].ownership_score == 0.4
+
+
+def test_blame_stops_when_the_deadline_has_passed(tmp_path: Path) -> None:
+    token = _BLAME_DEADLINE.set(0.0)
+    try:
+        with (
+            patch("checkowners.analyze._ensure_git_version"),
+            patch("checkowners.analyze._resolve_ignore_revs_file", return_value=None),
+            patch("checkowners.analyze._mass_refactor_revs", return_value=()),
+            patch("checkowners.analyze._blame_accepts_mailmap_flags", return_value=True),
+            patch("checkowners.analyze._blame_for_path") as blame,
+        ):
+            result = _gather_blame_coverage(["a.py"], tmp_path)
+    finally:
+        _BLAME_DEADLINE.reset(token)
+    blame.assert_not_called()
+    assert result.truncated is True
+    assert result.coverage == {}
 
 
 def test_adaptive_squash_merge_produces_owners() -> None:

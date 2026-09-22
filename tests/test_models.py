@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -10,17 +11,21 @@ from unittest.mock import patch
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
     GAP_CATALOG,
+    AnalysisCompleteness,
     AnalysisGap,
     ConfidenceScore,
     OwnerEntry,
+    OwnershipMap,
     SignalScore,
     _coverage_count,
     completeness_score,
+    envelope_completeness,
     flat_signal_scores,
     history_evidence_gaps,
     merge_gaps,
     repository_label,
     risk_from_scores,
+    run_completeness,
     signal_completeness,
     stamp_json,
 )
@@ -65,6 +70,35 @@ def _owner(
 def test_repository_label_prefers_github_repository(tmp_path: Path) -> None:
     with patch.dict(os.environ, {"GITHUB_REPOSITORY": " acme/widgets "}):
         assert repository_label(tmp_path) == "acme/widgets"
+
+
+def test_envelope_reports_a_stored_score_and_omits_gaps_when_unset() -> None:
+    assert envelope_completeness(None) == (None, None)
+    bare = OwnershipMap(paths={}, last_analyzed=_NOW, analysis_ref="abc")
+    score, gaps = envelope_completeness(bare)
+    assert score == 0.0
+    assert gaps is None
+    stored = replace(
+        bare,
+        analysis_completeness=AnalysisCompleteness(
+            score=0.5,
+            gaps=(AnalysisGap("missing_mailmap", "Missing .mailmap."),),
+        ),
+    )
+    assert run_completeness(stored) == 0.5
+    assert envelope_completeness(stored) == (
+        0.5,
+        [{"code": "missing_mailmap", "reason": "Missing .mailmap."}],
+    )
+    stamped = stamp_json(
+        {"ok": True},
+        repository="acme/widgets",
+        head_sha="abc",
+        generated_at=_NOW.isoformat(),
+        analysis_completeness=0.5,
+        analysis_gaps=[{"code": "missing_mailmap", "reason": "Missing .mailmap."}],
+    )
+    assert stamped["analysis_gaps"] == [{"code": "missing_mailmap", "reason": "Missing .mailmap."}]
 
 
 def test_stamp_json_merges_external_evidence() -> None:

@@ -51,6 +51,7 @@ from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
     OWNERSHIP_MODEL_VERSION,
     AnalysisCompleteness,
+    AnalysisGap,
     BusFactor,
     ConfidenceScore,
     Config,
@@ -384,6 +385,37 @@ def test_invalid_config_exits_config() -> None:
         result = runner.invoke(app, ["analyze"])
     assert result.exit_code == 2
     assert "bad config" in result.stdout
+
+
+def test_scored_run_prints_gaps_and_merges_later_evidence() -> None:
+    scored = replace(
+        _OWNERSHIP,
+        analysis_completeness=AnalysisCompleteness(
+            score=0.5,
+            gaps=(AnalysisGap("missing_mailmap", "Missing .mailmap."),),
+        ),
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=scored),
+        patch("checkowners.cli.get_github_token", return_value=""),
+    ):
+        result = runner.invoke(app, ["analyze"])
+    assert "Missing .mailmap." in result.stdout
+    assert "Absent token: GitHub API evidence was not collected." in result.stdout
+
+
+def test_scored_run_without_extra_gaps_stays_complete() -> None:
+    scored = replace(_OWNERSHIP, analysis_completeness=AnalysisCompleteness(score=1.0))
+    with (
+        patch(
+            "checkowners.cli.load_config",
+            return_value=Config(github=GithubConfig(resolve_handles=False)),
+        ),
+        patch("checkowners.cli.analyze_ownership", return_value=scored),
+    ):
+        result = runner.invoke(app, ["analyze"])
+    assert result.exit_code == 0
+    assert "analysis completeness: 100%" in result.stdout
 
 
 def test_api_gaps_name_absent_token_and_unresolved_emails() -> None:

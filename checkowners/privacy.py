@@ -6,6 +6,7 @@ import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import replace
+from typing import Any
 
 from checkowners.models import Config, OwnerEntry, OwnershipMap, PathOwnership
 
@@ -184,7 +185,7 @@ def _qualified_count(owners: tuple[OwnerEntry, ...], threshold: float) -> int:
     return sum(1 for owner in owners if owner.confidence >= threshold)
 
 
-def _walk_dict(value: Mapping[object, object], config: Config, repo_id: str) -> dict[str, object]:
+def _walk_dict(value: Mapping[Any, object], config: Config, repo_id: str) -> dict[str, object]:
     walked: dict[str, object] = {}
     for key, item in value.items():
         if not isinstance(key, str):

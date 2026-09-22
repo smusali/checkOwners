@@ -11,10 +11,19 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- Analysis completeness is a run-level score with an itemized `analysis_gaps` list.
+  Human summaries print `analysis completeness: N%` and one reason per missing source.
+  The score scales evidence quality and does not change the ownership score.
+  `analysis.max_runtime_seconds`, `analysis.max_git_workers`, and
+  `analysis.max_api_requests` bound a run; exhausting one marks it incomplete.
+  Review collection checks the GitHub rate limit first and says
+  `Review evidence omitted: GitHub API budget insufficient.` when the core quota
+  cannot cover a scan. `--fail-on-incomplete` and `policy.incomplete_analysis.fail`
+  exit 3 when the score is below 1.
 - `--json` output for every command uses schema `1.0` ([docs/schemas/commands-1.0.json](schemas/commands-1.0.json)).
   The envelope carries `schema_version`, `checkowners_version`, `model_version`, `models`,
-  `repository`, `head_sha`, `generated_at`, and `analysis_completeness` (a float, or `null`
-  when the command did not score owners). `analysis_ref` and `analysis_epoch` stay as
+  `repository`, `head_sha`, `generated_at`, and `analysis_completeness` (the run score, or `null`
+  when the command did not score owners) plus optional `analysis_gaps`. `analysis_ref` and `analysis_epoch` stay as
   deprecated copies. Analyze flags (ignore-revs, mailmap, exclusion counts) live under
   `analysis`. `print --json` wraps paths under `paths`. Owner objects use `identity`,
   flat available `signals`, and per-path `risk` (`top_owner_share`, `effective_owners`,

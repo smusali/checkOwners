@@ -11,6 +11,7 @@ import pytest
 
 from checkowners.models import (
     OWNERSHIP_MODEL_VERSION,
+    AnalysisGap,
     BusFactor,
     ConfidenceScore,
     DecayWarning,
@@ -23,6 +24,7 @@ from checkowners.models import (
 )
 from checkowners.state import (
     SCHEMA_VERSION,
+    _as_gap_code,
     _state_path,
     load_hysteresis,
     load_ownership,
@@ -209,6 +211,8 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
         "mailmap_file": "",
         "excluded_gitattributes": 0,
         "excluded_static": 0,
+        "score": None,
+        "gaps": [],
     }
     assert data["drift_reported_severity"] is None
     assert data["drift_pending_severity"] is None
@@ -227,6 +231,55 @@ def test_state_isolated_between_repos(tmp_path: Path, repo: Path) -> None:
     write_state(repo, _make_ownership())
     assert load_ownership(other) is None
     assert load_ownership(repo) is not None
+
+
+def test_load_ownership_keeps_a_numeric_score_and_known_gaps(repo: Path) -> None:
+    write_state(repo, _make_ownership())
+    data = read_state(repo)
+    assert data is not None
+    completeness = data["analysis_completeness"]
+    assert isinstance(completeness, dict)
+    completeness["score"] = 1
+    completeness["gaps"] = [
+        "skip",
+        {"code": 1, "reason": "nope"},
+        {"code": "missing_mailmap", "reason": 2},
+        {"code": "not-a-gap", "reason": "nope"},
+        {"code": "missing_mailmap", "reason": "Missing .mailmap."},
+    ]
+    _write_raw_state(repo, data)
+    loaded = load_ownership(repo)
+    assert loaded is not None
+    assert loaded.analysis_completeness.score == 1.0
+    assert loaded.analysis_completeness.gaps == (
+        AnalysisGap("missing_mailmap", "Missing .mailmap."),
+    )
+
+    completeness["score"] = 0.25
+    completeness["gaps"] = "nope"
+    _write_raw_state(repo, data)
+    reloaded = load_ownership(repo)
+    assert reloaded is not None
+    assert reloaded.analysis_completeness.score == 0.25
+    assert reloaded.analysis_completeness.gaps == ()
+
+    completeness["score"] = True
+    _write_raw_state(repo, data)
+    flagged = load_ownership(repo)
+    assert flagged is not None
+    assert flagged.analysis_completeness.score is None
+
+    completeness["score"] = "nope"
+    _write_raw_state(repo, data)
+    dropped = load_ownership(repo)
+    assert dropped is not None
+    assert dropped.analysis_completeness.score is None
+
+
+def test_unknown_gap_code_is_rejected() -> None:
+    assert _as_gap_code("shallow_history") == "shallow_history"
+    with pytest.raises(ValueError, match="unknown gap code"):
+        _as_gap_code("not-a-gap")
 
 
 def test_load_ownership_roundtrip(repo: Path) -> None:

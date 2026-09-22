@@ -11,6 +11,7 @@ import pytest
 from checkowners.action_report import (
     DIAGNOSTIC,
     SOLO_LINE,
+    _completeness_lines,
     _write_multiline_output,
     build,
     entry_lines,
@@ -32,6 +33,24 @@ _TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(_TOOLS))
 
 from comment_on_pr import MARKER, _existing_id  # noqa: E402
+
+
+def test_completeness_lines_skip_unreadable_gaps() -> None:
+    assert _completeness_lines({}) == []
+    assert _completeness_lines({"analysis_completeness": True}) == []
+    assert _completeness_lines({"analysis_completeness": 1}) == ["analysis completeness: 100%"]
+    lines = _completeness_lines(
+        {
+            "analysis_completeness": 0.5,
+            "analysis_gaps": [
+                "skip",
+                {"code": "missing_mailmap"},
+                {"reason": ""},
+                {"reason": "Missing .mailmap."},
+            ],
+        }
+    )
+    assert lines == ["analysis completeness: 50%", "Missing .mailmap."]
 
 
 def test_md_cell_escapes_backticks_pipes_newlines_and_html() -> None:
@@ -177,10 +196,21 @@ def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert summary["qualified_owner_count_cap"] == 3
     assert summary["critical_paths"] == []
     (tmp_path / "drift.json").write_text(
-        json.dumps({"drift_detected": False, "stale": "nope", "notes": 1}),
+        json.dumps(
+            {
+                "drift_detected": False,
+                "stale": "nope",
+                "notes": 1,
+                "analysis_completeness": 0.73,
+                "analysis_gaps": [{"code": "missing_mailmap", "reason": "Missing .mailmap."}],
+            }
+        ),
         encoding="utf-8",
     )
-    assert "No drift detected." in build(limit=5)
+    summary = build(limit=5)
+    assert "No drift detected." in summary
+    assert "analysis completeness: 73%" in summary
+    assert "Missing .mailmap." in summary
     assert "Baselined: 0. Suppressed: 0. Stale baseline: 0." in build(limit=5)
     (tmp_path / "bus_factor.json").write_text(
         json.dumps(

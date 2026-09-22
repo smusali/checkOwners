@@ -10,7 +10,13 @@ from unittest.mock import patch
 
 import pytest
 
-from checkowners.drift import _tracked_files, detect_drift, drift_entry_payload, write_github_output
+from checkowners.drift import (
+    _tracked_files,
+    detect_drift,
+    drift_entry_payload,
+    evidence_gaps,
+    write_github_output,
+)
 from checkowners.models import (
     Config,
     DecayWarning,
@@ -162,7 +168,9 @@ def test_identity_incomparable_emails_vs_handles(tmp_path: Path) -> None:
     with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
         result = detect_drift(tmp_path, ownership, _config())
     assert result.changed == ()
+    assert result.drift_detected is False
     assert any("commit emails" in note for note in result.notes)
+    assert any(gap.code == "ambiguous_identity" for gap in evidence_gaps(result))
 
 
 def test_team_rules_skipped_with_note(tmp_path: Path) -> None:
@@ -171,7 +179,9 @@ def test_team_rules_skipped_with_note(tmp_path: Path) -> None:
     with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
         result = detect_drift(tmp_path, ownership, _config())
     assert result.changed == ()
+    assert result.drift_detected is False
     assert any("team" in note for note in result.notes)
+    assert any(gap.code == "team_membership" for gap in evidence_gaps(result))
 
 
 def test_last_matching_rule_wins(tmp_path: Path) -> None:

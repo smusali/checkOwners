@@ -26,6 +26,7 @@ from checkowners.models import (
     NotificationsConfig,
     OutputConfig,
     PathsConfig,
+    PolicyConfig,
     QualificationConfig,
     QualificationStrategy,
     ScoringConfig,
@@ -82,6 +83,7 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
         "model",
         "identity",
         "bots",
+        "policy",
     }
 )
 
@@ -94,6 +96,9 @@ _V2_ANALYSIS: frozenset[str] = frozenset(
         "confidence_threshold",
         "exclude_bots",
         "respect_gitattributes",
+        "max_runtime_seconds",
+        "max_git_workers",
+        "max_api_requests",
     }
 )
 _V2_QUALIFICATION: frozenset[str] = frozenset({"strategy", "min_commits", "strong_blame_override"})
@@ -142,6 +147,8 @@ _V2_GIT: frozenset[str] = frozenset(
     }
 )
 _V2_IDENTITY: frozenset[str] = frozenset({"mailmap"})
+_V2_POLICY: frozenset[str] = frozenset({"incomplete_analysis"})
+_V2_INCOMPLETE: frozenset[str] = frozenset({"fail"})
 _V2_BOTS: frozenset[str] = frozenset({"exclude"})
 _V2_MODEL: frozenset[str] = frozenset({"ownership", "risk", "topology", "signals"})
 _V2_SIGNALS: frozenset[str] = frozenset({"recency", "frequency", "blame", "reviews"})
@@ -178,6 +185,7 @@ _V2_SECTIONS: dict[str, frozenset[str]] = {
     "github": _V2_GITHUB,
     "git": _V2_GIT,
     "identity": _V2_IDENTITY,
+    "policy": _V2_POLICY,
 }
 
 _MOVED_KEYS: tuple[tuple[tuple[str, str], str], ...] = (
@@ -340,6 +348,7 @@ def _translate_v2(raw: dict[str, Any]) -> dict[str, Any]:
     if "suppressions" in translated and not isinstance(translated["suppressions"], list):
         msg = "suppressions must be a list"
         raise ValueError(msg)
+    _validate_policy(translated.get("policy"))
     translated["analysis"] = _translate_analysis(translated.get("analysis"), translated.get("bots"))
     translated.pop("bots", None)
     scoring = _translate_scoring(translated.get("scoring"), translated.get("model"))
@@ -349,6 +358,20 @@ def _translate_v2(raw: dict[str, Any]) -> dict[str, Any]:
     if translated.get("analysis") is None:
         translated.pop("analysis", None)
     return translated
+
+
+def _validate_policy(policy: object) -> None:
+    if policy is None:
+        return
+    section = _require_mapping(policy, "policy")
+    incomplete = section.get("incomplete_analysis")
+    if incomplete is None:
+        return
+    block = _require_mapping(incomplete, "policy.incomplete_analysis")
+    _reject_unknown_keys(block, _V2_INCOMPLETE, "policy.incomplete_analysis")
+    if "fail" in block and not isinstance(block["fail"], bool):
+        msg = "policy.incomplete_analysis.fail must be a boolean"
+        raise ValueError(msg)
 
 
 def _translate_analysis(analysis: object, bots: object) -> dict[str, Any] | None:
@@ -448,6 +471,7 @@ def _merge_config(raw: dict[str, Any]) -> Config:
         "notifications": ("notifications", _build_notifications_config),
         "github": ("github", _build_github_config),
         "git": ("git", _build_git_config),
+        "policy": ("policy", _build_policy_config),
     }
     kwargs: dict[str, Any] = {}
     for key, (field_name, builder) in builders.items():
@@ -484,7 +508,28 @@ def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
         kwargs["exclude_bots"] = bool(data["exclude_bots"])
     if "respect_gitattributes" in data:
         kwargs["respect_gitattributes"] = bool(data["respect_gitattributes"])
+    for key in ("max_runtime_seconds", "max_git_workers", "max_api_requests"):
+        if key in data:
+            kwargs[key] = _require_positive_int(data[key], f"analysis.{key}")
     return AnalysisConfig(**kwargs)
+
+
+def _require_positive_int(value: object, key: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        msg = f"{key} must be a positive integer"
+        raise ValueError(msg)
+    return value
+
+
+def _build_policy_config(data: dict[str, Any]) -> PolicyConfig:
+    incomplete = data.get("incomplete_analysis")
+    if not isinstance(incomplete, dict) or "fail" not in incomplete:
+        return PolicyConfig()
+    fail = incomplete["fail"]
+    if not isinstance(fail, bool):
+        msg = "policy.incomplete_analysis.fail must be a boolean"
+        raise ValueError(msg)
+    return PolicyConfig(incomplete_analysis_fail=fail)
 
 
 def _mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:

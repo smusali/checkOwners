@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
@@ -51,6 +51,9 @@ class AnalysisConfig:
     confidence_threshold: float = 0.3
     exclude_bots: bool = True
     respect_gitattributes: bool = True
+    max_runtime_seconds: int = 300
+    max_git_workers: int = 16
+    max_api_requests: int = 2000
 
 
 @dataclass(frozen=True)
@@ -183,6 +186,11 @@ class ModelVersions:
 
 
 @dataclass(frozen=True)
+class PolicyConfig:
+    incomplete_analysis_fail: bool = False
+
+
+@dataclass(frozen=True)
 class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     qualification: QualificationConfig = field(default_factory=QualificationConfig)
@@ -196,7 +204,133 @@ class Config:
     github: GithubConfig = field(default_factory=GithubConfig)
     git: GitConfig = field(default_factory=GitConfig)
     models: ModelVersions = field(default_factory=ModelVersions)
+    policy: PolicyConfig = field(default_factory=PolicyConfig)
     suppressions: tuple[Suppression, ...] = ()
+
+
+GapCode = Literal[
+    "shallow_history",
+    "insufficient_history",
+    "absent_token",
+    "review_history",
+    "api_rate_limit",
+    "api_budget",
+    "runtime_budget",
+    "team_membership",
+    "ambiguous_identity",
+    "excluded_files",
+    "unresolved_renames",
+    "missing_mailmap",
+    "missing_ignore_revs",
+]
+
+GAP_CATALOG: tuple[GapCode, ...] = (
+    "shallow_history",
+    "insufficient_history",
+    "absent_token",
+    "review_history",
+    "api_rate_limit",
+    "api_budget",
+    "runtime_budget",
+    "team_membership",
+    "ambiguous_identity",
+    "excluded_files",
+    "unresolved_renames",
+    "missing_mailmap",
+    "missing_ignore_revs",
+)
+
+SHALLOW_HISTORY_REASON = "Shallow history: the clone does not contain full git history."
+INSUFFICIENT_HISTORY_REASON = "Insufficient history: no commits in the lookback window."
+ABSENT_TOKEN_REASON = "Absent token: GitHub API evidence was not collected."  # noqa: S105
+REVIEW_HISTORY_REASON = "Review history unavailable."
+API_RATE_LIMIT_REASON = "Review evidence omitted: GitHub API budget insufficient."
+API_RATE_LIMIT_TRUNCATED_REASON = "Review evidence truncated: GitHub API budget insufficient."
+SEARCH_RATE_LIMIT_REASON = "Identity lookup omitted: GitHub API budget insufficient."
+API_BUDGET_REASON = "Analysis incomplete: API request budget exhausted."
+RUNTIME_BUDGET_REASON = "Analysis incomplete: runtime budget exhausted."
+TEAM_MEMBERSHIP_REASON = "Team membership unavailable: team rules were not compared."
+UNRESOLVED_RENAMES_REASON = "Unresolved renames: path history is not followed across renames."
+MISSING_MAILMAP_REASON = "Missing .mailmap."
+MISSING_IGNORE_REVS_REASON = "Missing .git-blame-ignore-revs."
+IDENTITY_COMPARISON_REASON = (
+    "Ambiguous identities: inferred owners are commit emails and were not resolved "
+    "to GitHub accounts."
+)
+
+
+def excluded_files_reason(gitattributes: int, static: int) -> str:
+    """Return the excluded-files gap reason for `gitattributes` and `static` counts."""
+    return f"Excluded files: {gitattributes} gitattributes, {static} static."
+
+
+def ambiguous_identity_reason(count: int) -> str:
+    """Return the unresolved-email gap reason for `count` emails."""
+    return f"Ambiguous identities: {count} emails were not resolved to a single GitHub account."
+
+
+@dataclass(frozen=True)
+class AnalysisGap:
+    code: GapCode
+    reason: str
+
+
+def history_evidence_gaps(
+    *,
+    shallow: bool,
+    insufficient: bool,
+    renamed: bool,
+    mailmap_missing: bool,
+    ignore_revs_missing: bool,
+    excluded_gitattributes: int,
+    excluded_static: int,
+    review_missing: bool,
+    runtime_truncated: bool,
+) -> tuple[AnalysisGap, ...]:
+    """Return git-side gaps for the flags that are true."""
+    gaps: list[AnalysisGap] = []
+    if shallow:
+        gaps.append(AnalysisGap("shallow_history", SHALLOW_HISTORY_REASON))
+    if insufficient:
+        gaps.append(AnalysisGap("insufficient_history", INSUFFICIENT_HISTORY_REASON))
+    if renamed:
+        gaps.append(AnalysisGap("unresolved_renames", UNRESOLVED_RENAMES_REASON))
+    if mailmap_missing:
+        gaps.append(AnalysisGap("missing_mailmap", MISSING_MAILMAP_REASON))
+    if ignore_revs_missing:
+        gaps.append(AnalysisGap("missing_ignore_revs", MISSING_IGNORE_REVS_REASON))
+    if excluded_gitattributes or excluded_static:
+        gaps.append(
+            AnalysisGap(
+                "excluded_files",
+                excluded_files_reason(excluded_gitattributes, excluded_static),
+            )
+        )
+    if review_missing:
+        gaps.append(AnalysisGap("review_history", REVIEW_HISTORY_REASON))
+    if runtime_truncated:
+        gaps.append(AnalysisGap("runtime_budget", RUNTIME_BUDGET_REASON))
+    return tuple(gaps)
+
+
+def completeness_score(gaps: tuple[AnalysisGap, ...]) -> float:
+    """Return the fraction of the evidence catalog that is not listed in `gaps`."""
+    missing = len({gap.code for gap in gaps})
+    return round((len(GAP_CATALOG) - missing) / len(GAP_CATALOG), 4)
+
+
+def merge_gaps(*groups: tuple[AnalysisGap, ...]) -> tuple[AnalysisGap, ...]:
+    """Return `groups` deduped by code, in catalog order. The first reason wins."""
+    chosen: dict[GapCode, AnalysisGap] = {}
+    for group in groups:
+        for gap in group:
+            chosen.setdefault(gap.code, gap)
+    return tuple(chosen[code] for code in GAP_CATALOG if code in chosen)
+
+
+def completeness_label(score: float) -> str:
+    """Return the human summary line for a completeness `score` in ``[0, 1]``."""
+    return f"analysis completeness: {score * 100:.0f}%"
 
 
 @dataclass(frozen=True)
@@ -207,6 +341,17 @@ class AnalysisCompleteness:
     mailmap_file: str = ""
     excluded_gitattributes: int = 0
     excluded_static: int = 0
+    score: float | None = None
+    gaps: tuple[AnalysisGap, ...] = ()
+
+
+def with_gaps(
+    base: AnalysisCompleteness,
+    extra: tuple[AnalysisGap, ...],
+) -> AnalysisCompleteness:
+    """Return `base` with `extra` merged in and `score` recomputed."""
+    merged = merge_gaps(base.gaps, extra)
+    return replace(base, gaps=merged, score=completeness_score(merged))
 
 
 @dataclass(frozen=True)
@@ -448,6 +593,11 @@ class ModelVersionsJson(TypedDict):
     topology: str
 
 
+class AnalysisGapJson(TypedDict):
+    code: str
+    reason: str
+
+
 class ProvenanceEnvelope(TypedDict):
     schema_version: str
     checkowners_version: str
@@ -459,6 +609,7 @@ class ProvenanceEnvelope(TypedDict):
     generated_at: str
     analysis_epoch: str
     analysis_completeness: float | None
+    analysis_gaps: NotRequired[list[AnalysisGapJson]]
 
 
 def repository_label(repo_root: Path) -> str:
@@ -496,6 +647,11 @@ def provenance_envelope(
     }
 
 
+def analysis_gaps_json(gaps: tuple[AnalysisGap, ...]) -> list[AnalysisGapJson]:
+    """Return the machine-readable gap list for `gaps`."""
+    return [{"code": gap.code, "reason": gap.reason} for gap in gaps]
+
+
 def stamp_json(
     data: dict[str, object],
     *,
@@ -504,6 +660,7 @@ def stamp_json(
     generated_at: str,
     analysis_completeness: float | None,
     evidence: dict[str, str] | None = None,
+    analysis_gaps: list[AnalysisGapJson] | None = None,
 ) -> dict[str, object]:
     """Return `data` merged with the provenance envelope and optional `evidence`."""
     stamped: dict[str, object] = {
@@ -515,6 +672,8 @@ def stamp_json(
             analysis_completeness=analysis_completeness,
         ),
     }
+    if analysis_gaps is not None:
+        stamped["analysis_gaps"] = analysis_gaps
     if evidence:
         stamped.update(evidence)
     return stamped
@@ -577,6 +736,28 @@ def ownership_signal_completeness(ownership: OwnershipMap) -> tuple[float, list[
         owner for path_ownership in ownership.paths.values() for owner in path_ownership.owners
     )
     return signal_completeness(owners)
+
+
+def run_completeness(ownership: OwnershipMap) -> float:
+    """Return the run score, or the signal fraction when no score was stored."""
+    score = ownership.analysis_completeness.score
+    if score is not None:
+        return score
+    return ownership_signal_completeness(ownership)[0]
+
+
+def envelope_completeness(
+    ownership: OwnershipMap | None,
+) -> tuple[float | None, list[AnalysisGapJson] | None]:
+    """Return `(score, gaps)` for the envelope. Gaps are omitted when `score` was never set."""
+    if ownership is None:
+        return None, None
+    if ownership.analysis_completeness.score is None:
+        return ownership_signal_completeness(ownership)[0], None
+    return (
+        ownership.analysis_completeness.score,
+        analysis_gaps_json(ownership.analysis_completeness.gaps),
+    )
 
 
 def path_analysis_json(owners: tuple[OwnerEntry, ...]) -> PathAnalysisJson:

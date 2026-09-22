@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
+    GAP_CATALOG,
+    AnalysisCompleteness,
+    AnalysisGap,
     ConfidenceScore,
     OwnerEntry,
+    OwnershipMap,
     SignalScore,
     _coverage_count,
+    completeness_score,
+    envelope_completeness,
     flat_signal_scores,
+    history_evidence_gaps,
+    merge_gaps,
     repository_label,
     risk_from_scores,
+    run_completeness,
     signal_completeness,
     stamp_json,
 )
@@ -62,6 +72,35 @@ def test_repository_label_prefers_github_repository(tmp_path: Path) -> None:
         assert repository_label(tmp_path) == "acme/widgets"
 
 
+def test_envelope_reports_a_stored_score_and_omits_gaps_when_unset() -> None:
+    assert envelope_completeness(None) == (None, None)
+    bare = OwnershipMap(paths={}, last_analyzed=_NOW, analysis_ref="abc")
+    score, gaps = envelope_completeness(bare)
+    assert score == 0.0
+    assert gaps is None
+    stored = replace(
+        bare,
+        analysis_completeness=AnalysisCompleteness(
+            score=0.5,
+            gaps=(AnalysisGap("missing_mailmap", "Missing .mailmap."),),
+        ),
+    )
+    assert run_completeness(stored) == 0.5
+    assert envelope_completeness(stored) == (
+        0.5,
+        [{"code": "missing_mailmap", "reason": "Missing .mailmap."}],
+    )
+    stamped = stamp_json(
+        {"ok": True},
+        repository="acme/widgets",
+        head_sha="abc",
+        generated_at=_NOW.isoformat(),
+        analysis_completeness=0.5,
+        analysis_gaps=[{"code": "missing_mailmap", "reason": "Missing .mailmap."}],
+    )
+    assert stamped["analysis_gaps"] == [{"code": "missing_mailmap", "reason": "Missing .mailmap."}]
+
+
 def test_stamp_json_merges_external_evidence() -> None:
     stamped = stamp_json(
         {"ok": True},
@@ -100,3 +139,52 @@ def test_risk_from_scores_without_positive_mass() -> None:
 
 def test_coverage_count_uses_every_share_below_the_threshold() -> None:
     assert _coverage_count((0.1, 0.1), 0.75) == 2
+
+
+def test_each_history_gap_drops_completeness_once() -> None:
+    flags = (
+        ({"shallow": True}, "Shallow history: the clone does not contain full git history."),
+        ({"insufficient": True}, "Insufficient history: no commits in the lookback window."),
+        ({"renamed": True}, "Unresolved renames: path history is not followed across renames."),
+        ({"mailmap_missing": True}, "Missing .mailmap."),
+        ({"ignore_revs_missing": True}, "Missing .git-blame-ignore-revs."),
+        (
+            {"excluded_gitattributes": 2, "excluded_static": 1},
+            "Excluded files: 2 gitattributes, 1 static.",
+        ),
+        ({"review_missing": True}, "Review history unavailable."),
+        ({"runtime_truncated": True}, "Analysis incomplete: runtime budget exhausted."),
+    )
+    seen: set[str] = set()
+    base = {
+        "shallow": False,
+        "insufficient": False,
+        "renamed": False,
+        "mailmap_missing": False,
+        "ignore_revs_missing": False,
+        "excluded_gitattributes": 0,
+        "excluded_static": 0,
+        "review_missing": False,
+        "runtime_truncated": False,
+    }
+    for flag, reason in flags:
+        gaps = history_evidence_gaps(**{**base, **flag})
+        assert len(gaps) == 1
+        assert gaps[0].reason == reason
+        assert completeness_score(gaps) == round((len(GAP_CATALOG) - 1) / len(GAP_CATALOG), 4)
+        seen.add(gaps[0].code)
+    assert seen == {
+        "shallow_history",
+        "insufficient_history",
+        "unresolved_renames",
+        "missing_mailmap",
+        "missing_ignore_revs",
+        "excluded_files",
+        "review_history",
+        "runtime_budget",
+    }
+    duplicated = merge_gaps(gaps, gaps)
+    assert len(duplicated) == 1
+    assert completeness_score(
+        (AnalysisGap("api_budget", "spent"), AnalysisGap("absent_token", "none"))
+    ) == round((len(GAP_CATALOG) - 2) / len(GAP_CATALOG), 4)

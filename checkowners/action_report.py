@@ -8,7 +8,7 @@ import secrets
 from pathlib import Path
 from typing import TypeVar
 
-from checkowners.models import models_payload
+from checkowners.models import completeness_label, models_payload
 
 _PROVENANCE_KEYS = (
     "checkowners_version",
@@ -430,6 +430,23 @@ def _artifact_name() -> str:
     return os.environ.get("CHECKOWNERS_ARTIFACT_NAME", DEFAULT_ARTIFACT_NAME)
 
 
+def _completeness_lines(drift: dict[str, object]) -> list[str]:
+    raw = drift.get("analysis_completeness")
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return []
+    lines = [completeness_label(raw * 1.0)]
+    gaps = drift.get("analysis_gaps")
+    if not isinstance(gaps, list):
+        return lines
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            continue
+        reason = gap.get("reason")
+        if isinstance(reason, str) and reason:
+            lines.append(reason)
+    return lines
+
+
 def _more_line(extra: int) -> str:
     artifact = _artifact_name()
     if extra > 0:
@@ -444,6 +461,7 @@ def build(*, limit: int | None = None) -> str:
 
     resolved = _resolve_limit(limit)
     parts: list[str] = ["## CheckOwners", "", "### CODEOWNERS drift"]
+    parts.extend(_completeness_lines(drift))
     raw_notes = drift.get("notes")
     notes = (
         [note for note in raw_notes if isinstance(note, str)] if isinstance(raw_notes, list) else []

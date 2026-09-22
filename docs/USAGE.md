@@ -35,6 +35,9 @@ analysis:
   max_owners: 3               # was analysis.top_n_owners
   confidence_threshold: 0.3   # owners below this are dropped from CODEOWNERS
   respect_gitattributes: true # linguist-generated / linguist-vendored exclude paths first
+  max_runtime_seconds: 300    # stop blame when this elapses and mark the run incomplete
+  max_git_workers: 16         # parallel git blame processes
+  max_api_requests: 2000      # stop GitHub calls at this count and mark the run incomplete
 
 qualification:
   strategy: adaptive          # adaptive | threshold (legacy, one cycle)
@@ -124,11 +127,15 @@ git:
 
 identity:
   mailmap: true               # apply .mailmap in git log and git blame (default; cheapest identity fix)
+
+policy:
+  incomplete_analysis:
+    fail: false               # same exit as --fail-on-incomplete; other policy keys are refused
 ```
 
 `decay`, `bus_factor`, `paths`, `output`, `drift`, `notifications`, `github`, `git`, `identity.mailmap`, and `suppressions` keep their current names on both schema versions. `bus_factor` is the qualified-owner classifier (`risk-v1`), not a truck-factor block.
 
-Keys with no implementation yet are refused on `version: 2`, including `criticality`, `security`, `policy`, `privacy`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `output.anonymize`. A v1 file still ignores unknown keys.
+Keys with no implementation yet are refused on `version: 2`, including `criticality`, `security`, `privacy`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `output.anonymize`. `policy` accepts only `incomplete_analysis.fail`. A v1 file still ignores unknown keys.
 
 | v1 key | v2 key |
 | --- | --- |
@@ -374,7 +381,7 @@ checkowners --exit-zero drift --json
 
 `--exit-zero` turns code 3 into 0 after the report is printed. Codes 1, 2, and 4 stay non-zero. Use it for an informational rollout. A baseline file is the other way to adopt without failing on findings that are already accepted.
 
-`--fail-on-incomplete`, also before the command name, exits 3 when scored-signal completeness is below 1. Review evidence is often unavailable, so the flag is off by default and a normal offline run stays 0. `--exit-zero` still turns that 3 into 0. An analysis with no owners has completeness 0, so the flag fails that run.
+`--fail-on-incomplete`, also before the command name, exits 3 when the run completeness score is below 1. `policy.incomplete_analysis.fail: true` does the same thing. Review evidence, a missing `.mailmap`, and a missing ignore-revs file are common gaps, so the flag is off by default and a normal run stays 0. `--exit-zero` still turns that 3 into 0. An analysis with no owners and no stored score has completeness 0, so the flag fails that run. A stored score below 1 fails even when every scored signal happened to be present.
 
 `drift` and `validate` exit 3 when they find violations. `github-action` exits 3 when drift remains after the baseline ratchet, unless `--no-fail-on-drift` or `--exit-zero` is set. `--no-fail-on-drift` does not hide config errors, git failures, internal errors, or `--fail-on-incomplete`. `notify` still exits 0 when it only reports drift.
 
@@ -492,11 +499,14 @@ Shared fields on every command:
 | `repository` | `GITHUB_REPOSITORY` when set, otherwise the repo directory name |
 | `head_sha` | HEAD at analysis time. Empty when HEAD cannot be read |
 | `generated_at` | The analysis instant (`--as-of`, `SOURCE_DATE_EPOCH`, or HEAD committer time), not the wall clock |
-| `analysis_completeness` | Fraction of scored `(owner, signal)` pairs that were available, over `recency`, `frequency`, `blame`, and `review`, rounded to 4 decimals. `null` when the command did not score owners (`validate`, `explain-path`, `trends`) |
+| `analysis_completeness` | Fraction of the evidence catalog that was collected, rounded to 4 decimals. `null` when the command did not score owners (`validate`, `explain-path`, `trends`). A cached analysis written before this score existed falls back to the signal fraction |
+| `analysis_gaps` | Present when the score was computed. Each item is `{code, reason}` for one missing-evidence source |
 
 `analysis_ref` and `analysis_epoch` are still emitted and are deprecated copies of `head_sha` and `generated_at`. `print --json` puts path objects under `paths`, so a file cannot collide with an envelope key. On-disk baselines and `~/.checkowners` state are not stamped with this envelope. `baseline create --json` stdout is.
 
-`analyze` keeps ignore-revs, mailmap, and exclusion counts on `analysis`, next to `completeness` and `signals_available`. The envelope `analysis_completeness` is the float, not that object.
+`analyze` keeps ignore-revs, mailmap, and exclusion counts on `analysis`, next to per-path `completeness` and `signals_available`. Per-path `completeness` is still the fraction of scored `(owner, signal)` pairs. The envelope `analysis_completeness` is the run score, not that fraction and not the flag object.
+
+Human summaries print `analysis completeness: 73%` and one line per gap. A skipped team rule or an unresolved email comparison stays a note: it does not become a drift finding. Exhausting `max_runtime_seconds`, `max_api_requests`, or the GitHub rate limit records a gap and does not present the truncated run as complete. When the core quota cannot cover a review scan, the gap reason is `Review evidence omitted: GitHub API budget insufficient.`
 
 When a GitHub API call ran in the process, the envelope also includes `github_evidence_collected_at` and `repository_head`. `team_snapshot` is present only when org teams were fetched. Cache-only and noreply-only resolution do not add these fields.
 

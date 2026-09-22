@@ -38,6 +38,16 @@ rules rather than a wildcard that assigns review to people who did not earn
 those paths. Literal fallback lines with `[...]` are also skipped by GitHub;
 `--allow-broad-patterns` opts into the broader `*` rule.
 
+## Completeness is reported, not implied
+
+A run with a missing token, a shallow clone, an exhausted API or runtime
+budget, unresolved identities, or a skipped team comparison still prints an
+ownership table. The summary includes `analysis completeness` and one reason
+per missing source. That percentage is not a finding, and a missing source is
+not evidence that a person did not do the work. `--fail-on-incomplete` and
+`policy.incomplete_analysis.fail` are how strict CI turns that report into
+exit code 3.
+
 ## Other known gaps
 
 - CODEOWNERS may intentionally differ from inferred expertise.

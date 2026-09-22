@@ -604,3 +604,69 @@ bots: {}
     assert omitted_cfg.analysis.lookback_days == 30
     assert omitted_cfg.analysis.top_n_owners == 3
     assert omitted_cfg.analysis.exclude_bots is True
+
+
+def test_analysis_budgets_and_incomplete_policy(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        "version: 2\n"
+        "analysis:\n"
+        "  max_runtime_seconds: 10\n"
+        "  max_git_workers: 2\n"
+        "  max_api_requests: 5\n"
+        "policy:\n"
+        "  incomplete_analysis:\n"
+        "    fail: true\n",
+    )
+    cfg = load_config(repo_root=root)
+    assert cfg.analysis.max_runtime_seconds == 10
+    assert cfg.analysis.max_git_workers == 2
+    assert cfg.analysis.max_api_requests == 5
+    assert cfg.policy.incomplete_analysis_fail is True
+
+
+def test_policy_without_a_fail_flag_stays_off(tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    omitted = tmp_path / "omitted"
+    blank = tmp_path / "blank"
+    empty.mkdir()
+    omitted.mkdir()
+    blank.mkdir()
+    _write_config(empty, "version: 2\npolicy: {}\n")
+    _write_config(omitted, "version: 2\npolicy:\n  incomplete_analysis: {}\n")
+    _write_config(blank, "policy:\n  incomplete_analysis: []\n")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        assert load_config(repo_root=empty).policy.incomplete_analysis_fail is False
+        assert load_config(repo_root=omitted).policy.incomplete_analysis_fail is False
+        assert load_config(repo_root=blank).policy.incomplete_analysis_fail is False
+
+
+def test_policy_fail_rejects_non_booleans(tmp_path: Path) -> None:
+    current = tmp_path / "current"
+    legacy = tmp_path / "legacy"
+    current.mkdir()
+    legacy.mkdir()
+    _write_config(current, "version: 2\npolicy:\n  incomplete_analysis:\n    fail: 1\n")
+    _write_config(legacy, "policy:\n  incomplete_analysis:\n    fail: 1\n")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with pytest.raises(ValueError, match="must be a boolean"):
+            load_config(repo_root=current)
+        with pytest.raises(ValueError, match="must be a boolean"):
+            load_config(repo_root=legacy)
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        ("version: 2\nanalysis:\n  max_runtime_seconds: 0\n", "positive integer"),
+        ("version: 2\nanalysis:\n  max_git_workers: -1\n", "positive integer"),
+        ("version: 2\nanalysis:\n  max_api_requests: false\n", "positive integer"),
+        ("version: 2\npolicy:\n  drift: {}\n", "Unsupported checkowners config key: policy.drift"),
+    ],
+)
+def test_budget_and_policy_keys_rejected(tmp_path: Path, content: str, match: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)

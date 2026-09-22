@@ -186,6 +186,12 @@ The leftover baseline row is reported as stale (`stale_baseline`). That does not
 
 The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.checkowners_drift).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want the job summary and optional PR comment without blocking.
 
+### Why is analysis completeness below 100% on a normal repository?
+
+The run score counts every missing evidence source, not only the four scoring signals. A repository without `.mailmap`, without `.git-blame-ignore-revs`, or without review history is incomplete even when the owners that were scored look confident. The summary lists each reason. Missing evidence lowers evidence quality. It does not lower the ownership score, and it is not reported as drift.
+
+`--fail-on-incomplete`, or `policy.incomplete_analysis.fail: true`, exits 3 when the score is below 1. Leave it off until the repository can satisfy the sources you care about. `--exit-zero` still turns that 3 into 0.
+
 ### What exit code should a script check?
 
 | Code | Meaning |
@@ -193,7 +199,7 @@ The example workflow in `.github/workflows/checkowners-example.yml` does this wi
 | 0 | Clean, or findings hidden by `--exit-zero` |
 | 1 | Internal error |
 | 2 | Configuration or usage error |
-| 3 | Findings (`validate`, `drift`, expired suppressions) |
+| 3 | Findings (`validate`, `drift`, expired suppressions, incomplete analysis) |
 | 4 | Git or GitHub integration failure |
 
 Any non-zero status fails the step. The Action fails from that process status when `fail_on_drift` is true (the default): drift left after the baseline ratchet exits 3. `--exit-zero` and `fail_on_drift: "false"` hide findings only. The full table is in [Exit codes](USAGE.md#exit-codes).

@@ -38,6 +38,7 @@ from checkowners.analyze import (
     ReviewProvider,
     analysis_epoch,
     analyze_ownership,
+    apply_completeness,
     head_commit_sha,
     resolve_as_of,
 )
@@ -61,7 +62,7 @@ from checkowners.busfactor import (
 )
 from checkowners.config import find_codeowners_path, load_config
 from checkowners.decay import DecayReport, detect_decay
-from checkowners.drift import detect_drift, drift_entry_payload, write_github_output
+from checkowners.drift import detect_drift, drift_entry_payload, evidence_gaps, write_github_output
 from checkowners.expertise import rank_expertise
 from checkowners.explain import (
     ExplainedOwner,
@@ -85,8 +86,10 @@ from checkowners.generate import (
     generate_codeowners,
 )
 from checkowners.github import (
+    begin_api_budget,
     build_review_coverage,
     clear_api_evidence,
+    collection_gaps,
     external_evidence_payload,
     get_github_token,
     resolve_handles,
@@ -100,8 +103,10 @@ from checkowners.graph import (
     to_text,
 )
 from checkowners.models import (
+    ABSENT_TOKEN_REASON,
     DEPRECATED_SCORE_KEY,
     AnalysisCompleteness,
+    AnalysisGap,
     AnalyzeAnalysisJson,
     Config,
     DecayWarning,
@@ -113,16 +118,22 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
     PathOwnershipJson,
+    ScoringConfig,
     Severity,
     Suppression,
+    ambiguous_identity_reason,
     analysis_flags_json,
+    completeness_label,
+    envelope_completeness,
     models_payload,
     owner_json,
     ownership_signal_completeness,
     path_analysis_json,
     repository_label,
     risk_from_scores,
+    run_completeness,
     stamp_json,
+    with_gaps,
 )
 from checkowners.notify import apply_severity_hysteresis, compute_severity, send_notification
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
@@ -187,10 +198,14 @@ def exit_with(code: ExitCode) -> NoReturn:
 
 def _load_config() -> Config:
     try:
-        return load_config()
+        config = load_config()
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         exit_with(ExitCode.CONFIG)
+    if config.policy.incomplete_analysis_fail:
+        _FAIL_ON_INCOMPLETE.set(True)
+    begin_api_budget(config.analysis.max_api_requests)
+    return config
 
 
 def _guard_ownership(exc: subprocess.CalledProcessError | OSError | ValueError) -> NoReturn:
@@ -207,9 +222,45 @@ def _guard_ownership(exc: subprocess.CalledProcessError | OSError | ValueError) 
 def _finish_analysis(ownership: OwnershipMap) -> None:
     if not _FAIL_ON_INCOMPLETE.get():
         return
-    completeness = ownership_signal_completeness(ownership)[0]
-    if completeness < 1:
+    if run_completeness(ownership) < 1:
         exit_with(ExitCode.FINDINGS)
+
+
+def _render_completeness(ownership: OwnershipMap) -> None:
+    console.print(completeness_label(run_completeness(ownership)))
+    for gap in ownership.analysis_completeness.gaps:
+        console.print(gap.reason)
+
+
+def _unresolved_email_count(ownership: OwnershipMap) -> int:
+    emails: set[str] = set()
+    for path_ownership in ownership.paths.values():
+        for owner in (*path_ownership.owners, *path_ownership.candidates):
+            handle = owner.handle
+            if "@" in handle and not handle.startswith("@"):
+                emails.add(handle)
+    return len(emails)
+
+
+def _apply_extra_gaps(
+    ownership: OwnershipMap,
+    extra: tuple[AnalysisGap, ...],
+    scoring: ScoringConfig,
+) -> OwnershipMap:
+    if ownership.analysis_completeness.score is None or not extra:
+        return ownership
+    return apply_completeness(ownership, with_gaps(ownership.analysis_completeness, extra), scoring)
+
+
+def _api_gaps(ownership: OwnershipMap, config: Config) -> tuple[AnalysisGap, ...]:
+    gaps = list(collection_gaps())
+    unresolved = _unresolved_email_count(ownership) if config.github.resolve_handles else 0
+    needs_token = config.github.api_enabled or unresolved > 0
+    if needs_token and not get_github_token():
+        gaps.append(AnalysisGap("absent_token", ABSENT_TOKEN_REASON))
+    if unresolved > 0:
+        gaps.append(AnalysisGap("ambiguous_identity", ambiguous_identity_reason(unresolved)))
+    return tuple(gaps)
 
 
 def _detect_drift(
@@ -326,13 +377,14 @@ def _stamp_output(
             if ownership is not None
             else _try_generated_at(repo_root)
         )
-    completeness = ownership_signal_completeness(ownership)[0] if ownership is not None else None
+    completeness, gaps = envelope_completeness(ownership)
     return stamp_json(
         dict(data),
         repository=repository_label(repo_root),
         head_sha=resolved_head,
         generated_at=resolved_at,
         analysis_completeness=completeness,
+        analysis_gaps=gaps,
         evidence=external_evidence_payload(resolved_head),
     )
 
@@ -621,10 +673,12 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
                 on_progress=on_progress,
                 as_of=as_of,
                 analysis_ref=analysis_ref,
+                max_workers=config.analysis.max_git_workers,
             )
     except (ValueError, subprocess.CalledProcessError, OSError) as exc:
         _guard_ownership(exc)
     ownership = _resolve_github_owners(ownership, config)
+    ownership = _apply_extra_gaps(ownership, _api_gaps(ownership, config), config.scoring)
     write_state(
         repo_root,
         ownership,
@@ -678,6 +732,7 @@ def analyze(json_output: JsonOption = False) -> None:
         _render_ignore_revs_line(ownership.analysis_completeness)
         _render_mailmap_line(ownership.analysis_completeness, enabled=config.git.use_mailmap)
         _render_exclusions_line(ownership.analysis_completeness)
+        _render_completeness(ownership)
         _report_models("ownership")
     _finish_analysis(ownership)
 
@@ -812,6 +867,7 @@ def print_cmd(json_output: JsonOption = False) -> None:
         for path in sorted(ownership.paths):
             owners = " ".join(f"{o.handle}({o.score_label})" for o in ownership.paths[path].owners)
             typer.echo(f"{path}\t{owners}")
+        _render_completeness(ownership)
         _report_models("ownership")
     _finish_analysis(ownership)
 
@@ -1027,6 +1083,7 @@ def baseline_create(
         bus=bus,
     )
     write_baseline(output, outcome.new)
+    ownership = _apply_extra_gaps(ownership, evidence_gaps(outcome.drift), config.scoring)
     stamp = _analysis_stamp(ownership)
     if json_output:
         _emit_json(
@@ -1040,6 +1097,7 @@ def baseline_create(
     else:
         written = len(outcome.new)
         console.print(f"[green]Wrote {written} finding(s) to {escape(str(output))}[/green]")
+        _render_completeness(ownership)
     _finish_analysis(ownership)
 
 
@@ -1063,10 +1121,11 @@ def drift(
         bus=bus,
     )
     result = outcome.drift
+    ownership = _apply_extra_gaps(ownership, evidence_gaps(result), config.scoring)
     severity = _severity_with_hysteresis(repo_root, ownership, result, config)
     cap = config.analysis.top_n_owners
     stamp = _analysis_stamp(ownership)
-    completeness = ownership_signal_completeness(ownership)[0]
+    completeness, gaps = envelope_completeness(ownership)
     write_github_output(
         result,
         cap,
@@ -1074,6 +1133,7 @@ def drift(
         analysis_epoch=stamp["analysis_epoch"],
         config=config,
         analysis_completeness=completeness,
+        analysis_gaps=gaps,
     )
     if json_output:
         data = {
@@ -1101,6 +1161,7 @@ def drift(
                 f"(Δmax={result.max_confidence_delta:.2f})"
             )
             _render_drift_table(result)
+        _render_completeness(ownership)
         _report_models("ownership", "risk")
     if result.drift_detected:
         exit_with(ExitCode.FINDINGS)
@@ -1131,6 +1192,7 @@ def notify(
         bus=bus,
     )
     result = outcome.drift
+    ownership = _apply_extra_gaps(ownership, evidence_gaps(result), config.scoring)
     severity = _severity_with_hysteresis(repo_root, ownership, result, config)
     stamp = _analysis_stamp(ownership)
     sent = send_notification(
@@ -1139,7 +1201,7 @@ def notify(
         severity=severity,
         analysis_ref=stamp["analysis_ref"],
         analysis_epoch=stamp["analysis_epoch"],
-        analysis_completeness=ownership_signal_completeness(ownership)[0],
+        analysis_completeness=run_completeness(ownership),
     )
     if json_output:
         _emit_json(
@@ -1163,6 +1225,7 @@ def notify(
                 f"[yellow]Severity {severity} below threshold "
                 f"{config.notifications.severity_threshold}; skipped.[/yellow]"
             )
+        _render_completeness(ownership)
     _finish_analysis(ownership)
 
 
@@ -1350,6 +1413,7 @@ def github_action(
         bus=owners_report,
     )
     result = outcome.drift
+    ownership = _apply_extra_gaps(ownership, evidence_gaps(result), config.scoring)
     severity = _severity_with_hysteresis(repo_root, ownership, result, config)
     ratchet = _ratchet_json(outcome)
     drift_payload: dict[str, object] = {
@@ -1404,6 +1468,7 @@ def github_action(
             f"· critical paths: {critical_paths} "
             f"· decay warnings: {decay_count}"
         )
+        _render_completeness(ownership)
 
     if fail_on_drift and result.drift_detected:
         exit_with(ExitCode.FINDINGS)
@@ -1803,10 +1868,12 @@ def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMa
             analysis_ref=analysis_ref,
             pathspec=(target,),
             retain_all=True,
+            max_workers=config.analysis.max_git_workers,
         )
     except (ValueError, subprocess.CalledProcessError, OSError) as exc:
         _guard_ownership(exc)
-    return _resolve_github_owners(ownership, config)
+    ownership = _resolve_github_owners(ownership, config)
+    return _apply_extra_gaps(ownership, _api_gaps(ownership, config), config.scoring)
 
 
 def _declared_owners(repo_root: Path, target: str) -> tuple[str, ...]:
@@ -1957,6 +2024,7 @@ def explain(
         _finish_analysis(ownership)
         return
     _render_explanation(explanation, ownership.last_analyzed)
+    _render_completeness(ownership)
     _report_models("ownership")
     _finish_analysis(ownership)
 

@@ -73,12 +73,32 @@
           "deprecated": true
         },
         "analysis_completeness": {
+          "description": "Fraction of the evidence catalog that was collected. Null when the command did not score owners.",
           "type": [
             "number",
             "null"
           ],
           "minimum": 0,
           "maximum": 1
+        },
+        "analysis_gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "reason"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
         },
         "github_evidence_collected_at": {
           "type": "string"

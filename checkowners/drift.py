@@ -27,6 +27,10 @@ from pathlib import Path
 from checkowners.busfactor import qualified_owner_count_fields
 from checkowners.github import external_evidence_payload
 from checkowners.models import (
+    IDENTITY_COMPARISON_REASON,
+    TEAM_MEMBERSHIP_REASON,
+    AnalysisGap,
+    AnalysisGapJson,
     Config,
     DriftEntry,
     DriftEntryJson,
@@ -50,6 +54,16 @@ _IDENTITY_NOTE = (
     "to compare owner sets."
 )
 _TEAM_NOTE = "rules owned by teams (@org/team) are not compared against inferred individuals."
+
+
+def evidence_gaps(result: DriftResult) -> tuple[AnalysisGap, ...]:
+    """Return completeness gaps for unverifiable comparisons in `result`."""
+    gaps: list[AnalysisGap] = []
+    if _IDENTITY_NOTE in result.notes:
+        gaps.append(AnalysisGap("ambiguous_identity", IDENTITY_COMPARISON_REASON))
+    if _TEAM_NOTE in result.notes:
+        gaps.append(AnalysisGap("team_membership", TEAM_MEMBERSHIP_REASON))
+    return tuple(gaps)
 
 
 def detect_drift(
@@ -287,6 +301,7 @@ def write_github_output(
     analysis_epoch: str = "",
     config: Config | None = None,
     analysis_completeness: float | None = None,
+    analysis_gaps: list[AnalysisGapJson] | None = None,
 ) -> None:
     """Write drift result to GITHUB_OUTPUT if running in Actions."""
     output_file = os.environ.get("GITHUB_OUTPUT")
@@ -307,6 +322,7 @@ def write_github_output(
             generated_at=analysis_epoch,
             analysis_completeness=analysis_completeness,
             evidence=external_evidence_payload(analysis_ref),
+            analysis_gaps=analysis_gaps,
         ),
         sort_keys=True,
     )

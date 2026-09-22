@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
+from checkowners.expertise import path_matches_glob
 from checkowners.models import (
     AnalysisCompleteness,
     ConfidenceScore,
@@ -164,6 +165,8 @@ def analyze_ownership(
     as_of: datetime | None = None,
     analysis_ref: str | None = None,
     max_workers: int | None = None,
+    pathspec: tuple[str, ...] | None = None,
+    retain_all: bool = False,
 ) -> OwnershipMap:
     """Analyze git history and return a confidence-scored ownership map.
 
@@ -175,7 +178,9 @@ def analyze_ownership(
     ``as_of`` is the instant recency and decay are scored against. When
     omitted, ``resolve_as_of(None, repo_root)`` supplies it (SOURCE_DATE_EPOCH
     or HEAD, never the wall clock). ``analysis_ref`` is the commit SHA; when
-    omitted, HEAD is used.
+    omitted, HEAD is used. ``pathspec`` limits git log and blame to those
+    paths. ``retain_all`` stores every scored author on ``candidates``;
+    inferred ``owners`` still apply the confidence threshold and top-N cap.
     """
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     ref = analysis_ref if analysis_ref is not None else head_commit_sha(repo_root)
@@ -185,8 +190,11 @@ def analyze_ownership(
         config.analysis.lookback_days,
         when,
         use_mailmap=config.git.use_mailmap,
+        pathspec=pathspec,
     )
     contributions = _aggregate_contributions(commits)
+    if pathspec:
+        contributions = _filter_to_pathspec(contributions, pathspec)
     linguist = (
         _linguist_excluded_paths(repo_root, contributions)
         if config.analysis.respect_gitattributes
@@ -219,6 +227,7 @@ def analyze_ownership(
         config,
         when,
         review_available=review_provider is not None,
+        retain_all=retain_all,
     )
     return OwnershipMap(
         paths=dict(sorted(paths.items())),
@@ -258,6 +267,7 @@ def _build_path_ownerships(
     now: datetime,
     *,
     review_available: bool,
+    retain_all: bool = False,
 ) -> dict[str, PathOwnership]:
     """Compute scored owners + qualified owner count + decay per path."""
     result: dict[str, PathOwnership] = {}
@@ -287,7 +297,7 @@ def _build_path_ownerships(
             frequency_prior=frequency_prior,
         )
         filtered = tuple(e for e in entries if e.confidence >= config.analysis.confidence_threshold)
-        if not filtered:
+        if not filtered and not retain_all:
             continue
         top = filtered[: config.analysis.top_n_owners]
         decay = _detect_decay(path, qualified, top, config.decay.threshold_days, now)
@@ -296,6 +306,7 @@ def _build_path_ownerships(
             owners=top,
             qualified_owner_count=qualified_owner_count,
             decay_warnings=decay,
+            candidates=entries if retain_all else (),
         )
     return dict(sorted(result.items()))
 
@@ -485,26 +496,42 @@ def _suppress_workdir_mailmap(repo_root: Path, *, enabled: bool) -> Iterator[Non
         hidden.replace(visible)
 
 
+def _filter_to_pathspec(
+    contributions: dict[str, dict[str, _Contribution]],
+    pathspec: tuple[str, ...],
+) -> dict[str, dict[str, _Contribution]]:
+    return {
+        path: authors
+        for path, authors in contributions.items()
+        if any(path_matches_glob(path, spec) for spec in pathspec)
+    }
+
+
 def _get_commit_history(
     repo_root: Path,
     since_days: int,
     as_of: datetime,
     *,
     use_mailmap: bool = True,
+    pathspec: tuple[str, ...] | None = None,
 ) -> list[_RawCommit]:
     """Run git log and parse (author, timestamp, files) triples."""
     since = as_of - timedelta(days=since_days)
     email_fmt = "%aE" if use_mailmap else "%ae"
+    argv = [  # git from PATH; not user-supplied
+        "git",
+        "log",
+        _mailmap_flag(use_mailmap),
+        f"--format={_COMMIT_SENTINEL}%n{email_fmt}%n%cI",
+        "--name-only",
+        f"--since={since.isoformat()}",
+        f"--until={as_of.isoformat()}",
+    ]
+    if pathspec:
+        argv.append("--")
+        argv.extend(pathspec)
     result = subprocess.run(  # noqa: S603  # literal git argv, no shell
-        [  # noqa: S607  # git from PATH; not user-supplied
-            "git",
-            "log",
-            _mailmap_flag(use_mailmap),
-            f"--format={_COMMIT_SENTINEL}%n{email_fmt}%n%cI",
-            "--name-only",
-            f"--since={since.isoformat()}",
-            f"--until={as_of.isoformat()}",
-        ],
+        argv,
         capture_output=True,
         text=True,
         cwd=repo_root,

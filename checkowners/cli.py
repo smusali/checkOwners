@@ -52,6 +52,15 @@ from checkowners.config import find_codeowners_path, load_config
 from checkowners.decay import DecayReport, detect_decay
 from checkowners.drift import detect_drift, write_github_output
 from checkowners.expertise import rank_expertise
+from checkowners.explain import (
+    ExplainedOwner,
+    PathExplanation,
+    WhyNotResult,
+    build_explanation,
+    explanation_payload,
+    owners_payload,
+    ranked_owners,
+)
 from checkowners.generate import (
     SIZE_WARN_BYTES,
     BroadPatternRecord,
@@ -226,6 +235,7 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
     emails = {o.handle for po in ownership.paths.values() for o in po.owners}
     for po in ownership.paths.values():
         emails.update(w.handle for w in po.decay_warnings)
+        emails.update(c.handle for c in po.candidates)
     if not emails:
         return ownership
     email_to_handle = resolve_handles(emails, get_github_token())
@@ -251,6 +261,7 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
             owners=merged,
             qualified_owner_count=qualified_owner_count,
             decay_warnings=decay_warnings,
+            candidates=_merge_identities(po.candidates, email_to_handle),
         )
     return OwnershipMap(
         paths=new_paths,
@@ -1394,6 +1405,204 @@ def onboard(
             escape(step.description),
         )
     console.print(table)
+
+
+def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMap:
+    _warn_missing_api_token(config)
+    as_of, analysis_ref = _resolve_clock(repo_root)
+    try:
+        ownership = analyze_ownership(
+            repo_root,
+            config,
+            review_provider=_review_provider(config),
+            as_of=as_of,
+            analysis_ref=analysis_ref,
+            pathspec=(target,),
+            retain_all=True,
+        )
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    except subprocess.CalledProcessError as exc:
+        console.print(f"[red]Git command failed:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+    return _resolve_github_owners(ownership, config)
+
+
+def _declared_owners(repo_root: Path, target: str) -> tuple[str, ...]:
+    codeowners_path = find_codeowners_path(repo_root)
+    if not codeowners_path.exists():
+        return ()
+    rules = parse_rules(codeowners_path.read_text(encoding="utf-8"))
+    matches = matching_rules(rules, target)
+    if not matches:
+        return ()
+    return matches[-1].owners
+
+
+def _signal_label(name: str, score: float, available: bool) -> str:
+    title = "Reviews" if name == "review" else name.capitalize()
+    if not available:
+        return f"{title} n/a"
+    return f"{title} {score:.2f}"
+
+
+def _render_explained_owner(item: ExplainedOwner, as_of: datetime) -> None:
+    entry = item.entry
+    style = _confidence_style(entry.ownership_score)
+    console.print(f"[{style}]{escape(entry.handle):<28}[/] {entry.ownership_score:.2f} confidence")
+    labels = "   ".join(_signal_label(s.name, s.score, s.available) for s in item.signals)
+    console.print(f"  {labels}")
+    blame = next((s for s in item.signals if s.name == "blame"), None)
+    review = next((s for s in item.signals if s.name == "review"), None)
+    recency = next((s for s in item.signals if s.name == "recency"), None)
+    parts = [f"{entry.commits} commits"]
+    if blame is not None:
+        parts.append(blame.detail)
+    if review is not None:
+        parts.append(review.detail)
+    console.print("  " + " · ".join(parts))
+    last = _days_since(entry.last_commit, as_of)
+    sha = recency.commits[0] if recency is not None and recency.commits else ""
+    change = f"last meaningful change: {last}"
+    if sha:
+        change = f"{change} ({sha})"
+    console.print(f"  {change}")
+
+
+def _days_since(last: datetime | None, as_of: datetime) -> str:
+    if last is None:
+        return "unknown"
+    days = max(0, int((as_of - last).total_seconds() // 86400))
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "1 day ago"
+    return f"{days} days ago"
+
+
+def _render_explanation(explanation: PathExplanation, as_of: datetime) -> None:
+    if explanation.why_not is not None:
+        _render_why_not(explanation.why_not)
+        return
+    console.print(f"[bold]{escape(explanation.target)}[/bold]")
+    if explanation.kind == "directory":
+        console.print(
+            f"[dim]{len(explanation.files)} files; each owner's signals "
+            "are from their highest-scoring file[/dim]"
+        )
+    console.print()
+    console.print("Observed owners")
+    console.print("─" * 50)
+    if not explanation.inferred:
+        console.print("[yellow]No inferred owners.[/yellow]")
+    for item in explanation.inferred:
+        _render_explained_owner(item, as_of)
+        console.print()
+    console.print(f"Evidence quality:             {explanation.evidence_quality:.2f}")
+    declared = " ".join(explanation.declared) if explanation.declared else "(none)"
+    console.print(f"Declared CODEOWNERS:          {escape(declared)}")
+    team = ", ".join(explanation.team_resolution) if explanation.team_resolution else "unavailable"
+    console.print(f"Team resolution:              {escape(team)}")
+    console.print(f"Assessment:                   {explanation.assessment}")
+    if explanation.lineage:
+        console.print(f"Prior names:                  {escape(', '.join(explanation.lineage))}")
+    if explanation.knobs:
+        console.print("Would change the result:")
+        for knob in explanation.knobs:
+            console.print(f"  {escape(knob)}")
+
+
+def _render_why_not(result: WhyNotResult) -> None:
+    console.print(f"{escape(result.handle)} was not inferred because:")
+    for reason in result.reasons:
+        console.print(f"- {escape(reason)}")
+    if result.knobs:
+        console.print("Would change the result:")
+        for knob in result.knobs:
+            console.print(f"  {escape(knob)}")
+
+
+def _render_owners_list(owners: tuple[OwnerEntry, ...]) -> None:
+    if not owners:
+        console.print("[yellow]No inferred owners.[/yellow]")
+        return
+    width = max(len(entry.handle) for entry in owners)
+    for entry in owners:
+        style = _confidence_style(entry.ownership_score)
+        console.print(f"[{style}]{escape(entry.handle):<{width}}[/]  {entry.ownership_score:.2f}")
+
+
+@app.command()
+def explain(
+    path: Annotated[str, typer.Argument(help="File or directory to explain.")],
+    json_output: JsonOption = False,
+    owner: Annotated[
+        str | None,
+        typer.Option("--owner", help="Show only this inferred contributor."),
+    ] = None,
+    why_not: Annotated[
+        str | None,
+        typer.Option("--why-not", help="Explain why this contributor was excluded."),
+    ] = None,
+) -> None:
+    """Decompose inferred ownership for a path."""
+    if owner and why_not:
+        console.print("[red]Use --owner or --why-not, not both.[/red]")
+        raise typer.Exit(code=2)
+    config = load_config()
+    repo_root = Path.cwd()
+    ownership = _analyze_target(config, repo_root, path)
+    explanation = build_explanation(
+        ownership,
+        path,
+        config,
+        repo_root,
+        as_of=ownership.last_analyzed,
+        declared=_declared_owners(repo_root, path),
+        team_members=declared_teams_from_github(config),
+        owner=owner,
+        why_not=why_not,
+    )
+    if owner and not explanation.inferred and explanation.why_not is None:
+        console.print(
+            f"[yellow]{escape(owner)} is not an inferred owner of {escape(path)}. "
+            f"Use --why-not {escape(owner)} to see why.[/yellow]"
+        )
+        return
+    if json_output:
+        _emit_json(explanation_payload(explanation, ownership))
+        return
+    _render_explanation(explanation, ownership.last_analyzed)
+
+
+def _run_owners(path: str, json_output: bool) -> None:
+    config = load_config()
+    repo_root = Path.cwd()
+    ownership = _analyze_target(config, repo_root, path)
+    owners = ranked_owners(ownership, path, config)
+    if json_output:
+        _emit_json(owners_payload(owners, path, ownership))
+        return
+    _render_owners_list(owners)
+
+
+@app.command("owners")
+def owners_cmd(
+    path: Annotated[str, typer.Argument(help="File or directory to list owners for.")],
+    json_output: JsonOption = False,
+) -> None:
+    """List inferred owners for a path."""
+    _run_owners(path, json_output)
+
+
+@app.command("who")
+def who_cmd(
+    path: Annotated[str, typer.Argument(help="File or directory to list owners for.")],
+    json_output: JsonOption = False,
+) -> None:
+    """List inferred owners for a path."""
+    _run_owners(path, json_output)
 
 
 @app.command()

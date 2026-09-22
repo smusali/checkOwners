@@ -70,12 +70,14 @@ All commands accept `--json` (except `graph`, which exports DOT via `--export do
 | `checkowners analyze` | Infer ownership with confidence scores, qualified owner count, decay warnings |
 | `checkowners generate` | Write CODEOWNERS, ordered by confidence; optional inline annotations |
 | `checkowners explain-path <path>` | Show which CODEOWNERS rule owns a path, and the full match chain |
+| `checkowners explain <path>` | Decompose inferred scores (signals, evidence, `--why-not`, `--owner`) |
+| `checkowners owners <path>` | Minimal ranked owner list (`who` is an alias) |
 | `checkowners print` | Print inferred ownership to stdout |
 | `checkowners validate` | Validate existing CODEOWNERS syntax |
 | `checkowners drift` | Compare inferred vs current; severity + max confidence delta |
 | `checkowners notify` | POST drift to a webhook gated by `severity_threshold` |
 | `checkowners sync` | Generate CODEOWNERS and commit the result |
-| `checkowners expertise <path>` | Per-path expertise ranking |
+| `checkowners expertise <path>` | Per-path expertise ranking from cached analysis |
 | `checkowners decay` | Detect dormant owners; recommend transfers |
 | `checkowners graph [--export dot]` | Render the contributor / file / team graph |
 | `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with backup-reviewer suggestions. `bus-factor` is a deprecated alias pending redefinition |

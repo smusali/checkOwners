@@ -105,7 +105,7 @@ Note that `generate` and `sync` refuse to overwrite a CODEOWNERS that was not ge
 
 ### Where is the state cache?
 
-`~/.checkowners/state/<repo-hash>.json` (schema v6, one file per repo; the payload embeds the absolute repo path and is verified on load, so state from one repo can never leak into another). Downstream commands (`qualified-owners`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) read it so they don't re-run `git log`, and print a stderr hint when they do. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#environment-variables).
+`~/.checkowners/state/<repo-hash>.json` (schema v6, one file per repo; the payload embeds the absolute repo path and is verified on load, so state from one repo can never leak into another). Downstream commands (`qualified-owners`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) read it so they don't re-run `git log`, and print a stderr hint when they do. `explain` and `owners` do not read this cache. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#environment-variables).
 
 ## Inference behavior
 
@@ -216,6 +216,10 @@ checkowners explain-path src/main.py --json
 ```
 
 The command reads the existing CODEOWNERS file and lists every matching rule in file order. The last match wins. It does not re-run analysis.
+
+### How do I see why someone was inferred (or not) for a path?
+
+`checkowners explain-path` answers the declared-rule question. `checkowners explain PATH` answers the inference question: per-signal scores, availability, named commits, and `--why-not @handle`. `checkowners owners PATH` (or `who`) prints only the ranked list. Those two commands analyze the requested path only and do not use the cached state.
 
 ### `networkx` is not installed but I want `checkowners graph`.
 

@@ -11,6 +11,13 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- `checkowners explain PATH` decomposes inferred ownership for one file or
+  directory: per-signal score, weight, and availability; supporting commits;
+  `--owner` and `--why-not`; declared CODEOWNERS plus an alignment
+  assessment; and the configuration knobs that would change the result.
+  `checkowners owners PATH` (`who`) prints a minimal ranked list. Both
+  accept `--json` with `schema_version: "1.0"`. Neither command reads or
+  writes cached state; git log and blame stay scoped to the requested path.
 - Analyze honors `.gitattributes` `linguist-generated` and
   `linguist-vendored` when `analysis.respect_gitattributes` is true
   (the default). `paths.exclude` remains the fallback. Analyze JSON and

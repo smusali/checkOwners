@@ -57,6 +57,14 @@ pulling the owner's score toward zero.
 Human output shows both values as `handle (score/quality)`, for example
 `@alice 0.91/0.93` versus `@bob 0.79/0.31`.
 
+`checkowners explain PATH` prints the same C5 weighted mean as `analyze`. Each
+row shows the four signals with their configured weight and availability. A
+measured zero (author absent from a successful blame or review map) is a
+number. An unavailable signal is omitted from the mean and shown as `n/a`.
+The printed total equals `Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)` on the displayed
+tuples. `--why-not` uses that same total against
+`analysis.confidence_threshold`.
+
 ## Versioning
 
 Analyze JSON and cached state include `model_version: ownership-v3`. Per-repo

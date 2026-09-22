@@ -46,6 +46,7 @@ from checkowners.analyze import (
     signal_reliabilities,
     signal_weights,
 )
+from checkowners.explain import signal_tuples
 from checkowners.models import (
     AnalysisConfig,
     Config,
@@ -1372,3 +1373,116 @@ def test_gitattributes_and_static_exclusions_are_not_double_counted(tmp_path: Pa
     assert completeness.excluded_gitattributes == 2
     assert completeness.excluded_static == 1
     assert completeness.excluded_gitattributes + completeness.excluded_static == 3
+
+
+def test_pathspec_limits_blame_to_requested_path() -> None:
+    commits = [
+        ("alice@example.com", _RECENT, ["keep.py", "other.py"]),
+        ("bob@example.com", _RECENT, ["other.py"]),
+    ]
+    blamed: list[str] = []
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(_make_git_log_output(commits))) as mock,
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_record_blame(blamed)),
+    ):
+        result = analyze_ownership(
+            Path("/fake"),
+            Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0)),
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+            pathspec=("keep.py",),
+        )
+    assert blamed == ["keep.py"]
+    assert set(result.paths) == {"keep.py"}
+    log_calls = [call.args[0] for call in mock.call_args_list if call.args[0][1] == "log"]
+    assert log_calls
+    assert "--" in log_calls[0]
+    assert "keep.py" in log_calls[0]
+
+
+def test_pathspec_directory_blames_only_matching_files() -> None:
+    commits = [
+        ("alice@example.com", _RECENT, ["src/a.py", "src/b.py", "docs/readme.md"]),
+    ]
+    blamed: list[str] = []
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(_make_git_log_output(commits))),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_record_blame(blamed)),
+    ):
+        result = analyze_ownership(
+            Path("/fake"),
+            Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0)),
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+            pathspec=("src/",),
+        )
+    assert set(blamed) == {"src/a.py", "src/b.py"}
+    assert set(result.paths) == {"src/a.py", "src/b.py"}
+
+
+def test_retain_all_keeps_below_threshold_candidates() -> None:
+    commits = [
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("bob@example.com", _OLD, ["src/main.py"]),
+    ]
+    config = Config(
+        analysis=AnalysisConfig(min_commits=1, top_n_owners=3, confidence_threshold=0.5),
+    )
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(_make_git_log_output(commits))),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        kept = analyze_ownership(
+            Path("/fake"),
+            config,
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+            retain_all=True,
+        )
+        dropped = analyze_ownership(
+            Path("/fake"),
+            config,
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+        )
+    po = kept.paths["src/main.py"]
+    assert all(owner.confidence >= 0.5 for owner in po.owners)
+    assert any(candidate.confidence < 0.5 for candidate in po.candidates)
+    assert "bob@example.com" not in {owner.handle for owner in po.owners}
+    assert "bob@example.com" in {candidate.handle for candidate in po.candidates}
+    assert dropped.paths["src/main.py"].candidates == ()
+
+
+def test_owner_total_matches_combine_available_signals() -> None:
+    commits = [
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("alice@example.com", _RECENT, ["src/main.py"]),
+        ("bob@example.com", _OLD, ["src/main.py"]),
+    ]
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(_make_git_log_output(commits))),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        result = analyze_ownership(
+            Path("/fake"),
+            config,
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+            retain_all=True,
+        )
+    scoring = config.scoring
+    for entry in result.paths["src/main.py"].candidates or result.paths["src/main.py"].owners:
+        total, quality = combine_available_signals(
+            signal_tuples(entry),
+            signal_weights(scoring),
+            signal_reliabilities(scoring),
+        )
+        assert total == pytest.approx(entry.ownership_score)
+        assert quality == pytest.approx(entry.evidence_quality)

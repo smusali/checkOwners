@@ -884,7 +884,7 @@ def _expertise_rank_payload(rank: ExpertiseRank) -> dict[str, Any]:
 
 @app.command()
 def analyze(json_output: JsonOption = False) -> None:
-    """Analyze git history to infer confidence-scored ownership."""
+    """Analyze git history and rank owners by ownership score."""
     config = _load_config()
     ownership = _run_analyze(config, Path.cwd())
     cap = config.analysis.top_n_owners
@@ -1609,7 +1609,7 @@ def github_action(
             f"[bold]drift:[/bold] {result.drift_detected} "
             f"([{_severity_style(severity)}]{severity}[/]) "
             f"· critical paths: {critical_paths} "
-            f"· decay warnings: {decay_count}"
+            f"· continuity-risk warnings: {decay_count}"
         )
         _render_completeness(ownership)
 
@@ -1664,7 +1664,7 @@ def graph(
         ),
     ] = None,
 ) -> None:
-    """Render the contributor-file knowledge graph in the terminal."""
+    """Render the ownership graph in the terminal."""
     config = _load_config()
     repo_root = Path.cwd()
     ownership = _load_or_analyze(config, repo_root)
@@ -1687,7 +1687,7 @@ def graph(
 
 @app.command()
 def decay(json_output: JsonOption = False) -> None:
-    """Detect contributors whose expertise on a path has gone stale."""
+    """Report ownership freshness and continuity risk for dormant owners."""
     config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     reports = detect_decay(ownership, config)
@@ -1702,15 +1702,15 @@ def decay(json_output: JsonOption = False) -> None:
         _finish_analysis(ownership)
         return
     if not reports:
-        console.print("[green]No decaying expertise detected.[/green]")
+        console.print("[green]No continuity-risk warnings.[/green]")
         _report_models("ownership", "risk")
         _finish_analysis(ownership)
         return
-    table = Table(title="Expertise Decay")
+    table = Table(title="Ownership freshness")
     table.add_column("Path", style="cyan")
     table.add_column("Handle")
     table.add_column("Days", justify="right")
-    table.add_column("Historical Δ", justify="right")
+    table.add_column("Historical activity", justify="right")
     table.add_column("Status")
     table.add_column("Recommended transfer")
     for report in reports:
@@ -1758,7 +1758,7 @@ def _qualified_owners_impl(
     table.add_column("Qualified owners", justify="right")
     table.add_column("Tier")
     table.add_column("Owners")
-    table.add_column("Recommended backups")
+    table.add_column("Candidate backup reviewers")
     for entry in report.entries:
         tier = classify(entry.qualified_owner_count, config.bus_factor)
         if _aggregate():
@@ -1875,7 +1875,7 @@ def _balance_payload(report: BalanceReport) -> dict[str, Any]:
 
 @app.command()
 def balance(json_output: JsonOption = False) -> None:
-    """Analyze PR review load distribution and suggest rebalancing."""
+    """Compare completed reviews, or a git authorship proxy when reviews are unavailable."""
     config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     report = analyze_balance(ownership, config)
@@ -1884,11 +1884,11 @@ def balance(json_output: JsonOption = False) -> None:
         _finish_analysis(ownership)
         return
     if not report.loads:
-        console.print("[yellow]No review load data available.[/yellow]")
+        console.print("[yellow]No git authorship or completed-review counts available.[/yellow]")
         _report_notice()
         _finish_analysis(ownership)
         return
-    console.print(f"[dim]source: {report.source}; average reviews: {report.average:.1f}[/dim]")
+    console.print(f"[dim]source: {report.source}; average: {report.average:.1f}[/dim]")
     if _aggregate():
         _report_notice()
         _finish_analysis(ownership)
@@ -1896,11 +1896,22 @@ def balance(json_output: JsonOption = False) -> None:
     if report.fallback_reason:
         console.print(
             f"[dim]GitHub API unavailable ({report.fallback_reason}); "
-            "loads below are commit counts, not reviews.[/dim]"
+            "counts below are a git authorship proxy, not completed reviews.[/dim]"
         )
-    table = Table(title="Review Load")
+    if report.source == "github_api":
+        title = "Completed reviews"
+        load_label = "Completed reviews"
+        unit = "reviews"
+    elif report.source == "git_authorship":
+        title = "Git authorship proxy"
+        load_label = "Git authorship proxy"
+        unit = "commits"
+    else:
+        title = "Review activity"
+        load_label = "Count"
+        unit = "items"
+    table = Table(title=title)
     table.add_column("Handle", style="cyan")
-    load_label = "Commits (proxy)" if report.source == "git_authorship" else "Reviews"
     table.add_column(load_label, justify="right")
     table.add_column("Status")
     overloaded_handles = {load.handle for load in report.overloaded}
@@ -1915,10 +1926,10 @@ def balance(json_output: JsonOption = False) -> None:
         console.print("[bold]Rebalance suggestions:[/bold]")
         for suggestion in report.suggestions:
             console.print(
-                f"  - shift ~{suggestion.proposed_shift} reviews from "
+                f"  - shift ~{suggestion.proposed_shift} {unit} from "
                 f"{_person(suggestion.overloaded)}"
                 f" to {_person(suggestion.candidate)} "
-                f"(confidence {suggestion.confidence:.2f})"
+                f"(ownership score {suggestion.confidence:.2f})"
             )
     _report_notice()
     _finish_analysis(ownership)
@@ -1926,7 +1937,7 @@ def balance(json_output: JsonOption = False) -> None:
 
 @app.command()
 def topology(json_output: JsonOption = False) -> None:
-    """Infer team topology from commit co-occurrence patterns."""
+    """Infer exploratory repository topology from co-commits. Clusters are not teams."""
     config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     declared = declared_teams_from_github(config)
@@ -1940,7 +1951,7 @@ def topology(json_output: JsonOption = False) -> None:
         _report_models("topology")
         _finish_analysis(ownership)
         return
-    table = Table(title="Inferred Team Topology")
+    table = Table(title="Exploratory repository topology")
     table.add_column("Cluster", style="cyan")
     table.add_column("Members")
     table.add_column("Primary paths")
@@ -2073,7 +2084,7 @@ def _render_explained_owner(item: ExplainedOwner, as_of: datetime) -> None:
     entry = item.entry
     style = _confidence_style(entry.ownership_score)
     shown = _person(entry.handle)
-    console.print(f"[{style}]{escape(shown):<28}[/] {entry.ownership_score:.2f} confidence")
+    console.print(f"[{style}]{escape(shown):<28}[/] {entry.ownership_score:.2f} ownership score")
     labels = "   ".join(_signal_label(s.name, s.score, s.available) for s in item.signals)
     console.print(f"  {labels}")
     blame = next((s for s in item.signals if s.name == "blame"), None)
@@ -2243,10 +2254,10 @@ def who_cmd(
 
 @app.command()
 def expertise(
-    path: Annotated[str, typer.Argument(help="Path or glob to rank expertise for.")],
+    path: Annotated[str, typer.Argument(help="Path or glob to rank evidence for.")],
     json_output: JsonOption = False,
 ) -> None:
-    """Show expertise ranking for a specific path."""
+    """Show the evidence ranking for a path."""
     config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     ranking = rank_expertise(ownership, path)

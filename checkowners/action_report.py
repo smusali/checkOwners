@@ -212,7 +212,7 @@ def _decay_lines(decay: dict[str, object] | None) -> tuple[list[str], bool]:
         lines.append("")
     extra = len(reports) - min(len(reports), MAX_RISK_PATHS)
     if extra > 0:
-        lines.append(f"and {extra} more expertise-decay warnings.")
+        lines.append(f"and {extra} more continuity-risk warnings.")
         lines.append("")
     return lines, truncated
 
@@ -449,9 +449,9 @@ def knowledge_risk_lines(
         backups = _human_handles(entry.get("recommended_backups"))
         if backups:
             names = ", ".join(md_cell(_display_handle(handle)) for handle in backups)
-            lines.append(f"Suggested backups: {names}.")
+            lines.append(f"Candidate backup reviewers: {names}.")
         else:
-            lines.append("No suggested backups.")
+            lines.append("No candidate backup reviewers.")
         lines.append("")
     extra = len(singles) - min(len(singles), MAX_RISK_PATHS)
     if extra > 0:

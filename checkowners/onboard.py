@@ -122,7 +122,10 @@ def _complexity_for(order: int, total: int, qualified_owner_count: int) -> Compl
 def _describe(path: str, qualified_owner_count: int, owner_count: int, cap: int) -> str:
     suffix = ""
     if qualified_owner_count <= 1:
-        suffix = f" (deep expertise; {format_qualified_owner_count(qualified_owner_count, cap)})"
+        suffix = (
+            f" (concentrated qualified ownership; "
+            f"{format_qualified_owner_count(qualified_owner_count, cap)})"
+        )
     elif owner_count >= 3:
-        suffix = " (broad ownership; many reviewers available)"
+        suffix = " (several qualified owners)"
     return f"Study `{path}`{suffix}."

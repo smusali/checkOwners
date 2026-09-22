@@ -115,30 +115,30 @@ The composite Action posts that finding as one comment on same-repo pull request
 
 ## After drift
 
-`checkowners analyze` reads `git log` and `git blame` (in parallel, over paths that still have human commit evidence; a 24k-commit, 12k-file production monorepo completed a 365-day analyze in under three minutes on the 0.5.0 dogfood run) into a confidence-scored ownership map cached per repo under `~/.checkowners/`. Commit emails resolve to GitHub `@handles` (noreply emails locally with no token, the rest via the GitHub API), and same-person identities merge so qualified owner counts count people, not email addresses. From that map, `generate` writes a CODEOWNERS file with uniform directories consolidated into `dir/` rules, and `drift` compares the committed file against inference using real CODEOWNERS pattern matching (directory rules, globs, last-match-wins). Reviewer suggestions, decay warnings, team boundaries, review load, and onboarding paths are separate reports from the same evidence. In CI, the composite GitHub Action runs the same flow, writes structured `GITHUB_OUTPUT` and a job summary, and maintains a single up-to-date pull-request comment on same-repo pull requests. See [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md) for the full pipeline and a diagram.
+`checkowners analyze` reads `git log` and `git blame` (in parallel, over paths that still have human commit evidence; a 24k-commit, 12k-file production monorepo completed a 365-day analyze in under three minutes on the 0.5.0 dogfood run) into a confidence-scored ownership map cached per repo under `~/.checkowners/`. Commit emails resolve to GitHub `@handles` (noreply emails locally with no token, the rest via the GitHub API), and same-person identities merge so qualified owner counts count people, not email addresses. From that map, `generate` writes a CODEOWNERS file with uniform directories consolidated into `dir/` rules, and `drift` compares the committed file against inference using real CODEOWNERS pattern matching (directory rules, globs, last-match-wins). Reviewer suggestions, ownership freshness, exploratory repository topology, a git authorship proxy (or completed reviews when the API is available), and onboarding paths are separate reports from the same evidence. In CI, the composite GitHub Action runs the same flow, writes structured `GITHUB_OUTPUT` and a job summary, and maintains a single up-to-date pull-request comment on same-repo pull requests. See [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md) for the full pipeline and a diagram.
 
 All commands accept `--json` (except `graph`, which exports DOT via `--export dot`) and persist their results per repo under `~/.checkowners/` so downstream commands can reuse the analysis. Scoring commands also accept `--as-of` and honor `SOURCE_DATE_EPOCH`; the default analysis instant is the HEAD committer timestamp.
 
 | Command | What it does |
 |---------|--------------|
-| `checkowners analyze` | Infer ownership with confidence scores, qualified owner count, decay warnings |
-| `checkowners generate` | Write CODEOWNERS, ordered by confidence; optional inline annotations |
+| `checkowners analyze` | Infer ownership scores, qualified owner count, and continuity-risk warnings |
+| `checkowners generate` | Write CODEOWNERS, ordered by ownership score; optional inline annotations |
 | `checkowners explain-path <path>` | Show which CODEOWNERS rule owns a path, and the full match chain |
 | `checkowners explain <path>` | Decompose inferred scores (signals, evidence, `--why-not`, `--owner`) |
 | `checkowners owners <path>` | Minimal ranked owner list (`who` is an alias) |
 | `checkowners print` | Print inferred ownership to stdout |
 | `checkowners validate` | Validate existing CODEOWNERS syntax |
-| `checkowners drift` | Compare inferred vs current; severity + max confidence delta |
+| `checkowners drift` | Compare inferred vs current; severity + max ownership-score delta |
 | `checkowners baseline create` | Write an accepted-findings file so later runs fail only on new findings |
 | `checkowners sync` | Generate CODEOWNERS and commit the result |
-| `checkowners expertise <path>` | Per-path expertise ranking from cached analysis |
-| `checkowners decay` | Detect dormant owners; recommend transfers |
-| `checkowners graph [--export dot]` | Render the contributor / file / team graph |
-| `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with backup-reviewer suggestions. `bus-factor` is a deprecated alias pending redefinition |
-| `checkowners topology` | Infer team boundaries from commit co-occurrence |
-| `checkowners balance` | Detect overloaded reviewers and propose rebalancing |
-| `checkowners onboard <path>` | Generate a learning path from broad-ownership to deep-expertise files |
-| `checkowners trends [--periods N] [--period-days D]` | Show how ownership confidence and qualified owner count have evolved over time |
+| `checkowners expertise <path>` | Evidence ranking for one path from cached analysis |
+| `checkowners decay` | Report ownership freshness and continuity risk; suggest a transfer |
+| `checkowners graph [--export dot]` | Render the ownership graph |
+| `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with candidate backup reviewers. `bus-factor` is a deprecated alias |
+| `checkowners topology` | Exploratory repository topology from commit co-occurrence |
+| `checkowners balance` | Compare a git authorship proxy, or completed reviews when the API is available |
+| `checkowners onboard <path>` | Learning path from broadly shared paths to concentrated qualified ownership |
+| `checkowners trends [--periods N] [--period-days D]` | Historical activity and qualified owner count over time |
 | `checkowners github-action` | Run the full CI flow and write `GITHUB_OUTPUT`; used by the composite Action |
 
 Trimmed JSON from this repository is in [examples/sample-output.md](https://github.com/smusali/checkowners/blob/main/examples/sample-output.md). Reference configs live under [examples/](https://github.com/smusali/checkowners/tree/main/examples).
@@ -160,7 +160,8 @@ What the tool reads, what leaves the machine, what the cache holds, how tokens a
 ## Documentation
 
 - [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md): full configuration reference, ownership scoring formula, drift severity tiers, GitHub Actions integration, comparison table.
-- [docs/METHODOLOGY.md](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md): signal availability, renormalization, and evidence quality.
+- [docs/METHODOLOGY.md](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md): formulas, prior art, terminology, and [project principles](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md#principles).
+- [docs/limitations.md](https://github.com/smusali/checkowners/blob/main/docs/limitations.md): when the tool can be wrong, and what repository evidence cannot prove.
 - [docs/FAQ.md](https://github.com/smusali/checkowners/blob/main/docs/FAQ.md): identity (usernames vs emails, teams + subteams), GitHub API access, file locations, tuning, troubleshooting.
 - [docs/PRIVACY.md](https://github.com/smusali/checkowners/blob/main/docs/PRIVACY.md): what is read, what leaves the machine, the cache, `cache purge`, and the threat model.
 - [docs/CONTRIBUTING.md](https://github.com/smusali/checkowners/blob/main/docs/CONTRIBUTING.md): dev setup, commands, conventional commits, code conventions, PR workflow.

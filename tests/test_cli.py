@@ -1061,8 +1061,8 @@ def test_qualified_owners_json_includes_stamp() -> None:
     assert "entries" in data
 
 
-def test_balance_prints_loads_and_suggestions() -> None:
-    report = BalanceReport(
+def _balance_report(source: str) -> BalanceReport:
+    return BalanceReport(
         loads=(ReviewLoad(handle="@alice", reviews=10),),
         average=10.0,
         overloaded=(ReviewLoad(handle="@alice", reviews=10),),
@@ -1074,23 +1074,45 @@ def test_balance_prints_loads_and_suggestions() -> None:
                 proposed_shift=3,
             ),
         ),
-        source="git_authorship",
+        source=source,
     )
-    quiet = replace(report, suggestions=())
+
+
+def test_balance_prints_loads_and_suggestions() -> None:
+    authorship = _balance_report("git_authorship")
+    quiet = replace(authorship, suggestions=())
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.analyze_balance", side_effect=[report, quiet]),
+        patch(
+            "checkowners.cli.analyze_balance",
+            side_effect=[
+                authorship,
+                quiet,
+                _balance_report("github_api"),
+                _balance_report("external"),
+            ],
+        ),
         _MOCK_TOKEN,
     ):
         listed = runner.invoke(app, ["balance"])
         plain = runner.invoke(app, ["balance"])
+        reviews = runner.invoke(app, ["balance"])
+        other = runner.invoke(app, ["balance"])
     assert listed.exit_code == 0
     assert "@alice" in listed.stdout
     assert "@bob" in listed.stdout
+    assert "Git authorship proxy" in listed.stdout
+    assert "commits from" in listed.stdout
     assert KNOWLEDGE_RISK_NOTICE in listed.stderr
     assert plain.exit_code == 0
     assert "Rebalance suggestions" not in plain.stdout
     assert KNOWLEDGE_RISK_NOTICE in plain.stderr
+    assert reviews.exit_code == 0
+    assert "Completed reviews" in reviews.stdout
+    assert "reviews from" in reviews.stdout
+    assert other.exit_code == 0
+    assert "Review activity" in other.stdout
+    assert "items from" in other.stdout
 
 
 def test_balance_json_includes_stamp() -> None:

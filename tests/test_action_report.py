@@ -168,7 +168,7 @@ def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
             ]
         },
     )
-    assert "No suggested backups." in risk
+    assert "No candidate backup reviewers." in risk
     assert "Only @alice" in "\n".join(risk)
     assert "a while ago" in "\n".join(risk)
     many = {
@@ -250,7 +250,7 @@ def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
     risk_text = build()
     assert "### Knowledge risk" in risk_text
-    assert "more expertise-decay warnings." in risk_text
+    assert "more continuity-risk warnings." in risk_text
     assert "Full report is in the checkowners-reports artifact." in risk_text
     assert KNOWLEDGE_RISK_NOTICE in risk_text
     (tmp_path / "drift.json").unlink()

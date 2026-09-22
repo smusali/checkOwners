@@ -20,6 +20,18 @@ An author missing from a successful blame map, or from a provider result, scores
 evidence. Blame that failed or was skipped, and a run with no review provider,
 mark those signals unavailable.
 
+## What each signal proxies
+
+| Signal | It measures | It proxies for | It does not establish |
+|--------|-------------|----------------|------------------------|
+| Recency | Days since the last commit, with exponential half-life decay | How fresh the contact with the path is | Expertise, availability, or current employment |
+| Frequency | Share of commits on the path inside the lookback window | Repeated authorship | Ownership, or that a squash-merge author wrote the lines |
+| Blame | Share of current lines attributed to the person | Who the current text is attributed to, after whitespace, move, and ignore-revs corrections | Authority to decide, or that a formatter did not touch the file |
+| Review | Share of recorded pull-request reviews on the path | Review participation when a provider returned data | Organizational accountability, or that the person is the right reviewer now |
+
+A high `ownership_score` is a ranking of that evidence. It is not a probability
+that the person should own the path.
+
 ## Ownership score
 
 Missing evidence is not negative evidence. Unavailable signals are omitted and
@@ -90,10 +102,125 @@ authors below `min_commits` still qualify when blame is at least
 `strong_blame_override`. `strategy: threshold` keeps the previous eligibility
 gate and the undamped `commits / max_commits` frequency ratio.
 
-Calibration against ground truth, and weight search, are out of scope here.
+Weight search has not been run. See [Benchmark and calibration](#benchmark-and-calibration).
+
+## Knowledge concentration
+
+`qualified_owner_count` is the number of owners on a path whose
+`ownership_score` is at or above `analysis.confidence_threshold`, taken from
+the list already truncated to `analysis.top_n_owners` (default 3). JSON also
+emits that same integer as `bus_factor` for one minor cycle, with
+`qualified_owner_count_cap`. Human output states the cap. Raising
+`top_n_owners` raises the maximum reportable count without any code changing
+hands.
+
+Before that rename, the same count was labeled bus factor. It was a
+qualified-owner count, not a removal simulation. The count is unchanged. The
+name `bus_factor` remains only as the deprecated alias.
+
+Concentration uses the same truncated list. Shares are not a JSON key. For
+each positive `ownership_score` on that list:
+
+```text
+p_i = score_i / sum(score)
+top_owner_share = max(p_i)
+effective_owners = exp(-sum(p_i * ln(p_i)))
+truck_factor_50 = smallest k whose cumulative share of the sorted p_i reaches 0.50
+truck_factor_75 = smallest k whose cumulative share of the sorted p_i reaches 0.75
+```
+
+`effective_owners` is the exponential of Shannon entropy (perplexity). It is
+not the inverse Herfindahl index `1 / sum(p_i^2)`. A path whose scores are
+equal reports `effective_owners` equal to the number of positive scores on the
+truncated list. An empty or all-zero list reports `top_owner_share` `0.0`,
+`effective_owners` `0.0`, `truck_factor_50` `0`, and `truck_factor_75` `0`.
+
+`truck_factor_50` and `truck_factor_75` are coverage counts on one path's
+score mass. They are not a repository truck factor. `truck_factor_90` is not
+emitted. There is no removal simulation and no `simulate` command.
+
+Because the list is already capped, fifteen contributors and three
+contributors can produce the same `effective_owners` and the same
+`truck_factor_50`. The `bus_factor` config section still classifies the capped
+count: `critical` at or below `critical_threshold`, `warning` at or below
+`warn_threshold`.
+
+## Prior art
+
+Published truck factor, also called bus factor or lottery factor, is the
+smallest set of people whose departure leaves a project, or a threshold
+fraction of its files, without a knowledgeable author.
+
+Avelino, Passos, Hora, and Valente, "A Novel Approach for Estimating Truck
+Factors" (ICPC 2016, [arXiv:1604.06766](https://arxiv.org/abs/1604.06766)),
+estimate degree of authorship per file, keep authors above a normalized
+threshold, then greedily remove the author who covers the most files until at
+least half the files have no remaining author. Ferreira, Valente, and
+Ferreira, "A Comparison of Three Algorithms for Computing Truck Factors"
+(ICPC 2017), compare that algorithm with the blame-based estimate of Rigby et
+al. and the file-then-project estimate of Cosentino et al.
+
+Degree of knowledge, Fritz, Ou, Murphy, and Murphy-Hill (ICSE 2010) and Fritz,
+Murphy, Murphy-Hill, Ou, and Hill, "Degree-of-Knowledge: Modeling a
+Developer's Knowledge of Code" (TOSEM 2014), adds interaction (reviews,
+navigation) to authorship. CheckOwners does not compute degree of authorship
+or degree of knowledge, and it does not run that removal simulation.
+
+The divergence is deliberate and incomplete. The old headline number was the
+capped `qualified_owner_count`. Calling it bus factor overclaimed the
+literature. The shipped correction is the rename, plus `top_owner_share`,
+`effective_owners`, `truck_factor_50`, and `truck_factor_75` on the truncated
+score list. Those four numbers describe concentration of the scores already
+selected. They are still not the literature's truck factor.
+
+## Terminology
+
+Use these names in human-facing output. JSON keys and command names stay as
+shipped, including the deprecated aliases.
+
+| Instead of | Use |
+|---|---|
+| organizational owner | repository-evidence candidate, reviewer candidate, evidence-ranked reviewer |
+| expertise decay | ownership freshness, evidence freshness, continuity risk |
+| backup reviewer | candidate backup reviewer |
+| bus factor (as previously computed) | qualified owner count, reviewer depth |
+| uncalibrated `0.92` | evidence score, ranking signal, ownership score |
+| knowledge graph (as modeled) | ownership graph |
+| org chart | exploratory repository topology |
+| review load (from commits) | git authorship proxy |
+| historical confidence | historical activity confidence |
+
+## Never collapse these
+
+- Contribution into ownership.
+- Blame into authority.
+- Recent activity into expertise.
+- Co-commit clusters into teams.
+- Inferred reviewer affinity into organizational accountability.
+- An uncalibrated score into a probability.
+
+## Other reported numbers
+
+`historical_confidence` is the present `ownership_score` stored on a
+continuity-risk warning: the owner's last commit on that path is older than
+`decay.threshold_days`. It is not a score reconstructed at an earlier date.
+Human output calls this historical activity.
+
+`avg_top_confidence` is the mean, across paths that still have a scored owner,
+of the top score at the end of one trend period. `avg_qualified_owner_count`
+is the mean capped count for those same paths. Trend periods use recency and
+frequency only. Blame and review are unavailable, so a trend score is not the
+same number `analyze` would have produced on that day.
+
+`confidence_delta` is the drift gap between declared CODEOWNERS owners and
+inferred owners on one path: the sum of inferred scores for people who are
+inferred but not declared, plus `1.0` for each declared owner who is not
+inferred, clamped to `[0, 1]`. `max_confidence_delta` is the largest absolute
+`confidence_delta` in the drift result, or `0.0` when there are no entries.
 
 ## Ownership beliefs
 
+These cases are the project's stated ownership philosophy.
 `tests/test_golden.py` is the judgment suite. Each history is a real git
 repository with pinned author and committer dates. Analysis uses a fixed as-of
 of `2026-06-01T12:00:00+00:00` (the handoff reuses one repository at three
@@ -146,6 +273,40 @@ Under `ownership-v3`, only the commit author is scored.
 When a later model makes one of those three records match the intended belief,
 update the `ownership-v3` sentences, or add the new model id, in the same
 change.
+
+## Benchmark and calibration
+
+No performance benchmark has been published. The intended measurements, when a
+harness exists, are cold runtime, warm runtime, peak resident memory, git
+command count, API request count, cache size, and incremental runtime, on
+fixed repository shapes. Until those runs exist, do not treat a single
+timing as a benchmark. On the 0.5.0 dogfood run, a 24k-commit, 12k-file
+production monorepo finished a 365-day analyze in under three minutes. That
+figure is one measurement on one machine.
+
+No calibration study has been run. The default weights
+`0.35 / 0.25 / 0.25 / 0.15` are heuristics. When a study is run, ground truth
+is who later maintains and reviews the code, not the CODEOWNERS file that was
+already committed. Existing CODEOWNERS can be stale, which is the condition
+the tool exists to detect. The study will report ranking quality (precision
+and recall at small cutoffs) against future authors and reviewers, and it
+will not treat an `ownership_score` as a calibrated probability until that
+evidence exists.
+
+## Principles
+
+1. **Evidence over guesses.** Every ownership recommendation must derive from inspectable evidence.
+2. **Human policy remains authoritative.** Observed expertise informs CODEOWNERS. It does not silently override governance.
+3. **Missing evidence is not negative evidence.** Unavailable review or team information reduces `evidence_quality`. It does not arbitrarily depress `ownership_score`.
+4. **Local-first.** Core analysis works without uploading proprietary source.
+5. **Deterministic by default.** The same evidence and the same model produce the same result.
+6. **Explain everything.** Every score and recommendation is inspectable.
+7. **Measure uncertainty.** Thin evidence is not certainty. Report `evidence_quality` and `analysis_completeness` beside the score.
+8. **Compatibility matters.** GitHub CODEOWNERS semantics must be reproduced accurately where the pattern language is supported.
+9. **No employee surveillance.** The project optimizes repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. It will not be positioned around who contributes least, who is really working, or which engineer is underperforming. The data is not designed for that.
+10. **Correctness before feature count.** A new report waits until the number it prints is defined and bounded.
+
+**Observed expertise is evidence, not authority.**
 
 ## Pattern semantics
 

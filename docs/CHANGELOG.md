@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- [docs/METHODOLOGY.md](METHODOLOGY.md) states the formulas, the truck-factor divergence, the terminology policy, the golden ownership beliefs, and the ten project principles. [docs/limitations.md](limitations.md) states when the tool can be wrong and what repository evidence cannot prove. CI fails if a shipped metric key is missing from the methodology page.
 - The README leads with a CODEOWNERS drift example, then install, run, and CI, and names the offline guarantee, Trusted Publishing, and Sigstore on that first screen. `examples/demo.gif` is a recorded `drift` run, `examples/pr-comment.png` is the pull-request comment for that run, and `examples/sample-CODEOWNERS` is the generated file.
 - `.pre-commit-hooks.yaml` exposes `checkowners-validate` (CODEOWNERS changes only) and `checkowners-drift` (`pre-push`, against `.checkowners-baseline.json`). This repository runs both. See [docs/USAGE.md](USAGE.md#pre-commit).
 - CI runs OpenSSF Scorecard, CodeQL, dependency review, pip-audit, and zizmor. Dependabot also updates Python dependencies. Each GitHub Release carries a CycloneDX SBOM and a signed provenance attestation.

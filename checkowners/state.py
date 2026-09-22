@@ -34,6 +34,7 @@ from checkowners.models import (
     Severity,
     SignalScore,
     TeamCluster,
+    models_payload,
 )
 
 SCHEMA_VERSION: int = 6
@@ -53,6 +54,14 @@ def _repo_digest(repo_root: Path) -> str:
     return hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:16]
 
 
+def _models_current(data: dict[str, Any]) -> bool:
+    models = data.get("models")
+    if not isinstance(models, dict):
+        return False
+    expected = models_payload()
+    return all(models.get(name) == version for name, version in expected.items())
+
+
 def _state_path(repo_root: Path) -> Path:
     """Resolve the per-repo state file path, honoring CHECKOWNERS_STATE_DIR."""
     return _base_dir() / _STATE_SUBDIR / f"{_repo_digest(repo_root)}.json"
@@ -69,6 +78,7 @@ def write_graph_cache(repo_root: Path, last_analyzed: datetime, graph_data: dict
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": SCHEMA_VERSION,
+        "models": models_payload(),
         "repo": str(repo_root.resolve()),
         "last_analyzed": last_analyzed.astimezone(UTC).isoformat(),
         "graph": graph_data,
@@ -92,6 +102,8 @@ def read_graph_cache(repo_root: Path, last_analyzed: datetime) -> dict[str, Any]
         return None
     if not isinstance(data, dict) or data.get("schema_version") != SCHEMA_VERSION:
         return None
+    if not _models_current(data):
+        return None
     if data.get("last_analyzed") != last_analyzed.astimezone(UTC).isoformat():
         return None
     graph = data.get("graph")
@@ -110,6 +122,8 @@ def read_state(repo_root: Path) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
     if data.get("schema_version") != SCHEMA_VERSION:
+        return None
+    if not _models_current(data):
         return None
     model_version = data.get("model_version")
     if model_version is not None and model_version != OWNERSHIP_MODEL_VERSION:
@@ -145,6 +159,7 @@ def write_state(
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "model_version": OWNERSHIP_MODEL_VERSION,
+        "models": models_payload(),
         "repo": str(repo_root.resolve()),
         "inferred": {
             path: _serialize_path(po, qualified_owner_count_cap)

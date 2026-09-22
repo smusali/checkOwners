@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import sys
+import warnings
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -20,6 +22,7 @@ from checkowners.models import (
     FindingRule,
     GitConfig,
     GithubConfig,
+    ModelVersions,
     NotificationsConfig,
     OutputConfig,
     PathsConfig,
@@ -28,6 +31,7 @@ from checkowners.models import (
     ScoringConfig,
     Severity,
     Suppression,
+    models_payload,
 )
 
 CONFIG_FILENAME = ".github/checkowners.yml"
@@ -57,6 +61,139 @@ _VALID_DRIFT_MODES: frozenset[str] = frozenset(get_args(DriftMode))
 _VALID_SEVERITIES: frozenset[str] = frozenset(get_args(Severity))
 _VALID_QUALIFICATION_STRATEGIES: frozenset[str] = frozenset(get_args(QualificationStrategy))
 _VALID_FINDING_RULES: frozenset[str] = frozenset(get_args(FindingRule))
+
+SUPPORTED_CONFIG_VERSIONS: frozenset[int] = frozenset({1, 2})
+
+_V2_TOP_LEVEL: frozenset[str] = frozenset(
+    {
+        "version",
+        "analysis",
+        "qualification",
+        "scoring",
+        "decay",
+        "bus_factor",
+        "paths",
+        "output",
+        "drift",
+        "notifications",
+        "github",
+        "git",
+        "suppressions",
+        "model",
+        "identity",
+        "bots",
+    }
+)
+
+_V2_ANALYSIS: frozenset[str] = frozenset(
+    {
+        "lookback_days",
+        "min_commits",
+        "top_n_owners",
+        "max_owners",
+        "confidence_threshold",
+        "exclude_bots",
+        "respect_gitattributes",
+    }
+)
+_V2_QUALIFICATION: frozenset[str] = frozenset({"strategy", "min_commits", "strong_blame_override"})
+_V2_SCORING: frozenset[str] = frozenset(
+    {
+        "recency_half_life_days",
+        "recency_weight",
+        "frequency_weight",
+        "blame_weight",
+        "review_weight",
+        "recency_reliability",
+        "frequency_reliability",
+        "blame_reliability",
+        "review_reliability",
+    }
+)
+_V2_DECAY: frozenset[str] = frozenset({"threshold_days", "alert_on_decay"})
+_V2_BUS_FACTOR: frozenset[str] = frozenset({"critical_threshold", "warn_threshold"})
+_V2_PATHS: frozenset[str] = frozenset({"exclude"})
+_V2_OUTPUT: frozenset[str] = frozenset(
+    {
+        "header",
+        "include_unowned",
+        "include_confidence",
+        "consolidate",
+        "max_bytes",
+        "verify_round_trip",
+        "allow_broad_patterns",
+    }
+)
+_V2_DRIFT: frozenset[str] = frozenset(
+    {"mode", "min_confidence_delta", "hysteresis_runs", "baseline_file"}
+)
+_V2_NOTIFICATIONS: frozenset[str] = frozenset(
+    {"webhook_url", "include_unchanged", "severity_threshold"}
+)
+_V2_GITHUB: frozenset[str] = frozenset(
+    {"org", "resolve_handles", "resolve_teams", "api_enabled", "token"}
+)
+_V2_GIT: frozenset[str] = frozenset(
+    {
+        "blame_ignore_revs_file",
+        "detect_moves",
+        "mass_refactor_file_fraction",
+        "use_mailmap",
+    }
+)
+_V2_IDENTITY: frozenset[str] = frozenset({"mailmap"})
+_V2_BOTS: frozenset[str] = frozenset({"exclude"})
+_V2_MODEL: frozenset[str] = frozenset({"ownership", "risk", "topology", "signals"})
+_V2_SIGNALS: frozenset[str] = frozenset({"recency", "frequency", "blame", "reviews"})
+
+_SIGNAL_FIELDS: dict[str, dict[str, str]] = {
+    "recency": {
+        "weight": "recency_weight",
+        "half_life_days": "recency_half_life_days",
+        "reliability": "recency_reliability",
+    },
+    "frequency": {
+        "weight": "frequency_weight",
+        "reliability": "frequency_reliability",
+    },
+    "blame": {
+        "weight": "blame_weight",
+        "reliability": "blame_reliability",
+    },
+    "reviews": {
+        "weight": "review_weight",
+        "reliability": "review_reliability",
+    },
+}
+
+_V2_SECTIONS: dict[str, frozenset[str]] = {
+    "qualification": _V2_QUALIFICATION,
+    "scoring": _V2_SCORING,
+    "decay": _V2_DECAY,
+    "bus_factor": _V2_BUS_FACTOR,
+    "paths": _V2_PATHS,
+    "output": _V2_OUTPUT,
+    "drift": _V2_DRIFT,
+    "notifications": _V2_NOTIFICATIONS,
+    "github": _V2_GITHUB,
+    "git": _V2_GIT,
+    "identity": _V2_IDENTITY,
+}
+
+_MOVED_KEYS: tuple[tuple[tuple[str, str], str], ...] = (
+    (("analysis", "top_n_owners"), "analysis.max_owners"),
+    (("analysis", "min_commits"), "qualification.min_commits"),
+    (("analysis", "exclude_bots"), "bots.exclude"),
+    (("scoring", "recency_weight"), "model.signals.recency.weight"),
+    (("scoring", "frequency_weight"), "model.signals.frequency.weight"),
+    (("scoring", "blame_weight"), "model.signals.blame.weight"),
+    (("scoring", "review_weight"), "model.signals.reviews.weight"),
+    (("scoring", "recency_half_life_days"), "model.signals.recency.half_life_days"),
+    (("scoring", "recency_reliability"), "model.signals.recency.reliability"),
+    (("scoring", "frequency_reliability"), "model.signals.frequency.reliability"),
+    (("scoring", "blame_reliability"), "model.signals.blame.reliability"),
+    (("scoring", "review_reliability"), "model.signals.reviews.reliability"),
+)
 
 
 def _is_drift_mode(value: str) -> TypeGuard[DriftMode]:
@@ -95,7 +232,10 @@ def load_config(repo_root: Path | None = None) -> Config:
     if not isinstance(raw, dict):
         msg = f"Invalid checkowners config: expected a YAML mapping, got {type(raw).__name__}"
         raise ValueError(msg)
-    return _apply_env_overrides(_merge_config(raw))
+    prepared, models, moved = _prepare_config(raw)
+    if moved:
+        _warn_deprecated_config(moved)
+    return _apply_env_overrides(replace(_merge_config(prepared), models=models))
 
 
 def _resolve_config_path(repo_root: Path | None) -> Path:
@@ -122,6 +262,178 @@ def _apply_env_overrides(config: Config) -> Config:
     if baseline_override:
         config = replace(config, drift=replace(config.drift, baseline_file=baseline_override))
     return config
+
+
+_Prepared = tuple[dict[str, Any], ModelVersions, list[tuple[str, str]]]
+
+
+def _prepare_config(raw: dict[str, Any]) -> _Prepared:
+    version = _config_version(raw)
+    if version == 2:
+        return _translate_v2(raw), _pinned_models(raw), []
+    return raw, ModelVersions(), _present_moved_keys(raw)
+
+
+def _config_version(raw: dict[str, Any]) -> int:
+    if "version" not in raw:
+        return 1
+    value = raw["version"]
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and value in SUPPORTED_CONFIG_VERSIONS
+    ):
+        return value
+    supported = ", ".join(str(item) for item in sorted(SUPPORTED_CONFIG_VERSIONS))
+    msg = f"Unsupported checkowners config version {value!r}; this release supports {supported}"
+    raise ValueError(msg)
+
+
+def _warn_deprecated_config(moved: list[tuple[str, str]]) -> None:
+    listed = "; ".join(f"{old} -> {new}" for old, new in moved)
+    message = (
+        "checkowners config version 1 is deprecated and remains supported for one minor cycle. "
+        f"Moved keys: {listed}"
+    )
+    warnings.warn(message, DeprecationWarning, stacklevel=2)
+    print(message, file=sys.stderr)
+
+
+def _present_moved_keys(raw: dict[str, Any]) -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    for (section, key), destination in _MOVED_KEYS:
+        block = raw.get(section)
+        if isinstance(block, dict) and key in block:
+            found.append((f"{section}.{key}", destination))
+    return found
+
+
+def _reject_unknown_keys(block: dict[str, Any], allowed: frozenset[str], prefix: str) -> None:
+    for key in block:
+        if isinstance(key, str) and key in allowed:
+            continue
+        name = f"{prefix}.{key}" if prefix else str(key)
+        msg = f"Unsupported checkowners config key: {name}"
+        raise ValueError(msg)
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _require_mapping(value: object, key: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        msg = f"{key} must be a mapping"
+        raise ValueError(msg)
+    return value
+
+
+def _translate_v2(raw: dict[str, Any]) -> dict[str, Any]:
+    _reject_unknown_keys(raw, _V2_TOP_LEVEL, "")
+    translated = dict(raw)
+    translated.pop("version", None)
+    for name, allowed in _V2_SECTIONS.items():
+        if name not in translated:
+            continue
+        section = _require_mapping(translated[name], name)
+        _reject_unknown_keys(section, allowed, name)
+    if "suppressions" in translated and not isinstance(translated["suppressions"], list):
+        msg = "suppressions must be a list"
+        raise ValueError(msg)
+    translated["analysis"] = _translate_analysis(translated.get("analysis"), translated.get("bots"))
+    translated.pop("bots", None)
+    scoring = _translate_scoring(translated.get("scoring"), translated.get("model"))
+    translated.pop("model", None)
+    if scoring is not None:
+        translated["scoring"] = scoring
+    if translated.get("analysis") is None:
+        translated.pop("analysis", None)
+    return translated
+
+
+def _translate_analysis(analysis: object, bots: object) -> dict[str, Any] | None:
+    if analysis is None and bots is None:
+        return None
+    section = dict(_require_mapping(analysis, "analysis")) if analysis is not None else {}
+    if analysis is not None:
+        _reject_unknown_keys(section, _V2_ANALYSIS, "analysis")
+        if "lookback_days" in section and not _is_int(section["lookback_days"]):
+            msg = "analysis.lookback_days must be an integer; adaptive lookback is not supported"
+            raise ValueError(msg)
+        if "max_owners" in section:
+            max_owners = section.pop("max_owners")
+            if not _is_int(max_owners):
+                msg = "analysis.max_owners must be an integer"
+                raise ValueError(msg)
+            if "top_n_owners" in section and section["top_n_owners"] != max_owners:
+                msg = "analysis.max_owners and analysis.top_n_owners disagree"
+                raise ValueError(msg)
+            section["top_n_owners"] = max_owners
+    if bots is not None:
+        bot_section = _require_mapping(bots, "bots")
+        _reject_unknown_keys(bot_section, _V2_BOTS, "bots")
+        if "exclude" in bot_section:
+            exclude = bot_section["exclude"]
+            if not isinstance(exclude, bool):
+                msg = "bots.exclude must be a boolean"
+                raise ValueError(msg)
+            if "exclude_bots" in section and section["exclude_bots"] != exclude:
+                msg = "bots.exclude and analysis.exclude_bots disagree"
+                raise ValueError(msg)
+            section["exclude_bots"] = exclude
+    return section
+
+
+def _translate_scoring(scoring: object, model: object) -> dict[str, Any] | None:
+    if model is not None:
+        model_section = _require_mapping(model, "model")
+        _reject_unknown_keys(model_section, _V2_MODEL, "model")
+    else:
+        model_section = {}
+    if scoring is None:
+        merged: dict[str, Any] = {}
+    else:
+        merged = dict(_require_mapping(scoring, "scoring"))
+    signals = model_section.get("signals")
+    if signals is None:
+        return merged or None
+    signal_section = _require_mapping(signals, "model.signals")
+    _reject_unknown_keys(signal_section, _V2_SIGNALS, "model.signals")
+    for signal_name, fields in _SIGNAL_FIELDS.items():
+        if signal_name not in signal_section:
+            continue
+        block = _require_mapping(signal_section[signal_name], f"model.signals.{signal_name}")
+        _reject_unknown_keys(block, frozenset(fields), f"model.signals.{signal_name}")
+        for source, destination in fields.items():
+            if source not in block:
+                continue
+            if destination in merged and merged[destination] != block[source]:
+                msg = f"model.signals.{signal_name}.{source} and scoring.{destination} disagree"
+                raise ValueError(msg)
+            merged[destination] = block[source]
+    return merged or None
+
+
+def _pinned_models(raw: dict[str, Any]) -> ModelVersions:
+    model = raw.get("model")
+    if model is None:
+        return ModelVersions()
+    section = _require_mapping(model, "model")
+    implemented = models_payload()
+    pins: dict[str, str] = {}
+    for name, current in implemented.items():
+        if name not in section:
+            continue
+        value = section[name]
+        if value != current:
+            msg = f"model.{name} {value!r} is not implemented; this release implements {current}"
+            raise ValueError(msg)
+        pins[name] = current
+    return ModelVersions(
+        ownership=pins.get("ownership", implemented["ownership"]),
+        risk=pins.get("risk", implemented["risk"]),
+        topology=pins.get("topology", implemented["topology"]),
+    )
 
 
 def _merge_config(raw: dict[str, Any]) -> Config:

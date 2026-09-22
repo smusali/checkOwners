@@ -10,7 +10,7 @@ import urllib.request
 from typing import Any
 
 from checkowners.busfactor import qualified_owner_count_fields
-from checkowners.models import Config, DriftEntry, DriftResult, Severity
+from checkowners.models import Config, DriftEntry, DriftResult, Severity, models_payload
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,7 @@ def _build_payload(
     payload: dict[str, Any] = {
         "analysis_epoch": analysis_epoch,
         "analysis_ref": analysis_ref,
+        "models": models_payload(),
         "drift_detected": result.drift_detected,
         "severity": severity,
         "max_confidence_delta": result.max_confidence_delta,

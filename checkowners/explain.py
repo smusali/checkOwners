@@ -28,6 +28,7 @@ from checkowners.models import (
     OwnershipMap,
     ScoringConfig,
     SignalScore,
+    models_payload,
 )
 
 _SHA_CAP = 5
@@ -352,6 +353,7 @@ def owners_payload(
     return {
         "schema_version": COMMAND_SCHEMA_VERSION,
         "model_version": OWNERSHIP_MODEL_VERSION,
+        "models": models_payload(),
         "checkowners_version": __version__,
         "path": target,
         "owners": [
@@ -368,6 +370,7 @@ def explanation_payload(explanation: PathExplanation, ownership: OwnershipMap) -
     payload: dict[str, object] = {
         "schema_version": COMMAND_SCHEMA_VERSION,
         "model_version": OWNERSHIP_MODEL_VERSION,
+        "models": models_payload(),
         "checkowners_version": __version__,
         "path": explanation.target,
         "kind": explanation.kind,

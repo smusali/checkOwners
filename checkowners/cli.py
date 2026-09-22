@@ -9,7 +9,7 @@ from contextvars import ContextVar
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import typer
 from rich.console import Console
@@ -104,6 +104,7 @@ from checkowners.models import (
     PathOwnership,
     Severity,
     Suppression,
+    models_payload,
 )
 from checkowners.notify import apply_severity_hysteresis, compute_severity, send_notification
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
@@ -201,7 +202,13 @@ def _analysis_stamp(ownership: OwnershipMap) -> dict[str, str]:
 
 
 def _emit_json(data: dict[str, Any]) -> None:
-    typer.echo(json.dumps(data, indent=2, sort_keys=True))
+    typer.echo(json.dumps({**data, "models": models_payload()}, indent=2, sort_keys=True))
+
+
+def _report_models(*names: Literal["ownership", "risk", "topology"]) -> None:
+    payload = models_payload()
+    parts = [f"{name} {payload[name]}" for name in names]
+    err_console.print(f"[dim]models: {', '.join(parts)}[/dim]")
 
 
 def _resolve_clock(repo_root: Path) -> tuple[datetime, str]:
@@ -553,6 +560,7 @@ def analyze(json_output: JsonOption = False) -> None:
         _render_ignore_revs_line(ownership.analysis_completeness)
         _render_mailmap_line(ownership.analysis_completeness, enabled=config.git.use_mailmap)
         _render_exclusions_line(ownership.analysis_completeness)
+        _report_models("ownership")
 
 
 ForceOption = Annotated[
@@ -676,6 +684,7 @@ def print_cmd(json_output: JsonOption = False) -> None:
         for path in sorted(ownership.paths):
             owners = " ".join(f"{o.handle}({o.score_label})" for o in ownership.paths[path].owners)
             typer.echo(f"{path}\t{owners}")
+        _report_models("ownership")
 
 
 @app.command()
@@ -688,6 +697,7 @@ def validate(json_output: JsonOption = False) -> None:
         data = {
             "valid": len(errors) == 0,
             "errors": [{"line": e.line_number, "message": e.message} for e in errors],
+            "models": models_payload(),
         }
         typer.echo(json.dumps(data, indent=2))
         if errors:
@@ -951,12 +961,14 @@ def drift(
     _render_ratchet_summary(outcome)
     if not result.drift_detected:
         console.print("[green]No drift detected.[/green]")
+        _report_models("ownership", "risk")
         return
     console.print(
         f"[bold]severity:[/bold] [{_severity_style(severity)}]{severity.upper()}[/] "
         f"(Δmax={result.max_confidence_delta:.2f})"
     )
     _render_drift_table(result)
+    _report_models("ownership", "risk")
 
 
 def _severity_style(severity: str) -> str:
@@ -1102,7 +1114,8 @@ def _positive_entry_limit(value: int) -> int:
 
 
 def _write_action_json(path: Path, payload: dict[str, object]) -> None:
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    stamped = {**payload, "models": models_payload()}
+    path.write_text(json.dumps(stamped, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _publish_action_failure() -> None:
@@ -1208,6 +1221,12 @@ def github_action(
         raw_paths = bus_payload.get("critical_paths")
         critical_paths = len(raw_paths) if isinstance(raw_paths, list) else 0
 
+    drift_payload = {**drift_payload, "models": models_payload()}
+    if bus_payload is not None:
+        bus_payload = {**bus_payload, "models": models_payload()}
+    if decay_payload is not None:
+        decay_payload = {**decay_payload, "models": models_payload()}
+
     _write_action_json(Path("drift.json"), drift_payload)
     if bus_payload is not None:
         _write_action_json(Path("bus_factor.json"), bus_payload)
@@ -1218,7 +1237,10 @@ def github_action(
     publish_outputs(limit=max_output_entries)
 
     if json_output:
-        printed: dict[str, object] = {"checkowners_drift": drift_payload}
+        printed: dict[str, object] = {
+            "checkowners_drift": drift_payload,
+            "models": models_payload(),
+        }
         if bus_payload is not None:
             printed["bus_factor_summary"] = bus_payload
         if decay_payload is not None:
@@ -1281,10 +1303,12 @@ def graph(
         raise typer.Exit(code=1) from None
     if export is None:
         typer.echo(to_text(graph_obj))
+        _report_models("topology")
         return
     fmt = export.strip().lower()
     if fmt == "dot":
         typer.echo(to_dot(graph_obj))
+        _report_models("topology")
         return
     console.print(f"[red]Unsupported export format: {export!r}; supported: dot[/red]")
     raise typer.Exit(code=1)
@@ -1306,6 +1330,7 @@ def decay(json_output: JsonOption = False) -> None:
         return
     if not reports:
         console.print("[green]No decaying expertise detected.[/green]")
+        _report_models("ownership", "risk")
         return
     table = Table(title="Expertise Decay")
     table.add_column("Path", style="cyan")
@@ -1326,6 +1351,7 @@ def decay(json_output: JsonOption = False) -> None:
             escape(target) if report.recommended_transfer else target,
         )
     console.print(table)
+    _report_models("ownership", "risk")
 
 
 def _qualified_owners_impl(
@@ -1346,6 +1372,7 @@ def _qualified_owners_impl(
         return
     if not report.entries:
         console.print("[yellow]No paths matched.[/yellow]")
+        _report_models("risk")
         return
     cap = report.qualified_owner_count_cap
     table = Table(title="Qualified owners")
@@ -1370,6 +1397,7 @@ def _qualified_owners_impl(
         f"[dim]repo average qualified_owner_count: {report.repo_average:.2f} "
         f"(capped by top_n_owners={cap})[/dim]"
     )
+    _report_models("risk")
 
 
 def qualified_owners(
@@ -1514,6 +1542,7 @@ def topology(json_output: JsonOption = False) -> None:
         return
     if not report.clusters:
         console.print("[yellow]No clusters inferred.[/yellow]")
+        _report_models("topology")
         return
     table = Table(title="Inferred Team Topology")
     table.add_column("Cluster", style="cyan")
@@ -1534,6 +1563,7 @@ def topology(json_output: JsonOption = False) -> None:
         console.print("[bold]Mismatches:[/bold]")
         for line in report.mismatches:
             console.print(f"  - {line}")
+    _report_models("topology")
 
 
 def _onboarding_payload(report: OnboardingPath) -> dict[str, Any]:
@@ -1753,11 +1783,13 @@ def explain(
             f"[yellow]{escape(owner)} is not an inferred owner of {escape(path)}. "
             f"Use --why-not {escape(owner)} to see why.[/yellow]"
         )
+        _report_models("ownership")
         return
     if json_output:
         _emit_json(explanation_payload(explanation, ownership))
         return
     _render_explanation(explanation, ownership.last_analyzed)
+    _report_models("ownership")
 
 
 def _run_owners(path: str, json_output: bool) -> None:
@@ -1769,6 +1801,7 @@ def _run_owners(path: str, json_output: bool) -> None:
         _emit_json(owners_payload(owners, path, ownership))
         return
     _render_owners_list(owners)
+    _report_models("ownership")
 
 
 @app.command("owners")
@@ -1808,6 +1841,7 @@ def expertise(
         return
     if not ranking:
         console.print(f"[yellow]No experts found for {path!r}.[/yellow]")
+        _report_models("ownership")
         return
     table = Table(title=f"Expertise: {path}")
     table.add_column("#", justify="right")
@@ -1824,6 +1858,7 @@ def expertise(
             _format_last_commit(rank.last_commit),
         )
     console.print(table)
+    _report_models("ownership")
 
 
 def _trend_point_payload(point: TrendPoint, cap: int) -> dict[str, Any]:
@@ -1877,6 +1912,7 @@ def trends(
         return
     if not report.points or all(p.commits == 0 for p in report.points):
         console.print("[yellow]No history available for the requested range.[/yellow]")
+        _report_models("ownership")
         return
     table = Table(title=f"Ownership Trends ({report.periods}x{report.period_days}d)")
     table.add_column("Period end", style="cyan")
@@ -1895,6 +1931,7 @@ def trends(
             f"{point.avg_qualified_owner_count:.2f} (capped by top_n_owners={cap})",
         )
     console.print(table)
+    _report_models("ownership")
 
 
 def main() -> None:

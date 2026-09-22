@@ -56,6 +56,7 @@ from checkowners.models import (
     PathOwnership,
     ScoringConfig,
     SignalScore,
+    models_payload,
 )
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
@@ -541,6 +542,7 @@ def test_payloads_include_why_not_and_null_last_commit() -> None:
     listed = owners_payload((alice.entry,), "src/a.py", ownership)
     assert listed["schema_version"] == COMMAND_SCHEMA_VERSION
     assert listed["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert listed["models"] == models_payload()
     assert listed["owners"] == [{"handle": "@alice", "ownership_score": 0.86}]
 
     explanation = PathExplanation(

@@ -1,14 +1,25 @@
+version: 2
+
 analysis:
   lookback_days: 365
-  min_commits: 1
-  top_n_owners: 3
+  max_owners: 3
   confidence_threshold: 0.2
-scoring:
-  recency_half_life_days: 90
-  recency_weight: 0.35
-  frequency_weight: 0.25
-  blame_weight: 0.25
-  review_weight: 0.15
+
+qualification:
+  min_commits: 1
+
+model:
+  signals:
+    recency:
+      weight: 0.35
+      half_life_days: 90
+    frequency:
+      weight: 0.25
+    blame:
+      weight: 0.25
+    reviews:
+      weight: 0.15
+
 decay:
   threshold_days: 180
   alert_on_decay: true

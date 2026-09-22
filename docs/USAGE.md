@@ -23,32 +23,45 @@ State is cached per repo at `~/.checkowners/state/<repo-hash>.json` (override th
 
 ## Configuration
 
-Create `.github/checkowners.yml`. Every field is optional; defaults shown.
+Create `.github/checkowners.yml`. Every field is optional; defaults shown. `version: 2` is the current schema. A file with no `version`, or `version: 1`, still loads for one minor cycle after `0.6.0` and warns when it uses a key that moved. Any other `version` is refused.
+
+The numbers below are the runtime defaults. Longer-term proposals (adaptive lookback, `max_owners: 5`, different signal weights, truck-factor thresholds) are not applied here.
 
 ```yaml
+version: 2
+
 analysis:
-  lookback_days: 365
-  min_commits: 1
-  top_n_owners: 3
+  lookback_days: 365          # integer days; adaptive lookback is not accepted
+  max_owners: 3               # was analysis.top_n_owners
   confidence_threshold: 0.3   # owners below this are dropped from CODEOWNERS
-  exclude_bots: true          # drop dependabot[bot] & friends from inference
   respect_gitattributes: true # linguist-generated / linguist-vendored exclude paths first
 
 qualification:
   strategy: adaptive          # adaptive | threshold (legacy, one cycle)
-  min_commits: 1              # alias of analysis.min_commits; this key wins if both are set
+  min_commits: 1              # was analysis.min_commits; this key wins if both are set
   strong_blame_override: 0.5  # adaptive: keep authors at or above this blame share
 
-scoring:
-  recency_half_life_days: 90  # exponential decay half-life
-  recency_weight: 0.35
-  frequency_weight: 0.25
-  blame_weight: 0.25
-  review_weight: 0.15         # skipped (not zeroed) when github.api_enabled is false
-  recency_reliability: 1.0
-  frequency_reliability: 1.0
-  blame_reliability: 1.0
-  review_reliability: 1.0
+model:
+  ownership: ownership-v3     # pin must match this release, or be omitted
+  risk: risk-v1
+  topology: topology-v1
+  signals:
+    recency:
+      weight: 0.35
+      half_life_days: 90      # was scoring.recency_half_life_days
+      reliability: 1.0
+    frequency:
+      weight: 0.25
+      reliability: 1.0
+    blame:
+      weight: 0.25
+      reliability: 1.0
+    reviews:
+      weight: 0.15           # skipped (not zeroed) when github.api_enabled is false
+      reliability: 1.0
+
+bots:
+  exclude: true               # was analysis.exclude_bots; drop dependabot[bot] and similar
 
 decay:
   threshold_days: 180         # flag owners idle longer than this
@@ -112,6 +125,24 @@ git:
 identity:
   mailmap: true               # apply .mailmap in git log and git blame (default; cheapest identity fix)
 ```
+
+`decay`, `bus_factor`, `paths`, `output`, `drift`, `notifications`, `github`, `git`, `identity.mailmap`, and `suppressions` keep their current names on both schema versions. `bus_factor` is the qualified-owner classifier (`risk-v1`), not a truck-factor block.
+
+Keys with no implementation yet are refused on `version: 2`, including `criticality`, `security`, `policy`, `privacy`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `output.anonymize`. A v1 file still ignores unknown keys.
+
+| v1 key | v2 key |
+| --- | --- |
+| `analysis.top_n_owners` | `analysis.max_owners` |
+| `analysis.min_commits` | `qualification.min_commits` |
+| `analysis.exclude_bots` | `bots.exclude` |
+| `scoring.recency_weight` | `model.signals.recency.weight` |
+| `scoring.frequency_weight` | `model.signals.frequency.weight` |
+| `scoring.blame_weight` | `model.signals.blame.weight` |
+| `scoring.review_weight` | `model.signals.reviews.weight` |
+| `scoring.recency_half_life_days` | `model.signals.recency.half_life_days` |
+| `scoring.*_reliability` | `model.signals.*.reliability` |
+
+JSON from every command includes `models` with `ownership`, `risk`, and `topology`. Analyze, explain, and owners JSON also keep `model_version` equal to the ownership id for one minor cycle. Human reports print the applicable ids on stderr. Per-repo analyze state and the graph cache are reused only when all three ids match; a file without `models` is ignored.
 
 The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` environment variable instead. `checkowners.yml` is committed to your repo, so storing a token here would push it to GitHub. `load_config` raises a clear error if `github.token` is present. For the same reason, `notifications.webhook_url` supports a `${ENV_VAR}` reference (for example `${CHECKOWNERS_WEBHOOK_URL}`) so a committed config can point at a secret endpoint without storing it; an unset variable resolves to an empty string.
 
@@ -230,7 +261,7 @@ Weights and reliabilities are configurable under `scoring`. Review weight is omi
 
 Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis_completeness.ignore_revs_applied` and `analysis_completeness.ignore_revs_file` so you can see whether that correction ran, `analysis_completeness.mailmap_applied` / `analysis_completeness.mailmap_file` for `.mailmap`, and `analysis_completeness.excluded_gitattributes` / `analysis_completeness.excluded_static` for how many paths each exclusion mechanism dropped. Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
-**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3`. Per-repo state is schema v6; files whose `model_version` is not `ownership-v3` are ignored. To restore the previous gate and undamped frequency for one cycle:
+**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3` and `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema v6; files whose model ids do not match are ignored. To restore the previous gate and undamped frequency for one cycle:
 
 ```yaml
 qualification:
@@ -292,7 +323,7 @@ A directory target uses the same path matcher as `expertise`: the union of survi
 @bob    0.61
 ```
 
-Both commands accept `--json` with `schema_version: "1.0"` and `model_version: ownership-v3`. `explain --json` includes per-signal availability, weights, evidence, knobs, and optional `why_not`. `owners --json` stays a handle plus `ownership_score` list.
+Both commands accept `--json` with `schema_version: "1.0"`, `model_version: ownership-v3`, and `models`. `explain --json` includes per-signal availability, weights, evidence, knobs, and optional `why_not`. `owners --json` stays a handle plus `ownership_score` list.
 
 `expertise` remains the cache-backed ranking table. `explain-path` remains the CODEOWNERS rule-chain command. Neither is a substitute for `explain`.
 

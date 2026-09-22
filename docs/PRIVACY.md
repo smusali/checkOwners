@@ -114,4 +114,4 @@ Identity resolution is local first: `.mailmap`, then GitHub noreply addresses, t
 
 **How are tokens handled?** The only supported token source is the `GITHUB_TOKEN` environment variable. `github.token` in config is rejected because that file is committed. See [SECURITY.md](../SECURITY.md).
 
-**What permissions are required?** [What token scopes are needed](FAQ.md#what-token-scopes-are-needed).
+**What permissions are required?** Job token scopes are in [What token scopes are needed](FAQ.md#what-token-scopes-are-needed). Copy-paste blocks for the Action are in [GitHub Actions](USAGE.md#github-actions).

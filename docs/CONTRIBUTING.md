@@ -150,14 +150,15 @@ Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.
 1. Bump `__version__` in `checkowners/__init__.py` (hatch reads it for the package version).
 2. Set the Action pin to the same version: `checkowners_version` default and `CHECKOWNERS_PINNED_VERSION` in `action.yml`.
 3. Rebuild the Action wheel (`hatch build` or `python3 -m hatchling build`) and replace `checkowners-X.Y.Z-py3-none-any.whl` at the repository root. Remove the previous version's wheel.
-4. Regenerate the hashed lockfiles only when `pyproject.toml` dependencies or extras changed:
+4. Regenerate the hashed lockfiles when `pyproject.toml` dependencies or extras change, and regenerate `requirements-tools.lock` when `requirements-tools.in` changes:
 
    ```bash
    pip-compile --generate-hashes --extra graph --extra github -o requirements.lock pyproject.toml
    pip-compile --generate-hashes --extra graph --extra github --extra dev --unsafe-package checkowners -o requirements-dev.lock pyproject.toml
+   pip-compile --generate-hashes --no-strip-extras -o requirements-tools.lock requirements-tools.in
    ```
 
-   A version-only bump does not need a lock refresh. `requirements.lock` does not pin `checkowners` itself; the Action installs the committed wheel. After a `requirements-dev.lock` refresh, `pyyaml-ft` must still carry `python_version >= "3.13"`. That package is libcst's 3.13+ YAML backend (and a marked `dev` extra); without the marker, hashed installs fail on 3.11 and 3.12.
+   `requirements-tools.lock` pins hatch, readme-renderer, cyclonedx-bom, and pip-audit for CI and the release workflow. A version-only bump does not need a lock refresh. `requirements.lock` does not pin `checkowners` itself; the Action installs the committed wheel. After a `requirements-dev.lock` refresh, `pyyaml-ft` must still carry `python_version >= "3.13"`. That package is libcst's 3.13+ YAML backend (and a marked `dev` extra); without the marker, hashed installs fail on 3.11 and 3.12.
 5. Promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, leave a fresh non-empty `[Unreleased]`, and refresh the compare links at the bottom of the changelog.
 6. Confirm `python tools/check_changelog.py vX.Y.Z` succeeds. Merge that commit to `main`.
 
@@ -176,7 +177,7 @@ PyPI Trusted Publisher for project `checkowners` must match this repository exac
 
 8. Create a GitHub Release for **only** that full semver tag. Tick **Publish this Action to the GitHub Marketplace**. The REST API and `gh release create` cannot set that checkbox; if the Release is created from the CLI, edit it in the UI and tick the box. Do not create a Release for `v0` or `v0.5`; those tags must stay movable. The top-level `description` in `action.yml` must be under 125 characters or Marketplace blocks the listing. `python tools/check_changelog.py vX.Y.Z` enforces that.
 
-   Publishing the Release triggers `.github/workflows/publish.yml`, which builds with hatch and uploads via Trusted Publishing (`id-token: write`, `pypa/gh-action-pypi-publish`). Sigstore attestations are on by default. Wait until that workflow is green before continuing.
+   Publishing the Release triggers `.github/workflows/publish.yml`, which builds with hatch and uploads via Trusted Publishing (`id-token: write`, `pypa/gh-action-pypi-publish`). Sigstore attestations are on by default. The same workflow attaches a CycloneDX SBOM and a signed provenance bundle to the GitHub Release. Wait until that workflow is green before continuing.
 
 9. Point the floating Action tags at the **same commit** as `vX.Y.Z`. First time:
 

@@ -5,6 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/checkowners.svg)](https://pypi.org/project/checkowners/)
 [![PyPI downloads](https://static.pepy.tech/badge/checkowners/month)](https://pepy.tech/project/checkowners)
 [![Python versions](https://img.shields.io/pypi/pyversions/checkowners.svg)](https://pypi.org/project/checkowners/)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/smusali/checkowners/badge)](https://scorecard.dev/viewer/?uri=github.com/smusali/checkowners)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/smusali/checkowners/blob/main/LICENSE)
 
 Infer CODEOWNERS from git history with confidence scoring, a knowledge graph, expertise decay detection, team topology inference, review load balancing, and onboarding paths. Core inference is deterministic git analysis; no LLM is in that path. CI-native: structured JSON output, GITHUB_OUTPUT integration, composite GitHub Action.
@@ -90,6 +91,16 @@ All commands accept `--json` (except `graph`, which exports DOT via `--export do
 | `checkowners github-action` | Run the full CI flow and write `GITHUB_OUTPUT`; used by the composite Action |
 
 Exit status is the same for every command: 0 clean, 1 internal error, 2 configuration or usage, 3 findings, 4 git or GitHub failure. `checkowners --exit-zero` hides findings only. See [Exit codes](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#exit-codes).
+
+## Trust
+
+Core inference is local git. `checkowners --offline` opens no network connection.
+
+PyPI releases use [Trusted Publishing](https://docs.pypi.org/trusted-publishers/). The publish workflow authenticates with a GitHub OIDC token and does not store a PyPI API token. Sigstore signs each distribution.
+
+Each GitHub release also carries a CycloneDX SBOM and a signed build-provenance attestation.
+
+What the tool reads, what leaves the machine, what the cache holds, how tokens are handled, and which permissions are required is in [docs/PRIVACY.md](https://github.com/smusali/checkowners/blob/main/docs/PRIVACY.md).
 
 ## Documentation
 

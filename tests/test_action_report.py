@@ -29,6 +29,7 @@ from checkowners.action_report import (
     summarize_drift,
     write_step_summary,
 )
+from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 
 _TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(_TOOLS))
@@ -90,6 +91,7 @@ def test_build_overflow_points_at_artifact(tmp_path: Path, monkeypatch: pytest.M
     assert "`b.py`" in text
     assert "`c.py`" not in text
     assert "and 2 more. Full report is in the checkowners-reports artifact." in text
+    assert KNOWLEDGE_RISK_NOTICE in text
 
 
 def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -250,8 +252,10 @@ def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert "### Knowledge risk" in risk_text
     assert "more expertise-decay warnings." in risk_text
     assert "Full report is in the checkowners-reports artifact." in risk_text
+    assert KNOWLEDGE_RISK_NOTICE in risk_text
     (tmp_path / "drift.json").unlink()
     assert build() == DIAGNOSTIC
+    assert KNOWLEDGE_RISK_NOTICE in DIAGNOSTIC
     write_step_summary("plain")
     assert (tmp_path / "checkowners-report.md").read_text(encoding="utf-8") == "plain"
     (tmp_path / "checkowners-report.md").unlink()

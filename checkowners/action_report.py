@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from checkowners.models import completeness_label, models_payload
+from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 
 _PROVENANCE_KEYS = (
     "checkowners_version",
@@ -29,7 +30,9 @@ def _copied_provenance(data: dict[str, object]) -> dict[str, object]:
 
 REPORT = Path("checkowners-report.md")
 DIAGNOSTIC = (
-    "## CheckOwners\n\nDrift analysis did not finish. See the **Run checkowners** step logs.\n"
+    "## CheckOwners\n\n"
+    "Drift analysis did not finish. See the **Run checkowners** step logs.\n\n"
+    f"{KNOWLEDGE_RISK_NOTICE}\n"
 )
 MAX_RISK_PATHS = 8
 MAX_PATH_DISPLAY = 80
@@ -544,6 +547,8 @@ def build(*, limit: int | None = None) -> str:
 
     parts.append("")
     parts.append(_models_line())
+    parts.append("")
+    parts.append(KNOWLEDGE_RISK_NOTICE)
     return "\n".join(parts) + "\n"
 
 

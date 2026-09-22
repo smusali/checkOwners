@@ -72,7 +72,7 @@ from checkowners.models import (
     models_payload,
 )
 from checkowners.onboard import OnboardingPath, OnboardingStep
-from checkowners.privacy import email_token
+from checkowners.privacy import KNOWLEDGE_RISK_NOTICE, email_token
 from checkowners.state import (
     SCHEMA_VERSION,
     load_ownership,
@@ -1087,8 +1087,10 @@ def test_balance_prints_loads_and_suggestions() -> None:
     assert listed.exit_code == 0
     assert "@alice" in listed.stdout
     assert "@bob" in listed.stdout
+    assert KNOWLEDGE_RISK_NOTICE in listed.stderr
     assert plain.exit_code == 0
     assert "Rebalance suggestions" not in plain.stdout
+    assert KNOWLEDGE_RISK_NOTICE in plain.stderr
 
 
 def test_balance_json_includes_stamp() -> None:
@@ -1150,8 +1152,10 @@ def test_onboard_markdown_and_table() -> None:
         table = runner.invoke(app, ["onboard", "src"])
     assert markdown.exit_code == 0
     assert "src/main.py" in markdown.stdout
+    assert KNOWLEDGE_RISK_NOTICE in markdown.stdout
     assert table.exit_code == 0
     assert "start here" in table.stdout
+    assert KNOWLEDGE_RISK_NOTICE in table.stderr
 
 
 def test_onboard_json_includes_stamp() -> None:
@@ -1242,8 +1246,10 @@ def test_graph_reports_topology_model() -> None:
         exported = runner.invoke(app, ["graph", "--export", "dot"])
     assert plain.exit_code == 0
     assert "models: topology" in _models_text(plain)
+    assert KNOWLEDGE_RISK_NOTICE in _models_text(plain)
     assert exported.exit_code == 0
     assert "models: topology" in _models_text(exported)
+    assert KNOWLEDGE_RISK_NOTICE in _models_text(exported)
 
 
 def test_decay_reports_ownership_and_risk_models() -> None:

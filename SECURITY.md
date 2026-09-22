@@ -10,6 +10,7 @@ Please report vulnerabilities privately via [GitHub private vulnerability report
 
 ## Design notes relevant to security
 
+- What the tool reads, what leaves the machine, what the cache holds, and how to delete it are in [docs/PRIVACY.md](docs/PRIVACY.md), including the data-flow diagram and threat model.
 - CheckOwners never reads a GitHub token from its config file: `github.token` in `.github/checkowners.yml` is rejected at load time because that file is committed to git. The only supported source is the `GITHUB_TOKEN` environment variable.
 - The state directory (`~/.checkowners/` by default) contains an ownership map derived from git history. Email addresses in state, the graph cache, and `handles.json` are stored as tokens, not raw addresses. `@handles` are kept. Point `CHECKOWNERS_STATE_DIR` at an ephemeral location in CI, and avoid committing it (a `.checkowners/` entry ships in this repo's `.gitignore` as a guard). The composite Action already does this (`${{ runner.temp }}/checkowners-state`); CLI and hand-rolled CI must set it themselves. `checkowners cache purge` deletes that directory's contents, including `handles.json`. State, graph, and handle files are written via a temp file and `replace`, under an advisory lock.
 - Core inference makes no network calls. Network access is limited to the optional GitHub API features (`github` extra). `--offline` is the explicit form of that boundary: the process does not open a network connection, and review evidence and team verification are unavailable.

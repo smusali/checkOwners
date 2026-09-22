@@ -2187,7 +2187,7 @@ Put these principles in the repository:
 6. **Explain everything.** Every score and recommendation is inspectable.
 7. **Measure uncertainty.** Do not pretend thin evidence is certainty.
 8. **Compatibility matters.** GitHub CODEOWNERS semantics must be reproduced accurately.
-9. **No employee surveillance.** Optimize organizational resilience, not individual performance scoring.
+9. **No employee surveillance.** Optimize organizational resilience, not individual performance scoring. The project will not be positioned around who contributes least, who is really working, or which engineer is underperforming. The data is not designed for that. Position around repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding.
 10. **Correctness before feature count.** This should become the defining engineering philosophy.
 
 ---

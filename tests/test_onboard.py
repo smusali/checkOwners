@@ -12,6 +12,7 @@ from checkowners.models import (
     PathOwnership,
 )
 from checkowners.onboard import generate_onboarding_path
+from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
@@ -157,6 +158,7 @@ def test_to_markdown_emits_checklist() -> None:
     md = report.to_markdown()
     assert "# Onboarding path for src/payments/" in md
     assert "- [ ] **Step 1**" in md
+    assert KNOWLEDGE_RISK_NOTICE in md
 
 
 def test_to_markdown_handles_empty_path() -> None:
@@ -164,3 +166,4 @@ def test_to_markdown_handles_empty_path() -> None:
     report = generate_onboarding_path(ownership, _config(), target="src/")
     md = report.to_markdown()
     assert "No learning path could be built" in md
+    assert KNOWLEDGE_RISK_NOTICE in md

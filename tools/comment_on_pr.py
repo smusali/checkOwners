@@ -9,10 +9,13 @@ import urllib.request
 from pathlib import Path
 
 from checkowners.action_report import DIAGNOSTIC, has_actionable_findings, load
+from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 
 MARKER = "<!-- checkowners-drift-report -->"
 RESOLVED = (
-    f"{MARKER}\n### CheckOwners: no drift detected\n\nPreviously reported drift has been resolved."
+    f"{MARKER}\n### CheckOwners: no drift detected\n\n"
+    "Previously reported drift has been resolved.\n\n"
+    f"{KNOWLEDGE_RISK_NOTICE}\n"
 )
 API_VERSION = "2022-11-28"
 COMMENTS_PAGE = 100

@@ -10,6 +10,11 @@ from typing import Any
 
 from checkowners.models import Config, OwnerEntry, OwnershipMap, PathOwnership
 
+KNOWLEDGE_RISK_NOTICE = (
+    "This is a knowledge-risk tool, not a performance-measurement tool. "
+    "Using it for individual evaluation is unsupported and harmful."
+)
+
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _HANDLE = re.compile(r"(?<![\w.])@[A-Za-z0-9][A-Za-z0-9/-]*")
 _PERSON_KEYS = frozenset(

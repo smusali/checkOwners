@@ -14,6 +14,7 @@ from typing import Literal
 from checkowners.busfactor import compute_qualified_owners, format_qualified_owner_count
 from checkowners.expertise import path_matches_glob
 from checkowners.models import Config, OwnerEntry, OwnershipMap
+from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 
 Complexity = Literal["easy", "medium", "hard"]
 
@@ -34,13 +35,19 @@ class OnboardingPath:
 
     def to_markdown(self) -> str:
         if not self.steps:
-            return f"# Onboarding path for {self.target}\n\nNo learning path could be built.\n"
+            return (
+                f"# Onboarding path for {self.target}\n\n"
+                "No learning path could be built.\n\n"
+                f"{KNOWLEDGE_RISK_NOTICE}\n"
+            )
         lines = [f"# Onboarding path for {self.target}", ""]
         for step in self.steps:
             lines.append(
                 f"- [ ] **Step {step.order}** ({step.complexity}) `{step.path}`: "
                 f"review with {step.reviewer}. {step.description}"
             )
+        lines.append("")
+        lines.append(KNOWLEDGE_RISK_NOTICE)
         lines.append("")
         return "\n".join(lines)
 

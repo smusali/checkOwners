@@ -80,16 +80,13 @@ def _load_rules(codeowners_path: Path) -> tuple[CodeownersRule, ...]:
 
 def _tracked_files(repo_root: Path) -> tuple[str, ...]:
     """List tracked files; used to tell dead rules from merely quiet ones."""
-    try:
-        result = subprocess.run(
-            ["git", "ls-files"],  # noqa: S607  # git from PATH; argv is a literal list
-            capture_output=True,
-            text=True,
-            cwd=repo_root,
-            check=True,
-        )
-    except (subprocess.CalledProcessError, OSError):
-        return ()
+    result = subprocess.run(
+        ["git", "ls-files"],  # noqa: S607  # git from PATH; argv is a literal list
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        check=True,
+    )
     return tuple(line for line in result.stdout.splitlines() if line)
 
 

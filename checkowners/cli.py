@@ -9,8 +9,9 @@ from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import replace
 from datetime import datetime
+from enum import IntEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NoReturn
 
 import typer
 from rich.console import Console
@@ -33,6 +34,7 @@ from checkowners.action_report import (
     write_step_summary,
 )
 from checkowners.analyze import (
+    GitRequirementError,
     ReviewProvider,
     analysis_epoch,
     analyze_ownership,
@@ -75,6 +77,7 @@ from checkowners.generate import (
     BroadPatternRecord,
     CodeownersGenerateError,
     CodeownersOverwriteError,
+    CodeownersVerificationError,
     GenerateResult,
     broad_pattern_warning,
     codeowners_write_metrics,
@@ -164,6 +167,62 @@ BaselineOption = Annotated[
 ]
 
 _CLI_AS_OF: ContextVar[str | None] = ContextVar("cli_as_of", default=None)
+_EXIT_ZERO: ContextVar[bool] = ContextVar("cli_exit_zero", default=False)
+_FAIL_ON_INCOMPLETE: ContextVar[bool] = ContextVar("cli_fail_on_incomplete", default=False)
+
+
+class ExitCode(IntEnum):
+    SUCCESS = 0
+    INTERNAL = 1
+    CONFIG = 2
+    FINDINGS = 3
+    INTEGRATION = 4
+
+
+def exit_with(code: ExitCode) -> NoReturn:
+    if code is ExitCode.FINDINGS and _EXIT_ZERO.get():
+        raise typer.Exit(code=ExitCode.SUCCESS)
+    raise typer.Exit(code=code)
+
+
+def _load_config() -> Config:
+    try:
+        return load_config()
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.CONFIG)
+
+
+def _guard_ownership(exc: subprocess.CalledProcessError | OSError | ValueError) -> NoReturn:
+    if isinstance(exc, (subprocess.CalledProcessError, OSError)):
+        console.print(f"[red]Git command failed:[/red] {exc}")
+        exit_with(ExitCode.INTEGRATION)
+    if isinstance(exc, GitRequirementError):
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.INTEGRATION)
+    console.print(f"[red]{exc}[/red]")
+    exit_with(ExitCode.INTERNAL)
+
+
+def _finish_analysis(ownership: OwnershipMap) -> None:
+    if not _FAIL_ON_INCOMPLETE.get():
+        return
+    completeness = ownership_signal_completeness(ownership)[0]
+    if completeness < 1:
+        exit_with(ExitCode.FINDINGS)
+
+
+def _detect_drift(
+    repo_root: Path,
+    ownership: OwnershipMap,
+    config: Config,
+    codeowners_path: Path,
+) -> DriftResult:
+    try:
+        return detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+    except (subprocess.CalledProcessError, OSError) as exc:
+        console.print(f"[red]Git command failed:[/red] {exc}")
+        exit_with(ExitCode.INTEGRATION)
 
 
 def _version_callback(value: bool) -> None:
@@ -201,6 +260,20 @@ def _app_callback(
             ),
         ),
     ] = False,
+    exit_zero: Annotated[
+        bool,
+        typer.Option(
+            "--exit-zero",
+            help="Exit 0 when the only problem is findings.",
+        ),
+    ] = False,
+    fail_on_incomplete: Annotated[
+        bool,
+        typer.Option(
+            "--fail-on-incomplete",
+            help="Exit 3 when scored-signal completeness is below 1.",
+        ),
+    ] = False,
 ) -> None:
     """Infer and maintain CODEOWNERS from git history."""
     clear_api_evidence()
@@ -208,6 +281,8 @@ def _app_callback(
     ctx.obj["as_of"] = as_of
     ctx.obj["deterministic"] = deterministic
     _CLI_AS_OF.set(as_of)
+    _EXIT_ZERO.set(exit_zero)
+    _FAIL_ON_INCOMPLETE.set(fail_on_incomplete)
 
 
 def _analysis_stamp(ownership: OwnershipMap) -> dict[str, str]:
@@ -285,10 +360,10 @@ def _resolve_clock(repo_root: Path) -> tuple[datetime, str]:
         ref = head_commit_sha(repo_root)
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from None
-    except subprocess.CalledProcessError as exc:
+        exit_with(ExitCode.CONFIG)
+    except (subprocess.CalledProcessError, OSError) as exc:
         console.print(f"[red]Git command failed:[/red] {exc}")
-        raise typer.Exit(code=1) from None
+        exit_with(ExitCode.INTEGRATION)
     return as_of, ref
 
 
@@ -547,12 +622,8 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
                 as_of=as_of,
                 analysis_ref=analysis_ref,
             )
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from None
-    except subprocess.CalledProcessError as exc:
-        console.print(f"[red]Git command failed:[/red] {exc}")
-        raise typer.Exit(code=1) from None
+    except (ValueError, subprocess.CalledProcessError, OSError) as exc:
+        _guard_ownership(exc)
     ownership = _resolve_github_owners(ownership, config)
     write_state(
         repo_root,
@@ -588,7 +659,7 @@ def _expertise_rank_payload(rank: ExpertiseRank) -> dict[str, Any]:
 @app.command()
 def analyze(json_output: JsonOption = False) -> None:
     """Analyze git history to infer confidence-scored ownership."""
-    config = load_config()
+    config = _load_config()
     ownership = _run_analyze(config, Path.cwd())
     cap = config.analysis.top_n_owners
     if json_output:
@@ -608,6 +679,7 @@ def analyze(json_output: JsonOption = False) -> None:
         _render_mailmap_line(ownership.analysis_completeness, enabled=config.git.use_mailmap)
         _render_exclusions_line(ownership.analysis_completeness)
         _report_models("ownership")
+    _finish_analysis(ownership)
 
 
 ForceOption = Annotated[
@@ -638,7 +710,7 @@ def _check_overwrite_or_exit(codeowners_path: Path, config: Config, force: bool)
         ensure_overwrite_safe(codeowners_path, config.output.header, force=force)
     except CodeownersOverwriteError as exc:
         console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from None
+        exit_with(ExitCode.CONFIG)
 
 
 def _warn_codeowners_size(content: str) -> None:
@@ -677,9 +749,12 @@ def _generate_or_exit(
             org=config.github.org,
             force=force,
         )
+    except CodeownersVerificationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.FINDINGS)
     except CodeownersGenerateError as exc:
         console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from None
+        exit_with(ExitCode.CONFIG)
     _warn_codeowners_size(result.content)
     _warn_broad_patterns(result.broad_patterns)
     return result
@@ -692,7 +767,7 @@ def generate(
     allow_broad_patterns: AllowBroadOption = False,
 ) -> None:
     """Generate a CODEOWNERS file from inferred ownership."""
-    config = load_config()
+    config = _load_config()
     if allow_broad_patterns:
         config = replace(config, output=replace(config.output, allow_broad_patterns=True))
     repo_root = Path.cwd()
@@ -714,12 +789,13 @@ def generate(
         )
     else:
         console.print(f"[green]Generated {rel_path}[/green]")
+    _finish_analysis(ownership)
 
 
 @app.command(name="print")
 def print_cmd(json_output: JsonOption = False) -> None:
     """Print inferred ownership to stdout."""
-    config = load_config()
+    config = _load_config()
     ownership = _run_analyze(config, Path.cwd())
     cap = config.analysis.top_n_owners
     if json_output:
@@ -737,6 +813,7 @@ def print_cmd(json_output: JsonOption = False) -> None:
             owners = " ".join(f"{o.handle}({o.score_label})" for o in ownership.paths[path].owners)
             typer.echo(f"{path}\t{owners}")
         _report_models("ownership")
+    _finish_analysis(ownership)
 
 
 @app.command()
@@ -753,14 +830,14 @@ def validate(json_output: JsonOption = False) -> None:
             }
         )
         if errors:
-            raise typer.Exit(code=1)
+            exit_with(ExitCode.FINDINGS)
         return
     if not errors:
         console.print("[green]CODEOWNERS is valid.[/green]")
-    else:
-        for err in errors:
-            console.print(f"[red]Line {err.line_number}:[/red] {escape(err.message)}")
-        raise typer.Exit(code=1)
+        return
+    for err in errors:
+        console.print(f"[red]Line {err.line_number}:[/red] {escape(err.message)}")
+    exit_with(ExitCode.FINDINGS)
 
 
 @app.command()
@@ -773,7 +850,7 @@ def explain_path(
     codeowners_path = find_codeowners_path(repo_root)
     if not codeowners_path.exists():
         console.print(f"[red]No CODEOWNERS file found at {codeowners_path}.[/red]")
-        raise typer.Exit(code=1)
+        exit_with(ExitCode.CONFIG)
     rules = parse_rules(codeowners_path.read_text(encoding="utf-8"))
     matches = matching_rules(rules, path)
     winner = matches[-1] if matches else None
@@ -841,7 +918,7 @@ def _ratchet_or_exit(
         accepted = load_baseline(baseline) if baseline is not None else ()
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from None
+        exit_with(ExitCode.CONFIG)
     outcome = apply_ratchet(
         result,
         baseline=accepted,
@@ -851,7 +928,7 @@ def _ratchet_or_exit(
     )
     if outcome.expired:
         _print_expired_suppressions(outcome.expired)
-        raise typer.Exit(code=1)
+        exit_with(ExitCode.FINDINGS)
     return outcome
 
 
@@ -936,11 +1013,11 @@ def baseline_create(
     json_output: JsonOption = False,
 ) -> None:
     """Write current findings to an accepted-findings file."""
-    config = load_config()
+    config = _load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
-    result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+    result = _detect_drift(repo_root, ownership, config, codeowners_path)
     bus = compute_qualified_owners(ownership, config, target=None)
     outcome = _ratchet_or_exit(
         result,
@@ -960,8 +1037,10 @@ def baseline_create(
             },
             ownership,
         )
-        return
-    console.print(f"[green]Wrote {len(outcome.new)} finding(s) to {escape(str(output))}[/green]")
+    else:
+        written = len(outcome.new)
+        console.print(f"[green]Wrote {written} finding(s) to {escape(str(output))}[/green]")
+    _finish_analysis(ownership)
 
 
 @app.command()
@@ -970,11 +1049,11 @@ def drift(
     baseline: BaselineOption = None,
 ) -> None:
     """Detect drift between inferred and current CODEOWNERS."""
-    config = load_config()
+    config = _load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
-    result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+    result = _detect_drift(repo_root, ownership, config, codeowners_path)
     bus = compute_qualified_owners(ownership, config, target=None)
     outcome = _ratchet_or_exit(
         result,
@@ -1010,20 +1089,22 @@ def drift(
             **stamp,
         }
         _emit_json(data, ownership)
-        return
-    for note in result.notes:
-        console.print(f"[yellow]note:[/yellow] {escape(note)}")
-    _render_ratchet_summary(outcome)
-    if not result.drift_detected:
-        console.print("[green]No drift detected.[/green]")
+    else:
+        for note in result.notes:
+            console.print(f"[yellow]note:[/yellow] {escape(note)}")
+        _render_ratchet_summary(outcome)
+        if not result.drift_detected:
+            console.print("[green]No drift detected.[/green]")
+        else:
+            console.print(
+                f"[bold]severity:[/bold] [{_severity_style(severity)}]{severity.upper()}[/] "
+                f"(Δmax={result.max_confidence_delta:.2f})"
+            )
+            _render_drift_table(result)
         _report_models("ownership", "risk")
-        return
-    console.print(
-        f"[bold]severity:[/bold] [{_severity_style(severity)}]{severity.upper()}[/] "
-        f"(Δmax={result.max_confidence_delta:.2f})"
-    )
-    _render_drift_table(result)
-    _report_models("ownership", "risk")
+    if result.drift_detected:
+        exit_with(ExitCode.FINDINGS)
+    _finish_analysis(ownership)
 
 
 def _severity_style(severity: str) -> str:
@@ -1036,11 +1117,11 @@ def notify(
     baseline: BaselineOption = None,
 ) -> None:
     """Send webhook notification on drift events."""
-    config = load_config()
+    config = _load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
-    result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+    result = _detect_drift(repo_root, ownership, config, codeowners_path)
     bus = compute_qualified_owners(ownership, config, target=None)
     outcome = _ratchet_or_exit(
         result,
@@ -1071,17 +1152,18 @@ def notify(
             },
             ownership,
         )
-        return
-    _render_ratchet_summary(outcome)
-    if sent:
-        console.print(f"[green]Notification sent ({severity}).[/green]")
-    elif not config.notifications.webhook_url:
-        console.print("[yellow]No webhook URL configured; skipped.[/yellow]")
     else:
-        console.print(
-            f"[yellow]Severity {severity} below threshold "
-            f"{config.notifications.severity_threshold}; skipped.[/yellow]"
-        )
+        _render_ratchet_summary(outcome)
+        if sent:
+            console.print(f"[green]Notification sent ({severity}).[/green]")
+        elif not config.notifications.webhook_url:
+            console.print("[yellow]No webhook URL configured; skipped.[/yellow]")
+        else:
+            console.print(
+                f"[yellow]Severity {severity} below threshold "
+                f"{config.notifications.severity_threshold}; skipped.[/yellow]"
+            )
+    _finish_analysis(ownership)
 
 
 @app.command()
@@ -1091,7 +1173,7 @@ def sync(
     allow_broad_patterns: AllowBroadOption = False,
 ) -> None:
     """Sync CODEOWNERS with inferred ownership (generate + commit)."""
-    config = load_config()
+    config = _load_config()
     if allow_broad_patterns:
         config = replace(config, output=replace(config.output, allow_broad_patterns=True))
     repo_root = Path.cwd()
@@ -1115,6 +1197,7 @@ def sync(
             )
         else:
             console.print(f"[green]{rel_path} is already in sync; nothing to commit.[/green]")
+        _finish_analysis(ownership)
         return
     try:
         subprocess.run(  # noqa: S603  # literal git argv, no shell
@@ -1134,7 +1217,10 @@ def sync(
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
         console.print(f"[red]Git commit failed:[/red] {detail}")
-        raise typer.Exit(code=1) from None
+        exit_with(ExitCode.INTEGRATION)
+    except OSError as exc:
+        console.print(f"[red]Git commit failed:[/red] {exc}")
+        exit_with(ExitCode.INTEGRATION)
     if json_output:
         _emit_json(
             {
@@ -1149,6 +1235,7 @@ def sync(
         )
     else:
         console.print(f"[green]Generated and committed {rel_path}[/green]")
+    _finish_analysis(ownership)
 
 
 def _has_uncommitted_changes(repo_root: Path, rel_path: Path) -> bool:
@@ -1188,7 +1275,7 @@ def github_action(
         typer.Option(
             "--fail-on-drift/--no-fail-on-drift",
             envvar="CHECKOWNERS_FAIL_ON_DRIFT",
-            help="Exit non-zero when drift is detected.",
+            help="Exit 3 when drift is detected.",
         ),
     ] = True,
     include_bus_factor: Annotated[
@@ -1224,12 +1311,12 @@ def github_action(
     decay_payload: dict[str, object] | None = None
     decay_count = 0
     try:
-        config = load_config()
+        config = _load_config()
         repo_root = Path.cwd()
         codeowners_path = find_codeowners_path(repo_root)
         ownership = _run_analyze(config, repo_root)
         cap = config.analysis.top_n_owners
-        result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+        result = _detect_drift(repo_root, ownership, config, codeowners_path)
         stamp = _analysis_stamp(ownership)
         if include_bus_factor:
             owners_report = compute_qualified_owners(ownership, config, target=None)
@@ -1243,9 +1330,17 @@ def github_action(
     except typer.Exit:
         _publish_action_failure()
         raise
+    except GitRequirementError as exc:
+        _publish_action_failure()
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.INTEGRATION)
+    except (subprocess.CalledProcessError, OSError) as exc:
+        _publish_action_failure()
+        console.print(f"[red]Git command failed:[/red] {exc}")
+        exit_with(ExitCode.INTEGRATION)
     except Exception:
         _publish_action_failure()
-        raise typer.Exit(code=1) from None
+        exit_with(ExitCode.INTERNAL)
 
     outcome = _ratchet_or_exit(
         result,
@@ -1311,7 +1406,8 @@ def github_action(
         )
 
     if fail_on_drift and result.drift_detected:
-        raise typer.Exit(code=1)
+        exit_with(ExitCode.FINDINGS)
+    _finish_analysis(ownership)
 
 
 def _decay_report_payload(report: DecayReport) -> dict[str, Any]:
@@ -1348,31 +1444,33 @@ def graph(
     ] = None,
 ) -> None:
     """Render the contributor-file knowledge graph in the terminal."""
-    config = load_config()
+    config = _load_config()
     repo_root = Path.cwd()
     ownership = _load_or_analyze(config, repo_root)
     try:
         graph_obj = _build_or_load_graph(repo_root, ownership)
     except GraphExtraMissingError as exc:
         console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from None
+        exit_with(ExitCode.CONFIG)
     if export is None:
         typer.echo(to_text(graph_obj))
         _report_models("topology")
+        _finish_analysis(ownership)
         return
     fmt = export.strip().lower()
     if fmt == "dot":
         typer.echo(to_dot(graph_obj))
         _report_models("topology")
+        _finish_analysis(ownership)
         return
     console.print(f"[red]Unsupported export format: {export!r}; supported: dot[/red]")
-    raise typer.Exit(code=1)
+    exit_with(ExitCode.CONFIG)
 
 
 @app.command()
 def decay(json_output: JsonOption = False) -> None:
     """Detect contributors whose expertise on a path has gone stale."""
-    config = load_config()
+    config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     reports = detect_decay(ownership, config)
     if json_output:
@@ -1383,10 +1481,12 @@ def decay(json_output: JsonOption = False) -> None:
             },
             ownership,
         )
+        _finish_analysis(ownership)
         return
     if not reports:
         console.print("[green]No decaying expertise detected.[/green]")
         _report_models("ownership", "risk")
+        _finish_analysis(ownership)
         return
     table = Table(title="Expertise Decay")
     table.add_column("Path", style="cyan")
@@ -1408,6 +1508,7 @@ def decay(json_output: JsonOption = False) -> None:
         )
     console.print(table)
     _report_models("ownership", "risk")
+    _finish_analysis(ownership)
 
 
 def _qualified_owners_impl(
@@ -1417,18 +1518,20 @@ def _qualified_owners_impl(
 ) -> None:
     if path is None and not all_paths:
         console.print("[yellow]Specify a path or pass --all to report every path.[/yellow]")
-        raise typer.Exit(code=1)
-    config = load_config()
+        exit_with(ExitCode.CONFIG)
+    config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     target = path if path else None
     report = compute_qualified_owners(ownership, config, target=target)
     if json_output:
         data = {**_qualified_owners_payload(report, config), **_analysis_stamp(ownership)}
         _emit_json(data, ownership)
+        _finish_analysis(ownership)
         return
     if not report.entries:
         console.print("[yellow]No paths matched.[/yellow]")
         _report_models("risk")
+        _finish_analysis(ownership)
         return
     cap = report.qualified_owner_count_cap
     table = Table(title="Qualified owners")
@@ -1454,6 +1557,7 @@ def _qualified_owners_impl(
         f"(capped by top_n_owners={cap})[/dim]"
     )
     _report_models("risk")
+    _finish_analysis(ownership)
 
 
 def qualified_owners(
@@ -1549,14 +1653,16 @@ def _balance_payload(report: BalanceReport) -> dict[str, Any]:
 @app.command()
 def balance(json_output: JsonOption = False) -> None:
     """Analyze PR review load distribution and suggest rebalancing."""
-    config = load_config()
+    config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     report = analyze_balance(ownership, config)
     if json_output:
         _emit_json({**_balance_payload(report), **_analysis_stamp(ownership)}, ownership)
+        _finish_analysis(ownership)
         return
     if not report.loads:
         console.print("[yellow]No review load data available.[/yellow]")
+        _finish_analysis(ownership)
         return
     console.print(f"[dim]source: {report.source}; average reviews: {report.average:.1f}[/dim]")
     if report.fallback_reason:
@@ -1584,21 +1690,24 @@ def balance(json_output: JsonOption = False) -> None:
                 f"  - shift ~{suggestion.proposed_shift} reviews from {suggestion.overloaded}"
                 f" to {suggestion.candidate} (confidence {suggestion.confidence:.2f})"
             )
+    _finish_analysis(ownership)
 
 
 @app.command()
 def topology(json_output: JsonOption = False) -> None:
     """Infer team topology from commit co-occurrence patterns."""
-    config = load_config()
+    config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     declared = declared_teams_from_github(config)
     report = infer_topology(ownership, config, declared_teams=declared)
     if json_output:
         _emit_json({**_topology_payload(report), **_analysis_stamp(ownership)}, ownership)
+        _finish_analysis(ownership)
         return
     if not report.clusters:
         console.print("[yellow]No clusters inferred.[/yellow]")
         _report_models("topology")
+        _finish_analysis(ownership)
         return
     table = Table(title="Inferred Team Topology")
     table.add_column("Cluster", style="cyan")
@@ -1620,6 +1729,7 @@ def topology(json_output: JsonOption = False) -> None:
         for line in report.mismatches:
             console.print(f"  - {line}")
     _report_models("topology")
+    _finish_analysis(ownership)
 
 
 def _onboarding_payload(report: OnboardingPath) -> dict[str, Any]:
@@ -1648,17 +1758,20 @@ def onboard(
     ] = False,
 ) -> None:
     """Generate a structured onboarding path for a codebase area."""
-    config = load_config()
+    config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     report = generate_onboarding_path(ownership, config, target=path)
     if json_output:
         _emit_json({**_onboarding_payload(report), **_analysis_stamp(ownership)}, ownership)
+        _finish_analysis(ownership)
         return
     if markdown:
         typer.echo(report.to_markdown())
+        _finish_analysis(ownership)
         return
     if not report.steps:
         console.print(f"[yellow]No onboarding path could be built for {path!r}.[/yellow]")
+        _finish_analysis(ownership)
         return
     table = Table(title=f"Onboarding path: {path}")
     table.add_column("#", justify="right")
@@ -1675,6 +1788,7 @@ def onboard(
             escape(step.description),
         )
     console.print(table)
+    _finish_analysis(ownership)
 
 
 def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMap:
@@ -1690,12 +1804,8 @@ def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMa
             pathspec=(target,),
             retain_all=True,
         )
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1) from None
-    except subprocess.CalledProcessError as exc:
-        console.print(f"[red]Git command failed:[/red] {exc}")
-        raise typer.Exit(code=1) from None
+    except (ValueError, subprocess.CalledProcessError, OSError) as exc:
+        _guard_ownership(exc)
     return _resolve_github_owners(ownership, config)
 
 
@@ -1819,8 +1929,8 @@ def explain(
     """Decompose inferred ownership for a path."""
     if owner and why_not:
         console.print("[red]Use --owner or --why-not, not both.[/red]")
-        raise typer.Exit(code=2)
-    config = load_config()
+        exit_with(ExitCode.CONFIG)
+    config = _load_config()
     repo_root = Path.cwd()
     ownership = _analyze_target(config, repo_root, path)
     explanation = build_explanation(
@@ -1840,24 +1950,29 @@ def explain(
             f"Use --why-not {escape(owner)} to see why.[/yellow]"
         )
         _report_models("ownership")
+        _finish_analysis(ownership)
         return
     if json_output:
         _emit_json(explanation_payload(explanation, ownership), ownership)
+        _finish_analysis(ownership)
         return
     _render_explanation(explanation, ownership.last_analyzed)
     _report_models("ownership")
+    _finish_analysis(ownership)
 
 
 def _run_owners(path: str, json_output: bool) -> None:
-    config = load_config()
+    config = _load_config()
     repo_root = Path.cwd()
     ownership = _analyze_target(config, repo_root, path)
     owners = ranked_owners(ownership, path, config)
     if json_output:
         _emit_json(owners_payload(owners, path, ownership), ownership)
+        _finish_analysis(ownership)
         return
     _render_owners_list(owners)
     _report_models("ownership")
+    _finish_analysis(ownership)
 
 
 @app.command("owners")
@@ -1884,7 +1999,7 @@ def expertise(
     json_output: JsonOption = False,
 ) -> None:
     """Show expertise ranking for a specific path."""
-    config = load_config()
+    config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     ranking = rank_expertise(ownership, path)
     if json_output:
@@ -1894,10 +2009,12 @@ def expertise(
             **_analysis_stamp(ownership),
         }
         _emit_json(data, ownership)
+        _finish_analysis(ownership)
         return
     if not ranking:
         console.print(f"[yellow]No experts found for {path!r}.[/yellow]")
         _report_models("ownership")
+        _finish_analysis(ownership)
         return
     table = Table(title=f"Expertise: {path}")
     table.add_column("#", justify="right")
@@ -1915,6 +2032,7 @@ def expertise(
         )
     console.print(table)
     _report_models("ownership")
+    _finish_analysis(ownership)
 
 
 def _trend_point_payload(point: TrendPoint, cap: int) -> dict[str, Any]:
@@ -1943,7 +2061,7 @@ def trends(
     json_output: JsonOption = False,
 ) -> None:
     """Show how ownership confidence and qualified owner count have evolved."""
-    config = load_config()
+    config = _load_config()
     cap = config.analysis.top_n_owners
     repo_root = Path.cwd()
     as_of, analysis_ref = _resolve_clock(repo_root)
@@ -1951,9 +2069,9 @@ def trends(
         report = analyze_trends(
             repo_root, config, periods=periods, period_days=period_days, as_of=as_of
         )
-    except subprocess.CalledProcessError as exc:
+    except (subprocess.CalledProcessError, OSError) as exc:
         console.print(f"[red]Git command failed:[/red] {exc}")
-        raise typer.Exit(code=1) from None
+        exit_with(ExitCode.INTEGRATION)
     if json_output:
         generated = analysis_epoch(as_of)
         data = {

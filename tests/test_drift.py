@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from checkowners.drift import detect_drift, drift_entry_payload, write_github_output
+import pytest
+
+from checkowners.drift import _tracked_files, detect_drift, drift_entry_payload, write_github_output
 from checkowners.models import (
     Config,
     DecayWarning,
@@ -271,6 +274,28 @@ def test_drift_entry_suggests_resolved_team() -> None:
     payload = drift_entry_payload(entry, 3)
     assert payload["recommendation"]["suggested_team"] == "@org/backend"
     assert payload["qualified_owner_count"] == 1
+
+
+def test_tracked_files_lists_paths_and_propagates_git_failure(tmp_path: Path) -> None:
+    completed = subprocess.CompletedProcess(
+        args=["git", "ls-files"],
+        returncode=0,
+        stdout="src/a.py\n\nsrc/b.py\n",
+        stderr="",
+    )
+    with patch("checkowners.drift.subprocess.run", return_value=completed) as run:
+        assert _tracked_files(tmp_path) == ("src/a.py", "src/b.py")
+    assert run.call_args.args[0] == ["git", "ls-files"]
+    assert run.call_args.kwargs["cwd"] == tmp_path
+    assert run.call_args.kwargs["check"] is True
+    with (
+        patch(
+            "checkowners.drift.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, ["git", "ls-files"]),
+        ),
+        pytest.raises(subprocess.CalledProcessError),
+    ):
+        _tracked_files(tmp_path)
 
 
 def test_empty_ownership_and_no_codeowners(tmp_path: Path) -> None:

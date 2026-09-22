@@ -22,8 +22,8 @@ from checkowners.action_report import (
     summarize_decay,
     summarize_drift,
 )
-from checkowners.analyze import resolve_as_of
-from checkowners.balance import BalanceReport
+from checkowners.analyze import GitRequirementError, resolve_as_of
+from checkowners.balance import BalanceReport, RebalanceSuggestion, ReviewLoad
 from checkowners.busfactor import BusFactorReport
 from checkowners.cli import (
     _days_since,
@@ -41,9 +41,11 @@ from checkowners.explain import ExplainedOwner, PathExplanation
 from checkowners.generate import (
     SIZE_WARN_BYTES,
     BroadPatternRecord,
+    CodeownersSizeError,
     CodeownersVerificationError,
     GenerateResult,
 )
+from checkowners.graph import GraphExtraMissingError
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
     OWNERSHIP_MODEL_VERSION,
@@ -64,7 +66,7 @@ from checkowners.models import (
     TeamCluster,
     models_payload,
 )
-from checkowners.onboard import OnboardingPath
+from checkowners.onboard import OnboardingPath, OnboardingStep
 from checkowners.topology import TopologyReport
 from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationError
@@ -281,7 +283,7 @@ def test_analyze_invalid_as_of_exits() -> None:
         side_effect=ValueError("Invalid as-of value: 'nope'"),
     ):
         result = runner.invoke(app, ["--as-of", "nope", "analyze"])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "Invalid as-of" in result.stdout
 
 
@@ -291,7 +293,7 @@ def test_analyze_clock_git_error() -> None:
         side_effect=subprocess.CalledProcessError(128, "git"),
     ):
         result = runner.invoke(app, ["analyze"])
-    assert result.exit_code == 1
+    assert result.exit_code == 4
     assert "Git command failed" in result.stdout
 
 
@@ -371,16 +373,50 @@ def test_analyze_git_error() -> None:
         side_effect=subprocess.CalledProcessError(1, "git"),
     ):
         result = runner.invoke(app, ["analyze"])
-    assert result.exit_code == 1
+    assert result.exit_code == 4
+
+
+def test_invalid_config_exits_config() -> None:
+    with patch("checkowners.cli.load_config", side_effect=ValueError("bad config")):
+        result = runner.invoke(app, ["analyze"])
+    assert result.exit_code == 2
+    assert "bad config" in result.stdout
+
+
+def test_fail_on_incomplete_stays_zero_when_signals_are_complete() -> None:
+    complete = _entry("alice@example.com")
+    breakdown = complete.score_breakdown
+    assert breakdown is not None
+    ownership = OwnershipMap(
+        paths={
+            "src/main.py": PathOwnership(
+                owners=(
+                    replace(
+                        complete,
+                        score_breakdown=replace(
+                            breakdown,
+                            review=SignalScore(available=True, score=1.0),
+                        ),
+                    ),
+                ),
+                qualified_owner_count=1,
+            )
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    with patch("checkowners.cli.analyze_ownership", return_value=ownership), _MOCK_TOKEN:
+        result = runner.invoke(app, ["--fail-on-incomplete", "analyze"])
+    assert result.exit_code == 0
 
 
 def test_analyze_git_version_error() -> None:
     with patch(
         "checkowners.cli.analyze_ownership",
-        side_effect=ValueError("checkOwners requires Git 2.23 or newer; found 2.19.0"),
+        side_effect=GitRequirementError("checkOwners requires Git 2.23 or newer; found 2.19.0"),
     ):
         result = runner.invoke(app, ["analyze"])
-    assert result.exit_code == 1
+    assert result.exit_code == 4
     assert "requires Git 2.23" in result.stdout
 
 
@@ -462,7 +498,7 @@ def test_validate_errors() -> None:
     errors = [ValidationError(line_number=3, line="bad", message="bad line")]
     with patch("checkowners.cli.validate_codeowners", return_value=errors), _MOCK_PATH:
         result = runner.invoke(app, ["validate"])
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     assert "Line 3" in result.stdout
 
 
@@ -478,7 +514,7 @@ def test_validate_json_errors() -> None:
     errors = [ValidationError(line_number=1, line="x", message="oops")]
     with patch("checkowners.cli.validate_codeowners", return_value=errors), _MOCK_PATH:
         result = runner.invoke(app, ["validate", "--json"])
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     data = json.loads(result.stdout)
     assert data["valid"] is False
     assert len(data["errors"]) == 1
@@ -521,7 +557,7 @@ def test_drift_detected_shows_severity() -> None:
         _MOCK_TOKEN,
     ):
         result = runner.invoke(app, ["drift"])
-    assert result.exit_code == 0
+    assert result.exit_code == 3
     assert "CRITICAL" in result.stdout
     assert "stale" in result.stdout
 
@@ -534,7 +570,7 @@ def test_drift_json_includes_severity() -> None:
         _MOCK_TOKEN,
     ):
         result = runner.invoke(app, ["drift", "--json"])
-    assert result.exit_code == 0
+    assert result.exit_code == 3
     data = json.loads(result.stdout)
     assert data["drift_detected"] is True
     assert data["severity"] == "critical"
@@ -624,6 +660,24 @@ def test_sync_json() -> None:
     assert data["broad_patterns"] == []
 
 
+def test_sync_git_os_error() -> None:
+    status = MagicMock(returncode=0, stdout=" M CODEOWNERS\n")
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
+        patch(
+            "checkowners.cli.subprocess.run",
+            side_effect=[status, OSError("git not found")],
+        ),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["sync"])
+    assert result.exit_code == 4
+    assert "Git commit failed" in result.stdout
+    assert "git not found" in result.stdout
+
+
 def test_sync_git_commit_error() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
@@ -636,7 +690,7 @@ def test_sync_git_commit_error() -> None:
         _MOCK_TOKEN,
     ):
         result = runner.invoke(app, ["sync"])
-    assert result.exit_code == 1
+    assert result.exit_code == 4
 
 
 # --- github-action ---
@@ -680,7 +734,7 @@ def test_github_action_fails_on_drift_and_writes_output(
     exit_code, _stdout, output_file, summary_file = _run_github_action(
         tmp_path, monkeypatch, ["github-action"], drift=_DRIFT_DETECTED
     )
-    assert exit_code == 1
+    assert exit_code == 3
     written = output_file.read_text(encoding="utf-8")
     drift = json.loads((tmp_path / "drift.json").read_text(encoding="utf-8"))
     bus = json.loads((tmp_path / "bus_factor.json").read_text(encoding="utf-8"))
@@ -762,7 +816,7 @@ def test_github_action_input_combinations(
     exit_code, _stdout, output_file, _summary_file = _run_github_action(
         tmp_path, monkeypatch, args, drift=_DRIFT_DETECTED
     )
-    assert exit_code == (1 if fail_on_drift else 0)
+    assert exit_code == (3 if fail_on_drift else 0)
     written = output_file.read_text(encoding="utf-8")
     assert (tmp_path / "drift.json").is_file()
     assert "checkowners_drift<<" in written
@@ -811,7 +865,7 @@ def test_github_action_analysis_failure_writes_diagnostic(
         _MOCK_TOKEN,
     ):
         result = runner.invoke(app, ["github-action", "--no-fail-on-drift"])
-    assert result.exit_code == 1
+    assert result.exit_code == 4
     assert not (tmp_path / "drift.json").exists()
     assert summary_file.read_text(encoding="utf-8") == DIAGNOSTIC
     assert output_file.read_text(encoding="utf-8") == _gh_block(
@@ -826,6 +880,41 @@ def test_github_action_rejects_non_positive_max_entries(
         tmp_path, monkeypatch, ["github-action", "--max-output-entries", "0"]
     )
     assert exit_code == 2
+
+
+@pytest.mark.parametrize(
+    ("exc", "message"),
+    [
+        (GitRequirementError("checkOwners requires Git 2.23 or newer"), "requires Git 2.23"),
+        (subprocess.CalledProcessError(1, "git"), "Git command failed"),
+        (OSError("git not found"), "Git command failed"),
+    ],
+)
+def test_github_action_classifies_leaked_integration_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    exc: Exception,
+    message: str,
+) -> None:
+    output_file = tmp_path / "gh_output"
+    summary_file = tmp_path / "step_summary"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CHECKOWNERS_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
+        patch("checkowners.cli.compute_qualified_owners", side_effect=exc),
+        patch("checkowners.action_report.secrets.token_hex", return_value=_FIXED_HEX),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["github-action", "--no-include-decay"])
+    assert result.exit_code == 4
+    assert message in result.stdout
+    assert summary_file.read_text(encoding="utf-8") == DIAGNOSTIC
+    assert not (tmp_path / "drift.json").exists()
 
 
 def test_github_action_unexpected_error_writes_diagnostic(
@@ -907,7 +996,7 @@ def test_trends_git_error() -> None:
         side_effect=subprocess.CalledProcessError(1, "git"),
     ):
         result = runner.invoke(app, ["trends"])
-    assert result.exit_code == 1
+    assert result.exit_code == 4
     assert "Git command failed" in result.stdout
 
 
@@ -929,6 +1018,36 @@ def test_qualified_owners_json_includes_stamp() -> None:
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_epoch"] == _NOW.isoformat()
     assert "entries" in data
+
+
+def test_balance_prints_loads_and_suggestions() -> None:
+    report = BalanceReport(
+        loads=(ReviewLoad(handle="@alice", reviews=10),),
+        average=10.0,
+        overloaded=(ReviewLoad(handle="@alice", reviews=10),),
+        suggestions=(
+            RebalanceSuggestion(
+                overloaded="@alice",
+                candidate="@bob",
+                confidence=0.8,
+                proposed_shift=3,
+            ),
+        ),
+        source="git_authorship",
+    )
+    quiet = replace(report, suggestions=())
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.analyze_balance", side_effect=[report, quiet]),
+        _MOCK_TOKEN,
+    ):
+        listed = runner.invoke(app, ["balance"])
+        plain = runner.invoke(app, ["balance"])
+    assert listed.exit_code == 0
+    assert "@alice" in listed.stdout
+    assert "@bob" in listed.stdout
+    assert plain.exit_code == 0
+    assert "Rebalance suggestions" not in plain.stdout
 
 
 def test_balance_json_includes_stamp() -> None:
@@ -966,6 +1085,32 @@ def test_topology_json_includes_stamp() -> None:
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_epoch"] == _NOW.isoformat()
     assert data["clusters"] == []
+
+
+def test_onboard_markdown_and_table() -> None:
+    report = OnboardingPath(
+        target="src",
+        steps=(
+            OnboardingStep(
+                order=1,
+                path="src/main.py",
+                reviewer="@alice",
+                complexity="easy",
+                description="start here",
+            ),
+        ),
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_onboarding_path", return_value=report),
+        _MOCK_TOKEN,
+    ):
+        markdown = runner.invoke(app, ["onboard", "src", "--markdown"])
+        table = runner.invoke(app, ["onboard", "src"])
+    assert markdown.exit_code == 0
+    assert "src/main.py" in markdown.stdout
+    assert table.exit_code == 0
+    assert "start here" in table.stdout
 
 
 def test_onboard_json_includes_stamp() -> None:
@@ -1022,6 +1167,26 @@ class _CommandOutput(Protocol):
 
 def _models_text(result: _CommandOutput) -> str:
     return result.stdout + result.stderr
+
+
+def test_graph_missing_extra_and_bad_export_exit_config() -> None:
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP),
+        patch(
+            "checkowners.cli._build_or_load_graph",
+            side_effect=GraphExtraMissingError("networkx is required"),
+        ),
+    ):
+        missing = runner.invoke(app, ["graph"])
+    assert missing.exit_code == 2
+    assert "networkx is required" in missing.stdout
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP),
+        patch("checkowners.cli._build_or_load_graph", return_value=object()),
+    ):
+        exported = runner.invoke(app, ["graph", "--export", "png"])
+    assert exported.exit_code == 2
+    assert "png" in exported.stdout
 
 
 def test_graph_reports_topology_model() -> None:
@@ -1242,8 +1407,23 @@ def test_generate_refuses_handwritten_before_analyzing(tmp_path: Path) -> None:
         patch("checkowners.cli.analyze_ownership") as mock_analyze,
     ):
         result = runner.invoke(app, ["generate"])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     mock_analyze.assert_not_called()
+
+
+def test_generate_size_refusal_exits_config() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch(
+            "checkowners.cli.generate_codeowners",
+            side_effect=CodeownersSizeError("exceeds output.max_bytes"),
+        ),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["generate"])
+    assert result.exit_code == 2
+    assert "max_bytes" in result.stdout
 
 
 def test_generate_verification_failure_exits() -> None:
@@ -1260,7 +1440,7 @@ def test_generate_verification_failure_exits() -> None:
         _MOCK_TOKEN,
     ):
         result = runner.invoke(app, ["generate"])
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     assert "src/a.py" in result.stdout
     assert "@alice" in result.stdout
     assert "* @bob" in result.stdout
@@ -1278,7 +1458,7 @@ def test_sync_verification_failure_does_not_commit() -> None:
         _MOCK_TOKEN,
     ):
         result = runner.invoke(app, ["sync"])
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     mock_run.assert_not_called()
 
 
@@ -1319,7 +1499,7 @@ def test_explain_path_missing_file(tmp_path: Path) -> None:
     missing = tmp_path / "CODEOWNERS"
     with patch("checkowners.cli.find_codeowners_path", return_value=missing):
         result = runner.invoke(app, ["explain-path", "src/a.py"])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "No CODEOWNERS file found" in result.stdout
 
 
@@ -1361,7 +1541,7 @@ def test_validate_errors_render_brackets_verbatim() -> None:
     ]
     with patch("checkowners.cli.validate_codeowners", return_value=errors), _MOCK_PATH:
         result = runner.invoke(app, ["validate"])
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     assert "[companyId]" in result.stdout
 
 
@@ -1508,7 +1688,7 @@ def test_explain_analyze_git_error() -> None:
         _MOCK_TOKEN,
     ):
         result = runner.invoke(app, ["explain", "src/main.py"])
-    assert result.exit_code == 1
+    assert result.exit_code == 4
     assert "Git command failed" in result.stdout
 
 
@@ -1744,3 +1924,277 @@ def test_command_json_includes_models(
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert data["models"] == models_payload()
+
+
+_EXIT_OK: tuple[tuple[str, list[str]], ...] = (
+    ("analyze", ["analyze"]),
+    ("generate", ["generate"]),
+    ("print", ["print"]),
+    ("validate", ["validate"]),
+    ("explain-path", ["explain-path", "src/main.py"]),
+    ("explain", ["explain", "src/main.py"]),
+    ("owners", ["owners", "src/main.py"]),
+    ("who", ["who", "src/main.py"]),
+    ("drift", ["drift"]),
+    ("notify", ["notify"]),
+    ("sync", ["sync"]),
+    ("decay", ["decay"]),
+    ("graph", ["graph"]),
+    ("qualified-owners", ["qualified-owners", "--all"]),
+    ("bus-factor", ["bus-factor", "--all"]),
+    ("balance", ["balance"]),
+    ("topology", ["topology"]),
+    ("onboard", ["onboard", "src"]),
+    ("expertise", ["expertise", "src/main.py"]),
+    ("trends", ["trends"]),
+    ("baseline", ["baseline", "create"]),
+    ("github-action", ["github-action"]),
+)
+
+
+def _exit_cases() -> list[object]:
+    cases: list[object] = [
+        pytest.param("ok", command, args, 0, id=f"ok-{command}") for command, args in _EXIT_OK
+    ]
+    cases.extend(
+        [
+            pytest.param("findings", "drift", ["drift"], 3, id="drift-findings"),
+            pytest.param("findings", "drift", ["--exit-zero", "drift"], 0, id="drift-exit-zero"),
+            pytest.param("findings", "validate", ["validate"], 3, id="validate-findings"),
+            pytest.param(
+                "findings",
+                "validate",
+                ["--exit-zero", "validate"],
+                0,
+                id="validate-exit-zero",
+            ),
+            pytest.param("findings", "generate", ["generate"], 3, id="generate-findings"),
+            pytest.param(
+                "findings",
+                "generate",
+                ["--exit-zero", "generate"],
+                0,
+                id="generate-exit-zero",
+            ),
+            pytest.param("findings", "github-action", ["github-action"], 3, id="action-findings"),
+            pytest.param(
+                "findings",
+                "github-action",
+                ["--exit-zero", "github-action"],
+                0,
+                id="action-exit-zero",
+            ),
+            pytest.param(
+                "findings",
+                "github-action",
+                ["github-action", "--no-fail-on-drift"],
+                0,
+                id="action-no-fail-on-drift",
+            ),
+            pytest.param(
+                "findings",
+                "analyze",
+                ["--fail-on-incomplete", "analyze"],
+                3,
+                id="analyze-incomplete",
+            ),
+            pytest.param(
+                "findings",
+                "analyze",
+                ["--exit-zero", "--fail-on-incomplete", "analyze"],
+                0,
+                id="analyze-incomplete-exit-zero",
+            ),
+            pytest.param("config", "analyze", ["--as-of", "nope", "analyze"], 2, id="as-of"),
+            pytest.param(
+                "config",
+                "analyze",
+                ["--exit-zero", "--as-of", "nope", "analyze"],
+                2,
+                id="as-of-exit-zero",
+            ),
+            pytest.param(
+                "config",
+                "explain",
+                ["explain", "src/main.py", "--owner", "@a", "--why-not", "@b"],
+                2,
+                id="explain-usage",
+            ),
+            pytest.param("config", "qualified-owners", ["qualified-owners"], 2, id="owners-usage"),
+            pytest.param("config", "bus-factor", ["bus-factor"], 2, id="bus-usage"),
+            pytest.param(
+                "config",
+                "github-action",
+                ["github-action", "--max-output-entries", "0"],
+                2,
+                id="action-usage",
+            ),
+            pytest.param(
+                "config",
+                "drift",
+                ["drift", "--baseline", "missing.json"],
+                2,
+                id="baseline-missing",
+            ),
+            pytest.param(
+                "config",
+                "explain-path",
+                ["explain-path", "src/main.py"],
+                2,
+                id="explain-path-missing",
+            ),
+            pytest.param("config", "generate", ["generate"], 2, id="generate-overwrite"),
+            pytest.param("git", "analyze", ["analyze"], 4, id="analyze-git"),
+            pytest.param(
+                "git",
+                "analyze",
+                ["--exit-zero", "analyze"],
+                4,
+                id="analyze-git-exit-zero",
+            ),
+            pytest.param("git", "drift", ["drift"], 4, id="drift-git"),
+            pytest.param("git", "trends", ["trends"], 4, id="trends-git"),
+            pytest.param("git", "explain", ["explain", "src/main.py"], 4, id="explain-git"),
+            pytest.param("git", "sync", ["sync"], 4, id="sync-git"),
+            pytest.param("git", "github-action", ["github-action"], 4, id="action-git"),
+            pytest.param("internal", "github-action", ["github-action"], 1, id="action-internal"),
+            pytest.param(
+                "internal",
+                "github-action",
+                ["--exit-zero", "github-action"],
+                1,
+                id="action-internal-exit-zero",
+            ),
+        ]
+    )
+    return cases
+
+
+@pytest.mark.parametrize(("kind", "command", "args", "expected"), _exit_cases())
+def test_exit_code_contract(
+    kind: str,
+    command: str,
+    args: list[str],
+    expected: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    codeowners = tmp_path / "CODEOWNERS"
+    if kind == "ok" and command == "explain-path":
+        codeowners.write_text("* @alice\n", encoding="utf-8")
+    if kind == "config" and command == "generate":
+        codeowners.write_text("# Hand-curated\nsrc/ @human\n", encoding="utf-8")
+
+    analyze_effect: object = _OWNERSHIP
+    if kind == "git" and command in {"analyze", "explain", "github-action"}:
+        analyze_effect = subprocess.CalledProcessError(1, "git")
+    if kind == "internal":
+        analyze_effect = RuntimeError("boom")
+
+    drift_effect: object = (
+        _DRIFT_DETECTED
+        if kind == "findings"
+        and command
+        in {
+            "drift",
+            "github-action",
+        }
+        else _NO_DRIFT
+    )
+    if kind == "git" and command == "drift":
+        drift_effect = subprocess.CalledProcessError(1, "git")
+
+    generate_effect: object = _GENERATED
+    if kind == "findings" and command == "generate":
+        generate_effect = CodeownersVerificationError("round-trip failed")
+
+    validation: object = []
+    if kind == "findings" and command == "validate":
+        validation = [ValidationError(line_number=1, line="x", message="oops")]
+
+    codeowners_path = codeowners
+    if kind == "config" and command == "explain-path":
+        codeowners_path = tmp_path / "missing"
+    git_sync = kind == "git" and command == "sync"
+    trends_effect: object = _TREND_REPORT
+    if kind == "git" and command == "trends":
+        trends_effect = subprocess.CalledProcessError(1, "git")
+
+    with (
+        patch("checkowners.cli.analyze_ownership", side_effect=analyze_effect)
+        if not isinstance(analyze_effect, OwnershipMap)
+        else patch("checkowners.cli.analyze_ownership", return_value=analyze_effect),
+        patch("checkowners.cli.detect_drift", side_effect=drift_effect)
+        if not isinstance(drift_effect, DriftResult)
+        else patch("checkowners.cli.detect_drift", return_value=drift_effect),
+        patch("checkowners.cli.generate_codeowners", side_effect=generate_effect)
+        if isinstance(generate_effect, Exception)
+        else patch("checkowners.cli.generate_codeowners", return_value=generate_effect),
+        patch("checkowners.cli.validate_codeowners", return_value=validation),
+        patch("checkowners.cli.send_notification", return_value=False),
+        patch("checkowners.cli.analyze_trends", side_effect=trends_effect)
+        if isinstance(trends_effect, Exception)
+        else patch("checkowners.cli.analyze_trends", return_value=trends_effect),
+        patch(
+            "checkowners.cli.analyze_balance",
+            return_value=BalanceReport(
+                loads=(),
+                average=0.0,
+                overloaded=(),
+                suggestions=(),
+                source="git_authorship",
+            ),
+        ),
+        patch(
+            "checkowners.cli.infer_topology",
+            return_value=TopologyReport(clusters=(), mismatches=()),
+        ),
+        patch(
+            "checkowners.cli.generate_onboarding_path",
+            return_value=OnboardingPath(target="src", steps=()),
+        ),
+        patch("checkowners.cli.rank_expertise", return_value=()),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        patch(
+            "checkowners.cli.build_explanation",
+            return_value=PathExplanation(
+                target="src/main.py",
+                kind="file",
+                files=("src/main.py",),
+                inferred=(),
+                candidates=(),
+                evidence_quality=1.0,
+                declared=(),
+                team_resolution=(),
+                assessment="aligned",
+                lineage=(),
+                knobs=(),
+                weights={},
+                why_not=None,
+            ),
+        ),
+        patch("checkowners.cli._build_or_load_graph", return_value=object()),
+        patch("checkowners.cli.to_text", return_value="graph"),
+        patch(
+            "checkowners.cli.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "git", stderr="commit failed"),
+        )
+        if git_sync
+        else patch(
+            "checkowners.cli.subprocess.run",
+            return_value=MagicMock(returncode=0, stdout=""),
+        ),
+        patch("checkowners.cli.find_codeowners_path", return_value=codeowners_path),
+        patch(
+            "checkowners.cli.resolve_as_of",
+            side_effect=ValueError("Invalid as-of value: 'nope'"),
+        )
+        if kind == "config" and "--as-of" in args
+        else patch("checkowners.cli.resolve_as_of", return_value=_NOW),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, args)
+    assert result.exit_code == expected, result.output
+    if command == "github-action" and kind == "findings":
+        assert (tmp_path / "drift.json").is_file()

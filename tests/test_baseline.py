@@ -115,7 +115,7 @@ def test_baseline_create_then_new_finding(tmp_path: Path, monkeypatch: pytest.Mo
         ["drift", "--json", "--baseline", str(baseline)],
         drift=extra,
     )
-    assert exit_code == 0
+    assert exit_code == 3
     data = json.loads(stdout)
     assert data["drift_detected"] is True
     assert [item["path"] for item in data["missing"]] == ["/extra.py"]
@@ -160,7 +160,7 @@ def test_expired_suppression_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         ),
     )
     exit_code, stdout = _cli_run(["drift"])
-    assert exit_code == 1
+    assert exit_code == 3
     assert "Expired suppression" in stdout
     assert "2020-01-01" in stdout
     assert "Scheduled for retirement" in stdout
@@ -491,7 +491,7 @@ def test_baseline_create_json_and_missing_file(
     assert isinstance(data["findings"], list)
 
     exit_code, stdout = _cli_run(["drift", "--baseline", "missing.json"])
-    assert exit_code == 1
+    assert exit_code == 2
     assert "not found" in stdout
 
 

@@ -32,7 +32,7 @@ inputs:
     required: false
     default: "50"
   fail_on_drift:
-    description: Fail the action when drift_detected is true.
+    description: Fail the action with exit code 3 when drift is detected.
     required: false
     default: "true"
   baseline:

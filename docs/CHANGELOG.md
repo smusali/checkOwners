@@ -83,6 +83,13 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   the affected paths and owner delta.
 
 ### Changed
+- Commands share one exit-code contract: 0 clean, 1 internal error, 2
+  configuration or usage, 3 findings, 4 git or GitHub integration failure.
+  `validate` findings and `github-action` drift move from 1 to 3. `drift`
+  findings move from 0 to 3 (baseline-accepted rows still exit 0).
+  `--exit-zero` turns only code 3 into 0. `--fail-on-incomplete` exits 3
+  when scored-signal completeness is below 1, and is off by default.
+  A failed `git ls-files` is an integration failure, not an empty stale list.
 - The composite Action runs `checkowners github-action` once for drift,
   qualified owners, decay, the job summary, and `GITHUB_OUTPUT`. Output
   names and `schema_version: 2` summary shapes are unchanged.

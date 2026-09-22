@@ -14,6 +14,7 @@ import pytest
 from checkowners.analyze import (
     MIN_GIT_VERSION,
     SOURCE_DATE_EPOCH_ENV,
+    GitRequirementError,
     _aggregate_contributions,
     _blame_for_path,
     _BlamePass,
@@ -1146,6 +1147,14 @@ def test_gather_rejects_old_git() -> None:
     with (
         patch(_MOCK_GIT, side_effect=_dispatch_git(version="git version 2.19.0")),
         pytest.raises(ValueError, match=r"requires Git 2\.23"),
+    ):
+        _gather_blame_coverage(["x.py"], Path("/fake"))
+
+
+def test_gather_wraps_unparseable_git_version() -> None:
+    with (
+        patch(_MOCK_GIT, side_effect=_dispatch_git(version="not a version")),
+        pytest.raises(GitRequirementError, match="Could not parse"),
     ):
         _gather_blame_coverage(["x.py"], Path("/fake"))
 

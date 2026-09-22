@@ -1,10 +1,15 @@
-"""Data models for checkOwners. Only dataclasses; no other classes."""
+"""Data models for checkOwners."""
 
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Literal
+from pathlib import Path
+from typing import Literal, NotRequired, TypedDict
+
+from checkowners import __version__
 
 Severity = Literal["low", "medium", "high", "critical"]
 DriftMode = Literal["commit", "repo", "both"]
@@ -24,6 +29,18 @@ def models_payload() -> dict[str, str]:
         "risk": RISK_MODEL_VERSION,
         "topology": TOPOLOGY_MODEL_VERSION,
     }
+
+
+DriftKind = Literal[
+    "missing_observed_expert",
+    "stale_rule",
+    "complete_ownership_replacement",
+    "stale_declared_owner",
+    "owner_mismatch",
+    "organizational_mismatch",
+]
+RecommendationAction = Literal["review_codeowners_rule", "remove_stale_rule"]
+_SIGNAL_NAMES = ("recency", "frequency", "blame", "review")
 
 
 @dataclass(frozen=True)
@@ -307,6 +324,9 @@ class DriftEntry:
     qualified_owner_count: int | None = None
     decay: bool = False
     owners: tuple[str, ...] = ()
+    observed_owners: tuple[str, ...] = ()
+    observed_teams: tuple[str, ...] = ()
+    drift_type: DriftKind = "owner_mismatch"
 
 
 @dataclass(frozen=True)
@@ -326,3 +346,300 @@ class DriftResult:
         if not entries:
             return 0.0
         return max(abs(e.confidence_delta) for e in entries)
+
+
+class SignalScores(TypedDict, total=False):
+    recency: float
+    frequency: float
+    blame: float
+    review: float
+
+
+class OwnerJson(TypedDict):
+    identity: str
+    handle: str
+    ownership_score: float
+    confidence: float
+    evidence_quality: float
+    commits: int
+    last_commit: str | None
+    signals: NotRequired[SignalScores]
+
+
+class RiskJson(TypedDict):
+    top_owner_share: float
+    effective_owners: float
+    truck_factor_50: int
+    truck_factor_75: int
+
+
+class PathAnalysisJson(TypedDict):
+    completeness: float
+    signals_available: list[str]
+
+
+class AnalysisFlagsJson(TypedDict):
+    ignore_revs_applied: bool
+    ignore_revs_file: str
+    mailmap_applied: bool
+    mailmap_file: str
+    excluded_gitattributes: int
+    excluded_static: int
+
+
+class AnalyzeAnalysisJson(PathAnalysisJson, AnalysisFlagsJson):
+    pass
+
+
+class DecayWarningJson(TypedDict):
+    handle: str
+    days_since_last_commit: int
+    last_commit: str
+    historical_confidence: float
+
+
+class PathOwnershipJson(TypedDict):
+    owners: list[OwnerJson]
+    analysis: PathAnalysisJson
+    risk: RiskJson
+    qualified_owner_count: int
+    bus_factor: int
+    qualified_owner_count_cap: int
+    decay_warnings: list[DecayWarningJson]
+
+
+class DeclaredOwnersJson(TypedDict):
+    owners: list[str]
+
+
+class ObservedOwnersJson(TypedDict):
+    owners: list[str]
+    teams: list[str]
+
+
+class DriftBodyJson(TypedDict):
+    severity: Severity
+    type: DriftKind
+    declared_observed_overlap: float
+
+
+class RecommendationJson(TypedDict):
+    action: RecommendationAction
+    suggested_team: NotRequired[str]
+
+
+class DriftEntryJson(TypedDict):
+    path: str
+    declared: DeclaredOwnersJson
+    observed: ObservedOwnersJson
+    drift: DriftBodyJson
+    recommendation: RecommendationJson
+    confidence_delta: float
+    reason: str
+    qualified_owner_count: NotRequired[int]
+    bus_factor: NotRequired[int]
+    qualified_owner_count_cap: NotRequired[int]
+    decay: NotRequired[bool]
+
+
+class ModelVersionsJson(TypedDict):
+    ownership: str
+    risk: str
+    topology: str
+
+
+class ProvenanceEnvelope(TypedDict):
+    schema_version: str
+    checkowners_version: str
+    model_version: str
+    models: ModelVersionsJson
+    repository: str
+    head_sha: str
+    analysis_ref: str
+    generated_at: str
+    analysis_epoch: str
+    analysis_completeness: float | None
+
+
+def repository_label(repo_root: Path) -> str:
+    """Return `repo_root`'s `owner/name` slug, or the directory name."""
+    slug = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if slug:
+        return slug
+    return repo_root.name
+
+
+def provenance_envelope(
+    *,
+    repository: str,
+    head_sha: str,
+    generated_at: str,
+    analysis_completeness: float | None,
+) -> ProvenanceEnvelope:
+    """Return the shared machine-readable envelope for `repository` and `head_sha`."""
+    versions: ModelVersionsJson = {
+        "ownership": OWNERSHIP_MODEL_VERSION,
+        "risk": RISK_MODEL_VERSION,
+        "topology": TOPOLOGY_MODEL_VERSION,
+    }
+    return {
+        "schema_version": COMMAND_SCHEMA_VERSION,
+        "checkowners_version": __version__,
+        "model_version": OWNERSHIP_MODEL_VERSION,
+        "models": versions,
+        "repository": repository,
+        "head_sha": head_sha,
+        "analysis_ref": head_sha,
+        "generated_at": generated_at,
+        "analysis_epoch": generated_at,
+        "analysis_completeness": analysis_completeness,
+    }
+
+
+def stamp_json(
+    data: dict[str, object],
+    *,
+    repository: str,
+    head_sha: str,
+    generated_at: str,
+    analysis_completeness: float | None,
+    evidence: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Return `data` merged with the provenance envelope and optional `evidence`."""
+    stamped: dict[str, object] = {
+        **data,
+        **provenance_envelope(
+            repository=repository,
+            head_sha=head_sha,
+            generated_at=generated_at,
+            analysis_completeness=analysis_completeness,
+        ),
+    }
+    if evidence:
+        stamped.update(evidence)
+    return stamped
+
+
+def _signal_pairs(breakdown: ConfidenceScore) -> tuple[tuple[str, SignalScore], ...]:
+    return (
+        ("recency", breakdown.recency),
+        ("frequency", breakdown.frequency),
+        ("blame", breakdown.blame),
+        ("review", breakdown.review),
+    )
+
+
+def flat_signal_scores(owner: OwnerEntry) -> SignalScores:
+    """Return available signal scores for `owner`, omitting unavailable signals."""
+    breakdown = owner.score_breakdown
+    if breakdown is None:
+        return {}
+    scores: SignalScores = {}
+    for name, signal in _signal_pairs(breakdown):
+        if not signal.available:
+            continue
+        if name == "recency":
+            scores["recency"] = round(signal.score, 4)
+        elif name == "frequency":
+            scores["frequency"] = round(signal.score, 4)
+        elif name == "blame":
+            scores["blame"] = round(signal.score, 4)
+        else:
+            scores["review"] = round(signal.score, 4)
+    return scores
+
+
+def signal_completeness(owners: tuple[OwnerEntry, ...]) -> tuple[float, list[str]]:
+    """Return `(fraction available, signal names)` across `owners` and the four signals."""
+    if not owners:
+        return 0.0, []
+    available: list[str] = []
+    seen: set[str] = set()
+    hits = 0
+    total = len(owners) * len(_SIGNAL_NAMES)
+    for owner in owners:
+        breakdown = owner.score_breakdown
+        if breakdown is None:
+            continue
+        for name, signal in _signal_pairs(breakdown):
+            if not signal.available:
+                continue
+            hits += 1
+            if name not in seen:
+                seen.add(name)
+                available.append(name)
+    return round(hits / total, 4), available
+
+
+def ownership_signal_completeness(ownership: OwnershipMap) -> tuple[float, list[str]]:
+    """Return `signal_completeness` for every owner in `ownership`."""
+    owners = tuple(
+        owner for path_ownership in ownership.paths.values() for owner in path_ownership.owners
+    )
+    return signal_completeness(owners)
+
+
+def path_analysis_json(owners: tuple[OwnerEntry, ...]) -> PathAnalysisJson:
+    """Return per-path completeness and available signal names for `owners`."""
+    completeness, available = signal_completeness(owners)
+    return {"completeness": completeness, "signals_available": available}
+
+
+def analysis_flags_json(completeness: AnalysisCompleteness) -> AnalysisFlagsJson:
+    """Return ignore-revs, mailmap, and exclusion counts from `completeness`."""
+    return {
+        "ignore_revs_applied": completeness.ignore_revs_applied,
+        "ignore_revs_file": completeness.ignore_revs_file,
+        "mailmap_applied": completeness.mailmap_applied,
+        "mailmap_file": completeness.mailmap_file,
+        "excluded_gitattributes": completeness.excluded_gitattributes,
+        "excluded_static": completeness.excluded_static,
+    }
+
+
+def owner_json(owner: OwnerEntry) -> OwnerJson:
+    """Return the machine-readable owner object for `owner`."""
+    payload: OwnerJson = {
+        "identity": owner.handle,
+        "handle": owner.handle,
+        "ownership_score": round(owner.ownership_score, 4),
+        "confidence": round(owner.confidence, 4),
+        "evidence_quality": round(owner.evidence_quality, 4),
+        "commits": owner.commits,
+        "last_commit": owner.last_commit.isoformat() if owner.last_commit else None,
+    }
+    signals = flat_signal_scores(owner)
+    if signals:
+        payload["signals"] = signals
+    return payload
+
+
+def _coverage_count(shares: tuple[float, ...], threshold: float) -> int:
+    cumulative = 0.0
+    for index, share in enumerate(shares, start=1):
+        cumulative += share
+        if cumulative >= threshold:
+            return index
+    return len(shares)
+
+
+def risk_from_scores(scores: tuple[float, ...]) -> RiskJson:
+    """Return score-mass concentration for `scores` (highest first)."""
+    positive = tuple(score for score in scores if score > 0)
+    total = sum(positive)
+    if total <= 0:
+        return {
+            "top_owner_share": 0.0,
+            "effective_owners": 0.0,
+            "truck_factor_50": 0,
+            "truck_factor_75": 0,
+        }
+    ordered = tuple(sorted(positive, reverse=True))
+    shares = tuple(score / total for score in ordered)
+    entropy = -sum(share * math.log(share) for share in shares)
+    return {
+        "top_owner_share": round(ordered[0] / total, 4),
+        "effective_owners": round(math.exp(entropy), 4),
+        "truck_factor_50": _coverage_count(shares, 0.5),
+        "truck_factor_75": _coverage_count(shares, 0.75),
+    }

@@ -25,14 +25,20 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from checkowners.busfactor import qualified_owner_count_fields
+from checkowners.github import external_evidence_payload
 from checkowners.models import (
     Config,
     DriftEntry,
+    DriftEntryJson,
+    DriftKind,
     DriftMode,
     DriftResult,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    RecommendationAction,
+    repository_label,
+    stamp_json,
 )
 from checkowners.patterns import CodeownersRule, match_path, parse_rules, pattern_matches
 
@@ -138,6 +144,8 @@ def _find_missing(
                 reason="path not covered by any CODEOWNERS rule",
                 qualified_owner_count=po.qualified_owner_count,
                 decay=bool(po.decay_warnings),
+                observed_owners=tuple(owner.handle for owner in po.owners),
+                drift_type="missing_observed_expert",
             )
         )
     return entries
@@ -160,6 +168,7 @@ def _find_stale(
                 confidence_delta=1.0,
                 reason=f"pattern matches no tracked file (line {rule.line_number})",
                 owners=rule.owners,
+                drift_type="stale_rule",
             )
         )
     return entries
@@ -192,6 +201,7 @@ def _find_changed(
         diverging = 0
         qualified_owner_count: int | None = None
         decay = False
+        observed_owners: tuple[str, ...] = ()
         for _path, po in covered:
             inferred_handles = _normalize_owners(o.handle for o in po.owners)
             if current == inferred_handles:
@@ -202,6 +212,7 @@ def _find_changed(
                 worst_delta = delta
                 qualified_owner_count = po.qualified_owner_count
                 decay = bool(po.decay_warnings)
+                observed_owners = tuple(owner.handle for owner in po.owners)
         if diverging == 0 or worst_delta < min_delta:
             continue
         entries.append(
@@ -215,6 +226,8 @@ def _find_changed(
                 qualified_owner_count=qualified_owner_count,
                 decay=decay,
                 owners=rule.owners,
+                observed_owners=observed_owners,
+                drift_type=_changed_drift_type(rule.owners, observed_owners, decay),
             )
         )
     if team_rules_skipped:
@@ -275,36 +288,92 @@ def write_github_output(
     *,
     analysis_ref: str = "",
     analysis_epoch: str = "",
+    config: Config | None = None,
+    analysis_completeness: float | None = None,
 ) -> None:
     """Write drift result to GITHUB_OUTPUT if running in Actions."""
     output_file = os.environ.get("GITHUB_OUTPUT")
     if not output_file:
         return
     payload = json.dumps(
-        {
-            "analysis_epoch": analysis_epoch,
-            "analysis_ref": analysis_ref,
-            "drift_detected": result.drift_detected,
-            "max_confidence_delta": result.max_confidence_delta,
-            "stale": [_entry_payload(e, cap) for e in result.stale],
-            "missing": [_entry_payload(e, cap) for e in result.missing],
-            "changed": [_entry_payload(e, cap) for e in result.changed],
-            "notes": list(result.notes),
-        },
+        stamp_json(
+            {
+                "drift_detected": result.drift_detected,
+                "max_confidence_delta": result.max_confidence_delta,
+                "stale": [drift_entry_payload(e, cap, config) for e in result.stale],
+                "missing": [drift_entry_payload(e, cap, config) for e in result.missing],
+                "changed": [drift_entry_payload(e, cap, config) for e in result.changed],
+                "notes": list(result.notes),
+            },
+            repository=repository_label(Path.cwd()),
+            head_sha=analysis_ref,
+            generated_at=analysis_epoch,
+            analysis_completeness=analysis_completeness,
+            evidence=external_evidence_payload(analysis_ref),
+        ),
         sort_keys=True,
     )
     with Path(output_file).open("a", encoding="utf-8") as f:
         f.write(f"checkowners_drift={payload}\n")
 
 
-def _entry_payload(entry: DriftEntry, cap: int) -> dict[str, object]:
-    payload: dict[str, object] = {
+def owner_overlap(declared: tuple[str, ...], observed: tuple[str, ...]) -> float:
+    """Return the Jaccard overlap of `declared` and `observed` (case-insensitive)."""
+    left = {owner.casefold() for owner in declared}
+    right = {owner.casefold() for owner in observed}
+    union = left | right
+    if not union:
+        return 0.0
+    return round(len(left & right) / len(union), 4)
+
+
+def _changed_drift_type(
+    declared: tuple[str, ...],
+    observed: tuple[str, ...],
+    decay: bool,
+) -> DriftKind:
+    if owner_overlap(declared, observed) == 0.0 and declared and observed:
+        return "complete_ownership_replacement"
+    if decay:
+        return "stale_declared_owner"
+    return "owner_mismatch"
+
+
+def _recommendation_action(kind: DriftKind) -> RecommendationAction:
+    if kind == "stale_rule":
+        return "remove_stale_rule"
+    return "review_codeowners_rule"
+
+
+def drift_entry_payload(
+    entry: DriftEntry,
+    cap: int,
+    config: Config | None = None,
+) -> DriftEntryJson:
+    """Return the machine-readable drift entry for `entry` at qualified-owner `cap`."""
+    from checkowners.notify import compute_severity  # noqa: PLC0415
+
+    lone = DriftResult(stale=(), missing=(), changed=(entry,), drift_detected=True)
+    payload: DriftEntryJson = {
         "path": entry.path,
-        "confidence_delta": entry.confidence_delta,
+        "declared": {"owners": list(entry.owners)},
+        "observed": {"owners": list(entry.observed_owners), "teams": list(entry.observed_teams)},
+        "drift": {
+            "severity": compute_severity(lone, config),
+            "type": entry.drift_type,
+            "declared_observed_overlap": owner_overlap(entry.owners, entry.observed_owners),
+        },
+        "recommendation": {"action": _recommendation_action(entry.drift_type)},
+        "confidence_delta": round(entry.confidence_delta, 4),
         "reason": entry.reason,
     }
+    if entry.observed_teams:
+        payload["recommendation"]["suggested_team"] = entry.observed_teams[0]
     if entry.qualified_owner_count is not None:
-        payload.update(qualified_owner_count_fields(entry.qualified_owner_count, cap))
+        counts = qualified_owner_count_fields(entry.qualified_owner_count, cap)
+        payload["qualified_owner_count"] = counts["qualified_owner_count"]
+        payload["bus_factor"] = counts["bus_factor"]
+        payload["qualified_owner_count_cap"] = counts["qualified_owner_count_cap"]
     if entry.decay:
-        payload["decay"] = entry.decay
+        payload["decay"] = True
     return payload

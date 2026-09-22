@@ -7,10 +7,11 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from pathlib import Path
 
-from checkowners.busfactor import qualified_owner_count_fields
-from checkowners.models import Config, DriftEntry, DriftResult, Severity, models_payload
+from checkowners.drift import drift_entry_payload
+from checkowners.github import external_evidence_payload
+from checkowners.models import Config, DriftResult, Severity, repository_label, stamp_json
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ def send_notification(
     severity: Severity | None = None,
     analysis_ref: str = "",
     analysis_epoch: str = "",
+    analysis_completeness: float | None = None,
 ) -> bool:
     """POST drift result to the configured webhook URL.
 
@@ -44,6 +46,7 @@ def send_notification(
         config,
         analysis_ref=analysis_ref,
         analysis_epoch=analysis_epoch,
+        analysis_completeness=analysis_completeness,
     )
     return _post_webhook(config.notifications.webhook_url, payload)
 
@@ -119,37 +122,30 @@ def _build_payload(
     *,
     analysis_ref: str = "",
     analysis_epoch: str = "",
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "analysis_epoch": analysis_epoch,
-        "analysis_ref": analysis_ref,
-        "models": models_payload(),
+    analysis_completeness: float | None = None,
+) -> dict[str, object]:
+    cap = config.analysis.top_n_owners
+    payload: dict[str, object] = {
         "drift_detected": result.drift_detected,
         "severity": severity,
         "max_confidence_delta": result.max_confidence_delta,
-        "stale": [_entry_payload(e, config.analysis.top_n_owners) for e in result.stale],
-        "missing": [_entry_payload(e, config.analysis.top_n_owners) for e in result.missing],
-        "changed": [_entry_payload(e, config.analysis.top_n_owners) for e in result.changed],
+        "stale": [drift_entry_payload(entry, cap, config) for entry in result.stale],
+        "missing": [drift_entry_payload(entry, cap, config) for entry in result.missing],
+        "changed": [drift_entry_payload(entry, cap, config) for entry in result.changed],
     }
     if config.notifications.include_unchanged:
         payload["include_unchanged"] = True
-    return payload
+    return stamp_json(
+        payload,
+        repository=repository_label(Path.cwd()),
+        head_sha=analysis_ref,
+        generated_at=analysis_epoch,
+        analysis_completeness=analysis_completeness,
+        evidence=external_evidence_payload(analysis_ref),
+    )
 
 
-def _entry_payload(entry: DriftEntry, cap: int) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "path": entry.path,
-        "confidence_delta": entry.confidence_delta,
-        "reason": entry.reason,
-    }
-    if entry.qualified_owner_count is not None:
-        body.update(qualified_owner_count_fields(entry.qualified_owner_count, cap))
-    if entry.decay:
-        body["decay"] = entry.decay
-    return body
-
-
-def _post_webhook(url: str, payload: dict[str, Any]) -> bool:
+def _post_webhook(url: str, payload: dict[str, object]) -> bool:
     """Send an HTTP POST with JSON payload to the given URL.
 
     Returns True on success, False on any network/HTTP failure. A failed

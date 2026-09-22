@@ -29,6 +29,9 @@ from checkowners.models import (
     ScoringConfig,
     SignalScore,
     models_payload,
+    owner_json,
+    path_analysis_json,
+    risk_from_scores,
 )
 
 _SHA_CAP = 5
@@ -349,17 +352,17 @@ def owners_payload(
     target: str,
     ownership: OwnershipMap,
 ) -> dict[str, object]:
-    """Minimal schema-versioned list of inferred owners."""
+    """Return the ownership document for `target` and `owners`."""
     return {
         "schema_version": COMMAND_SCHEMA_VERSION,
         "model_version": OWNERSHIP_MODEL_VERSION,
         "models": models_payload(),
         "checkowners_version": __version__,
         "path": target,
-        "owners": [
-            {"handle": entry.handle, "ownership_score": round(entry.ownership_score, 4)}
-            for entry in owners
-        ],
+        "head_sha": ownership.analysis_ref,
+        "analysis": path_analysis_json(owners),
+        "owners": [owner_json(entry) for entry in owners],
+        "risk": risk_from_scores(tuple(entry.ownership_score for entry in owners)),
         "analysis_ref": ownership.analysis_ref,
         "analysis_epoch": analysis_epoch(ownership.last_analyzed),
     }

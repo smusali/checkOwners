@@ -245,29 +245,34 @@ def test_analyze_json() -> None:
     data = json.loads(result.stdout)
     assert "src/main.py" in data["inferred"]
     owners = data["inferred"]["src/main.py"]["owners"]
+    assert owners[0]["identity"] == "alice@example.com"
     assert owners[0]["handle"] == "alice@example.com"
     assert owners[0]["ownership_score"] == 0.92
     assert owners[0]["confidence"] == 0.92
     assert owners[0]["evidence_quality"] == 1.0
-    assert owners[0]["signals"]["recency"] == {"score": 1.0, "available": True}
-    assert owners[0]["signals"]["review"] == {"available": False}
+    assert owners[0]["signals"]["recency"] == 1.0
+    assert "review" not in owners[0]["signals"]
     path_data = data["inferred"]["src/main.py"]
     assert path_data["qualified_owner_count"] == 2
     assert path_data["bus_factor"] == 2
     assert path_data["qualified_owner_count_cap"] == 3
+    assert path_data["analysis"]["completeness"] == 0.75
+    assert path_data["risk"]["truck_factor_50"] == 1
     assert data["model_version"] == OWNERSHIP_MODEL_VERSION
     assert data["models"] == models_payload()
+    assert data["schema_version"] == COMMAND_SCHEMA_VERSION
+    assert data["head_sha"] == "deadbeef"
     assert data["deprecated_keys"] == ["bus_factor", "confidence"]
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_epoch"] == _NOW.isoformat()
-    assert data["analysis_completeness"] == {
-        "ignore_revs_applied": False,
-        "ignore_revs_file": "",
-        "mailmap_applied": False,
-        "mailmap_file": "",
-        "excluded_gitattributes": 0,
-        "excluded_static": 0,
-    }
+    assert data["generated_at"] == _NOW.isoformat()
+    assert data["analysis_completeness"] == 0.75
+    assert data["analysis"]["ignore_revs_applied"] is False
+    assert data["analysis"]["ignore_revs_file"] == ""
+    assert data["analysis"]["mailmap_applied"] is False
+    assert data["analysis"]["mailmap_file"] == ""
+    assert data["analysis"]["excluded_gitattributes"] == 0
+    assert data["analysis"]["excluded_static"] == 0
 
 
 def test_analyze_invalid_as_of_exits() -> None:
@@ -423,10 +428,10 @@ def test_print_json() -> None:
         result = runner.invoke(app, ["print", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert "src/main.py" in data
-    assert data["src/main.py"]["qualified_owner_count"] == 2
-    assert data["src/main.py"]["bus_factor"] == 2
-    assert data["src/main.py"]["qualified_owner_count_cap"] == 3
+    assert "src/main.py" in data["paths"]
+    assert data["paths"]["src/main.py"]["qualified_owner_count"] == 2
+    assert data["paths"]["src/main.py"]["bus_factor"] == 2
+    assert data["paths"]["src/main.py"]["qualified_owner_count_cap"] == 3
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_epoch"] == _NOW.isoformat()
     bare = OwnerEntry(handle="@bare", ownership_score=0.4, last_commit=None, commits=1)
@@ -699,7 +704,8 @@ def test_github_action_no_fail_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert exit_code == 0
     data = json.loads(stdout)
     assert data["checkowners_drift"]["drift_detected"] is True
-    assert "schema_version" not in data["checkowners_drift"]
+    assert data["checkowners_drift"]["schema_version"] == COMMAND_SCHEMA_VERSION
+    assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert "entries" in data["bus_factor_summary"]
     assert data["bus_factor_summary"]["deprecated_keys"] == ["bus_factor"]
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
@@ -1437,9 +1443,12 @@ def test_owners_and_who_are_minimal() -> None:
     data = json.loads(payload.stdout)
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["models"] == models_payload()
+    assert data["owners"][0]["identity"] == "@alice"
     assert data["owners"][0]["handle"] == "@alice"
     assert data["owners"][0]["ownership_score"] == 0.86
-    assert "signals" not in data["owners"][0]
+    assert data["owners"][0]["signals"]["recency"] == 0.9
+    assert "risk" in data
+    assert "analysis" in data
 
 
 def test_explain_and_owners_scope_analyze_to_the_path() -> None:

@@ -96,6 +96,7 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 - Drift, patterns, generate, and validate keep both layers: mocked unit tests, and integration tests against a real git history and real CODEOWNERS text.
 - `pytest -m integration` selects the integration tests. `pytest -m "not integration"` skips them. The default `pytest` run includes them, including on every pull request.
 - The integration marker must finish within 60 seconds.
+- `tests/test_golden.py` is the ownership judgment suite. Histories pin author and committer dates, and analysis uses a fixed as-of. Expected conclusions are keyed by `OWNERSHIP_MODEL_VERSION`. A model-version change updates that record in the same commit. The beliefs are written in `docs/METHODOLOGY.md`.
 - Blame-fidelity tests may keep calling `init_git_repo` and `git_commit`.
 - Git 2.23 or newer is required. The fixture fails if `git version` is older.
 - Tests that touch `~/.checkowners/state.json` set the `CHECKOWNERS_STATE_DIR` env var so they don't clobber the contributor's real state.

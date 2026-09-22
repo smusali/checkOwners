@@ -52,6 +52,7 @@ coverage.json
 *.py.cover
 .hypothesis/
 .pytest_cache/
+mutants/
 cover/
 
 # Translations

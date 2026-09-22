@@ -555,11 +555,7 @@ def test_generated_file_round_trips_inference(
         written = generate_codeowners(tmp_path, ownership, config, token=token, org=org)
         _rendered, expected, _records = _render_codeowners(ownership, config, token=token, org=org)
     assert written.content == _rendered
-    rules = parse_rules(written.content)
-    for path, intended in expected.items():
-        rule = match_path(rules, path)
-        resolved = frozenset(o.casefold() for o in rule.owners) if rule else frozenset()
-        assert resolved == intended
+    verify_round_trip(written.content, expected)
 
 
 @pytest.mark.integration

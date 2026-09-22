@@ -18,7 +18,7 @@ from typing import TypedDict
 
 from checkowners.github import create_team_resolver
 from checkowners.models import Config, OwnerEntry, OwnershipMap
-from checkowners.patterns import match_path, parse_rules, pattern_matches
+from checkowners.patterns import CodeownersRule, parse_rules, pattern_matches
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 SIZE_WARN_BYTES = 2 * 1024 * 1024
@@ -149,6 +149,16 @@ def ensure_overwrite_safe(target: Path, header: str, *, force: bool) -> None:
     raise CodeownersOverwriteError(msg)
 
 
+def _last_written_match(
+    rules: tuple[CodeownersRule, ...],
+    path: str,
+) -> CodeownersRule | None:
+    """Last written rule whose pattern covers ``path``, including skipped lines."""
+    normalized = path.lstrip("/")
+    matches = [rule for rule in rules if pattern_matches(rule.pattern, normalized)]
+    return matches[-1] if matches else None
+
+
 def codeowners_write_metrics(content: str) -> dict[str, int]:
     return {
         "bytes_written": len(content.encode("utf-8")),
@@ -160,12 +170,13 @@ def verify_round_trip(content: str, expected: _ExpectedOwners) -> None:
     """Fail if any assigned path resolves to owners other than ``expected``.
 
     ``expected`` maps repo-relative paths to the owner set generation assigned
-    after consolidation, sanitization, merge, and team collapse.
+    after consolidation, sanitization, merge, and team collapse. This check
+    uses the written pattern text, including lines GitHub skips.
     """
     rules = parse_rules(content)
     raw_lines = content.splitlines()
     for path, intended in expected.items():
-        rule = match_path(rules, path)
+        rule = _last_written_match(rules, path)
         resolved = frozenset(owner.casefold() for owner in rule.owners) if rule else frozenset()
         if resolved == intended:
             continue

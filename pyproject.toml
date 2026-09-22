@@ -66,6 +66,8 @@ dev = [
     "mypy>=1.0",
     "types-PyYAML",
     "jsonschema>=4.18",
+    "hypothesis>=6.100,<7",
+    "mutmut>=3,<4",
 ]
 
 [project.urls]
@@ -146,6 +148,12 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
+
+[tool.mutmut]
+source_paths = ["checkowners/patterns.py"]
+also_copy = ["corpus", "checkowners"]
+pytest_add_cli_args = ["--no-cov"]
+pytest_add_cli_args_test_selection = ["tests/test_patterns.py", "-k", "not git_ls"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

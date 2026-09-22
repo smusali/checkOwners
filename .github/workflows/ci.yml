@@ -85,9 +85,12 @@ jobs:
           exit 1
 
       - name: Run tests
+        env:
+          HYPOTHESIS_PROFILE: ci
         run: |
           pytest
           coverage report --include=checkowners/patterns.py,checkowners/analyze.py,checkowners/drift.py,checkowners/generate.py --show-missing
+          coverage report --include=checkowners/patterns.py --fail-under=100
 
       - name: Upload coverage
         if: matrix.python-version == '3.14'

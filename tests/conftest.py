@@ -10,15 +10,27 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from hypothesis import settings
 
 from checkowners.analyze import MIN_GIT_VERSION, analyze_ownership, parse_git_version
 from checkowners.github import set_offline
 from checkowners.models import AnalysisConfig, Config, OwnershipMap
+from checkowners.patterns import _compile_pattern
+
+settings.register_profile("ci", max_examples=200, derandomize=True, deadline=None)
+settings.register_profile("nightly", max_examples=10_000, derandomize=True, deadline=None)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "ci"))
 
 INTEGRATION_BUDGET_SECONDS = 60.0
 REGRESSION_AS_OF = datetime(2026, 5, 28, 12, 0, tzinfo=UTC)
 
 _integration_seconds = [0.0]
+
+
+@pytest.fixture(autouse=True)
+def _clear_pattern_cache() -> None:
+    """Drop compiled patterns so each test uses the current translator."""
+    _compile_pattern.cache_clear()
 
 
 @pytest.fixture(autouse=True)

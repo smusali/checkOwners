@@ -104,7 +104,28 @@ def _check_pins(expected: str) -> list[str]:
         lock = _ROOT / name
         if not lock.is_file() or lock.stat().st_size == 0:
             errors.append(f"{name} is missing or empty")
+    errors.extend(_check_dev_lock_markers())
     return errors
+
+
+def _check_dev_lock_markers() -> list[str]:
+    lock = _ROOT / "requirements-dev.lock"
+    if not lock.is_file():
+        return []
+    for raw in lock.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line.startswith("pyyaml-ft=="):
+            continue
+        if "python_version" not in line:
+            return [
+                "requirements-dev.lock must pin pyyaml-ft with a "
+                "python_version marker so hashed installs work on 3.11/3.12"
+            ]
+        return []
+    return [
+        "requirements-dev.lock is missing pyyaml-ft; libcst on Python "
+        "3.13+ needs that pin under --require-hashes"
+    ]
 
 
 def _check_changelog(version: str) -> int:

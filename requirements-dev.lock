@@ -1077,7 +1077,7 @@ pyyaml==6.0.3 \
     # via
     #   checkowners
     #   checkowners (pyproject.toml)
-pyyaml-ft==8.0.0 \
+pyyaml-ft==8.0.0 ; python_version >= "3.13" \
     --hash=sha256:052561b89d5b2a8e1289f326d060e794c21fa068aa11255fe71d65baf18a632e \
     --hash=sha256:06237267dbcab70d4c0e9436d8f719f04a51123f0ca2694c00dd4b68c338e40b \
     --hash=sha256:0c947dce03954c7b5d38869ed4878b2e6ff1d44b08a0d84dc83fdad205ae39ab \
@@ -1095,7 +1095,9 @@ pyyaml-ft==8.0.0 \
     --hash=sha256:dab0abb46eb1780da486f022dce034b952c8ae40753627b27a626d803926483b \
     --hash=sha256:de04cfe9439565e32f178106c51dd6ca61afaa2907d143835d501d84703d3793 \
     --hash=sha256:e64fa5f3e2ceb790d50602b2fd4ec37abbd760a8c778e46354df647e7c5a4ebb
-    # via libcst
+    # via
+    #   checkowners (pyproject.toml)
+    #   libcst
 referencing==0.37.0 \
     --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231 \
     --hash=sha256:44aefc3142c5b842538163acb373e24cce6632bd54bdb01b21ad5863489f50d8

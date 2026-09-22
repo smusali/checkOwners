@@ -131,6 +131,10 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   human author after the exclude, missing-file, and bot filters;
   threshold still skips paths where no author reaches `min_commits`.
 
+### Fixed
+- `requirements-dev.lock` pins `pyyaml-ft` with `python_version >= "3.13"` so
+  hashed CI installs skip libcst's 3.13-only YAML backend on 3.11 and 3.12.
+
 ## [0.5.1] - 2026-09-15
 
 Corrective release: identity, Action supply chain, metric naming, and the

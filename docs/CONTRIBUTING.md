@@ -105,7 +105,7 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 
 ## Dependencies
 
-Runtime dependencies are capped at the next untested major (`typer>=0.9.0,<1`, `rich>=13.0.0,<16`, and so on). Bump a ceiling when CI proves the new major. CI installs third-party test and lint deps from `requirements-dev.lock` with hashes. The composite Action installs runtime extras from `requirements.lock` with hashes.
+Runtime dependencies are capped at the next untested major (`typer>=0.9.0,<1`, `rich>=13.0.0,<16`, and so on). Bump a ceiling when CI proves the new major. CI installs third-party test and lint deps from `requirements-dev.lock` with hashes across Python 3.11–3.14, so interpreter-specific pins (today `pyyaml-ft`) must keep environment markers. The composite Action installs runtime extras from `requirements.lock` with hashes.
 
 ## Coverage uploads
 
@@ -156,7 +156,7 @@ Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.
    pip-compile --generate-hashes --extra graph --extra github --extra dev --unsafe-package checkowners -o requirements-dev.lock pyproject.toml
    ```
 
-   A version-only bump does not need a lock refresh. `requirements.lock` does not pin `checkowners` itself; the Action installs the committed wheel.
+   A version-only bump does not need a lock refresh. `requirements.lock` does not pin `checkowners` itself; the Action installs the committed wheel. After a `requirements-dev.lock` refresh, `pyyaml-ft` must still carry `python_version >= "3.13"`. That package is libcst's 3.13+ YAML backend (and a marked `dev` extra); without the marker, hashed installs fail on 3.11 and 3.12.
 5. Promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, leave a fresh non-empty `[Unreleased]`, and refresh the compare links at the bottom of the changelog.
 6. Confirm `python tools/check_changelog.py vX.Y.Z` succeeds. Merge that commit to `main`.
 

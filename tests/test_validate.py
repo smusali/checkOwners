@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from checkowners.validate import validate_codeowners
+from tests.conftest import GitRepo
 
 
 def _write_codeowners(tmp_path: Path, content: str) -> None:
@@ -132,3 +135,30 @@ def test_validate_strips_inline_confidence_comment(tmp_path: Path) -> None:
     )
     errors = validate_codeowners(tmp_path)
     assert errors == []
+
+
+_RELATIVE_CODEOWNERS = (
+    "docs/* @octocat\n"
+    "apps/ @hubot\n"
+    "frontend/package.json @a\n"
+    "docs/getting\\ started.md @docs-team\n"
+)
+
+
+@pytest.mark.integration
+def test_validate_committed_relative_patterns(git_repo: GitRepo) -> None:
+    codeowners = git_repo.path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir(parents=True)
+    codeowners.write_text(_RELATIVE_CODEOWNERS, encoding="utf-8")
+    git_repo.commit(
+        "add codeowners",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    assert validate_codeowners(git_repo.path) == []
+    codeowners.write_text(_RELATIVE_CODEOWNERS + "/src/[a-z].py @alice\n", encoding="utf-8")
+    errors = validate_codeowners(git_repo.path)
+    assert len(errors) == 1
+    assert "character ranges" in errors[0].message
+    assert "[a-z]" in errors[0].line

@@ -30,7 +30,13 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
 )
-from checkowners.patterns import match_path, parse_rules
+from checkowners.patterns import match_path, parse_rules, pattern_matches
+from tests.conftest import (
+    GitRepo,
+    analyze_regression_repo,
+    regression_analysis_config,
+    script_regression_repo,
+)
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
@@ -554,3 +560,21 @@ def test_generated_file_round_trips_inference(
         rule = match_path(rules, path)
         resolved = frozenset(o.casefold() for o in rule.owners) if rule else frozenset()
         assert resolved == intended
+
+
+@pytest.mark.integration
+def test_generate_sanitizes_tracked_bracket_and_space_paths(git_repo: GitRepo) -> None:
+    script_regression_repo(git_repo)
+    ownership = analyze_regression_repo(git_repo)
+    written = generate_codeowners(git_repo.path, ownership, regression_analysis_config())
+    rule_lines = [
+        line for line in written.content.splitlines() if line and not line.startswith("#")
+    ]
+    assert rule_lines
+    assert all("[" not in line and "]" not in line for line in rule_lines)
+    assert any("getting\\ started.md" in line for line in rule_lines)
+    bracket = next(path for path in git_repo.ls_files() if "[" in path and "]" in path)
+    winner = match_path(parse_rules(written.content), bracket)
+    assert winner is not None
+    assert "[" not in winner.pattern and "]" not in winner.pattern
+    assert pattern_matches(winner.pattern, bracket)

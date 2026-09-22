@@ -11,6 +11,7 @@ from checkowners.patterns import (
     parse_rules,
     pattern_matches,
 )
+from tests.conftest import GitRepo, script_regression_repo
 
 
 class TestPatternMatches:
@@ -152,3 +153,19 @@ class TestEscapedSpaces:
         matched = match_path(rules, "docs/getting started.md")
         assert matched is not None
         assert matched.owners == ("@docs-team",)
+
+
+@pytest.mark.integration
+def test_patterns_match_paths_from_git_ls_files(git_repo: GitRepo) -> None:
+    script_regression_repo(git_repo)
+    tracked = git_repo.ls_files()
+    bracket = next(path for path in tracked if "[" in path and "]" in path)
+    spaced = next(path for path in tracked if " " in path)
+    unicode_path = next(path for path in tracked if path.startswith("notes/"))
+    renamed = next(path for path in tracked if path == "src/app.py")
+    escaped = parse_rules(spaced.replace(" ", "\\ ") + " @alice\n")
+    assert pattern_matches("src/", renamed)
+    assert pattern_matches(escaped[0].pattern, spaced)
+    assert pattern_matches("app/*/page.tsx", bracket)
+    assert pattern_matches("notes/", unicode_path)
+    assert pattern_matches(unicode_path, unicode_path)

@@ -890,9 +890,7 @@ def test_origin_url_ignores_unreadable_config(
     assert repository_identity(repo).startswith("path:")
 
 
-def test_state_write_succeeds_without_fcntl(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_state_write_succeeds_without_fcntl(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     real_import = builtins.__import__
 
     def guarded(name: str, *args: object, **kwargs: object) -> object:
@@ -906,9 +904,7 @@ def test_state_write_succeeds_without_fcntl(
     assert load_ownership(repo) is not None
 
 
-def test_atomic_write_removes_temp_on_failure(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_atomic_write_removes_temp_on_failure(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     real = Path.write_text
 
     def fail_temp(

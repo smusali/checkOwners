@@ -12,16 +12,29 @@ from typer.testing import CliRunner
 
 from checkowners.action_report import summarize_bus_factor, summarize_drift
 from checkowners.baseline import (
+    active_suppressions,
     apply_ratchet,
+    findings_from_bus,
     findings_from_drift,
     load_baseline,
+    suppression_matches,
     write_baseline,
 )
-from checkowners.cli import app
+from checkowners.busfactor import BusFactorReport
+from checkowners.cli import (
+    _filter_bus_payload,
+    _print_expired_suppressions,
+    _resolve_baseline,
+    app,
+)
 from checkowners.config import load_config
 from checkowners.drift import detect_drift
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
+    BusFactor,
+    BusFactorConfig,
+    Config,
+    DriftConfig,
     DriftEntry,
     DriftResult,
     Finding,
@@ -31,6 +44,7 @@ from tests.test_cli import (
     _DRIFT_DETECTED,
     _MOCK_PATH,
     _MOCK_TOKEN,
+    _NO_DRIFT,
     _NOW,
     _OWNERSHIP,
     _run_github_action,
@@ -174,6 +188,24 @@ def test_expired_suppression_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPat
             ),
             "YYYY-MM-DD",
         ),
+        ("suppressions: {}\n", "expected a YAML list"),
+        ("suppressions:\n  - just-a-string\n", "expected a mapping"),
+        (
+            "suppressions:\n  - rule: stale\n    reason: later\n",
+            "path is required",
+        ),
+        (
+            "suppressions:\n  - path: legacy/**\n    reason: later\n",
+            "rule is required",
+        ),
+        (
+            "suppressions:\n  - path: '  '\n    rule: stale\n    reason: later\n",
+            "path is required",
+        ),
+        (
+            "suppressions:\n  - path: legacy/**\n    rule: '  '\n    reason: later\n",
+            "rule is required",
+        ),
     ],
 )
 def test_invalid_suppression_rejected_at_config_load(tmp_path: Path, body: str, match: str) -> None:
@@ -295,3 +327,258 @@ def test_write_baseline_is_sorted_and_stable(tmp_path: Path) -> None:
     assert raw["schema_version"] == COMMAND_SCHEMA_VERSION
     assert [item["path"] for item in raw["findings"]] == ["a.py", "b.py"]
     assert raw["findings"][1]["owners"] == ["@alice", "@Bob"]
+
+
+def test_load_baseline_rejects_invalid_files(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.json"
+    with pytest.raises(ValueError, match="not found"):
+        load_baseline(missing)
+
+    cases: tuple[tuple[str, str], ...] = (
+        ("[", "Invalid baseline"),
+        ("[]", "JSON object"),
+        ('{"schema_version": "0.9", "findings": []}', "schema_version"),
+        ('{"schema_version": "1.0", "findings": {}}', "findings must be a list"),
+        ('{"schema_version": "1.0", "findings": [1]}', "expected an object"),
+        ('{"schema_version": "1.0", "findings": [{}]}', "rule is required"),
+        ('{"schema_version": "1.0", "findings": [{"rule": "", "path": "a"}]}', "rule is required"),
+        (
+            '{"schema_version": "1.0", "findings": [{"rule": "nope", "path": "a"}]}',
+            "unsupported rule",
+        ),
+        ('{"schema_version": "1.0", "findings": [{"rule": "missing"}]}', "path is required"),
+        (
+            '{"schema_version": "1.0", "findings": [{"rule": "missing", "path": ""}]}',
+            "path is required",
+        ),
+        (
+            '{"schema_version": "1.0", "findings": '
+            '[{"rule": "missing", "path": "a", "owners": 1}]}',
+            "owners must be a list of strings",
+        ),
+        (
+            '{"schema_version": "1.0", "findings": '
+            '[{"rule": "missing", "path": "a", "owners": [1]}]}',
+            "owners must be a list of strings",
+        ),
+    )
+    target = tmp_path / "base.json"
+    for payload, match in cases:
+        target.write_text(payload, encoding="utf-8")
+        with pytest.raises(ValueError, match=match):
+            load_baseline(target)
+
+
+def test_null_and_blank_expiry_suppressions_are_active(tmp_path: Path) -> None:
+    _write_config(
+        tmp_path,
+        "\n".join(
+            [
+                "suppressions:",
+                "  - path: legacy/**",
+                "    rule: stale",
+                "    reason: keep",
+                "  - path: other/**",
+                "    rule: missing",
+                "    reason: keep",
+                "    expires:",
+                "",
+            ]
+        ),
+    )
+    cfg = load_config(repo_root=tmp_path)
+    assert [item.expires for item in cfg.suppressions] == [None, None]
+
+
+def test_suppressions_null_is_empty(tmp_path: Path) -> None:
+    _write_config(tmp_path, "suppressions: null\n")
+    assert load_config(repo_root=tmp_path).suppressions == ()
+
+
+def test_baseline_env_overrides_config_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path, "drift:\n  baseline_file: from-yaml.json\n")
+    monkeypatch.setenv("CHECKOWNERS_BASELINE", "from-env.json")
+    cfg = load_config(repo_root=tmp_path)
+    assert cfg.drift.baseline_file == "from-env.json"
+
+
+def test_suppression_matches_rule_path_and_glob() -> None:
+    finding = Finding(rule="stale", path="legacy/foo.py", owners=("@a",))
+    assert not suppression_matches(
+        Suppression(path="legacy/**", rule="missing", reason="x"), finding
+    )
+    assert suppression_matches(Suppression(path="legacy/foo.py", rule="stale", reason="x"), finding)
+    assert suppression_matches(Suppression(path="legacy/**", rule="stale", reason="x"), finding)
+    assert not suppression_matches(Suppression(path="other/**", rule="stale", reason="x"), finding)
+
+
+def test_active_suppressions_split_by_as_of() -> None:
+    items = (
+        Suppression(path="a", rule="stale", reason="open"),
+        Suppression(path="b", rule="stale", reason="today", expires=date(2026, 5, 28)),
+        Suppression(path="c", rule="stale", reason="done", expires=date(2026, 5, 27)),
+    )
+    active, expired = active_suppressions(items, date(2026, 5, 28))
+    assert [item.path for item in active] == ["a", "b"]
+    assert [item.path for item in expired] == ["c"]
+
+
+def test_apply_ratchet_suppresses_bus_and_ignores_unevaluated_stale() -> None:
+    result = DriftResult(
+        stale=(DriftEntry(path="legacy/old.py", confidence_delta=1.0, owners=("@a",)),),
+        missing=(),
+        changed=(),
+        drift_detected=True,
+    )
+    bus = BusFactorReport(
+        entries=(
+            BusFactor(
+                path="legacy/solo.py",
+                qualified_owner_count=1,
+                contributors_above_threshold=("@a",),
+                recommended_backups=(),
+            ),
+            BusFactor(
+                path="ok.py",
+                qualified_owner_count=3,
+                contributors_above_threshold=("@a", "@b", "@c"),
+                recommended_backups=(),
+            ),
+        ),
+        repo_average=2.0,
+        qualified_owner_count_cap=3,
+        config=BusFactorConfig(),
+    )
+    assert [item.path for item in findings_from_bus(bus)] == ["legacy/solo.py"]
+    suppressions = (
+        Suppression(path="legacy/**", rule="stale", reason="later"),
+        Suppression(path="legacy/**", rule="single-expert", reason="later"),
+    )
+    leftover = Finding(rule="single-expert", path="gone.py", owners=("@z",))
+    with_bus = apply_ratchet(
+        result,
+        baseline=(leftover,),
+        suppressions=suppressions,
+        as_of=date(2026, 5, 28),
+        bus=bus,
+    )
+    assert with_bus.drift.stale == ()
+    assert with_bus.counts.suppressed == 2
+    assert with_bus.hidden_bus_paths == frozenset({"legacy/solo.py"})
+    assert [item.path for item in with_bus.stale_baseline] == ["gone.py"]
+
+    without_bus = apply_ratchet(
+        result,
+        baseline=(leftover,),
+        suppressions=(),
+        as_of=date(2026, 5, 28),
+    )
+    assert without_bus.stale_baseline == ()
+    assert without_bus.hidden_bus_paths == frozenset()
+
+
+def test_baseline_create_json_and_missing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    exit_code, stdout = _cli_run(["baseline", "create", "--json"])
+    assert exit_code == 0
+    data = json.loads(stdout)
+    assert data["schema_version"] == COMMAND_SCHEMA_VERSION
+    assert data["path"] == ".checkowners-baseline.json"
+    assert isinstance(data["findings"], list)
+
+    exit_code, stdout = _cli_run(["drift", "--baseline", "missing.json"])
+    assert exit_code == 1
+    assert "not found" in stdout
+
+
+def test_drift_human_notes_and_stale_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    baseline = tmp_path / "base.json"
+    write_baseline(
+        baseline,
+        (
+            *findings_from_drift(_DRIFT_DETECTED),
+            Finding(rule="changed", path="gone.py", owners=("@alice",)),
+        ),
+    )
+    noted = DriftResult(
+        stale=_DRIFT_DETECTED.stale,
+        missing=_DRIFT_DETECTED.missing,
+        changed=_DRIFT_DETECTED.changed,
+        drift_detected=True,
+        notes=("handle skip",),
+    )
+    exit_code, stdout = _cli_run(["drift", "--baseline", str(baseline)], drift=noted)
+    assert exit_code == 0
+    assert "handle skip" in stdout
+    assert "stale baseline" in stdout
+    assert "gone.py" in stdout
+    assert "@alice" in stdout
+
+
+def test_config_baseline_file_is_used_without_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    findings = (
+        *findings_from_drift(_DRIFT_DETECTED),
+        Finding(rule="single-expert", path="src/auth.py", owners=("dave@example.com",)),
+    )
+    write_baseline(tmp_path / "accepted.json", findings)
+    _write_config(tmp_path, "drift:\n  baseline_file: accepted.json\n")
+    exit_code, stdout = _cli_run(["drift", "--json"])
+    assert exit_code == 0
+    data = json.loads(stdout)
+    assert data["drift_detected"] is False
+    assert data["baselined"] == 4
+
+
+def test_resolve_baseline_flag_and_config() -> None:
+    empty = Config()
+    assert _resolve_baseline(" snap.json ", empty) == Path("snap.json")
+    assert _resolve_baseline("  ", empty) is None
+    assert _resolve_baseline(None, empty) is None
+    configured = Config(drift=DriftConfig(baseline_file="from-config.json"))
+    assert _resolve_baseline(None, configured) == Path("from-config.json")
+    assert _resolve_baseline("", configured) == Path("from-config.json")
+
+
+def test_filter_bus_payload_hidden_and_non_lists() -> None:
+    hidden = frozenset({"gone.py"})
+    assert _filter_bus_payload({"entries": [], "critical_paths": []}, frozenset())["entries"] == []
+    payload = {"entries": "nope", "critical_paths": "nope"}
+    assert _filter_bus_payload(payload, hidden) == payload
+    filtered = _filter_bus_payload(
+        {
+            "entries": [{"path": "gone.py"}, {"path": "keep.py"}, "skip"],
+            "critical_paths": ["gone.py", "keep.py"],
+        },
+        hidden,
+    )
+    assert filtered["entries"] == [{"path": "keep.py"}, "skip"]
+    assert filtered["critical_paths"] == ["keep.py"]
+
+
+def test_print_expired_suppression_without_date() -> None:
+    _print_expired_suppressions((Suppression(path="legacy/**", rule="stale", reason="no date"),))
+
+
+def test_notify_skipped_below_threshold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, "notifications:\n  webhook_url: https://hooks.example.com/x\n")
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
+        patch("checkowners.cli.send_notification", return_value=False),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["notify"])
+    assert result.exit_code == 0
+    assert "below threshold" in result.stdout

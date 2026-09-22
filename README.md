@@ -91,6 +91,16 @@ All commands accept `--json` (except `graph`, which exports DOT via `--export do
 
 Exit status is the same for every command: 0 clean, 1 internal error, 2 configuration or usage, 3 findings, 4 git or GitHub failure. `checkowners --exit-zero` hides findings only. See [Exit codes](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#exit-codes).
 
+## Trust
+
+Core inference is local git. `checkowners --offline` opens no network connection.
+
+PyPI releases use [Trusted Publishing](https://docs.pypi.org/trusted-publishers/). The publish workflow authenticates with a GitHub OIDC token and does not store a PyPI API token. Sigstore signs each distribution.
+
+Each GitHub release also carries a CycloneDX SBOM and a signed build-provenance attestation. CI publishes an [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/smusali/checkowners) for the default branch.
+
+What the tool reads, what leaves the machine, what the cache holds, how tokens are handled, and which permissions are required is in [docs/PRIVACY.md](https://github.com/smusali/checkowners/blob/main/docs/PRIVACY.md).
+
 ## Documentation
 
 - [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md): full configuration reference, ownership scoring formula, drift severity tiers, GitHub Actions integration, comparison table.

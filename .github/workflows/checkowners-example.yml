@@ -3,6 +3,9 @@ name: checkowners-example
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   drift:
     runs-on: ubuntu-latest
@@ -13,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0       # git log + git blame need the full history
 
       # The action always writes the job summary. On same-repo PRs it also
@@ -20,7 +24,7 @@ jobs:
       # "true"); fork PRs skip the comment. pull-requests: write is granted
       # above for the comment and for the label step below.
       - id: checkowners
-        uses: ./
+        uses: ./ # zizmor: ignore[self-repository]
         with:
           mode: both
           # Keep the action non-failing so the label + fail steps below still
@@ -49,7 +53,7 @@ jobs:
       # Example of consuming the action's outputs for custom logic.
       - name: Add ownership-critical label
         if: fromJson(steps.checkowners.outputs.bus_factor_summary).critical_paths[0]
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7.0.1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             await github.rest.issues.addLabels({

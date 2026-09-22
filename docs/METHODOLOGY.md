@@ -92,6 +92,61 @@ gate and the undamped `commits / max_commits` frequency ratio.
 
 Calibration against ground truth, and weight search, are out of scope here.
 
+## Ownership beliefs
+
+`tests/test_golden.py` is the judgment suite. Each history is a real git
+repository with pinned author and committer dates. Analysis uses a fixed as-of
+of `2026-06-01T12:00:00+00:00` (the handoff reuses one repository at three
+earlier pinned instants). The expected sentence for each case is stored under
+the model id, currently `ownership-v3`. A model-version bump fails until that
+record gains the new id. A run that breaks a belief fails with the sentence.
+
+Strong ownership in that suite means a score of at least `0.5`. Medium evidence
+quality means a quality of at least `0.4` and below `1`.
+
+**Formatting does not confer ownership.** Alice creates `foo.py` (alongside
+other tracked files, so the later edit stays under the mass-refactor fraction)
+and edits it. Bob changes only whitespace. Alice reviews that change. Alice
+stays the primary expert. Bob's blame share is zero, and his score is below
+Alice's.
+
+**Ownership moves gradually.** Alice's last commit stays inside the 365-day
+lookback. Bob then replaces the file in a few commits across that year. Alice
+is primary at the first as-of. Her score is lower at each later as-of and still
+above zero at the last one. Bob's score rises, and Bob is primary at the end.
+
+**A single creating commit is strong, with medium evidence.** One commit that
+adds a file makes that author the sole primary owner. The score is strong.
+Evidence quality is medium, because review and other catalog gaps are missing.
+
+**A full rewrite leaves no current lines for the original author.** Bob
+replaces every line Alice wrote. Bob is primary. Alice's blame share is zero.
+That share is how this model shows superseded work.
+
+**One person, one owner.** Three commit addresses that `.mailmap` maps to one
+canonical email score as a single owner.
+
+**Missing blame and review stay on the unit interval.** An empty tracked file
+produces no blame lines, and no review provider is configured, so those two
+signals are unavailable. The score stays inside `(0, 1]`. A commit still
+supplies frequency, so the case scores the signals that were observed.
+
+**Rename.** Intended belief: ownership survives a rename from `foo.py` to
+`bar.py`. Under `ownership-v3`, log aggregation keys on the literal path, so
+the author of the rename commit is the scored owner of `bar.py` and the earlier
+author is absent.
+
+**Stable cadence.** Intended belief: a path with an 18-month cadence keeps its
+owner. Under `ownership-v3`, a commit 18 months before the as-of falls outside
+the 365-day lookback and the 90-day half-life, so the path has no scored owner.
+
+**Co-authors.** Intended belief: a `Co-authored-by` trailer receives credit.
+Under `ownership-v3`, only the commit author is scored.
+
+When a later model makes one of those three records match the intended belief,
+update the `ownership-v3` sentences, or add the new model id, in the same
+change.
+
 ## Pattern semantics
 
 CODEOWNERS rules are matched in file order. The last match wins. A pattern assigns owners only when it is a supported glob:

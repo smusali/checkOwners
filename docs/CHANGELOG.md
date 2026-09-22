@@ -92,6 +92,9 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   `output.allow_broad_patterns` opt in. Lossless broadening (identical
   owners) is kept and recorded. `--json` includes `broad_patterns` with
   the affected paths and owner delta.
+- Golden ownership tests (`tests/test_golden.py`) state what `ownership-v3`
+  concludes for pinned git histories under a fixed as-of. The expected
+  conclusions are keyed by model version.
 
 ### Changed
 - Commands share one exit-code contract: 0 clean, 1 internal error, 2

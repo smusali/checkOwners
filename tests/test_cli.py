@@ -72,7 +72,9 @@ from checkowners.models import (
     models_payload,
 )
 from checkowners.onboard import OnboardingPath, OnboardingStep
+from checkowners.privacy import email_token
 from checkowners.state import (
+    SCHEMA_VERSION,
     load_ownership,
     read_graph_cache,
     read_handle_cache,
@@ -845,6 +847,8 @@ def test_github_action_input_combinations(
     assert ("bus_factor_summary<<" in written) is include_bus_factor
     assert (tmp_path / "decay.json").is_file() is include_decay
     assert ("decay_summary<<" in written) is include_decay
+    assert not (tmp_path / "balance.json").exists()
+    assert "balance_summary<<" not in written
 
 
 def test_github_action_reads_toggles_from_env(
@@ -865,6 +869,22 @@ def test_github_action_reads_toggles_from_env(
     data = json.loads(stdout)
     assert "bus_factor_summary" not in data
     assert "decay_summary" not in data
+
+
+def test_github_action_include_balance_writes_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exit_code, stdout, output_file, _summary_file = _run_github_action(
+        tmp_path,
+        monkeypatch,
+        ["github-action", "--include-balance", "--json", "--no-fail-on-drift"],
+        drift=_NO_DRIFT,
+    )
+    assert exit_code == 0, stdout
+    assert (tmp_path / "balance.json").is_file()
+    data = json.loads(stdout)
+    assert "balance_summary" in data
+    assert "balance_summary<<" in output_file.read_text(encoding="utf-8")
 
 
 def test_github_action_analysis_failure_writes_diagnostic(
@@ -1214,6 +1234,7 @@ def test_graph_reports_topology_model() -> None:
     with (
         patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP),
         patch("checkowners.cli._build_or_load_graph", return_value=object()),
+        patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph\n"),
         patch("checkowners.cli.to_dot", return_value="graph {\n}\n"),
     ):
@@ -2192,6 +2213,7 @@ def test_exit_code_contract(
             ),
         ),
         patch("checkowners.cli._build_or_load_graph", return_value=object()),
+        patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph"),
         patch(
             "checkowners.cli.subprocess.run",
@@ -2327,17 +2349,17 @@ def test_cache_commands(tmp_path: Path) -> None:
     assert path_result.stdout.strip() == str(tmp_path)
     text = runner.invoke(app, ["cache", "info"])
     assert text.exit_code == 0, text.output
-    assert "schema_version: 7" in text.stdout
+    assert f"schema_version: {SCHEMA_VERSION}" in text.stdout
     assert "handles: yes" in text.stdout
     info = runner.invoke(app, ["cache", "info", "--json"])
     assert info.exit_code == 0, info.output
     payload = json.loads(info.stdout)
     assert payload["state_files"] == 1
     assert payload["handles"] is True
-    assert payload["schema_version"] == 7
+    assert payload["schema_version"] == SCHEMA_VERSION
     cleared = runner.invoke(app, ["cache", "clear"])
     assert cleared.exit_code == 0, cleared.output
-    assert read_handle_cache()["alice@example.com"] == "@alice"
+    assert read_handle_cache()[email_token("alice@example.com")] == "@alice"
     assert json.loads(runner.invoke(app, ["cache", "info", "--json"]).stdout)["state_files"] == 0
     purged = runner.invoke(app, ["cache", "purge"])
     assert purged.exit_code == 0, purged.output
@@ -2361,3 +2383,173 @@ def test_offline_analyze_makes_no_network_calls(monkeypatch: pytest.MonkeyPatch)
     assert "Network access: disabled" in combined
     assert "Review evidence: unavailable" in combined
     assert "Team verification: unavailable" in combined
+
+
+def _set_privacy_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+    path = tmp_path / "checkowners.yml"
+    path.write_text(body, encoding="utf-8")
+    monkeypatch.setenv("CHECKOWNERS_CONFIG", str(path))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "version: 2\noutput:\n  anonymize: true\n",
+        "version: 2\noutput:\n  aggregate_only: true\n",
+        "version: 2\nidentity:\n  mode: hashed\n",
+    ],
+)
+def test_generate_refuses_anonymous_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    body: str,
+) -> None:
+    _set_privacy_config(tmp_path, monkeypatch, body)
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["generate"])
+    assert result.exit_code == 2, result.output
+    assert "cannot name people" in result.stdout
+
+
+def test_generate_redaction_skips_raw_emails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_privacy_config(tmp_path, monkeypatch, "version: 2\nprivacy:\n  redact_emails: true\n")
+    ownership = OwnershipMap(
+        paths={
+            "a.py": PathOwnership(
+                owners=(_entry("alice@example.com"), _entry("@bob")),
+                qualified_owner_count=2,
+            )
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    seen: list[str] = []
+
+    def capture(
+        _repo: object,
+        ownership_map: OwnershipMap,
+        *_args: object,
+        **_kwargs: object,
+    ) -> GenerateResult:
+        seen.extend(owner.handle for path in ownership_map.paths.values() for owner in path.owners)
+        return _GENERATED
+
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=ownership),
+        patch("checkowners.cli.generate_codeowners", side_effect=capture),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["generate"])
+    assert result.exit_code == 0, result.output
+    assert seen == ["@bob"]
+
+
+def test_redact_emails_flag_hides_addresses() -> None:
+    with patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP), _MOCK_TOKEN:
+        result = runner.invoke(app, ["--redact-emails", "analyze", "--json"])
+    assert result.exit_code == 0, result.output
+    assert "alice@example.com" not in result.stdout
+    assert "email:" in result.stdout
+
+
+def test_aggregate_text_reports_omit_people(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_privacy_config(tmp_path, monkeypatch, "version: 2\noutput:\n  aggregate_only: true\n")
+    warning = DecayWarning(
+        handle="dave@example.com",
+        path="src/auth.py",
+        last_commit=_NOW,
+        days_since_last_commit=40,
+        historical_confidence=0.8,
+    )
+    reports = (
+        DecayReport(warning=warning, recommended_transfer="@alice", departed=False),
+        DecayReport(warning=warning, recommended_transfer="", departed=True),
+    )
+    balance = BalanceReport(
+        loads=(ReviewLoad(handle="alice@example.com", reviews=9),),
+        average=3.0,
+        overloaded=(ReviewLoad(handle="alice@example.com", reviews=9),),
+        suggestions=(RebalanceSuggestion("alice@example.com", "@bob", 0.8, 2),),
+        source="git_authorship",
+        fallback_reason="GITHUB_TOKEN is not set",
+    )
+    owners = BusFactorReport(
+        entries=(
+            BusFactor(
+                path="src/main.py",
+                qualified_owner_count=1,
+                contributors_above_threshold=("@alice",),
+                recommended_backups=("bob@example.com",),
+            ),
+            BusFactor(
+                path="src/empty.py",
+                qualified_owner_count=0,
+                contributors_above_threshold=(),
+                recommended_backups=(),
+            ),
+        ),
+        repo_average=0.5,
+        qualified_owner_count_cap=3,
+    )
+    topology = TopologyReport(
+        clusters=(
+            TeamCluster(
+                name="inferred-1",
+                members=("@alice", "bob@example.com"),
+                primary_paths=("src/main.py",),
+            ),
+        ),
+        mismatches=("bob@example.com overlaps @alice",),
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_decay", return_value=reports),
+        patch("checkowners.cli.analyze_balance", return_value=balance),
+        patch("checkowners.cli.compute_qualified_owners", return_value=owners),
+        patch("checkowners.cli.infer_topology", return_value=topology),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        analyzed = runner.invoke(app, ["analyze"])
+        printed = runner.invoke(app, ["print"])
+        listed = runner.invoke(app, ["bus-factor", "--all"])
+        decayed = runner.invoke(app, ["decay"])
+        balanced = runner.invoke(app, ["balance"])
+        clustered = runner.invoke(app, ["topology"])
+    for result in (analyzed, printed, listed, decayed, balanced, clustered):
+        assert result.exit_code == 0, result.output
+        combined = result.stdout + result.stderr
+        assert "alice@example.com" not in combined
+        assert "@alice" not in combined
+    _set_privacy_config(tmp_path, monkeypatch, "version: 2\n")
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.analyze_balance", return_value=balance),
+        patch("checkowners.cli.compute_qualified_owners", return_value=owners),
+        patch("checkowners.cli.detect_decay", return_value=reports),
+        patch("checkowners.cli.infer_topology", return_value=topology),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        named_balance = runner.invoke(app, ["balance"])
+        named_owners = runner.invoke(app, ["bus-factor", "--all"])
+        named_decay = runner.invoke(app, ["decay"])
+        named_topology = runner.invoke(app, ["topology"])
+    assert named_balance.exit_code == 0, named_balance.output
+    assert "GITHUB_TOKEN is not set" in named_balance.stdout
+    assert "@bob" in named_balance.stdout
+    assert named_owners.exit_code == 0, named_owners.output
+    assert "src/empty.py" in named_owners.stdout
+    assert named_decay.exit_code == 0, named_decay.output
+    assert "triage" in named_decay.stdout
+    assert named_topology.exit_code == 0, named_topology.output
+    assert "bob@example.com" in named_topology.stdout

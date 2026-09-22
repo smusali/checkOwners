@@ -105,6 +105,7 @@ from checkowners.github import (
 from checkowners.graph import (
     GraphExtraMissingError,
     build_graph,
+    for_display,
     from_serializable,
     to_dot,
     to_serializable,
@@ -145,6 +146,15 @@ from checkowners.models import (
 )
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
 from checkowners.patterns import matching_rules, parse_rules
+from checkowners.privacy import (
+    exclude_contributors,
+    is_excluded,
+    label,
+    named_codeowners_allowed,
+    sanitize,
+    scrub_text,
+    without_emails,
+)
 from checkowners.state import (
     CacheInfo,
     cache_clear,
@@ -154,6 +164,7 @@ from checkowners.state import (
     load_hysteresis,
     read_graph_cache,
     read_state,
+    repository_identity,
     reusable_ownership,
     write_graph_cache,
     write_state,
@@ -198,6 +209,8 @@ _FAIL_ON_INCOMPLETE: ContextVar[bool] = ContextVar("cli_fail_on_incomplete", def
 _ALLOW_STALE: ContextVar[bool] = ContextVar("cli_allow_stale", default=False)
 _MAX_AGE: ContextVar[int | None] = ContextVar("cli_max_age", default=None)
 _NO_CACHE: ContextVar[bool] = ContextVar("cli_no_cache", default=False)
+_REDACT_EMAILS: ContextVar[bool] = ContextVar("cli_redact_emails", default=False)
+_ACTIVE_CONFIG: ContextVar[Config | None] = ContextVar("cli_config", default=None)
 
 _OFFLINE_LINES = (
     "Network access: disabled",
@@ -226,10 +239,62 @@ def _load_config() -> Config:
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         exit_with(ExitCode.CONFIG)
+    if _REDACT_EMAILS.get():
+        config = replace(config, privacy=replace(config.privacy, redact_emails=True))
     if config.policy.incomplete_analysis_fail:
         _FAIL_ON_INCOMPLETE.set(True)
     begin_api_budget(config.analysis.max_api_requests)
+    _ACTIVE_CONFIG.set(config)
     return config
+
+
+def _repo_id() -> str:
+    return repository_identity(Path.cwd())
+
+
+def _active_config() -> Config | None:
+    return _ACTIVE_CONFIG.get()
+
+
+def _aggregate() -> bool:
+    config = _active_config()
+    return config is not None and config.output.aggregate_only
+
+
+def _person(identity: str) -> str:
+    config = _active_config()
+    if config is None:
+        return identity
+    if config.output.aggregate_only:
+        return ""
+    return label(identity, config, _repo_id())
+
+
+def _public_payload(data: Mapping[str, object]) -> dict[str, object]:
+    config = _active_config()
+    if config is None:
+        return dict(data)
+    return sanitize(data, config, _repo_id())
+
+
+def _refuse_named_codeowners(config: Config) -> None:
+    if named_codeowners_allowed(config):
+        return
+    console.print(
+        "[red]CODEOWNERS generation cannot name people while anonymize, "
+        "aggregate_only, or identity.mode hashed is set.[/red]"
+    )
+    exit_with(ExitCode.CONFIG)
+
+
+def _codeowners_ownership(ownership: OwnershipMap, config: Config) -> OwnershipMap:
+    _refuse_named_codeowners(config)
+    if not config.privacy.redact_emails:
+        return ownership
+    return without_emails(
+        ownership,
+        confidence_threshold=config.analysis.confidence_threshold,
+    )
 
 
 def _guard_ownership(exc: subprocess.CalledProcessError | OSError | ValueError) -> NoReturn:
@@ -378,6 +443,13 @@ def _app_callback(
             help="Make no network calls. Review evidence and team verification are unavailable.",
         ),
     ] = False,
+    redact_emails: Annotated[
+        bool,
+        typer.Option(
+            "--redact-emails",
+            help="Replace email addresses in output with stable tokens.",
+        ),
+    ] = False,
 ) -> None:
     """Infer and maintain CODEOWNERS from git history."""
     clear_api_evidence()
@@ -390,6 +462,7 @@ def _app_callback(
     _ALLOW_STALE.set(allow_stale)
     _MAX_AGE.set(max_age)
     _NO_CACHE.set(no_cache)
+    _REDACT_EMAILS.set(redact_emails)
     set_offline(offline)
     if offline:
         for line in _OFFLINE_LINES:
@@ -457,7 +530,7 @@ def _emit_json(
     generated_at: str | None = None,
 ) -> None:
     stamped = _stamp_output(data, ownership, head_sha=head_sha, generated_at=generated_at)
-    typer.echo(json.dumps(stamped, indent=2, sort_keys=True))
+    typer.echo(json.dumps(_public_payload(stamped), indent=2, sort_keys=True))
 
 
 def _report_models(*names: Literal["ownership", "risk", "topology"]) -> None:
@@ -519,6 +592,7 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
     for po in ownership.paths.values():
         emails.update(w.handle for w in po.decay_warnings)
         emails.update(c.handle for c in po.candidates)
+    emails = {email for email in emails if not is_excluded(email, config.contributors_exclude)}
     if not emails:
         return ownership
     email_to_handle = resolve_handles(emails, get_github_token())
@@ -639,10 +713,16 @@ def _render_ownership_table(ownership: OwnershipMap, cap: int) -> None:
     table.add_column("Decay", justify="right")
     for path in sorted(ownership.paths):
         po = ownership.paths[path]
-        owners_str = ", ".join(
-            f"[{_confidence_style(o.confidence)}]{escape(o.handle)} ({o.score_label})[/]"
-            for o in po.owners
-        )
+        if _aggregate():
+            owners_str = "-"
+        else:
+            owners_str = ", ".join(
+                (
+                    f"[{_confidence_style(o.confidence)}]"
+                    f"{escape(_person(o.handle))} ({o.score_label})[/]"
+                )
+                for o in po.owners
+            )
         count = format_qualified_owner_count(po.qualified_owner_count, cap)
         if po.qualified_owner_count <= 1:
             count = f"[red]{count}[/red]"
@@ -703,7 +783,8 @@ def _review_provider(config: Config) -> ReviewProvider | None:
         return None
 
     def provider(emails: set[str]) -> dict[str, dict[str, float]]:
-        return build_review_coverage(token, repo_full_name, emails)
+        allowed = {email for email in emails if not is_excluded(email, config.contributors_exclude)}
+        return build_review_coverage(token, repo_full_name, allowed)
 
     return provider
 
@@ -740,6 +821,11 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
     except (ValueError, subprocess.CalledProcessError, OSError) as exc:
         _guard_ownership(exc)
     ownership = _resolve_github_owners(ownership, config)
+    ownership = exclude_contributors(
+        ownership,
+        config.contributors_exclude,
+        confidence_threshold=config.analysis.confidence_threshold,
+    )
     ownership = _apply_extra_gaps(ownership, _api_gaps(ownership, config), config.scoring)
     if not _NO_CACHE.get():
         write_state(
@@ -909,6 +995,7 @@ def generate(
     codeowners_path = find_codeowners_path(repo_root)
     _check_overwrite_or_exit(codeowners_path, config, force)
     ownership = _run_analyze(config, repo_root)
+    ownership = _codeowners_ownership(ownership, config)
     result = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
     rel_path = codeowners_path.relative_to(repo_root)
     if json_output:
@@ -945,7 +1032,12 @@ def print_cmd(json_output: JsonOption = False) -> None:
         )
     else:
         for path in sorted(ownership.paths):
-            owners = " ".join(f"{o.handle}({o.score_label})" for o in ownership.paths[path].owners)
+            if _aggregate():
+                typer.echo(path)
+                continue
+            owners = " ".join(
+                f"{_person(o.handle)}({o.score_label})" for o in ownership.paths[path].owners
+            )
             typer.echo(f"{path}\t{owners}")
         _render_completeness(ownership)
         _report_models("ownership")
@@ -1266,6 +1358,7 @@ def sync(
     codeowners_path = find_codeowners_path(repo_root)
     _check_overwrite_or_exit(codeowners_path, config, force)
     ownership = _run_analyze(config, repo_root)
+    ownership = _codeowners_ownership(ownership, config)
     result = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
     rel_path = codeowners_path.relative_to(repo_root)
     if not _has_uncommitted_changes(repo_root, rel_path):
@@ -1346,7 +1439,10 @@ def _positive_entry_limit(value: int) -> int:
 
 
 def _write_action_json(path: Path, payload: Mapping[str, object]) -> None:
-    path.write_text(json.dumps(dict(payload), indent=2, sort_keys=True), encoding="utf-8")
+    path.write_text(
+        json.dumps(_public_payload(payload), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _publish_action_failure() -> None:
@@ -1380,6 +1476,14 @@ def github_action(
             help="Write decay.json and the decay_summary output.",
         ),
     ] = True,
+    include_balance: Annotated[
+        bool,
+        typer.Option(
+            "--include-balance/--no-include-balance",
+            envvar="CHECKOWNERS_INCLUDE_BALANCE",
+            help="Write balance.json and the balance_summary output.",
+        ),
+    ] = False,
     max_output_entries: Annotated[
         int,
         typer.Option(
@@ -1395,6 +1499,7 @@ def github_action(
     """Run the full CI flow (drift + qualified owners + decay) and write GITHUB_OUTPUT."""
     owners_report: BusFactorReport | None = None
     decay_payload: dict[str, object] | None = None
+    balance_payload: dict[str, object] | None = None
     decay_count = 0
     try:
         config = _load_config()
@@ -1413,6 +1518,9 @@ def github_action(
                 **stamp,
             }
             decay_count = len(decay_reports)
+        if include_balance:
+            balance_report = analyze_balance(ownership, config)
+            balance_payload = {**_balance_payload(balance_report), **stamp}
     except typer.Exit:
         _publish_action_failure()
         raise
@@ -1466,12 +1574,16 @@ def github_action(
         bus_payload = _stamp_output(bus_payload, ownership)
     if decay_payload is not None:
         decay_payload = _stamp_output(decay_payload, ownership)
+    if balance_payload is not None:
+        balance_payload = _stamp_output(balance_payload, ownership)
 
     _write_action_json(Path("drift.json"), drift_payload)
     if bus_payload is not None:
         _write_action_json(Path("bus_factor.json"), bus_payload)
     if decay_payload is not None:
         _write_action_json(Path("decay.json"), decay_payload)
+    if balance_payload is not None:
+        _write_action_json(Path("balance.json"), balance_payload)
 
     write_step_summary(build(limit=max_output_entries))
     publish_outputs(limit=max_output_entries)
@@ -1482,6 +1594,8 @@ def github_action(
             printed["bus_factor_summary"] = bus_payload
         if decay_payload is not None:
             printed["decay_summary"] = decay_payload
+        if balance_payload is not None:
+            printed["balance_summary"] = balance_payload
         _emit_json(printed, ownership)
     else:
         _render_ratchet_summary(outcome)
@@ -1553,19 +1667,16 @@ def graph(
     except GraphExtraMissingError as exc:
         console.print(f"[red]{exc}[/red]")
         exit_with(ExitCode.CONFIG)
+    if export is not None and export.strip().lower() != "dot":
+        console.print(f"[red]Unsupported export format: {export!r}; supported: dot[/red]")
+        exit_with(ExitCode.CONFIG)
+    shown = for_display(graph_obj, config, _repo_id())
     if export is None:
-        typer.echo(to_text(graph_obj))
-        _report_models("topology")
-        _finish_analysis(ownership)
-        return
-    fmt = export.strip().lower()
-    if fmt == "dot":
-        typer.echo(to_dot(graph_obj))
-        _report_models("topology")
-        _finish_analysis(ownership)
-        return
-    console.print(f"[red]Unsupported export format: {export!r}; supported: dot[/red]")
-    exit_with(ExitCode.CONFIG)
+        typer.echo(to_text(shown))
+    else:
+        typer.echo(to_dot(shown))
+    _report_models("topology")
+    _finish_analysis(ownership)
 
 
 @app.command()
@@ -1598,14 +1709,15 @@ def decay(json_output: JsonOption = False) -> None:
     table.add_column("Recommended transfer")
     for report in reports:
         status = "[red]departed[/red]" if report.departed else "[yellow]dormant[/yellow]"
-        target = report.recommended_transfer or "[dim]triage[/dim]"
+        target = _person(report.recommended_transfer) if report.recommended_transfer else ""
+        shown_target = escape(target) if target else "[dim]triage[/dim]"
         table.add_row(
             escape(report.warning.path),
-            escape(report.warning.handle),
+            escape(_person(report.warning.handle)),
             str(report.warning.days_since_last_commit),
             f"{report.warning.historical_confidence:.2f}",
             status,
-            escape(target) if report.recommended_transfer else target,
+            shown_target,
         )
     console.print(table)
     _report_models("ownership", "risk")
@@ -1643,8 +1755,12 @@ def _qualified_owners_impl(
     table.add_column("Recommended backups")
     for entry in report.entries:
         tier = classify(entry.qualified_owner_count, config.bus_factor)
-        owners = ", ".join(entry.contributors_above_threshold) or "-"
-        backups = ", ".join(entry.recommended_backups) or "-"
+        if _aggregate():
+            owners = "-"
+            backups = "-"
+        else:
+            owners = ", ".join(_person(name) for name in entry.contributors_above_threshold) or "-"
+            backups = ", ".join(_person(name) for name in entry.recommended_backups) or "-"
         tier_str = {
             "critical": "[red]CRITICAL[/red]",
             "warning": "[yellow]WARN[/yellow]",
@@ -1766,6 +1882,9 @@ def balance(json_output: JsonOption = False) -> None:
         _finish_analysis(ownership)
         return
     console.print(f"[dim]source: {report.source}; average reviews: {report.average:.1f}[/dim]")
+    if _aggregate():
+        _finish_analysis(ownership)
+        return
     if report.fallback_reason:
         console.print(
             f"[dim]GitHub API unavailable ({report.fallback_reason}); "
@@ -1781,15 +1900,17 @@ def balance(json_output: JsonOption = False) -> None:
         status = (
             "[red]overloaded[/red]" if load.handle in overloaded_handles else "[green]ok[/green]"
         )
-        table.add_row(escape(load.handle), str(load.reviews), status)
+        table.add_row(escape(_person(load.handle)), str(load.reviews), status)
     console.print(table)
     if report.suggestions:
         console.print()
         console.print("[bold]Rebalance suggestions:[/bold]")
         for suggestion in report.suggestions:
             console.print(
-                f"  - shift ~{suggestion.proposed_shift} reviews from {suggestion.overloaded}"
-                f" to {suggestion.candidate} (confidence {suggestion.confidence:.2f})"
+                f"  - shift ~{suggestion.proposed_shift} reviews from "
+                f"{_person(suggestion.overloaded)}"
+                f" to {_person(suggestion.candidate)} "
+                f"(confidence {suggestion.confidence:.2f})"
             )
     _finish_analysis(ownership)
 
@@ -1819,7 +1940,9 @@ def topology(json_output: JsonOption = False) -> None:
         source = "[green]declared[/green]" if cluster.declared else "[yellow]inferred[/yellow]"
         table.add_row(
             escape(cluster.name),
-            escape(", ".join(cluster.members)),
+            escape(", ".join(_person(member) for member in cluster.members))
+            if not _aggregate()
+            else "-",
             escape(", ".join(cluster.primary_paths)) or "-",
             source,
         )
@@ -1828,7 +1951,7 @@ def topology(json_output: JsonOption = False) -> None:
         console.print()
         console.print("[bold]Mismatches:[/bold]")
         for line in report.mismatches:
-            console.print(f"  - {line}")
+            console.print(f"  - {scrub_text(line, config, _repo_id())}")
     _report_models("topology")
     _finish_analysis(ownership)
 
@@ -1867,7 +1990,7 @@ def onboard(
         _finish_analysis(ownership)
         return
     if markdown:
-        typer.echo(report.to_markdown())
+        typer.echo(scrub_text(report.to_markdown(), config, _repo_id()))
         _finish_analysis(ownership)
         return
     if not report.steps:
@@ -1884,7 +2007,7 @@ def onboard(
         table.add_row(
             str(step.order),
             escape(step.path),
-            escape(step.reviewer),
+            escape(_person(step.reviewer)),
             step.complexity,
             escape(step.description),
         )
@@ -1909,6 +2032,11 @@ def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMa
     except (ValueError, subprocess.CalledProcessError, OSError) as exc:
         _guard_ownership(exc)
     ownership = _resolve_github_owners(ownership, config)
+    ownership = exclude_contributors(
+        ownership,
+        config.contributors_exclude,
+        confidence_threshold=config.analysis.confidence_threshold,
+    )
     return _apply_extra_gaps(ownership, _api_gaps(ownership, config), config.scoring)
 
 
@@ -1933,7 +2061,8 @@ def _signal_label(name: str, score: float, available: bool) -> str:
 def _render_explained_owner(item: ExplainedOwner, as_of: datetime) -> None:
     entry = item.entry
     style = _confidence_style(entry.ownership_score)
-    console.print(f"[{style}]{escape(entry.handle):<28}[/] {entry.ownership_score:.2f} confidence")
+    shown = _person(entry.handle)
+    console.print(f"[{style}]{escape(shown):<28}[/] {entry.ownership_score:.2f} confidence")
     labels = "   ".join(_signal_label(s.name, s.score, s.available) for s in item.signals)
     console.print(f"  {labels}")
     blame = next((s for s in item.signals if s.name == "blame"), None)
@@ -1983,7 +2112,10 @@ def _render_explanation(explanation: PathExplanation, as_of: datetime) -> None:
         _render_explained_owner(item, as_of)
         console.print()
     console.print(f"Evidence quality:             {explanation.evidence_quality:.2f}")
-    declared = " ".join(explanation.declared) if explanation.declared else "(none)"
+    if explanation.declared:
+        declared = " ".join(_person(name) for name in explanation.declared)
+    else:
+        declared = "(none)"
     console.print(f"Declared CODEOWNERS:          {escape(declared)}")
     team = ", ".join(explanation.team_resolution) if explanation.team_resolution else "unavailable"
     console.print(f"Team resolution:              {escape(team)}")
@@ -1997,7 +2129,7 @@ def _render_explanation(explanation: PathExplanation, as_of: datetime) -> None:
 
 
 def _render_why_not(result: WhyNotResult) -> None:
-    console.print(f"{escape(result.handle)} was not inferred because:")
+    console.print(f"{escape(_person(result.handle))} was not inferred because:")
     for reason in result.reasons:
         console.print(f"- {escape(reason)}")
     if result.knobs:
@@ -2010,10 +2142,11 @@ def _render_owners_list(owners: tuple[OwnerEntry, ...]) -> None:
     if not owners:
         console.print("[yellow]No inferred owners.[/yellow]")
         return
-    width = max(len(entry.handle) for entry in owners)
-    for entry in owners:
+    labels = tuple(_person(entry.handle) for entry in owners)
+    width = max(len(name) for name in labels) if labels else 0
+    for entry, name in zip(owners, labels, strict=True):
         style = _confidence_style(entry.ownership_score)
-        console.print(f"[{style}]{escape(entry.handle):<{width}}[/]  {entry.ownership_score:.2f}")
+        console.print(f"[{style}]{escape(name):<{width}}[/]  {entry.ownership_score:.2f}")
 
 
 @app.command()
@@ -2129,7 +2262,7 @@ def expertise(
     for idx, rank in enumerate(ranking, start=1):
         table.add_row(
             str(idx),
-            f"[{_confidence_style(rank.confidence)}]{escape(rank.handle)}[/]",
+            f"[{_confidence_style(rank.confidence)}]{escape(_person(rank.handle))}[/]",
             f"{rank.confidence:.2f}",
             str(rank.commits),
             _format_last_commit(rank.last_commit),

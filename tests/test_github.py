@@ -30,6 +30,7 @@ from checkowners.models import (
     SEARCH_RATE_LIMIT_REASON,
     AnalysisGap,
 )
+from checkowners.privacy import email_token
 from checkowners.state import read_handle_cache, write_handle_cache
 
 
@@ -496,7 +497,7 @@ def test_resolve_handles_remembers_misses() -> None:
     mock_client.search_users.return_value = []
     with patch("checkowners.github.get_github_client", return_value=mock_client):
         resolve_handles({"ghost@example.com"}, "ghp_test")
-    assert read_handle_cache()["ghost@example.com"] == ""
+    assert read_handle_cache()[email_token("ghost@example.com")] == ""
     # Second run: the remembered miss short-circuits the API.
     mock_client.search_users.reset_mock()
     with patch("checkowners.github.get_github_client", return_value=mock_client):

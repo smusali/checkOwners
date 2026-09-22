@@ -330,6 +330,35 @@ def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, objec
     }
 
 
+def summarize_balance(data: dict[str, object], limit: int) -> dict[str, object]:
+    """Build a bounded balance summary from full CLI JSON (`data`, `limit`)."""
+    loads = _as_list(data.get("loads"))
+    overloaded = _as_list(data.get("overloaded"))
+    suggestions = _as_list(data.get("suggestions"))
+    trimmed_loads, loads_cut = _trim(loads, limit)
+    trimmed_overloaded, overloaded_cut = _trim(overloaded, limit)
+    trimmed_suggestions, suggestions_cut = _trim(suggestions, limit)
+    return {
+        **_copied_provenance(data),
+        "schema_version": OUTPUT_SCHEMA_VERSION,
+        "analysis_ref": data.get("analysis_ref", ""),
+        "analysis_epoch": data.get("analysis_epoch", ""),
+        "source": data.get("source"),
+        "average": data.get("average"),
+        "fallback_reason": data.get("fallback_reason"),
+        "counts": {
+            "loads": len(loads),
+            "overloaded": len(overloaded),
+            "suggestions": len(suggestions),
+        },
+        "loads": trimmed_loads,
+        "overloaded": trimmed_overloaded,
+        "suggestions": trimmed_suggestions,
+        "truncated": loads_cut or overloaded_cut or suggestions_cut,
+        "models": models_payload(),
+    }
+
+
 def summarize_decay(data: dict[str, object], limit: int) -> dict[str, object]:
     """Build a bounded decay summary from full CLI decay JSON (`data`, `limit`)."""
     reports = _decay_reports(data)
@@ -384,6 +413,13 @@ def publish_outputs(*, limit: int | None = None) -> None:
         _write_multiline_output(
             "decay_summary",
             json.dumps(summarize_decay(decay, resolved), separators=(",", ":")),
+        )
+
+    balance = load("balance.json")
+    if balance is not None:
+        _write_multiline_output(
+            "balance_summary",
+            json.dumps(summarize_balance(balance, resolved), separators=(",", ":")),
         )
 
 

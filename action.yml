@@ -24,6 +24,10 @@ inputs:
     description: Emit the decay_summary output.
     required: false
     default: "true"
+  include_balance:
+    description: Emit the balance_summary output. Off unless set to true.
+    required: false
+    default: "false"
   max_output_entries:
     description: >-
       Maximum entries per list in GITHUB_OUTPUT summaries (missing, stale,
@@ -107,6 +111,11 @@ outputs:
       Bounded JSON decay summary (schema_version 2): counts, top reports,
       and truncated. Full decay.json is in the uploaded artifact.
     value: ${{ steps.run.outputs.decay_summary }}
+  balance_summary:
+    description: >-
+      Bounded JSON balance summary (schema_version 2). Empty unless
+      include_balance is true. Full balance.json is uploaded separately.
+    value: ${{ steps.run.outputs.balance_summary }}
   artifact_name:
     description: Name of the uploaded artifact that holds the full JSON payloads.
     value: ${{ steps.run.outputs.artifact_name }}
@@ -216,6 +225,7 @@ runs:
         CHECKOWNERS_BASELINE: ${{ inputs.baseline }}
         CHECKOWNERS_INCLUDE_BUS_FACTOR: ${{ inputs.include_bus_factor }}
         CHECKOWNERS_INCLUDE_DECAY: ${{ inputs.include_decay }}
+        CHECKOWNERS_INCLUDE_BALANCE: ${{ inputs.include_balance }}
         MAX_OUTPUT_ENTRIES: ${{ inputs.max_output_entries }}
         CHECKOWNERS_ARTIFACT_NAME: checkowners-reports
       run: checkowners github-action
@@ -230,6 +240,14 @@ runs:
           bus_factor.json
           decay.json
           checkowners-report.md
+        if-no-files-found: warn
+
+    - name: Upload checkowners balance report
+      if: ${{ always() && inputs.include_balance == 'true' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: checkowners-balance
+        path: balance.json
         if-no-files-found: warn
 
     # Marker lookup paginates past 100 comments; the report body is

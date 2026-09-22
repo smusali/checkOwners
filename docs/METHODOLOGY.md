@@ -83,7 +83,7 @@ Three model ids are stamped on JSON output and on human reports:
 
 A formula change, a classifier change, or a topology-algorithm change bumps the matching id. That bump is a breaking change for anyone gating CI on a threshold, even when the JSON shape is unchanged. A config pin must equal the id this release implements, or be omitted. Cached analyze state and the graph cache are reused only when all three ids match.
 
-Analyze JSON still includes `model_version: ownership-v3` for one minor cycle. Per-repo state is schema v7. Files without a matching `models` object, files whose `model_version` is not `ownership-v3`, and files whose scoring config hash does not match are ignored and replaced on the next analyze. A cached map is reused only when its `analysis_ref` is still `HEAD`, unless `--allow-stale` is set. Recency and the lookback window are evaluated at `analysis_epoch`, not the wall clock. JSON payloads emit `analysis_ref` (HEAD SHA) and `analysis_epoch`.
+Analyze JSON still includes `model_version: ownership-v3` for one minor cycle. Per-repo state is schema v8. Email addresses in that state are stored as tokens. Files without a matching `models` object, files whose `model_version` is not `ownership-v3`, and files whose scoring config hash does not match are ignored and replaced on the next analyze. A cached map is reused only when its `analysis_ref` is still `HEAD`, unless `--allow-stale` is set. Recency and the lookback window are evaluated at `analysis_epoch`, not the wall clock. JSON payloads emit `analysis_ref` (HEAD SHA) and `analysis_epoch`.
 
 `qualification.strategy: adaptive` (the default) treats commit count as evidence:
 authors below `min_commits` still qualify when blame is at least

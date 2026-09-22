@@ -151,10 +151,7 @@ def without_emails(
 
 def sanitize(payload: Mapping[str, object], config: Config, repo_id: str) -> dict[str, object]:
     """Return `payload` with identities labeled or removed."""
-    walked = _walk(dict(payload), config, repo_id)
-    if isinstance(walked, dict):
-        return walked
-    return {}
+    return _walk_dict(dict(payload), config, repo_id)
 
 
 def scrub_text(value: str, config: Config, repo_id: str) -> str:
@@ -187,16 +184,20 @@ def _qualified_count(owners: tuple[OwnerEntry, ...], threshold: float) -> int:
     return sum(1 for owner in owners if owner.confidence >= threshold)
 
 
+def _walk_dict(value: Mapping[object, object], config: Config, repo_id: str) -> dict[str, object]:
+    walked: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            continue
+        if config.output.aggregate_only and key in _PERSON_KEYS:
+            continue
+        walked[key] = _walk(item, config, repo_id)
+    return walked
+
+
 def _walk(value: object, config: Config, repo_id: str) -> object:
     if isinstance(value, dict):
-        walked: dict[str, object] = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                continue
-            if config.output.aggregate_only and key in _PERSON_KEYS:
-                continue
-            walked[key] = _walk(item, config, repo_id)
-        return walked
+        return _walk_dict(value, config, repo_id)
     if isinstance(value, list):
         return [_walk(item, config, repo_id) for item in value]
     if isinstance(value, str):

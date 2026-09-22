@@ -633,4 +633,3 @@ def test_budget_and_policy_keys_rejected(tmp_path: Path, content: str, match: st
     root = _write_config(tmp_path, content)
     with pytest.raises(ValueError, match=match):
         load_config(repo_root=root)
-

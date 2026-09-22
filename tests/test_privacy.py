@@ -4,19 +4,51 @@ from __future__ import annotations
 
 import json
 import warnings
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
-from checkowners.cli import app
+from checkowners.cli import (
+    _ACTIVE_CONFIG,
+    _aggregate,
+    _codeowners_ownership,
+    _person,
+    _public_payload,
+    _review_provider,
+    app,
+)
 from checkowners.config import load_config
-from checkowners.models import OwnerEntry, OwnershipMap, PathOwnership
-from checkowners.privacy import email_token, pseudonym
+from checkowners.graph import for_display
+from checkowners.models import (
+    Config,
+    DecayWarning,
+    GithubConfig,
+    OutputConfig,
+    OwnerEntry,
+    OwnershipMap,
+    PathOwnership,
+    PrivacyConfig,
+)
+from checkowners.privacy import (
+    email_token,
+    exclude_contributors,
+    is_excluded,
+    label,
+    named_codeowners_allowed,
+    pseudonym,
+    rekey_handle_cache,
+    sanitize,
+    scrub_text,
+    without_emails,
+)
 from checkowners.state import (
     read_handle_cache,
     repository_identity,
+    write_graph_cache,
     write_handle_cache,
     write_state,
 )
@@ -210,3 +242,238 @@ def test_excluded_contributor_is_absent(
     assert _ALICE not in exported.stdout
     assert _BOB in analyzed.stdout
     assert _BOB in exported.stdout
+
+
+def _owner(handle: str, score: float = 0.8) -> OwnerEntry:
+    return OwnerEntry(handle=handle, ownership_score=score, last_commit=_NOW, commits=2)
+
+
+def _map_with(*owners: OwnerEntry, candidates: tuple[OwnerEntry, ...] = ()) -> OwnershipMap:
+    warning = DecayWarning(
+        handle=owners[0].handle,
+        path="a.py",
+        last_commit=_NOW,
+        days_since_last_commit=10,
+        historical_confidence=0.4,
+    )
+    return OwnershipMap(
+        paths={
+            "a.py": PathOwnership(
+                owners=owners,
+                qualified_owner_count=len(owners),
+                candidates=candidates,
+                decay_warnings=(warning,),
+            )
+        },
+        last_analyzed=_NOW,
+        analysis_ref="abc",
+    )
+
+
+def test_email_token_keeps_an_existing_token() -> None:
+    token = email_token(_ALICE)
+    assert email_token(token) == token
+
+
+def test_rekey_keeps_a_resolved_handle_over_a_miss() -> None:
+    token = email_token(_ALICE)
+    promoted = rekey_handle_cache({_ALICE: "", token: "@alice"})
+    assert promoted == {token: "@alice"}
+    kept = rekey_handle_cache({token: "@alice", _ALICE: ""})
+    assert kept == {token: "@alice"}
+    blank = rekey_handle_cache({token: "", _ALICE: ""})
+    assert blank == {token: ""}
+
+
+def test_label_hashes_emails_and_keeps_handles() -> None:
+    hashed = Config(identity_mode="hashed")
+    redacted = Config(privacy=PrivacyConfig(redact_emails=True))
+    assert label(_ALICE, hashed, "repo") == email_token(_ALICE)
+    assert label(_ALICE, redacted, "repo") == email_token(_ALICE)
+    assert label("@alice", hashed, "repo") == "@alice"
+    assert label(_ALICE, Config(identity_mode="email"), "repo") == _ALICE
+
+
+def test_named_codeowners_refuses_anonymous_modes() -> None:
+    assert named_codeowners_allowed(Config()) is True
+    assert named_codeowners_allowed(Config(output=OutputConfig(anonymize=True))) is False
+    assert named_codeowners_allowed(Config(output=OutputConfig(aggregate_only=True))) is False
+    assert named_codeowners_allowed(Config(identity_mode="hashed")) is False
+
+
+def test_exclude_matches_handle_email_and_blank_entries() -> None:
+    excluded = ("  ", "@Alice", "bob")
+    assert is_excluded("@alice", excluded) is True
+    assert is_excluded("alice", excluded) is True
+    assert is_excluded("@bob", excluded) is True
+    assert is_excluded(_BOB, ()) is False
+    ownership = _map_with(_owner(_ALICE, 0.9), _owner("@carol", 0.2), candidates=(_owner(_BOB),))
+    same = exclude_contributors(ownership, (), confidence_threshold=0.3)
+    assert same is ownership
+    dropped = exclude_contributors(ownership, (_ALICE,), confidence_threshold=0.3)
+    path = dropped.paths["a.py"]
+    assert [owner.handle for owner in path.owners] == ["@carol"]
+    assert path.qualified_owner_count == 0
+    assert path.decay_warnings == ()
+    assert path.candidates[0].handle == _BOB
+
+
+def test_without_emails_drops_addresses_and_recounts() -> None:
+    ownership = _map_with(
+        _owner(_ALICE, 0.9),
+        _owner("@bob", 0.2),
+        candidates=(_owner(_BOB, 0.4), _owner("@cara", 0.4)),
+    )
+    kept = without_emails(ownership, confidence_threshold=0.3)
+    path = kept.paths["a.py"]
+    assert [owner.handle for owner in path.owners] == ["@bob"]
+    assert [owner.handle for owner in path.candidates] == ["@cara"]
+    assert path.decay_warnings == ()
+    assert path.qualified_owner_count == 0
+
+
+def test_sanitize_drops_people_and_labels_text() -> None:
+    payload: dict[object, object] = {
+        1: "ignored",
+        "handle": _ALICE,
+        "note": f"ask {_ALICE} or @alice",
+        "count": 2,
+        "nested": [_ALICE],
+    }
+    aggregate = Config(output=OutputConfig(aggregate_only=True))
+    hidden = sanitize(payload, aggregate, "repo")
+    assert "handle" not in hidden
+    assert _ALICE not in json.dumps(hidden)
+    assert "@alice" not in json.dumps(hidden)
+    assert hidden["count"] == 2
+    anonymized = sanitize(payload, Config(output=OutputConfig(anonymize=True)), "repo")
+    text = json.dumps(anonymized)
+    assert _ALICE not in text
+    assert "@alice" not in text
+    assert "person-" in text
+    hashed = scrub_text(f"{_ALICE} @alice", Config(identity_mode="hashed"), "repo")
+    assert hashed == f"{email_token(_ALICE)} @alice"
+
+
+def test_graph_display_relabels_contributors_and_can_drop_them() -> None:
+    networkx = pytest.importorskip("networkx")
+    graph = networkx.Graph()
+    graph.add_node("path::a.py", kind="path")
+    graph.add_node("contrib::alice@example.com", kind="contributor")
+    graph.add_node("not-a-contributor-id", kind="contributor")
+    graph.add_node(7, kind="contributor")
+    shown = for_display(graph, Config(output=OutputConfig(anonymize=True)), "repo")
+    labels = {node for node in shown.nodes if isinstance(node, str)}
+    assert any(node.startswith("contrib::person-") for node in labels)
+    assert "contrib::alice@example.com" not in labels
+    paths_only = networkx.Graph()
+    paths_only.add_node("path::a.py", kind="path")
+    assert for_display(paths_only, Config(), "repo") is paths_only
+    dropped = for_display(graph, Config(output=OutputConfig(aggregate_only=True)), "repo")
+    assert list(dropped.nodes) == ["path::a.py"]
+
+
+def test_graph_cache_skips_malformed_entries(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = write_graph_cache(
+        repo,
+        _NOW,
+        {
+            "nodes": ["skip", {"id": "contrib::alice@example.com"}, {"id": 3}],
+            "edges": ["skip", {"source": "contrib::bob@example.com", "target": "path::a"}],
+        },
+    )
+    text = target.read_text(encoding="utf-8")
+    assert _ALICE not in text
+    assert _BOB not in text
+    assert email_token(_ALICE) in text
+    assert email_token(_BOB) in text
+    empty = write_graph_cache(repo, _NOW, {"nodes": "nope", "edges": None})
+    stored = json.loads(empty.read_text(encoding="utf-8"))
+    assert stored["graph"]["nodes"] == []
+    assert stored["graph"]["edges"] == []
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        ('version: 2\noutput:\n  anonymize: "yes"\n', "output.anonymize"),
+        ("version: 2\noutput:\n  aggregate_only: 1\n", "output.aggregate_only"),
+        ('version: 2\nprivacy:\n  redact_emails: "yes"\n', "privacy.redact_emails"),
+        ("version: 2\nidentity:\n  mode: 1\n", "identity.mode"),
+        ("version: 2\ncontributors: []\n", "contributors must be a mapping"),
+        ("version: 2\ncontributors:\n  exclude: alice\n", "contributors.exclude must be a list"),
+        ("version: 2\ncontributors:\n  exclude:\n    - '  '\n", "non-empty strings"),
+        ("version: 2\ncontributors:\n  exclude:\n    - 1\n", "non-empty strings"),
+    ],
+)
+def test_privacy_config_values_are_rejected(tmp_path: Path, content: str, match: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)
+
+
+def test_contributors_section_without_exclude_is_empty(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "version: 2\ncontributors: {}\n")
+    assert load_config(repo_root=root).contributors_exclude == ()
+
+
+def test_v1_ignores_non_mapping_privacy_sections(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        "identity: true\noutput: []\nprivacy: true\ncontributors: true\n",
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        loaded = load_config(repo_root=root)
+    assert loaded.identity_mode == "handle"
+    assert loaded.output.anonymize is False
+    assert loaded.privacy.redact_emails is False
+
+
+def test_helpers_without_an_active_config() -> None:
+    token = _ACTIVE_CONFIG.set(None)
+    try:
+        assert _aggregate() is False
+        assert _person("@alice") == "@alice"
+        assert _public_payload({"handle": "@alice"}) == {"handle": "@alice"}
+    finally:
+        _ACTIVE_CONFIG.reset(token)
+
+
+def test_codeowners_ownership_skips_raw_emails_when_redacted() -> None:
+    config = Config(privacy=PrivacyConfig(redact_emails=True))
+    ownership = _map_with(_owner(_ALICE), _owner("@bob"))
+    kept = _codeowners_ownership(ownership, config)
+    assert [owner.handle for owner in kept.paths["a.py"].owners] == ["@bob"]
+
+
+def test_review_provider_skips_excluded_emails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "acme/app")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghs_test")
+    config = Config(
+        github=GithubConfig(api_enabled=True),
+        contributors_exclude=("skip@example.com",),
+    )
+    with patch("checkowners.cli.build_review_coverage", return_value={}) as coverage:
+        provider = _review_provider(config)
+        assert provider is not None
+        assert provider({"skip@example.com", "keep@example.com"}) == {}
+    assert coverage.call_args is not None
+    assert coverage.call_args.args[2] == {"keep@example.com"}
+    monkeypatch.delenv("GITHUB_REPOSITORY")
+    assert _review_provider(config) is None
+    monkeypatch.setenv("GITHUB_REPOSITORY", "acme/app")
+    monkeypatch.delenv("GITHUB_TOKEN")
+    assert _review_provider(config) is None
+
+
+def test_aggregate_person_is_blank() -> None:
+    config = replace(load_config(), output=OutputConfig(aggregate_only=True))
+    token = _ACTIVE_CONFIG.set(config)
+    try:
+        assert _person(_ALICE) == ""
+        assert _aggregate() is True
+    finally:
+        _ACTIVE_CONFIG.reset(token)

@@ -23,6 +23,7 @@ from checkowners.action_report import (
     md_cell,
     publish_outputs,
     qualified_humans,
+    summarize_balance,
     summarize_bus_factor,
     summarize_decay,
     summarize_drift,
@@ -323,6 +324,42 @@ def test_summaries_include_ratchet_counts() -> None:
     assert bus["counts"]["baselined"] == 4
     assert bus["counts"]["suppressed"] == 2
     assert bus["counts"]["stale_baseline"] == 0
+
+
+def test_summarize_balance_trims_each_list() -> None:
+    loads = [{"handle": "@a", "reviews": 1}, {"handle": "@b", "reviews": 2}]
+    overloaded = [{"handle": "@a", "reviews": 9}]
+    suggestions = [{"overloaded": "@a", "candidate": "@b"}]
+    all_trimmed = summarize_balance(
+        {"loads": loads, "overloaded": overloaded, "suggestions": suggestions},
+        1,
+    )
+    assert all_trimmed["truncated"] is True
+    assert all_trimmed["counts"] == {"loads": 2, "overloaded": 1, "suggestions": 1}
+    suggestions_only = summarize_balance({"suggestions": suggestions}, 0)
+    assert suggestions_only["truncated"] is True
+    assert suggestions_only["loads"] == []
+    none_trimmed = summarize_balance({"loads": loads[:1]}, 5)
+    assert none_trimmed["truncated"] is False
+    overloaded_only = summarize_balance(
+        {"loads": loads[:1], "overloaded": [*overloaded, *overloaded]},
+        1,
+    )
+    assert overloaded_only["truncated"] is True
+
+
+def test_publish_outputs_writes_balance_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    (tmp_path / "balance.json").write_text(
+        json.dumps({"loads": [{"handle": "@a", "reviews": 3}], "average": 3}),
+        encoding="utf-8",
+    )
+    publish_outputs(limit=1)
+    assert "balance_summary" in output.read_text(encoding="utf-8")
 
 
 def test_balance_summary_is_absent_without_balance_json(

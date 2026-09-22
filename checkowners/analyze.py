@@ -36,6 +36,12 @@ FREQUENCY_SHRINKAGE_PRIOR = 3.0
 SOURCE_DATE_EPOCH_ENV = "SOURCE_DATE_EPOCH"
 MIN_GIT_VERSION = (2, 23, 0)
 _GIT_VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+
+
+class GitRequirementError(ValueError):
+    pass
+
+
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 #: A review provider maps a set of contributor emails to per-path, per-email
@@ -805,12 +811,15 @@ def _ensure_git_version(repo_root: Path) -> None:
         cwd=repo_root,
         check=True,
     )
-    found = parse_git_version(result.stdout)
+    try:
+        found = parse_git_version(result.stdout)
+    except ValueError as exc:
+        raise GitRequirementError(str(exc)) from exc
     if found < MIN_GIT_VERSION:
         pretty = ".".join(str(part) for part in found)
         required = ".".join(str(part) for part in MIN_GIT_VERSION)
         msg = f"checkOwners requires Git {required} or newer; found {pretty}"
-        raise ValueError(msg)
+        raise GitRequirementError(msg)
 
 
 def _git_config_value(repo_root: Path, key: str) -> str:

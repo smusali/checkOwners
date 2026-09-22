@@ -168,7 +168,7 @@ Four filters can drop a path: `.gitattributes` marks it `linguist-generated` or 
 
 ### How do I turn checkOwners on without failing on every existing finding?
 
-`checkowners baseline create` writes `.checkowners-baseline.json` with today's findings. Pass that file with `--baseline`, `drift.baseline_file`, or the Action `baseline` input. Subsequent runs fail only on findings whose identity is not in the file. Identity is `rule` plus `path` plus owner set, so a CODEOWNERS reorder does not invalidate the snapshot. See [Turning checkOwners on for an existing large repository](USAGE.md#turning-checkowners-on-for-an-existing-large-repository).
+`checkowners baseline create` writes `.checkowners-baseline.json` with today's findings. Pass that file with `--baseline`, `drift.baseline_file`, or the Action `baseline` input. Subsequent runs fail only on findings whose identity is not in the file. Identity is `rule` plus `path` plus owner set, so a CODEOWNERS reorder does not invalidate the snapshot. `checkowners --exit-zero drift` is the other adoption path: findings are still printed, and the process exits 0. See [Turning checkOwners on for an existing large repository](USAGE.md#turning-checkowners-on-for-an-existing-large-repository).
 
 ### What is the difference between a baseline and a suppression?
 
@@ -185,6 +185,18 @@ The leftover baseline row is reported as stale (`stale_baseline`). That does not
 ### How do I fail a PR only on critical drift?
 
 The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.checkowners_drift).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want the job summary and optional PR comment without blocking.
+
+### What exit code should a script check?
+
+| Code | Meaning |
+|------|---------|
+| 0 | Clean, or findings hidden by `--exit-zero` |
+| 1 | Internal error |
+| 2 | Configuration or usage error |
+| 3 | Findings (`validate`, `drift`, expired suppressions) |
+| 4 | Git or GitHub integration failure |
+
+Any non-zero status fails the step. The Action fails from that process status when `fail_on_drift` is true (the default): drift left after the baseline ratchet exits 3. `--exit-zero` and `fail_on_drift: "false"` hide findings only. The full table is in [Exit codes](USAGE.md#exit-codes).
 
 ## Positioning
 

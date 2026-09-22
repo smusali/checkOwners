@@ -354,6 +354,32 @@ Owner comparison is case-insensitive, and owner-less rules (GitHub's exemption m
 
 `notifications.severity_threshold` decides when a webhook fires, and `--json` always includes the `severity` field so CI workflows can branch on it. Webhook failures never crash the CLI; `notify` reports `sent: false` and logs the reason. Runs without drift skip the webhook unless `include_unchanged: true`.
 
+## Exit codes
+
+Every command uses the same status codes. Any non-zero status fails a shell step and a GitHub Actions step.
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success. No policy violations. |
+| 1 | Internal error. |
+| 2 | Configuration or usage error. Bad arguments, invalid config, a missing or unreadable baseline, or a refused overwrite. |
+| 3 | Findings. `validate` syntax errors, `drift` after the baseline ratchet, expired suppressions, and a generate round-trip that does not match. |
+| 4 | Git or GitHub integration failure. Git could not be run, or Git is older than 2.23. |
+
+Place `--exit-zero` before the command name, same as `--as-of`:
+
+```bash
+checkowners --exit-zero drift --json
+```
+
+`--exit-zero` turns code 3 into 0 after the report is printed. Codes 1, 2, and 4 stay non-zero. Use it for an informational rollout. A baseline file is the other way to adopt without failing on findings that are already accepted.
+
+`--fail-on-incomplete`, also before the command name, exits 3 when scored-signal completeness is below 1. Review evidence is often unavailable, so the flag is off by default and a normal offline run stays 0. `--exit-zero` still turns that 3 into 0. An analysis with no owners has completeness 0, so the flag fails that run.
+
+`drift` and `validate` exit 3 when they find violations. `github-action` exits 3 when drift remains after the baseline ratchet, unless `--no-fail-on-drift` or `--exit-zero` is set. `--no-fail-on-drift` does not hide config errors, git failures, internal errors, or `--fail-on-incomplete`. `notify` still exits 0 when it only reports drift.
+
+A git failure is not a clean result. `drift` no longer treats a failed `git ls-files` as "no stale rules."
+
 ## GitHub Actions
 
 Least privilege (job summary only; no PR comment):
@@ -410,7 +436,7 @@ Set `max_output_entries` (default `50`) to cap each list in those summaries and 
 
 The composite action exports `GITHUB_TOKEN` on the `github-action` step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
 
-The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `baseline` for an accepted-findings file (fail only on new findings), `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
+The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking. The default fails the step because `github-action` exits 3 when drift remains. It also accepts `baseline` for an accepted-findings file (fail only on new findings), `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
 
 The action fails fast with a clear error when it detects a shallow clone: `git log` and `git blame` need history, so the `actions/checkout` step must set `fetch-depth: 0`.
 

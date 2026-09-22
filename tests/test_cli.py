@@ -24,6 +24,7 @@ from checkowners.balance import BalanceReport
 from checkowners.cli import _merge_identities, _owner_payload, _resolve_github_owners, app
 from checkowners.generate import (
     SIZE_WARN_BYTES,
+    BroadPatternRecord,
     CodeownersVerificationError,
     GenerateResult,
 )
@@ -49,7 +50,27 @@ from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationError
 
 runner = CliRunner()
+_REFUSED_BROAD = BroadPatternRecord(
+    source="app/[id]/",
+    generated_fallback="app/*/",
+    also_matches=("app/static/index.tsx",),
+    intended_owners=("@alice",),
+    affected=(("app/static/index.tsx", ("@bob",)),),
+    accepted=False,
+)
+_ACCEPTED_BROAD = BroadPatternRecord(
+    source="app/[slug]/",
+    generated_fallback="app/*/",
+    also_matches=("app/[id]/page.tsx",),
+    intended_owners=("@alice",),
+    affected=(("app/[id]/page.tsx", ("@alice",)),),
+    accepted=True,
+)
 _GENERATED = GenerateResult(content="content", broad_patterns=())
+_GENERATED_WITH_BROAD = GenerateResult(
+    content="content",
+    broad_patterns=(_ACCEPTED_BROAD, _REFUSED_BROAD),
+)
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
@@ -280,19 +301,22 @@ def test_analyze_git_version_error() -> None:
 def test_generate_rich() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED_WITH_BROAD),
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
-        result = runner.invoke(app, ["generate"])
+        result = runner.invoke(app, ["generate", "--allow-broad-patterns"])
     assert result.exit_code == 0
     assert "Generated" in result.stdout
+    combined = result.stdout + result.stderr
+    assert "cannot precisely represent" in combined
+    assert "app/[id]/" in combined
 
 
 def test_generate_json() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED_WITH_BROAD),
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
@@ -304,7 +328,7 @@ def test_generate_json() -> None:
     assert data["analysis_epoch"] == _NOW.isoformat()
     assert data["bytes_written"] == len(b"content")
     assert data["rules_written"] == 1
-    assert data["broad_patterns"] == []
+    assert data["broad_patterns"] == [_ACCEPTED_BROAD.as_json(), _REFUSED_BROAD.as_json()]
 
 
 # --- print ---
@@ -474,7 +498,7 @@ def test_sync_rich() -> None:
         _MOCK_TOKEN,
     ):
         mock_run.return_value = MagicMock(returncode=0)
-        result = runner.invoke(app, ["sync"])
+        result = runner.invoke(app, ["sync", "--allow-broad-patterns"])
     assert result.exit_code == 0
     assert "committed" in result.stdout.lower()
 
@@ -932,7 +956,10 @@ def test_sync_noop_when_already_in_sync() -> None:
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
+        human = runner.invoke(app, ["sync"])
         result = runner.invoke(app, ["sync", "--json"])
+    assert human.exit_code == 0
+    assert "already in sync" in human.stdout
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["committed"] is False

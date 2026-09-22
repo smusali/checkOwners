@@ -324,6 +324,9 @@ def test_bracket_segments_become_wildcards() -> None:
     assert "[" not in content
     assert records
     assert all(not record.accepted for record in records)
+    payload = records[0].as_json()
+    assert payload["accepted"] is False
+    assert payload["owner_delta"]["intended"]
     warning = broad_pattern_warning(records[0])
     assert "WARNING: GitHub CODEOWNERS cannot precisely represent:" in warning
     assert "Generated fallback:" in warning
@@ -350,7 +353,11 @@ def test_colliding_sanitized_patterns_merge_owners() -> None:
         (
             "@bob",
             False,
-            ["/app/[teamId]/page.tsx @alice", "/app/[userId]/page.tsx @bob"],
+            [
+                "/app/*/page.tsx @bob",
+                "/app/[teamId]/page.tsx @alice",
+                "/app/[userId]/page.tsx @bob",
+            ],
             False,
         ),
         ("@alice", False, ["/app/*/page.tsx @alice"], True),
@@ -367,6 +374,7 @@ def test_identical_sanitized_patterns_merge_owner_sets(
         {
             "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
             "app/[userId]/page.tsx": (_entry(second_owner, 0.6),),
+            "app/*/page.tsx": (_entry(second_owner, 0.6),),
         }
     )
     config = _zero_threshold(consolidate=False, allow_broad_patterns=allow_broad)
@@ -375,6 +383,9 @@ def test_identical_sanitized_patterns_merge_owner_sets(
     assert lines == expected_lines
     assert records
     assert all(record.accepted is accepted for record in records)
+    payload = records[0].as_json()
+    assert payload["accepted"] is accepted
+    assert payload["generated_fallback"] == "app/*/page.tsx"
     if accepted:
         return
     warning = broad_pattern_warning(records[0])

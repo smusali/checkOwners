@@ -127,11 +127,6 @@ drift:
 
 suppressions: []              # explicit, reason-required; see the adoption guide
 
-notifications:
-  webhook_url: ""             # literal, or ${ENV_VAR} to read from the environment
-  include_unchanged: false    # if true, also notify when no drift was detected
-  severity_threshold: medium  # low | medium | high | critical
-
 github:
   org: ""
   resolve_handles: true       # noreply emails parse locally; others via search API
@@ -152,7 +147,7 @@ policy:
     fail: false               # same exit as --fail-on-incomplete; other policy keys are refused
 ```
 
-`decay`, `bus_factor`, `paths`, `output`, `drift`, `notifications`, `github`, `git`, `identity.mailmap`, and `suppressions` keep their current names on both schema versions. `bus_factor` is the qualified-owner classifier (`risk-v1`), not a truck-factor block.
+`decay`, `bus_factor`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` keep their current names on both schema versions. `bus_factor` is the qualified-owner classifier (`risk-v1`), not a truck-factor block.
 
 Keys with no implementation yet are refused on `version: 2`, including `criticality`, `security`, `privacy`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `output.anonymize`. `policy` accepts only `incomplete_analysis.fail`. A v1 file still ignores unknown keys.
 
@@ -170,7 +165,7 @@ Keys with no implementation yet are refused on `version: 2`, including `critical
 
 JSON from every command includes `models` with `ownership`, `risk`, and `topology`. Analyze, explain, and owners JSON also keep `model_version` equal to the ownership id for one minor cycle. Human reports print the applicable ids on stderr. Per-repo analyze state and the graph cache are reused only when all three ids match and the scoring config hash matches; a file without `models` is ignored.
 
-The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` environment variable instead. `checkowners.yml` is committed to your repo, so storing a token here would push it to GitHub. `load_config` raises a clear error if `github.token` is present. For the same reason, `notifications.webhook_url` supports a `${ENV_VAR}` reference (for example `${CHECKOWNERS_WEBHOOK_URL}`) so a committed config can point at a secret endpoint without storing it; an unset variable resolves to an empty string.
+The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` environment variable instead. `checkowners.yml` is committed to your repo, so storing a token here would push it to GitHub. `load_config` raises a clear error if `github.token` is present.
 
 ### Environment variables
 
@@ -221,7 +216,7 @@ suppressions:
     reason: "Scheduled for retirement in Q4"
 ```
 
-`path` uses CODEOWNERS pattern matching. `rule` must be one of `missing`, `stale`, `changed`, or `single-expert`. `drift`, `notify`, and `github-action` apply suppressions first, then the baseline. Both commands print `baselined`, `suppressed`, and `stale_baseline` counts so the remaining debt stays visible.
+`path` uses CODEOWNERS pattern matching. `rule` must be one of `missing`, `stale`, `changed`, or `single-expert`. `drift` and `github-action` apply suppressions first, then the baseline. Both commands print `baselined`, `suppressed`, and `stale_baseline` counts so the remaining debt stays visible.
 
 A suppression without a reason, with an unknown rule, or with a date that is not `YYYY-MM-DD` is a configuration error at load.
 
@@ -357,7 +352,7 @@ Both commands accept `--json` with `schema_version: "1.0"`, `model_version: owne
 
 ## Drift and severity
 
-`checkowners drift` compares the inferred ownership against the existing CODEOWNERS and emits a JSON payload that downstream callers (CI, webhooks) can branch on.
+`checkowners drift` compares the inferred ownership against the existing CODEOWNERS and emits a JSON payload that CI can branch on.
 
 The comparison uses real CODEOWNERS pattern semantics (gitignore-style: `*` within a segment, `**` across segments, leading `/` anchors to the repo root, trailing `/` matches directory contents, `dir/*` is direct children only, last matching rule wins), so directory and glob rules are honored:
 
@@ -369,7 +364,7 @@ The comparison uses real CODEOWNERS pattern semantics (gitignore-style: `*` with
 
 Owner comparison is case-insensitive, and owner-less rules (GitHub's exemption mechanism) count as intentional coverage. When comparison would be meaningless, drift emits a `note` instead of false positives: raw-email inference vs `@handle` rules (set `GITHUB_TOKEN` to resolve handles), and rules owned by `@org/team` (individual inference cannot be compared to a team).
 
-`notify.compute_severity` maps the max confidence delta plus qualified-owner / decay flags to a tier:
+Drift severity maps the max confidence delta plus qualified-owner / decay flags to a tier:
 
 | Severity | Trigger |
 |----------|---------|
@@ -378,7 +373,7 @@ Owner comparison is case-insensitive, and owner-less rules (GitHub's exemption m
 | `medium` | `max_confidence_delta >= 0.3` |
 | `low` | otherwise |
 
-`notifications.severity_threshold` decides when a webhook fires, and `--json` always includes the `severity` field so CI workflows can branch on it. Webhook failures never crash the CLI; `notify` reports `sent: false` and logs the reason. Runs without drift skip the webhook unless `include_unchanged: true`.
+`--json` always includes the `severity` field. The composite Action publishes the same field on `checkowners_drift`.
 
 ## Exit codes
 
@@ -402,7 +397,7 @@ checkowners --exit-zero drift --json
 
 `--fail-on-incomplete`, also before the command name, exits 3 when the run completeness score is below 1. `policy.incomplete_analysis.fail: true` does the same thing. Review evidence, a missing `.mailmap`, and a missing ignore-revs file are common gaps, so the flag is off by default and a normal run stays 0. `--exit-zero` still turns that 3 into 0. An analysis with no owners and no stored score has completeness 0, so the flag fails that run. A stored score below 1 fails even when every scored signal happened to be present.
 
-`drift` and `validate` exit 3 when they find violations. `github-action` exits 3 when drift remains after the baseline ratchet, unless `--no-fail-on-drift` or `--exit-zero` is set. `--no-fail-on-drift` does not hide config errors, git failures, internal errors, or `--fail-on-incomplete`. `notify` still exits 0 when it only reports drift.
+`drift` and `validate` exit 3 when they find violations. `github-action` exits 3 when drift remains after the baseline ratchet, unless `--no-fail-on-drift` or `--exit-zero` is set. `--no-fail-on-drift` does not hide config errors, git failures, internal errors, or `--fail-on-incomplete`.
 
 A git failure is not a clean result. `drift` no longer treats a failed `git ls-files` as "no stale rules."
 
@@ -457,6 +452,20 @@ The action always writes the full report to the job summary. That needs no extra
 If `comment_on_pr` stays `"true"` under read-only workflow permissions, the comment step warns (`Grant 'pull-requests: write' or set comment_on_pr: false`) and does not fail the job. Set `comment_on_pr: false` to skip the attempt.
 
 The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_version: 2`) so workflow gates stay under GitHub's 1 MB per-output cap. Existing `fromJson(...)` checks keep working: `checkowners_drift.drift_detected`, `checkowners_drift.severity`, and `bus_factor_summary.critical_paths[0]`. Each summary includes `counts` and `truncated`. The qualified-owner summary also includes `qualified_owner_count_cap` and `deprecated_keys`. Drift still carries `notes` plus the top `missing` / `stale` / `changed` entries (with per-entry `qualified_owner_count` / deprecated `bus_factor` / `decay` flags). Per-path `entries` are omitted from the output; the full lists live in the uploaded artifact.
+
+Post that drift summary to Slack when drift is present:
+
+```yaml
+- id: checkowners
+  uses: smusali/checkowners@v0
+- if: fromJson(steps.checkowners.outputs.checkowners_drift).drift_detected
+  uses: slackapi/slack-github-action@v2
+  with:
+    webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+    webhook-type: incoming-webhook
+    payload: |
+      text: "checkOwners drift (${{ fromJson(steps.checkowners.outputs.checkowners_drift).severity }})"
+```
 
 Set `max_output_entries` (default `50`) to cap each list in those summaries and in the job-summary / PR-comment report. Workflows that need every entry should `actions/download-artifact` using the `artifact_name` output (`checkowners-reports`) and branch on `schema_version`.
 

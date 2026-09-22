@@ -156,13 +156,6 @@ class RatchetCounts:
 
 
 @dataclass(frozen=True)
-class NotificationsConfig:
-    webhook_url: str = ""
-    include_unchanged: bool = False
-    severity_threshold: Severity = "medium"
-
-
-@dataclass(frozen=True)
 class GithubConfig:
     org: str = ""
     resolve_handles: bool = True
@@ -200,7 +193,6 @@ class Config:
     paths: PathsConfig = field(default_factory=PathsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     drift: DriftConfig = field(default_factory=DriftConfig)
-    notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     github: GithubConfig = field(default_factory=GithubConfig)
     git: GitConfig = field(default_factory=GitConfig)
     models: ModelVersions = field(default_factory=ModelVersions)

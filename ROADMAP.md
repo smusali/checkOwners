@@ -15,7 +15,7 @@ Usage questions go to [Discussions](https://github.com/smusali/checkowners/discu
 | Milestone | Theme | Action items |
 |---|---|---|
 | `0.5.1` | Unbreak identity, Action correctness, and the contributor on-ramp | A1 · A2 · A3 · A4 · B1 · B2 · B3 · B4 · B5 · B6 · B8 · C1 · H5 · K2 · L2 · N1 |
-| `0.6.0` | Correctness and trust | B7 · C5 · C6 · C7 · D1 · D2 · D5 · E3 · E4 · E8 · E11 · F1 · F2 · F3 · F5 · F6 · G7 · H1 · H2 · H3 · I1 · I2 · I3 · K1 · L1 · L3 |
+| `0.6.0` | Correctness and trust | B7 · C5 · C6 · C7 · D1 · D2 · D5 · E3 · E4 · E8 · E11 · F1 · F2 · F3 · F5 · F6 · H1 · H2 · H3 · I1 · I2 · I3 · K1 · L1 · L3 |
 | `0.7.0` | Ownership risk and scale | B9 · C2 · C3 · C4 · C8 · D4 · E10 · E12 · F4 · G2 · G3 · G6 · H6 · J1 · J2 · J4 · K3 · K4 · K5 · L4 |
 | `0.8.0` | Audit and rigor | D6 · E1 · E2 · E6 · E7 · E9 · H4 · H7 · M1 · M3 |
 | `0.9.0` | Research and reporting | C9 · D3 · D7 · G1 · G4 · J3 · K6 · M2 · M4 |

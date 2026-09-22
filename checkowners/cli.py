@@ -62,7 +62,14 @@ from checkowners.busfactor import (
 )
 from checkowners.config import find_codeowners_path, load_config
 from checkowners.decay import DecayReport, detect_decay
-from checkowners.drift import detect_drift, drift_entry_payload, evidence_gaps, write_github_output
+from checkowners.drift import (
+    apply_severity_hysteresis,
+    compute_severity,
+    detect_drift,
+    drift_entry_payload,
+    evidence_gaps,
+    write_github_output,
+)
 from checkowners.expertise import rank_expertise
 from checkowners.explain import (
     ExplainedOwner,
@@ -136,7 +143,6 @@ from checkowners.models import (
     stamp_json,
     with_gaps,
 )
-from checkowners.notify import apply_severity_hysteresis, compute_severity, send_notification
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
 from checkowners.patterns import matching_rules, parse_rules
 from checkowners.state import (
@@ -1244,63 +1250,6 @@ def drift(
 
 def _severity_style(severity: str) -> str:
     return {"critical": "red", "high": "red", "medium": "yellow", "low": "green"}[severity]
-
-
-@app.command()
-def notify(
-    json_output: JsonOption = False,
-    baseline: BaselineOption = None,
-) -> None:
-    """Send webhook notification on drift events."""
-    config = _load_config()
-    repo_root = Path.cwd()
-    codeowners_path = find_codeowners_path(repo_root)
-    ownership = _run_analyze(config, repo_root)
-    result = _detect_drift(repo_root, ownership, config, codeowners_path)
-    bus = compute_qualified_owners(ownership, config, target=None)
-    outcome = _ratchet_or_exit(
-        result,
-        config,
-        as_of=ownership.last_analyzed,
-        baseline=_resolve_baseline(baseline, config),
-        bus=bus,
-    )
-    result = outcome.drift
-    ownership = _apply_extra_gaps(ownership, evidence_gaps(result), config.scoring)
-    severity = _severity_with_hysteresis(repo_root, ownership, result, config)
-    stamp = _analysis_stamp(ownership)
-    sent = send_notification(
-        result,
-        config,
-        severity=severity,
-        analysis_ref=stamp["analysis_ref"],
-        analysis_epoch=stamp["analysis_epoch"],
-        analysis_completeness=run_completeness(ownership),
-    )
-    if json_output:
-        _emit_json(
-            {
-                "sent": sent,
-                "drift_detected": result.drift_detected,
-                "severity": severity,
-                **_ratchet_json(outcome),
-                **_analysis_stamp(ownership),
-            },
-            ownership,
-        )
-    else:
-        _render_ratchet_summary(outcome)
-        if sent:
-            console.print(f"[green]Notification sent ({severity}).[/green]")
-        elif not config.notifications.webhook_url:
-            console.print("[yellow]No webhook URL configured; skipped.[/yellow]")
-        else:
-            console.print(
-                f"[yellow]Severity {severity} below threshold "
-                f"{config.notifications.severity_threshold}; skipped.[/yellow]"
-            )
-        _render_completeness(ownership)
-    _finish_analysis(ownership)
 
 
 @app.command()

@@ -30,9 +30,6 @@ output:
 drift:
   mode: commit
   min_confidence_delta: 0.2
-notifications:
-  webhook_url: ""
-  severity_threshold: medium
 github:
   org: ""
   resolve_handles: true

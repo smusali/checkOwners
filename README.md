@@ -76,7 +76,6 @@ All commands accept `--json` (except `graph`, which exports DOT via `--export do
 | `checkowners validate` | Validate existing CODEOWNERS syntax |
 | `checkowners drift` | Compare inferred vs current; severity + max confidence delta |
 | `checkowners baseline create` | Write an accepted-findings file so later runs fail only on new findings |
-| `checkowners notify` | POST drift to a webhook gated by `severity_threshold` |
 | `checkowners sync` | Generate CODEOWNERS and commit the result |
 | `checkowners expertise <path>` | Per-path expertise ranking from cached analysis |
 | `checkowners decay` | Detect dormant owners; recommend transfers |

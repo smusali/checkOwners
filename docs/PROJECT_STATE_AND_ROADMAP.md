@@ -58,7 +58,6 @@ checkowners/
                    # refuses to overwrite a hand-written file without --force
   drift.py         # Pattern-aware compare -> DriftResult with notes:
                    # missing / stale / changed
-  notify.py        # Webhook POST with severity gating; never raises on network errors
   validate.py      # Syntax-only CODEOWNERS validator
   config.py        # PyYAML loader, CODEOWNERS path auto-detection
   state.py         # Per-repo state (schema v3), handles.json cache, graph cache
@@ -85,7 +84,7 @@ Approximately 4,260 lines of package code and 4,400 lines of tests. The decompos
 - `~/.checkowners/handles.json` — email-to-handle cache including remembered misses.
 - `~/.checkowners/graph/<repo-hash>.json` — serialized graph cache.
 
-**Config.** `.github/checkowners.yml` with sections `analysis`, `scoring`, `decay`, `bus_factor`, `paths`, `output`, `drift`, `notifications`, `github`.
+**Config.** `.github/checkowners.yml` with sections `analysis`, `scoring`, `decay`, `bus_factor`, `paths`, `output`, `drift`, `github`.
 
 **Environment variables.** `GITHUB_TOKEN`, `CHECKOWNERS_STATE_DIR`, `CHECKOWNERS_CONFIG`, `CHECKOWNERS_DRIFT_MODE`, plus runner-provided `GITHUB_REPOSITORY` and `GITHUB_OUTPUT`.
 
@@ -95,7 +94,7 @@ Approximately 4,260 lines of package code and 4,400 lines of tests. The decompos
 
 Sixteen subcommands (counted as fifteen domain commands plus `github-action`):
 
-`analyze`, `generate`, `print`, `validate`, `drift`, `notify`, `sync`, `expertise <path>`, `decay`, `graph`, `bus-factor`, `topology`, `balance`, `onboard <path>`, `trends`, `github-action`.
+`analyze`, `generate`, `print`, `validate`, `drift`, `sync`, `expertise <path>`, `decay`, `graph`, `bus-factor`, `topology`, `balance`, `onboard <path>`, `trends`, `github-action`.
 
 All support `--json` except `graph`, which supports `--export dot`.
 
@@ -143,8 +142,6 @@ bus_factor:
 drift:
   mode: commit
   min_confidence_delta: 0.2
-notifications:
-  severity_threshold: medium
 github:
   api_enabled: false
   resolve_handles: true
@@ -278,7 +275,7 @@ These are qualitative judgments, not measured benchmarks. Turning them into meas
 
 5. **Correct dependency gating.** Core inference is pure git via `subprocess`. `networkx` and `pygithub` are optional extras, lazy-imported, degrading gracefully with a hint. GitPython was correctly dropped. Unusual discipline.
 
-6. **The token refusal.** `github.token` is rejected in `.github/checkowners.yml` at load time with a clear error, because that file gets committed. The `${ENV_VAR}` indirection for `notifications.webhook_url` is the same instinct applied correctly a second time. This is a security decision made by someone who has watched a token leak.
+6. **The token refusal.** `github.token` is rejected in `.github/checkowners.yml` at load time with a clear error, because that file gets committed. This is a security decision made by someone who has watched a token leak.
 
 7. **Per-repo state isolation with schema versioning.** The 0.5.0 fix for a global state file leaking one repository's data into another, plus embedding and verifying the absolute repository path on load, plus the codified invariant that `SCHEMA_VERSION` must be bumped on change, is exactly right.
 
@@ -312,7 +309,7 @@ These are qualitative judgments, not measured benchmarks. Turning them into meas
 
 ## 8. The Central Strategic Problem: Too Many Products at Once
 
-The current surface spans CODEOWNERS generation, ownership drift, bus factor, expertise decay, inferred topology, ownership balance, onboarding, graphs, trends, notifications, webhooks, GitHub Actions, reviewer recommendations, identity resolution, team collapsing, PR comments, and JSON output.
+The current surface spans CODEOWNERS generation, ownership drift, bus factor, expertise decay, inferred topology, ownership balance, onboarding, graphs, trends, GitHub Actions, reviewer recommendations, identity resolution, team collapsing, PR comments, and JSON output.
 
 A buyer or developer cannot immediately answer the only question that matters at install time:
 
@@ -805,15 +802,7 @@ Layer graph risk analytics on top: articulation points (people whose removal dis
 
 **Fix.** `sync --pr` becomes the default, direct commit becomes the escape hatch. The eventual end state is `checkowners sync --pull-request` opening `chore: reconcile CODEOWNERS ownership drift` with per-rule rationale, confidence, and supporting evidence in the body. Human-reviewed ownership automation is a strong end state; silent commits are not.
 
-### 10.24 🟠 The webhook notifier is a liability with no compensating value
-
-**Defect.** `notify.py` POSTs drift payloads containing contributor identities to a configured URL.
-
-**Consequences.** No HMAC request signing, so the receiver cannot verify authenticity. No documented timeout, no retry with backoff, no idempotency key. No scheme allowlist, so an `http://` URL sends contributor data in plaintext. No payload redaction. No native Slack, Teams, or PagerDuty formatting, so every user writes a translation shim anyway. Meanwhile the Action already emits structured `GITHUB_OUTPUT` that any workflow can pipe to any notification Action in three lines of YAML.
-
-**Fix.** Remove it and replace it with a documented three-line YAML recipe, or rebuild it with signing, timeouts, backoff, idempotency, a scheme allowlist, and redaction. Do not keep it as-is: it adds a network egress path, a security-review question, and a maintenance burden in exchange for duplicating something the platform does better.
-
-### 10.25 🟠 Hard-coded blame parsing and the absence of hotspot context
+### 10.24 🟠 Hard-coded blame parsing and the absence of hotspot context
 
 **Defect.** Risk is currently expressed as a bus-factor tier alone.
 
@@ -1050,7 +1039,7 @@ Three catastrophic, product-invalidating bugs. All three shipped. All three pass
 - A knowledge graph of contributors, files, and inferred teams.
 - Historical trends of all of the above.
 
-It caches contributor email addresses on disk, sends contributor emails to a third-party user-search API, POSTs them to arbitrary webhooks, and posts derived findings into pull-request comments visible to the whole organization.
+It caches contributor email addresses on disk, sends contributor emails to a third-party user-search API, and posts derived findings into pull-request comments visible to the whole organization.
 
 **What is missing.** No anonymization or pseudonymization mode. No aggregate-only reporting mode. No retention policy or TTL on the handle cache. No `PRIVACY.md`, no data-flow description, no statement of what leaves the machine. No explicit "this is not a performance metric" disclaimer — the standard, necessary guardrail for this class of tool. No way to exclude an individual on request.
 
@@ -1444,7 +1433,6 @@ High CODEOWNERS drift            2
 
 | Command | Recommendation | Why |
 |---|---|---|
-| `notify` | **Remove** | Duplicates `GITHUB_OUTPUT` plus any notification Action; adds unsigned network egress, a security-review question, and a config section. Replace with a documented three-line YAML recipe |
 | `graph` | **Demote to `analyze --export dot`** | Nice demo, low daily utility, sole justification for the `networkx` extra |
 | `topology` | **Hold behind `--experimental`** | Weakest inference in the product, and the one whose errors are socially costly: "the tool says you are not on the team you are on" |
 | `sync` | **Rewrite as `sync --pr`** | Direct commits fight branch protection and skip CI |

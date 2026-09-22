@@ -149,6 +149,9 @@ show_missing = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: tests that run real git in a temporary repository",
+]
 addopts = [
     "--strict-markers",
     "--cov=checkowners",

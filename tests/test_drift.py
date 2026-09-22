@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from datetime import UTC, datetime
@@ -30,6 +31,12 @@ from checkowners.models import (
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+)
+from tests.conftest import (
+    GitRepo,
+    analyze_regression_repo,
+    regression_analysis_config,
+    script_regression_repo,
 )
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
@@ -395,3 +402,47 @@ def test_compute_severity_uses_configured_critical_threshold() -> None:
     assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=2), config) == "critical"
     assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=2)) == "low"
     assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=1)) == "critical"
+
+
+def _canonical_analysis(ownership: OwnershipMap) -> str:
+    payload = {
+        path: [
+            {
+                "commits": owner.commits,
+                "handle": owner.handle,
+                "score": owner.ownership_score,
+            }
+            for owner in path_ownership.owners
+        ]
+        for path, path_ownership in ownership.paths.items()
+    }
+    return json.dumps(payload, sort_keys=True)
+
+
+@pytest.mark.integration
+def test_directory_rule_covers_files_from_real_git(git_repo: GitRepo) -> None:
+    script_regression_repo(git_repo)
+    ownership = analyze_regression_repo(git_repo)
+    codeowners = git_repo.path / ".github" / "CODEOWNERS"
+    codeowners.parent.mkdir(parents=True)
+    codeowners.write_text("src/ @alice\n/gone/ @alice\n", encoding="utf-8")
+    result = detect_drift(
+        git_repo.path,
+        ownership,
+        Config(analysis=regression_analysis_config().analysis, drift=DriftConfig(mode="both")),
+    )
+    assert "src/app.py" in ownership.paths
+    assert "src/app.py" not in {entry.path for entry in result.missing}
+    assert "/gone/" in {entry.path for entry in result.stale}
+
+
+@pytest.mark.integration
+def test_scripted_repo_analysis_is_deterministic(tmp_path: Path) -> None:
+    first = GitRepo.create(tmp_path / "first")
+    second = GitRepo.create(tmp_path / "second")
+    script_regression_repo(first)
+    script_regression_repo(second)
+    assert first.head_sha() == second.head_sha()
+    assert _canonical_analysis(analyze_regression_repo(first)) == _canonical_analysis(
+        analyze_regression_repo(second)
+    )

@@ -91,8 +91,13 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 ## Tests
 
 - Every module has a `tests/test_<module>.py`.
-- Unit tests mock all subprocess calls (`git log`, `git blame`); they must not require a real git repo.
-- Blame fidelity cases that need a real repository use `init_git_repo` and `git_commit` from `tests/conftest.py`.
+- Unit tests mock subprocess calls such as `git log` and `git blame`. They do not need a git binary.
+- Integration tests build a temporary repository with the `git_repo` fixture in `tests/conftest.py`. Commits pin `GIT_AUTHOR_DATE` and `GIT_COMMITTER_DATE`. Mark them `@pytest.mark.integration`.
+- Drift, patterns, generate, and validate keep both layers: mocked unit tests, and integration tests against a real git history and real CODEOWNERS text.
+- `pytest -m integration` selects the integration tests. `pytest -m "not integration"` skips them. The default `pytest` run includes them, including on every pull request.
+- The integration marker must finish within 60 seconds.
+- Blame-fidelity tests may keep calling `init_git_repo` and `git_commit`.
+- Git 2.23 or newer is required. The fixture fails if `git version` is older.
 - Tests that touch `~/.checkowners/state.json` set the `CHECKOWNERS_STATE_DIR` env var so they don't clobber the contributor's real state.
 - Coverage is enforced at 85% repo-wide (`--cov-fail-under=85`); new modules should land above that. The floor is a gate, not a substitute for tests against real git repositories and real CODEOWNERS files. For a focused run that should not apply the floor, pass `--no-cov`.
 

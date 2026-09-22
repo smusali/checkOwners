@@ -93,6 +93,7 @@ from checkowners.github import (
     external_evidence_payload,
     get_github_token,
     resolve_handles,
+    set_offline,
 )
 from checkowners.graph import (
     GraphExtraMissingError,
@@ -139,9 +140,15 @@ from checkowners.notify import apply_severity_hysteresis, compute_severity, send
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
 from checkowners.patterns import matching_rules, parse_rules
 from checkowners.state import (
+    CacheInfo,
+    cache_clear,
+    cache_directory,
+    cache_info,
+    cache_purge,
     load_hysteresis,
-    load_ownership,
     read_graph_cache,
+    read_state,
+    reusable_ownership,
     write_graph_cache,
     write_state,
 )
@@ -164,6 +171,8 @@ app = typer.Typer(
 )
 baseline_app = typer.Typer(help="Manage the accepted-findings baseline.")
 app.add_typer(baseline_app, name="baseline")
+cache_app = typer.Typer(help="Inspect and delete the on-disk cache.")
+app.add_typer(cache_app, name="cache")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -180,6 +189,15 @@ BaselineOption = Annotated[
 _CLI_AS_OF: ContextVar[str | None] = ContextVar("cli_as_of", default=None)
 _EXIT_ZERO: ContextVar[bool] = ContextVar("cli_exit_zero", default=False)
 _FAIL_ON_INCOMPLETE: ContextVar[bool] = ContextVar("cli_fail_on_incomplete", default=False)
+_ALLOW_STALE: ContextVar[bool] = ContextVar("cli_allow_stale", default=False)
+_MAX_AGE: ContextVar[int | None] = ContextVar("cli_max_age", default=None)
+_NO_CACHE: ContextVar[bool] = ContextVar("cli_no_cache", default=False)
+
+_OFFLINE_LINES = (
+    "Network access: disabled",
+    "Review evidence: unavailable",
+    "Team verification: unavailable",
+)
 
 
 class ExitCode(IntEnum):
@@ -325,6 +343,35 @@ def _app_callback(
             help="Exit 3 when scored-signal completeness is below 1.",
         ),
     ] = False,
+    allow_stale: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale",
+            help="Reuse cached analysis even when its commit is not HEAD.",
+        ),
+    ] = False,
+    max_age: Annotated[
+        int | None,
+        typer.Option(
+            "--max-age",
+            min=0,
+            help="Refuse cached analysis older than this many seconds. 0 expires immediately.",
+        ),
+    ] = None,
+    no_cache: Annotated[
+        bool,
+        typer.Option(
+            "--no-cache",
+            help="Do not read or write the analysis cache.",
+        ),
+    ] = False,
+    offline: Annotated[
+        bool,
+        typer.Option(
+            "--offline",
+            help="Make no network calls. Review evidence and team verification are unavailable.",
+        ),
+    ] = False,
 ) -> None:
     """Infer and maintain CODEOWNERS from git history."""
     clear_api_evidence()
@@ -334,6 +381,13 @@ def _app_callback(
     _CLI_AS_OF.set(as_of)
     _EXIT_ZERO.set(exit_zero)
     _FAIL_ON_INCOMPLETE.set(fail_on_incomplete)
+    _ALLOW_STALE.set(allow_stale)
+    _MAX_AGE.set(max_age)
+    _NO_CACHE.set(no_cache)
+    set_offline(offline)
+    if offline:
+        for line in _OFFLINE_LINES:
+            err_console.print(line, highlight=False, markup=False)
 
 
 def _analysis_stamp(ownership: OwnershipMap) -> dict[str, str]:
@@ -429,15 +483,17 @@ def _severity_with_hysteresis(
     reported, pending, streak = apply_severity_hysteresis(
         raw, result.max_confidence_delta, config, load_hysteresis(repo_root)
     )
-    write_state(
-        repo_root,
-        ownership,
-        drift_detected=result.drift_detected,
-        qualified_owner_count_cap=config.analysis.top_n_owners,
-        drift_reported_severity=reported,
-        drift_pending_severity=pending,
-        drift_pending_streak=streak,
-    )
+    if not _NO_CACHE.get():
+        write_state(
+            repo_root,
+            ownership,
+            drift_detected=result.drift_detected,
+            qualified_owner_count_cap=config.analysis.top_n_owners,
+            drift_reported_severity=reported,
+            drift_pending_severity=pending,
+            drift_pending_streak=streak,
+            config=config,
+        )
     return reported
 
 
@@ -679,17 +735,28 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
         _guard_ownership(exc)
     ownership = _resolve_github_owners(ownership, config)
     ownership = _apply_extra_gaps(ownership, _api_gaps(ownership, config), config.scoring)
-    write_state(
-        repo_root,
-        ownership,
-        qualified_owner_count_cap=config.analysis.top_n_owners,
-    )
+    if not _NO_CACHE.get():
+        write_state(
+            repo_root,
+            ownership,
+            qualified_owner_count_cap=config.analysis.top_n_owners,
+            config=config,
+        )
     return ownership
 
 
 def _load_or_analyze(config: Config, repo_root: Path) -> OwnershipMap:
-    """Use this repo's cached state when available; otherwise re-analyze."""
-    cached = load_ownership(repo_root)
+    """Use this repo's cached state when it is fresh; otherwise re-analyze."""
+    if _NO_CACHE.get():
+        return _run_analyze(config, repo_root)
+    head = _try_head_sha(repo_root)
+    cached = reusable_ownership(
+        repo_root,
+        config,
+        head=head,
+        allow_stale=_ALLOW_STALE.get(),
+        max_age=_MAX_AGE.get(),
+    )
     if cached is not None:
         _warn_missing_api_token(config)
         cached_at = cached.last_analyzed.isoformat(timespec="seconds")
@@ -698,6 +765,13 @@ def _load_or_analyze(config: Config, repo_root: Path) -> OwnershipMap:
             "run `checkowners analyze` to refresh.[/dim]"
         )
         return cached
+    stored = read_state(repo_root)
+    if stored is not None:
+        ref = stored.get("analysis_ref", "")
+        shown = ref if isinstance(ref, str) and ref else "unknown"
+        err_console.print(
+            f"[dim]Cached analysis is stale (ref {shown} is not HEAD); re-analyzing.[/dim]"
+        )
     return _run_analyze(config, repo_root)
 
 
@@ -1487,13 +1561,26 @@ def _decay_report_payload(report: DecayReport) -> dict[str, Any]:
     }
 
 
-def _build_or_load_graph(repo_root: Path, ownership: OwnershipMap) -> nx.Graph:
+def _build_or_load_graph(repo_root: Path, ownership: OwnershipMap, config: Config) -> nx.Graph:
     """Return the knowledge graph, reusing a fresh on-disk cache when available."""
-    cached = read_graph_cache(repo_root, ownership.last_analyzed)
-    if cached is not None:
-        return from_serializable(cached)
+    if not _NO_CACHE.get():
+        cached = read_graph_cache(
+            repo_root,
+            ownership.last_analyzed,
+            config=config,
+            analysis_ref=ownership.analysis_ref,
+        )
+        if cached is not None:
+            return from_serializable(cached)
     graph_obj = build_graph(ownership)
-    write_graph_cache(repo_root, ownership.last_analyzed, to_serializable(graph_obj))
+    if not _NO_CACHE.get():
+        write_graph_cache(
+            repo_root,
+            ownership.last_analyzed,
+            to_serializable(graph_obj),
+            config=config,
+            analysis_ref=ownership.analysis_ref,
+        )
     return graph_obj
 
 
@@ -1513,7 +1600,7 @@ def graph(
     repo_root = Path.cwd()
     ownership = _load_or_analyze(config, repo_root)
     try:
-        graph_obj = _build_or_load_graph(repo_root, ownership)
+        graph_obj = _build_or_load_graph(repo_root, ownership, config)
     except GraphExtraMissingError as exc:
         console.print(f"[red]{exc}[/red]")
         exit_with(ExitCode.CONFIG)
@@ -2175,6 +2262,52 @@ def trends(
         )
     console.print(table)
     _report_models("ownership")
+
+
+def _print_cache_info(info: CacheInfo) -> None:
+    typer.echo(f"path: {info['path']}")
+    typer.echo(f"schema_version: {info['schema_version']}")
+    typer.echo(f"bytes: {info['bytes']}")
+    typer.echo(f"state_files: {info['state_files']}")
+    typer.echo(f"graph_files: {info['graph_files']}")
+    typer.echo(f"handles: {'yes' if info['handles'] else 'no'}")
+    typer.echo(f"limit_bytes: {info['limit_bytes']}")
+    for entry in info["entries"]:
+        typer.echo(
+            f"{entry['repo_id']}\t{entry['analysis_ref']}\t"
+            f"{entry['last_analyzed']}\t{entry['bytes']}"
+        )
+
+
+@cache_app.command("info")
+def cache_info_command(json_output: JsonOption = False) -> None:
+    """Show cache location, size, and stored analysis refs."""
+    info = cache_info()
+    if json_output:
+        typer.echo(json.dumps(info, indent=2, sort_keys=True))
+        return
+    _print_cache_info(info)
+
+
+@cache_app.command("clear")
+def cache_clear_command() -> None:
+    """Delete analysis state and graph files. Keep the handle cache."""
+    removed = cache_clear()
+    typer.echo(f"removed {removed} files")
+
+
+@cache_app.command("path")
+def cache_path_command() -> None:
+    """Print the cache directory."""
+    typer.echo(str(cache_directory()))
+
+
+@cache_app.command("purge")
+def cache_purge_command() -> None:
+    """Delete the cache, including contributor emails in the handle file."""
+    root = cache_directory()
+    removed = cache_purge()
+    typer.echo(f"purged {root} ({removed} files)")
 
 
 def main() -> None:

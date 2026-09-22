@@ -43,6 +43,17 @@ _API_EVIDENCE: ContextVar[_ApiEvidence | None] = ContextVar(
     "checkowners_api_evidence",
     default=None,
 )
+_OFFLINE: ContextVar[bool] = ContextVar("checkowners_offline", default=False)
+
+
+def set_offline(enabled: bool) -> None:
+    """Record whether this process may open a network connection."""
+    _OFFLINE.set(enabled)
+
+
+def offline_enabled() -> bool:
+    """Return whether network access is disabled for this context."""
+    return _OFFLINE.get()
 
 
 def collection_timestamp() -> str:
@@ -186,12 +197,12 @@ def get_github_token() -> str:
 
 
 def get_github_client(token: str) -> Github | None:
-    """Create a PyGithub client, or None if token is empty.
+    """Create a PyGithub client, or None if offline or the token is empty.
 
     PyGithub ships in the optional ``github`` extra; when it is not installed
     the API-backed features degrade gracefully instead of crashing.
     """
-    if not token:
+    if offline_enabled() or not token:
         return None
     try:
         from github import Github as GithubClient  # noqa: PLC0415

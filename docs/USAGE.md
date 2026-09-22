@@ -19,7 +19,26 @@ flowchart LR
     Drift --> CI[CI output]
 ```
 
-State is cached per repo at `~/.checkowners/state/<repo-hash>.json` (override the base directory with `CHECKOWNERS_STATE_DIR`). `trends` is independent of the cached state: it runs its own `git log` pass to reconstruct per-period snapshots. `explain` and `owners` (`who`) also skip the cache: they analyze only the requested file or directory and do not write state.
+State is cached per repo at `~/.checkowners/state/<repo-hash>.json` (override the base directory with `CHECKOWNERS_STATE_DIR`). The hash is the normalized `origin` URL when the repo has one, so two checkouts of the same remote share a file. A repo with no `origin` is keyed by its absolute path. `trends` is independent of the cached state: it runs its own `git log` pass to reconstruct per-period snapshots. `explain` and `owners` (`who`) also skip the cache: they analyze only the requested file or directory and do not write state.
+
+Downstream commands reuse that file only when its commit is `HEAD`, its scoring config hash matches, and its model ids match. Otherwise they re-analyze. Place these flags before the command name:
+
+```bash
+checkowners --allow-stale decay
+checkowners --max-age 86400 bus-factor
+checkowners --no-cache decay
+checkowners --offline analyze
+```
+
+`--allow-stale` reuses a map whose commit is not `HEAD`. `--max-age SECONDS` refuses a map older than that many seconds (`0` expires immediately). Omit it for no age limit. `--no-cache` neither reads nor writes the analysis cache. `--offline` makes no network calls and prints:
+
+```text
+Network access: disabled
+Review evidence: unavailable
+Team verification: unavailable
+```
+
+`checkowners cache path` prints the cache directory. `cache info` shows size, file counts, and each stored commit (`--json` for the same fields). `cache clear` deletes analysis state and graph files and keeps `handles.json`. `cache purge` deletes everything under the cache directory, including contributor emails in `handles.json`. State and graph files are evicted oldest-first when they exceed 256 MiB. `handles.json` is not evicted; purge deletes it.
 
 ## Configuration
 
@@ -149,7 +168,7 @@ Keys with no implementation yet are refused on `version: 2`, including `critical
 | `scoring.recency_half_life_days` | `model.signals.recency.half_life_days` |
 | `scoring.*_reliability` | `model.signals.*.reliability` |
 
-JSON from every command includes `models` with `ownership`, `risk`, and `topology`. Analyze, explain, and owners JSON also keep `model_version` equal to the ownership id for one minor cycle. Human reports print the applicable ids on stderr. Per-repo analyze state and the graph cache are reused only when all three ids match; a file without `models` is ignored.
+JSON from every command includes `models` with `ownership`, `risk`, and `topology`. Analyze, explain, and owners JSON also keep `model_version` equal to the ownership id for one minor cycle. Human reports print the applicable ids on stderr. Per-repo analyze state and the graph cache are reused only when all three ids match and the scoring config hash matches; a file without `models` is ignored.
 
 The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` environment variable instead. `checkowners.yml` is committed to your repo, so storing a token here would push it to GitHub. `load_config` raises a clear error if `github.token` is present. For the same reason, `notifications.webhook_url` supports a `${ENV_VAR}` reference (for example `${CHECKOWNERS_WEBHOOK_URL}`) so a committed config can point at a secret endpoint without storing it; an unset variable resolves to an empty string.
 
@@ -268,7 +287,7 @@ Weights and reliabilities are configurable under `scoring`. Review weight is omi
 
 Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis.ignore_revs_applied` and `analysis.ignore_revs_file` so you can see whether that correction ran, `analysis.mailmap_applied` / `analysis.mailmap_file` for `.mailmap`, and `analysis.excluded_gitattributes` / `analysis.excluded_static` for how many paths each exclusion mechanism dropped. Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
-**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3` and `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema v6; files whose model ids do not match are ignored. To restore the previous gate and undamped frequency for one cycle:
+**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3` and `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema v7; files whose model ids or schema do not match are ignored and replaced on the next analyze. To restore the previous gate and undamped frequency for one cycle:
 
 ```yaml
 qualification:

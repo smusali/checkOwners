@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -37,6 +38,7 @@ from checkowners.cli import (
     _signal_label,
     app,
 )
+from checkowners.config import load_config
 from checkowners.decay import DecayReport
 from checkowners.explain import ExplainedOwner, PathExplanation
 from checkowners.generate import (
@@ -69,7 +71,15 @@ from checkowners.models import (
     TeamCluster,
     models_payload,
 )
+from checkowners.notify import _post_webhook
 from checkowners.onboard import OnboardingPath, OnboardingStep
+from checkowners.state import (
+    load_ownership,
+    read_graph_cache,
+    read_handle_cache,
+    write_handle_cache,
+    write_state,
+)
 from checkowners.topology import TopologyReport
 from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationError
@@ -2255,3 +2265,150 @@ def test_exit_code_contract(
     assert result.exit_code == expected, result.output
     if command == "github-action" and kind == "findings":
         assert (tmp_path / "drift.json").is_file()
+
+
+def test_stale_cache_is_refused_unless_allow_stale() -> None:
+    write_state(
+        Path.cwd(),
+        replace(_EMPTY_OWNERSHIP, analysis_ref="oldsha"),
+        config=load_config(),
+    )
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP) as analyze:
+        refused = runner.invoke(app, ["decay"])
+    assert refused.exit_code == 0, refused.output
+    assert analyze.called
+    assert "Cached analysis is stale" in refused.stdout + refused.stderr
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP) as analyze:
+        allowed = runner.invoke(app, ["--allow-stale", "decay"])
+    assert allowed.exit_code == 0, allowed.output
+    assert not analyze.called
+    assert "Using cached analysis" in allowed.stdout + allowed.stderr
+
+
+def test_max_age_zero_refuses_fresh_cache() -> None:
+    write_state(Path.cwd(), _EMPTY_OWNERSHIP, config=load_config())
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP) as analyze:
+        result = runner.invoke(app, ["--max-age", "0", "decay"])
+    assert result.exit_code == 0, result.output
+    assert analyze.called
+    assert "Cached analysis is stale" in result.stdout + result.stderr
+
+
+def test_no_cache_skips_read_and_write() -> None:
+    write_state(Path.cwd(), _EMPTY_OWNERSHIP, config=load_config())
+    with patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP) as analyze:
+        result = runner.invoke(app, ["--no-cache", "decay"])
+    assert result.exit_code == 0, result.output
+    assert analyze.called
+    loaded = load_ownership(Path.cwd())
+    assert loaded is not None
+    assert loaded.paths == {}
+
+
+def test_no_cache_skips_hysteresis_write() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["--no-cache", "drift"])
+    assert result.exit_code == 0, result.output
+    assert load_ownership(Path.cwd()) is None
+
+
+def test_graph_loader_reuses_cache_and_skips_when_disabled() -> None:
+    pytest.importorskip("networkx")
+    config = load_config()
+    repo = Path.cwd()
+    with patch("checkowners.cli._load_or_analyze", return_value=_EMPTY_OWNERSHIP):
+        first = runner.invoke(app, ["graph"])
+        second = runner.invoke(app, ["graph"])
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    cached = read_graph_cache(
+        repo,
+        _EMPTY_OWNERSHIP.last_analyzed,
+        config=config,
+        analysis_ref=_EMPTY_OWNERSHIP.analysis_ref,
+    )
+    assert cached is not None
+    with patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP):
+        skipped = runner.invoke(app, ["--no-cache", "graph"])
+    assert skipped.exit_code == 0, skipped.output
+    assert (
+        read_graph_cache(
+            repo,
+            _EMPTY_OWNERSHIP.last_analyzed,
+            config=config,
+            analysis_ref=_EMPTY_OWNERSHIP.analysis_ref,
+        )
+        == cached
+    )
+
+
+def test_stale_message_uses_unknown_for_blank_ref() -> None:
+    target = write_state(
+        Path.cwd(),
+        replace(_EMPTY_OWNERSHIP, analysis_ref="oldsha"),
+        config=load_config(),
+    )
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["analysis_ref"] = ""
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP):
+        blank = runner.invoke(app, ["decay"])
+    assert blank.exit_code == 0, blank.output
+    assert "ref unknown is not HEAD" in blank.stderr
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["analysis_ref"] = 1
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP):
+        numeric = runner.invoke(app, ["decay"])
+    assert numeric.exit_code == 0, numeric.output
+    assert "ref unknown is not HEAD" in numeric.stderr
+
+
+def test_cache_commands(tmp_path: Path) -> None:
+    write_state(Path.cwd(), _EMPTY_OWNERSHIP, config=load_config())
+    write_handle_cache({"alice@example.com": "@alice"})
+    path_result = runner.invoke(app, ["cache", "path"])
+    assert path_result.exit_code == 0, path_result.output
+    assert path_result.stdout.strip() == str(tmp_path)
+    text = runner.invoke(app, ["cache", "info"])
+    assert text.exit_code == 0, text.output
+    assert "schema_version: 7" in text.stdout
+    assert "handles: yes" in text.stdout
+    info = runner.invoke(app, ["cache", "info", "--json"])
+    assert info.exit_code == 0, info.output
+    payload = json.loads(info.stdout)
+    assert payload["state_files"] == 1
+    assert payload["handles"] is True
+    assert payload["schema_version"] == 7
+    cleared = runner.invoke(app, ["cache", "clear"])
+    assert cleared.exit_code == 0, cleared.output
+    assert read_handle_cache()["alice@example.com"] == "@alice"
+    assert json.loads(runner.invoke(app, ["cache", "info", "--json"]).stdout)["state_files"] == 0
+    purged = runner.invoke(app, ["cache", "purge"])
+    assert purged.exit_code == 0, purged.output
+    assert "purged" in purged.stdout
+    assert read_handle_cache() == {}
+    after = runner.invoke(app, ["cache", "info"])
+    assert after.exit_code == 0, after.output
+    assert "handles: no" in after.stdout
+
+
+def test_offline_analyze_makes_no_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse_socket(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("socket used")
+
+    monkeypatch.setenv("GITHUB_TOKEN", "ghs_test")
+    monkeypatch.setattr(socket, "socket", refuse_socket)
+    with patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP):
+        result = runner.invoke(app, ["--offline", "analyze", "--json"])
+    assert result.exit_code == 0, result.output
+    combined = result.stdout + result.stderr
+    assert "Network access: disabled" in combined
+    assert "Review evidence: unavailable" in combined
+    assert "Team verification: unavailable" in combined
+    assert _post_webhook("https://example.invalid/hook", {"ok": True}) is False

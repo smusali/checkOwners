@@ -9,6 +9,8 @@
 
 Infer CODEOWNERS from git history with confidence scoring, a knowledge graph, expertise decay detection, team topology inference, review load balancing, and onboarding paths. Core inference is deterministic git analysis; no LLM is in that path. CI-native: structured JSON output, GITHUB_OUTPUT integration, composite GitHub Action.
 
+> This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful.
+
 This repository moved here from a previous GitHub organization; Sigstore attestations for 0.5.0 and earlier record that earlier publisher. 0.5.1 and later are published from `smusali/checkowners`.
 
 > CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration.
@@ -94,6 +96,7 @@ Exit status is the same for every command: 0 clean, 1 internal error, 2 configur
 - [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md): full configuration reference, ownership scoring formula, drift severity tiers, GitHub Actions integration, comparison table.
 - [docs/METHODOLOGY.md](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md): signal availability, renormalization, and evidence quality.
 - [docs/FAQ.md](https://github.com/smusali/checkowners/blob/main/docs/FAQ.md): identity (usernames vs emails, teams + subteams), GitHub API access, file locations, tuning, troubleshooting.
+- [docs/PRIVACY.md](https://github.com/smusali/checkowners/blob/main/docs/PRIVACY.md): what is read, what leaves the machine, the cache, `cache purge`, and the threat model.
 - [docs/CONTRIBUTING.md](https://github.com/smusali/checkowners/blob/main/docs/CONTRIBUTING.md): dev setup, commands, conventional commits, code conventions, PR workflow.
 - [ROADMAP.md](https://github.com/smusali/checkowners/blob/main/ROADMAP.md): milestones and how to pick an issue. The [action-item register](https://github.com/smusali/checkowners/blob/main/docs/ACTION_ITEMS.md) is the full list.
 - [Good first issues](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) · [Discussions](https://github.com/smusali/checkowners/discussions)

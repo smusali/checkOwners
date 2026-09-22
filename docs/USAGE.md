@@ -4,6 +4,8 @@ Full configuration, scoring, and CI reference. For a quick command list see the 
 
 ## Pipeline
 
+> This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful.
+
 ```mermaid
 flowchart LR
     Git[Git history] --> Analyze[analyze]
@@ -534,6 +536,8 @@ Representative tools, so the credits are reviewable: [tomasbjerre/generate-codeo
 - **Ownership-audit CLIs.** Coverage stats over the committed file (owned vs unowned, per-owner counts). CheckOwners scores inferred expertise and knowledge risk.
 - **Bus/truck-factor research tools.** Formal removal simulation over a knowledge distribution. CheckOwners reports a capped `qualified_owner_count` plus decay, topology, and balance. Those are not the same metric; see [Qualified owner count](#qualified-owner-count).
 - **Commercial behavioral analysis.** Mature framing around knowledge distribution, key-person risk, and team/code alignment. CheckOwners is the local-first open-source ownership-intelligence layer, not a commercial suite clone.
+
+The project will not be positioned around who contributes least, who is really working, or which engineer is underperforming. Position it around repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. See [Privacy](PRIVACY.md).
 
 ## JSON contract
 

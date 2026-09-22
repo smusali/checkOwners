@@ -212,6 +212,10 @@ Any non-zero status fails the step. The Action fails from that process status wh
 
 ## Positioning
 
+### Is this a performance-measurement tool?
+
+No. This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful. The project will not be positioned around who contributes least, who is really working, or which engineer is underperforming. Position it around repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. What is read, what leaves the machine, and how to delete the cache are in [Privacy](PRIVACY.md).
+
 ### How does CheckOwners compare to other CODEOWNERS tools?
 
 CheckOwners treats code ownership as a scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.

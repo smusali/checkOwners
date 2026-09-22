@@ -147,6 +147,7 @@ from checkowners.models import (
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
 from checkowners.patterns import matching_rules, parse_rules
 from checkowners.privacy import (
+    KNOWLEDGE_RISK_NOTICE,
     exclude_contributors,
     is_excluded,
     label,
@@ -533,10 +534,15 @@ def _emit_json(
     typer.echo(json.dumps(_public_payload(stamped), indent=2, sort_keys=True))
 
 
+def _report_notice() -> None:
+    err_console.print(KNOWLEDGE_RISK_NOTICE, highlight=False, markup=False, soft_wrap=True)
+
+
 def _report_models(*names: Literal["ownership", "risk", "topology"]) -> None:
     payload = models_payload()
     parts = [f"{name} {payload[name]}" for name in names]
     err_console.print(f"[dim]models: {', '.join(parts)}[/dim]")
+    _report_notice()
 
 
 def _resolve_clock(repo_root: Path) -> tuple[datetime, str]:
@@ -1879,10 +1885,12 @@ def balance(json_output: JsonOption = False) -> None:
         return
     if not report.loads:
         console.print("[yellow]No review load data available.[/yellow]")
+        _report_notice()
         _finish_analysis(ownership)
         return
     console.print(f"[dim]source: {report.source}; average reviews: {report.average:.1f}[/dim]")
     if _aggregate():
+        _report_notice()
         _finish_analysis(ownership)
         return
     if report.fallback_reason:
@@ -1912,6 +1920,7 @@ def balance(json_output: JsonOption = False) -> None:
                 f" to {_person(suggestion.candidate)} "
                 f"(confidence {suggestion.confidence:.2f})"
             )
+    _report_notice()
     _finish_analysis(ownership)
 
 
@@ -1995,6 +2004,7 @@ def onboard(
         return
     if not report.steps:
         console.print(f"[yellow]No onboarding path could be built for {path!r}.[/yellow]")
+        _report_notice()
         _finish_analysis(ownership)
         return
     table = Table(title=f"Onboarding path: {path}")
@@ -2012,6 +2022,7 @@ def onboard(
             escape(step.description),
         )
     console.print(table)
+    _report_notice()
     _finish_analysis(ownership)
 
 

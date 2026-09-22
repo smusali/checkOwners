@@ -1,0 +1,19 @@
+- id: checkowners-validate
+  name: Validate CODEOWNERS syntax
+  description: Validate CODEOWNERS against GitHub's documented semantics.
+  entry: checkowners validate
+  language: python
+  pass_filenames: false
+  files: '(^|/)CODEOWNERS$'
+  stages: [pre-commit, pre-merge-commit, pre-push, manual]
+  minimum_pre_commit_version: "3.2.0"
+
+- id: checkowners-drift
+  name: Detect CODEOWNERS drift
+  description: Compare CODEOWNERS to inferred ownership, failing only on findings outside the baseline.
+  entry: checkowners drift --baseline .checkowners-baseline.json
+  language: python
+  additional_dependencies: [".[github]"]
+  pass_filenames: false
+  stages: [pre-push]
+  minimum_pre_commit_version: "3.2.0"

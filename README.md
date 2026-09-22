@@ -46,6 +46,19 @@ pip install "checkowners[github]"     # + GitHub API handle/team/review resoluti
 pip install "checkowners[all]"        # everything
 ```
 
+## Pre-commit
+
+```yaml
+repos:
+  - repo: https://github.com/smusali/checkowners
+    rev: <commit sha>
+    hooks:
+      - id: checkowners-validate
+      - id: checkowners-drift
+```
+
+Pin `rev` to a full commit SHA until the `0.6.0` tag exists. `checkowners-validate` runs on commit when a CODEOWNERS file changes. `checkowners-drift` runs on push and reads `.checkowners-baseline.json`. Create that file with `checkowners baseline create` before enabling the drift hook. Install the push hook with `pre-commit install --hook-type pre-push`, or set `default_install_hook_types: [pre-commit, pre-push]`. Details are in [Pre-commit](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#pre-commit).
+
 ## Quick start
 
 ```bash

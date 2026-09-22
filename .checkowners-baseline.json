@@ -1,0 +1,726 @@
+{
+  "findings": [
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/DISCUSSION_TEMPLATE/q-a.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/FUNDING.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/ISSUE_TEMPLATE/bug.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/ISSUE_TEMPLATE/config.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/ISSUE_TEMPLATE/false-positive.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/ISSUE_TEMPLATE/feature.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/checkowners.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/dependabot.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/pull_request_template.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/workflows/checkowners-example.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/workflows/ci.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/workflows/fuzz.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/workflows/publish.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".github/workflows/security.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".gitignore",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": ".pre-commit-config.yaml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "CODE_OF_CONDUCT.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "LICENSE",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "README.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "ROADMAP.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "SECURITY.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "action.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/__init__.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/action_report.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/analyze.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/balance.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/baseline.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/busfactor.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/cli.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/config.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/decay.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/drift.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/expertise.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/explain.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/generate.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/github.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/graph.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/models.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/onboard.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/patterns.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/privacy.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/py.typed",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/state.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/topology.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/trends.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "checkowners/validate.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "corpus/README.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "corpus/compatibility.jsonl",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "corpus/realworld.jsonl",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/ACTION_ITEMS.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/CHANGELOG.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/CODEOWNERS",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/CONTRIBUTING.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/FAQ.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/METHODOLOGY.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/PRIVACY.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/PROJECT_STATE_AND_ROADMAP.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/USAGE.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/limitations.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "docs/schemas/commands-1.0.json",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "examples/README.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "examples/demo.svg",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "examples/org-with-teams/CODEOWNERS",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "examples/org-with-teams/checkowners.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "examples/pr-comment.svg",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "examples/sample-output.md",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "examples/solo-maintainer/CODEOWNERS",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "examples/solo-maintainer/checkowners.yml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "pyproject.toml",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "requirements-tools.in",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/__init__.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/codeowners_reference.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/conftest.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_action_report.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_analyze.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_balance.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_baseline.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_busfactor.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_cli.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_config.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_decay.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_drift.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_expertise.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_explain.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_generate.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_github.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_golden.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_graph.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_json_contract.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_models.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_onboard.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_patterns.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_privacy.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_state.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_topology.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_trends.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tests/test_validate.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tools/build_codeowners_corpus.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tools/check_action_pins.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tools/check_changelog.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tools/check_json_contract.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tools/check_pypi_readme.py",
+      "rule": "single-expert"
+    },
+    {
+      "owners": [
+        "samir.musali@gmail.com"
+      ],
+      "path": "tools/comment_on_pr.py",
+      "rule": "single-expert"
+    }
+  ],
+  "schema_version": "1.0"
+}

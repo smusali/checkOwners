@@ -73,7 +73,13 @@ from checkowners.models import (
 )
 from checkowners.notify import _post_webhook
 from checkowners.onboard import OnboardingPath, OnboardingStep
-from checkowners.state import load_ownership, read_handle_cache, write_handle_cache, write_state
+from checkowners.state import (
+    load_ownership,
+    read_graph_cache,
+    read_handle_cache,
+    write_handle_cache,
+    write_state,
+)
 from checkowners.topology import TopologyReport
 from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationError
@@ -2299,6 +2305,70 @@ def test_no_cache_skips_read_and_write() -> None:
     assert loaded.paths == {}
 
 
+def test_no_cache_skips_hysteresis_write() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["--no-cache", "drift"])
+    assert result.exit_code == 0, result.output
+    assert load_ownership(Path.cwd()) is None
+
+
+def test_graph_loader_reuses_cache_and_skips_when_disabled() -> None:
+    pytest.importorskip("networkx")
+    config = load_config()
+    repo = Path.cwd()
+    with patch("checkowners.cli._load_or_analyze", return_value=_EMPTY_OWNERSHIP):
+        first = runner.invoke(app, ["graph"])
+        second = runner.invoke(app, ["graph"])
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    cached = read_graph_cache(
+        repo,
+        _EMPTY_OWNERSHIP.last_analyzed,
+        config=config,
+        analysis_ref=_EMPTY_OWNERSHIP.analysis_ref,
+    )
+    assert cached is not None
+    with patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP):
+        skipped = runner.invoke(app, ["--no-cache", "graph"])
+    assert skipped.exit_code == 0, skipped.output
+    assert (
+        read_graph_cache(
+            repo,
+            _EMPTY_OWNERSHIP.last_analyzed,
+            config=config,
+            analysis_ref=_EMPTY_OWNERSHIP.analysis_ref,
+        )
+        == cached
+    )
+
+
+def test_stale_message_uses_unknown_for_blank_ref() -> None:
+    target = write_state(
+        Path.cwd(),
+        replace(_EMPTY_OWNERSHIP, analysis_ref="oldsha"),
+        config=load_config(),
+    )
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["analysis_ref"] = ""
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP):
+        blank = runner.invoke(app, ["decay"])
+    assert blank.exit_code == 0, blank.output
+    assert "ref unknown is not HEAD" in blank.stderr
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["analysis_ref"] = 1
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP):
+        numeric = runner.invoke(app, ["decay"])
+    assert numeric.exit_code == 0, numeric.output
+    assert "ref unknown is not HEAD" in numeric.stderr
+
+
 def test_cache_commands(tmp_path: Path) -> None:
     write_state(Path.cwd(), _EMPTY_OWNERSHIP, config=load_config())
     write_handle_cache({"alice@example.com": "@alice"})
@@ -2323,6 +2393,9 @@ def test_cache_commands(tmp_path: Path) -> None:
     assert purged.exit_code == 0, purged.output
     assert "purged" in purged.stdout
     assert read_handle_cache() == {}
+    after = runner.invoke(app, ["cache", "info"])
+    assert after.exit_code == 0, after.output
+    assert "handles: no" in after.stdout
 
 
 def test_offline_analyze_makes_no_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:

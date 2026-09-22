@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import os
 import subprocess
@@ -31,10 +32,14 @@ from checkowners.models import (
 from checkowners.state import (
     SCHEMA_VERSION,
     _as_gap_code,
+    _evict,
+    _file_size,
     _state_path,
     cache_clear,
+    cache_directory,
     cache_info,
     cache_purge,
+    config_hash,
     load_hysteresis,
     load_ownership,
     read_graph_cache,
@@ -790,11 +795,229 @@ def test_cache_evicts_oldest_state_files(tmp_path: Path, monkeypatch: pytest.Mon
 
 def test_cache_clear_keeps_handles_and_purge_removes_them(repo: Path) -> None:
     write_state(repo, _make_ownership())
-    write_handle_cache({"alice@example.com": "@alice"})
+    handles = write_handle_cache({"alice@example.com": "@alice"})
+    outside = repo.parent / "outside-dir"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("x", encoding="utf-8")
+    linked_dir = cache_directory() / "linked"
+    linked_dir.symlink_to(outside, target_is_directory=True)
+    alias = cache_directory() / "alias"
+    alias.symlink_to(handles.name)
     assert cache_info()["handles"] is True
     assert cache_clear() >= 1
     assert cache_info()["state_files"] == 0
     assert cache_info()["handles"] is True
     assert cache_purge() >= 1
     assert cache_info()["handles"] is False
+    assert not linked_dir.exists()
+    assert not alias.exists()
+    assert (outside / "keep.txt").is_file()
+
+
+def test_cache_purge_missing_directory_removes_nothing() -> None:
+    assert cache_purge() == 0
+
+
+def test_repository_identity_ignores_unusable_origin(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = repo / ".git" / "config"
+    config.parent.mkdir()
+    expected = f"path:{repo.resolve()}"
+    for body in (
+        '[core]\n\tbare = false\n[remote "origin"]\n\turl =\n',
+        '[remote "origin"]\n\turl = https://github.com\n',
+        '[remote "origin"]\n\turl = not-a-url\n',
+        '[remote "origin"]\n\turl = github.com:/\n',
+    ):
+        config.write_text(body, encoding="utf-8")
+        assert repository_identity(repo) == expected
+    config.write_text(
+        '[remote "origin"]\n\tfetch = +refs/heads/*\n\turl = https://github.com/acme/widget\n',
+        encoding="utf-8",
+    )
+    assert repository_identity(repo) == "origin:github.com/acme/widget"
+
+
+def test_repository_identity_follows_worktree_gitdir(tmp_path: Path) -> None:
+    common = tmp_path / "common"
+    common.mkdir()
+    (common / "config").write_text(
+        '[remote "origin"]\n\turl = https://user:token@GitHub.com/acme/widget.git\n',
+        encoding="utf-8",
+    )
+    git_dir = tmp_path / "wt.git"
+    git_dir.mkdir()
+    (git_dir / "commondir").write_text("../common\n", encoding="utf-8")
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / ".git").write_text("gitdir: ../wt.git\n", encoding="utf-8")
+    assert repository_identity(checkout) == "origin:github.com/acme/widget"
+
+    (git_dir / "commondir").write_text(f"{common}\n", encoding="utf-8")
+    (checkout / ".git").write_text(f"gitdir: {git_dir}\n", encoding="utf-8")
+    assert repository_identity(checkout) == "origin:github.com/acme/widget"
+
+    (git_dir / "commondir").unlink()
+    (git_dir / "config").write_text(
+        '[remote "origin"]\n\turl = git@github.com:acme/other\n',
+        encoding="utf-8",
+    )
+    assert repository_identity(checkout) == "origin:github.com/acme/other"
+
+    (checkout / ".git").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    assert repository_identity(checkout) == f"path:{checkout.resolve()}"
+
+
+def test_origin_url_ignores_unreadable_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    config = repo / ".git" / "config"
+    real = Path.read_text
+
+    def flaky(
+        self: Path,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> str:
+        if self == config:
+            raise OSError("denied")
+        return real(self, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "read_text", flaky)
+    assert repository_identity(repo).startswith("path:")
+
+
+def test_state_write_succeeds_without_fcntl(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_import = builtins.__import__
+
+    def guarded(name: str, *args: object, **kwargs: object) -> object:
+        if name == "fcntl":
+            raise ImportError
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded)
+    target = write_state(repo, _make_ownership())
+    assert target.is_file()
+    assert load_ownership(repo) is not None
+
+
+def test_atomic_write_removes_temp_on_failure(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = Path.write_text
+
+    def fail_temp(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if self.name.endswith(".tmp"):
+            raise OSError("disk full")
+        return real(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "write_text", fail_temp)
+    with pytest.raises(OSError, match="disk full"):
+        write_state(repo, _make_ownership())
+    assert list(_state_path(repo).parent.glob("*.tmp")) == []
+
+
+def test_file_size_is_zero_when_stat_fails(tmp_path: Path) -> None:
+    target = tmp_path / "state.json"
+    target.write_text("{}", encoding="utf-8")
+    with patch.object(Path, "stat", side_effect=OSError("stat")):
+        assert _file_size(target) == 0
+
+
+def test_evict_stops_once_under_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    paths: list[Path] = []
+    for name in ("oldest", "middle", "newest"):
+        root = tmp_path / name
+        root.mkdir()
+        paths.append(write_state(root, _make_ownership()))
+    for index, path in enumerate(paths):
+        os.utime(path, (index + 1, index + 1))
+    monkeypatch.setattr(
+        "checkowners.state.CACHE_LIMIT_BYTES",
+        paths[1].stat().st_size + paths[2].stat().st_size,
+    )
+    _evict(paths[2])
+    assert not paths[0].exists()
+    assert paths[1].exists()
+    assert paths[2].exists()
+
+
+def test_cache_info_blanks_missing_or_non_string_fields(repo: Path) -> None:
+    target = write_state(repo, _make_ownership())
+    target.write_text("[]", encoding="utf-8")
+    assert cache_info()["entries"][0]["repo_id"] == ""
+    target.write_text(
+        json.dumps({"repo_id": 1, "analysis_ref": None, "last_analyzed": "2026-01-01T00:00:00Z"}),
+        encoding="utf-8",
+    )
+    entry = cache_info()["entries"][0]
+    assert entry["repo_id"] == ""
+    assert entry["analysis_ref"] == ""
+    assert entry["last_analyzed"] == "2026-01-01T00:00:00Z"
+
+
+def test_graph_cache_rejects_mismatched_identity_config_and_ref(tmp_path: Path) -> None:
+    graph = {"nodes": [], "edges": []}
+    target = write_graph_cache(tmp_path, _NOW, graph, config=Config(), analysis_ref="abc")
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["repo_id"] = "origin:elsewhere"
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert read_graph_cache(tmp_path, _NOW, config=Config(), analysis_ref="abc") is None
+
+    stored["repo_id"] = repository_identity(tmp_path)
+    stored["config_hash"] = "0" * 64
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert read_graph_cache(tmp_path, _NOW, config=Config(), analysis_ref="abc") is None
+
+    stored["config_hash"] = config_hash(Config())
+    stored["analysis_ref"] = "other"
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert read_graph_cache(tmp_path, _NOW, config=Config(), analysis_ref="abc") is None
+
+    stored["analysis_ref"] = "abc"
+    stored["graph"] = []
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert read_graph_cache(tmp_path, _NOW, config=Config(), analysis_ref="abc") is None
+
+    stored["graph"] = graph
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert read_graph_cache(tmp_path, _NOW, config=Config(), analysis_ref="abc") == graph
+
+
+def test_reusable_ownership_rejects_incomplete_payload(repo: Path) -> None:
+    target = write_state(repo, _make_ownership(), config=Config())
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["inferred"] = []
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert read_state(repo) is not None
+    assert reusable_ownership(repo, Config(), head="deadbeef") is None
+
+
+def test_reusable_ownership_honors_positive_max_age(repo: Path) -> None:
+    old = datetime(2020, 1, 1, tzinfo=UTC)
+    target = write_state(
+        repo,
+        OwnershipMap(paths={}, last_analyzed=old, analysis_ref="deadbeef"),
+        config=Config(),
+    )
+    assert reusable_ownership(repo, Config(), head="deadbeef", max_age=60) is None
+    fresh = reusable_ownership(repo, Config(), head="deadbeef", max_age=10**12)
+    assert fresh is not None
+    assert fresh.analysis_ref == "deadbeef"
+
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["last_analyzed"] = "2020-01-01T00:00:00"
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    assert reusable_ownership(repo, Config(), head="deadbeef", max_age=60) is None
     assert read_handle_cache() == {}

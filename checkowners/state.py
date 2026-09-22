@@ -180,8 +180,6 @@ def _normalize_remote(url: str) -> str:
         return ""
     host = match.group(1).lower()
     path = match.group(2).strip("/")
-    if not host or not path:
-        return ""
     return f"{host}/{path}"
 
 
@@ -233,12 +231,7 @@ def _read_json(path: Path) -> dict[str, Any] | None:
         return None
     if not isinstance(data, dict):
         return None
-    parsed: dict[str, Any] = {}
-    for key, value in data.items():
-        if not isinstance(key, str):
-            return None
-        parsed[key] = value
-    return parsed
+    return {str(key): value for key, value in data.items()}
 
 
 def _acquire_lock(handle: IO[str]) -> None:
@@ -596,10 +589,10 @@ def cache_purge() -> int:
         return 0
     removed = 0
     for child in list(base.iterdir()):
-        if child.is_dir():
+        if child.is_dir() and not child.is_symlink():
             removed += sum(1 for path in child.rglob("*") if path.is_file())
             shutil.rmtree(child)
-        elif child.is_file() or child.is_symlink():
+        else:
             child.unlink()
             removed += 1
     return removed

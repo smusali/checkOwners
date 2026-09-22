@@ -155,10 +155,10 @@ Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.
    ```bash
    pip-compile --generate-hashes --extra graph --extra github -o requirements.lock pyproject.toml
    pip-compile --generate-hashes --extra graph --extra github --extra dev --unsafe-package checkowners -o requirements-dev.lock pyproject.toml
-   pip-compile --generate-hashes --no-strip-extras -o requirements-tools.lock requirements-tools.in
+   uv pip compile --generate-hashes --universal --no-strip-extras --no-emit-package pip -o requirements-tools.lock requirements-tools.in
    ```
 
-   `requirements-tools.lock` pins hatch, readme-renderer, cyclonedx-bom, and pip-audit for CI and the release workflow. A version-only bump does not need a lock refresh. `requirements.lock` does not pin `checkowners` itself; the Action installs the committed wheel. After a `requirements-dev.lock` refresh, `pyyaml-ft` must still carry `python_version >= "3.13"`. That package is libcst's 3.13+ YAML backend (and a marked `dev` extra); without the marker, hashed installs fail on 3.11 and 3.12.
+   `requirements-tools.lock` pins hatch, readme-renderer, cyclonedx-bom, and pip-audit for CI and the release workflow. A version-only bump does not need a lock refresh. Compile that lock with `uv pip compile --universal` so environment markers stay in the file. Hatch needs `backports-zstd` only before Python 3.14, and on Linux it also needs `distro`, `jeepney`, and `secretstorage`. `pip-compile` on macOS drops those markers, and a hashed install then fails in CI. `requirements.lock` does not pin `checkowners` itself; the Action installs the committed wheel. After a `requirements-dev.lock` refresh, `pyyaml-ft` must still carry `python_version >= "3.13"`. That package is libcst's 3.13+ YAML backend (and a marked `dev` extra); without the marker, hashed installs fail on 3.11 and 3.12.
 5. Promote `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, leave a fresh non-empty `[Unreleased]`, and refresh the compare links at the bottom of the changelog.
 6. Confirm `python tools/check_changelog.py vX.Y.Z` succeeds. Merge that commit to `main`.
 

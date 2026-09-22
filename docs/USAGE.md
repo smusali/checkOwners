@@ -88,6 +88,9 @@ drift:
   mode: commit                # commit | repo | both
   min_confidence_delta: 0.2   # suppress small-delta drift
   hysteresis_runs: 1          # severity flips on first observation; raise to require N runs
+  baseline_file: ""           # accepted-findings file; fail only on new findings
+
+suppressions: []              # explicit, reason-required; see the adoption guide
 
 notifications:
   webhook_url: ""             # literal, or ${ENV_VAR} to read from the environment
@@ -118,6 +121,7 @@ The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` enviro
 |----------|-------------|------|------------|
 | `CHECKOWNERS_CONFIG` | Action `config` input, or the user | Config file path (relative to repo root, or absolute) | Wins over `.github/checkowners.yml` |
 | `CHECKOWNERS_DRIFT_MODE` | Action `mode` input, or the user | `commit` / `repo` / `both` | Applied after YAML load; wins over `drift.mode` |
+| `CHECKOWNERS_BASELINE` | Action `baseline` input, or the user | Accepted-findings file path | Applied after YAML load; wins over `drift.baseline_file` |
 | `CHECKOWNERS_STATE_DIR` | Action, or the user | State / handle / graph cache root | Wins over `~/.checkowners` |
 | `GITHUB_TOKEN` | Action `github_token` input, or the user | Only supported token source | Never read from YAML (`github.token` is rejected) |
 | `GITHUB_REPOSITORY` | GitHub runner | `owner/repo` for review coverage, topology, balance | Required for those API features; ignored otherwise |
@@ -125,6 +129,44 @@ The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` enviro
 | `SOURCE_DATE_EPOCH` | User or CI | Integer POSIX seconds used as the analysis instant when `--as-of` is omitted | After `--as-of`; before HEAD committer time |
 
 The composite Action sets `CHECKOWNERS_STATE_DIR` to `${{ runner.temp }}/checkowners-state`. CLI and hand-rolled CI must set it themselves if they want an ephemeral cache.
+
+## Turning checkOwners on for an existing large repository
+
+Enabling drift on a repository that already has thousands of mismatches fails CI on day one. Capture today's findings, commit the file, and fail only on new ones.
+
+```bash
+checkowners baseline create
+# writes .checkowners-baseline.json
+git add .checkowners-baseline.json
+```
+
+Then pass the file to every gate:
+
+```bash
+checkowners drift --baseline .checkowners-baseline.json
+```
+
+Or set `drift.baseline_file: .checkowners-baseline.json` in `.github/checkowners.yml`, or pass the Action `baseline` input (exported as `CHECKOWNERS_BASELINE`). The CLI flag wins over the environment variable, which wins over the config key.
+
+The file is JSON (`schema_version: "1.0"`) with a sorted `findings` list. Each finding is identified by `rule` plus `path` plus `owners`. Line numbers and CODEOWNERS order are not part of the identity, so reordering the file does not invalidate the baseline.
+
+Rules that can appear: `missing`, `stale`, `changed`, and `single-expert` (qualified-owner critical paths). Decay is not snapshotted.
+
+When a finding is genuinely fixed, the matching baseline row is reported as stale (`stale_baseline` in JSON and "Stale baseline" in the summary). That does not fail the run. Re-run `checkowners baseline create` to shrink the file.
+
+For a named exception that should not live in the bulk snapshot, add an explicit suppression. A reason is required. Expiry is optional. An expired row fails the command instead of keeping the silence:
+
+```yaml
+suppressions:
+  - path: legacy/**
+    rule: single-expert
+    expires: 2026-12-31
+    reason: "Scheduled for retirement in Q4"
+```
+
+`path` uses CODEOWNERS pattern matching. `rule` must be one of `missing`, `stale`, `changed`, or `single-expert`. `drift`, `notify`, and `github-action` apply suppressions first, then the baseline. Both commands print `baselined`, `suppressed`, and `stale_baseline` counts so the remaining debt stays visible.
+
+A suppression without a reason, with an unknown rule, or with a date that is not `YYYY-MM-DD` is a configuration error at load.
 
 ## Determinism
 
@@ -335,7 +377,7 @@ Set `max_output_entries` (default `50`) to cap each list in those summaries and 
 
 The composite action exports `GITHUB_TOKEN` on the `github-action` step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
 
-The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
+The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking, `baseline` for an accepted-findings file (fail only on new findings), `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
 
 The action fails fast with a clear error when it detects a shallow clone: `git log` and `git blame` need history, so the `actions/checkout` step must set `fetch-depth: 0`.
 

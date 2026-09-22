@@ -166,6 +166,22 @@ Four filters can drop a path: `.gitattributes` marks it `linguist-generated` or 
 
 `notifications.severity_threshold` decides when a webhook fires, and `--json` always includes the severity field so CI workflows can branch on it.
 
+### How do I turn checkOwners on without failing on every existing finding?
+
+`checkowners baseline create` writes `.checkowners-baseline.json` with today's findings. Pass that file with `--baseline`, `drift.baseline_file`, or the Action `baseline` input. Subsequent runs fail only on findings whose identity is not in the file. Identity is `rule` plus `path` plus owner set, so a CODEOWNERS reorder does not invalidate the snapshot. See [Turning checkOwners on for an existing large repository](USAGE.md#turning-checkowners-on-for-an-existing-large-repository).
+
+### What is the difference between a baseline and a suppression?
+
+The baseline is a bulk snapshot of current debt so CI can start green. A suppression is a named exception with a mandatory reason and an optional expiry. Use a suppression when you can explain one rule on one path; use the baseline when you need to adopt on a large existing tree. Both counts appear in every `drift` / `notify` / Action summary.
+
+### Why does a suppression require a reason?
+
+A reasonless ignore becomes invisible debt. `load_config` rejects a suppression that omits `reason` or leaves it blank. Expiry is optional. When `expires` is set and the analysis date is after that day, the command fails and prints the path, rule, date, and reason. It does not keep suppressing.
+
+### What happens when I fix a finding that is still in the baseline?
+
+The leftover baseline row is reported as stale (`stale_baseline`). That does not fail the run. Re-run `checkowners baseline create` to drop rows that no longer exist.
+
 ### How do I fail a PR only on critical drift?
 
 The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.checkowners_drift).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want the job summary and optional PR comment without blocking.

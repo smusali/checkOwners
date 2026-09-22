@@ -24,6 +24,7 @@ from checkowners.action_report import (
     qualified_humans,
     summarize_bus_factor,
     summarize_decay,
+    summarize_drift,
     write_step_summary,
 )
 
@@ -180,6 +181,7 @@ def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         encoding="utf-8",
     )
     assert "No drift detected." in build(limit=5)
+    assert "Baselined: 0. Suppressed: 0. Stale baseline: 0." in build(limit=5)
     (tmp_path / "bus_factor.json").write_text(
         json.dumps(
             {
@@ -266,6 +268,31 @@ def test_existing_id_finds_marker_on_second_page() -> None:
     assert found == 4242
     assert mocked.call_count == 2
     assert "page=2" in mocked.call_args_list[1][0][0].full_url
+
+
+def test_summaries_include_ratchet_counts() -> None:
+    drift = summarize_drift(
+        {
+            "missing": [{"path": "a.py"}],
+            "stale": [],
+            "changed": [],
+            "notes": [],
+            "baselined": 4,
+            "suppressed": 2,
+            "stale_baseline": [{"rule": "missing", "path": "gone.py", "owners": []}],
+        },
+        50,
+    )
+    assert drift["counts"]["baselined"] == 4
+    assert drift["counts"]["suppressed"] == 2
+    assert drift["counts"]["stale_baseline"] == 1
+    bus = summarize_bus_factor(
+        {"entries": [], "baselined": 4, "suppressed": 2, "stale_baseline": []},
+        50,
+    )
+    assert bus["counts"]["baselined"] == 4
+    assert bus["counts"]["suppressed"] == 2
+    assert bus["counts"]["stale_baseline"] == 0
 
 
 def test_existing_id_returns_none_after_short_page() -> None:

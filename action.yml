@@ -35,6 +35,12 @@ inputs:
     description: Fail the action when drift_detected is true.
     required: false
     default: "true"
+  baseline:
+    description: >-
+      Path to an accepted-findings baseline file. When set, the Action
+      fails only on findings that are not in the file.
+    required: false
+    default: ""
   comment_on_pr:
     description: >-
       Post a drift + qualified-owners summary comment on same-repo pull requests.
@@ -207,6 +213,7 @@ runs:
         CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
         GITHUB_TOKEN: ${{ inputs.github_token }}
         CHECKOWNERS_FAIL_ON_DRIFT: ${{ inputs.fail_on_drift }}
+        CHECKOWNERS_BASELINE: ${{ inputs.baseline }}
         CHECKOWNERS_INCLUDE_BUS_FACTOR: ${{ inputs.include_bus_factor }}
         CHECKOWNERS_INCLUDE_DECAY: ${{ inputs.include_decay }}
         MAX_OUTPUT_ENTRIES: ${{ inputs.max_output_entries }}

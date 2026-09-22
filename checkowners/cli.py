@@ -39,6 +39,14 @@ from checkowners.analyze import (
     resolve_as_of,
 )
 from checkowners.balance import BalanceReport, analyze_balance
+from checkowners.baseline import (
+    DEFAULT_BASELINE_PATH,
+    RatchetOutcome,
+    apply_ratchet,
+    finding_payload,
+    load_baseline,
+    write_baseline,
+)
 from checkowners.busfactor import (
     DEPRECATED_AVG_COUNT_KEY,
     DEPRECATED_COUNT_KEY,
@@ -82,6 +90,7 @@ from checkowners.graph import (
     to_text,
 )
 from checkowners.models import (
+    COMMAND_SCHEMA_VERSION,
     DEPRECATED_SCORE_KEY,
     OWNERSHIP_MODEL_VERSION,
     AnalysisCompleteness,
@@ -94,6 +103,7 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
     Severity,
+    Suppression,
 )
 from checkowners.notify import apply_severity_hysteresis, compute_severity, send_notification
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
@@ -122,11 +132,20 @@ app = typer.Typer(
     rich_markup_mode="rich",
     no_args_is_help=True,
 )
+baseline_app = typer.Typer(help="Manage the accepted-findings baseline.")
+app.add_typer(baseline_app, name="baseline")
 
 console = Console()
 err_console = Console(stderr=True)
 
 JsonOption = Annotated[bool, typer.Option("--json", help="Output as JSON.")]
+BaselineOption = Annotated[
+    str | None,
+    typer.Option(
+        "--baseline",
+        help="Accepted-findings file. Fail only on new findings.",
+    ),
+]
 
 _CLI_AS_OF: ContextVar[str | None] = ContextVar("cli_as_of", default=None)
 
@@ -732,6 +751,87 @@ def explain_path(
         )
 
 
+def _resolve_baseline(flag: str | None, config: Config) -> Path | None:
+    if flag is not None and flag.strip():
+        return Path(flag.strip())
+    raw = config.drift.baseline_file.strip()
+    return Path(raw) if raw else None
+
+
+def _print_expired_suppressions(expired: tuple[Suppression, ...]) -> None:
+    for item in expired:
+        expires = item.expires.isoformat() if item.expires is not None else ""
+        console.print(
+            f"[red]Expired suppression:[/red] {escape(item.path)} {item.rule} "
+            f"expired {expires}: {escape(item.reason)}"
+        )
+
+
+def _ratchet_or_exit(
+    result: DriftResult,
+    config: Config,
+    *,
+    as_of: datetime,
+    baseline: Path | None,
+    bus: BusFactorReport | None = None,
+) -> RatchetOutcome:
+    try:
+        accepted = load_baseline(baseline) if baseline is not None else ()
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from None
+    outcome = apply_ratchet(
+        result,
+        baseline=accepted,
+        suppressions=config.suppressions,
+        as_of=as_of.date(),
+        bus=bus,
+    )
+    if outcome.expired:
+        _print_expired_suppressions(outcome.expired)
+        raise typer.Exit(code=1)
+    return outcome
+
+
+def _ratchet_json(outcome: RatchetOutcome) -> dict[str, object]:
+    return {
+        "baselined": outcome.counts.baselined,
+        "stale_baseline": [finding_payload(item) for item in outcome.stale_baseline],
+        "suppressed": outcome.counts.suppressed,
+    }
+
+
+def _render_ratchet_summary(outcome: RatchetOutcome) -> None:
+    counts = outcome.counts
+    console.print(
+        f"Baselined: {counts.baselined}  "
+        f"Suppressed: {counts.suppressed}  "
+        f"Stale baseline: {counts.stale_baseline}"
+    )
+    for item in outcome.stale_baseline:
+        owners = " ".join(item.owners)
+        suffix = f" {escape(owners)}" if owners else ""
+        console.print(f"[yellow]stale baseline:[/yellow] {item.rule} {escape(item.path)}{suffix}")
+
+
+def _filter_bus_payload(
+    payload: dict[str, object],
+    hidden: frozenset[str],
+) -> dict[str, object]:
+    if not hidden:
+        return payload
+    filtered = dict(payload)
+    entries = payload.get("entries")
+    if isinstance(entries, list):
+        filtered["entries"] = [
+            item for item in entries if not (isinstance(item, dict) and item.get("path") in hidden)
+        ]
+    paths = payload.get("critical_paths")
+    if isinstance(paths, list):
+        filtered["critical_paths"] = [item for item in paths if item not in hidden]
+    return filtered
+
+
 def _render_drift_table(result: DriftResult) -> None:
     table = Table(title="CODEOWNERS Drift")
     table.add_column("Category", style="bold")
@@ -765,14 +865,63 @@ def _render_drift_table(result: DriftResult) -> None:
     console.print(table)
 
 
+@baseline_app.command("create")
+def baseline_create(
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Path to write the accepted-findings file."),
+    ] = Path(DEFAULT_BASELINE_PATH),
+    json_output: JsonOption = False,
+) -> None:
+    """Write current findings to an accepted-findings file."""
+    config = load_config()
+    repo_root = Path.cwd()
+    codeowners_path = find_codeowners_path(repo_root)
+    ownership = _run_analyze(config, repo_root)
+    result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+    bus = compute_qualified_owners(ownership, config, target=None)
+    outcome = _ratchet_or_exit(
+        result,
+        config,
+        as_of=ownership.last_analyzed,
+        baseline=None,
+        bus=bus,
+    )
+    write_baseline(output, outcome.new)
+    stamp = _analysis_stamp(ownership)
+    if json_output:
+        _emit_json(
+            {
+                "path": str(output),
+                "schema_version": COMMAND_SCHEMA_VERSION,
+                "findings": [finding_payload(item) for item in outcome.new],
+                **stamp,
+            }
+        )
+        return
+    console.print(f"[green]Wrote {len(outcome.new)} finding(s) to {escape(str(output))}[/green]")
+
+
 @app.command()
-def drift(json_output: JsonOption = False) -> None:
+def drift(
+    json_output: JsonOption = False,
+    baseline: BaselineOption = None,
+) -> None:
     """Detect drift between inferred and current CODEOWNERS."""
     config = load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+    bus = compute_qualified_owners(ownership, config, target=None)
+    outcome = _ratchet_or_exit(
+        result,
+        config,
+        as_of=ownership.last_analyzed,
+        baseline=_resolve_baseline(baseline, config),
+        bus=bus,
+    )
+    result = outcome.drift
     severity = _severity_with_hysteresis(repo_root, ownership, result, config)
     cap = config.analysis.top_n_owners
     stamp = _analysis_stamp(ownership)
@@ -792,12 +941,14 @@ def drift(json_output: JsonOption = False) -> None:
             "max_confidence_delta": round(result.max_confidence_delta, 4),
             "notes": list(result.notes),
             "deprecated_keys": [DEPRECATED_COUNT_KEY],
+            **_ratchet_json(outcome),
             **stamp,
         }
         _emit_json(data)
         return
     for note in result.notes:
         console.print(f"[yellow]note:[/yellow] {escape(note)}")
+    _render_ratchet_summary(outcome)
     if not result.drift_detected:
         console.print("[green]No drift detected.[/green]")
         return
@@ -813,13 +964,25 @@ def _severity_style(severity: str) -> str:
 
 
 @app.command()
-def notify(json_output: JsonOption = False) -> None:
+def notify(
+    json_output: JsonOption = False,
+    baseline: BaselineOption = None,
+) -> None:
     """Send webhook notification on drift events."""
     config = load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     ownership = _run_analyze(config, repo_root)
     result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+    bus = compute_qualified_owners(ownership, config, target=None)
+    outcome = _ratchet_or_exit(
+        result,
+        config,
+        as_of=ownership.last_analyzed,
+        baseline=_resolve_baseline(baseline, config),
+        bus=bus,
+    )
+    result = outcome.drift
     severity = _severity_with_hysteresis(repo_root, ownership, result, config)
     stamp = _analysis_stamp(ownership)
     sent = send_notification(
@@ -835,10 +998,12 @@ def notify(json_output: JsonOption = False) -> None:
                 "sent": sent,
                 "drift_detected": result.drift_detected,
                 "severity": severity,
+                **_ratchet_json(outcome),
                 **_analysis_stamp(ownership),
             }
         )
         return
+    _render_ratchet_summary(outcome)
     if sent:
         console.print(f"[green]Notification sent ({severity}).[/green]")
     elif not config.notifications.webhook_url:
@@ -981,8 +1146,12 @@ def github_action(
         ),
     ] = 50,
     json_output: JsonOption = False,
+    baseline: BaselineOption = None,
 ) -> None:
     """Run the full CI flow (drift + qualified owners + decay) and write GITHUB_OUTPUT."""
+    owners_report: BusFactorReport | None = None
+    decay_payload: dict[str, object] | None = None
+    decay_count = 0
     try:
         config = load_config()
         repo_root = Path.cwd()
@@ -990,27 +1159,9 @@ def github_action(
         ownership = _run_analyze(config, repo_root)
         cap = config.analysis.top_n_owners
         result = detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
-        severity = _severity_with_hysteresis(repo_root, ownership, result, config)
         stamp = _analysis_stamp(ownership)
-        drift_payload: dict[str, object] = {
-            "drift_detected": result.drift_detected,
-            "severity": severity,
-            "max_confidence_delta": round(result.max_confidence_delta, 4),
-            "stale": [_drift_entry_payload(e, cap) for e in result.stale],
-            "missing": [_drift_entry_payload(e, cap) for e in result.missing],
-            "changed": [_drift_entry_payload(e, cap) for e in result.changed],
-            "notes": list(result.notes),
-            "deprecated_keys": [DEPRECATED_COUNT_KEY],
-            **stamp,
-        }
-        bus_payload: dict[str, object] | None = None
-        decay_payload: dict[str, object] | None = None
-        critical_paths = 0
-        decay_count = 0
         if include_bus_factor:
             owners_report = compute_qualified_owners(ownership, config, target=None)
-            bus_payload = {**_qualified_owners_payload(owners_report, config), **stamp}
-            critical_paths = len(owners_report.critical_paths)
         if include_decay:
             decay_reports = detect_decay(ownership, config)
             decay_payload = {
@@ -1024,6 +1175,38 @@ def github_action(
     except Exception:
         _publish_action_failure()
         raise typer.Exit(code=1) from None
+
+    outcome = _ratchet_or_exit(
+        result,
+        config,
+        as_of=ownership.last_analyzed,
+        baseline=_resolve_baseline(baseline, config),
+        bus=owners_report,
+    )
+    result = outcome.drift
+    severity = _severity_with_hysteresis(repo_root, ownership, result, config)
+    ratchet = _ratchet_json(outcome)
+    drift_payload: dict[str, object] = {
+        "drift_detected": result.drift_detected,
+        "severity": severity,
+        "max_confidence_delta": round(result.max_confidence_delta, 4),
+        "stale": [_drift_entry_payload(e, cap) for e in result.stale],
+        "missing": [_drift_entry_payload(e, cap) for e in result.missing],
+        "changed": [_drift_entry_payload(e, cap) for e in result.changed],
+        "notes": list(result.notes),
+        "deprecated_keys": [DEPRECATED_COUNT_KEY],
+        **ratchet,
+        **stamp,
+    }
+    bus_payload: dict[str, object] | None = None
+    critical_paths = 0
+    if owners_report is not None:
+        bus_payload = _filter_bus_payload(
+            {**_qualified_owners_payload(owners_report, config), **ratchet, **stamp},
+            outcome.hidden_bus_paths,
+        )
+        raw_paths = bus_payload.get("critical_paths")
+        critical_paths = len(raw_paths) if isinstance(raw_paths, list) else 0
 
     _write_action_json(Path("drift.json"), drift_payload)
     if bus_payload is not None:
@@ -1042,6 +1225,7 @@ def github_action(
             printed["decay_summary"] = decay_payload
         typer.echo(json.dumps(printed, indent=2, sort_keys=True))
     else:
+        _render_ratchet_summary(outcome)
         console.print(
             f"[bold]drift:[/bold] {result.drift_detected} "
             f"([{_severity_style(severity)}]{severity}[/]) "

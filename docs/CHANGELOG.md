@@ -11,6 +11,14 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- `checkowners baseline create` writes a sorted accepted-findings file.
+  `--baseline`, `drift.baseline_file`, `CHECKOWNERS_BASELINE`, and the Action
+  `baseline` input suppress known findings so CI fails only on new ones.
+  Finding identity is rule plus path plus owner set, not line numbers, so a
+  CODEOWNERS reorder does not invalidate the file. Stale baseline rows are
+  reported without failing. `suppressions` require a reason and may expire;
+  expired rows fail the command. Summaries include `baselined`,
+  `suppressed`, and `stale_baseline` counts.
 - `checkowners explain PATH` decomposes inferred ownership for one file or
   directory: per-signal score, weight, and availability; supporting commits;
   `--owner` and `--why-not`; declared CODEOWNERS plus an alignment

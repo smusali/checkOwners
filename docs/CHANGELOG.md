@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- A public CODEOWNERS compatibility corpus (`corpus/compatibility.jsonl`) and a license-checked parser corpus (`corpus/realworld.jsonl`). See `corpus/README.md`.
 - On-disk state is schema v7. Writes are atomic and lock-protected. Cached analysis is reused only when its commit is still `HEAD` and its scoring config hash matches. `--allow-stale`, `--max-age`, and `--no-cache` control that reuse. `checkowners cache path|info|clear|purge` inspect and delete the cache. State and graph files are capped at 256 MiB. `--offline` makes no network calls and reports that review evidence and team verification are unavailable.
 - Analysis completeness is a run-level score with an itemized `analysis_gaps` list.
   Human summaries print `analysis completeness: N%` and one reason per missing source.
@@ -129,6 +130,10 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   frequency for one cycle. Adaptive blames every path that still has a
   human author after the exclude, missing-file, and bot filters;
   threshold still skips paths where no author reaches `min_commits`.
+
+### Fixed
+- `requirements-dev.lock` pins `pyyaml-ft` with `python_version >= "3.13"` so
+  hashed CI installs skip libcst's 3.13-only YAML backend on 3.11 and 3.12.
 
 ## [0.5.1] - 2026-09-15
 

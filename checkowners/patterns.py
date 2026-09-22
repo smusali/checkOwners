@@ -38,8 +38,6 @@ def parse_rules(content: str) -> tuple[CodeownersRule, ...]:
         if not line:
             continue
         parts = split_escaped(line)
-        if not parts:
-            continue
         rules.append(
             CodeownersRule(
                 pattern=parts[0],
@@ -69,9 +67,32 @@ def matching_rules(rules: tuple[CodeownersRule, ...], path: str) -> tuple[Codeow
     """Rules that match ``path``, in file order. The last element is the winner.
 
     ``path`` is a repo-relative file path without a leading slash.
+    Patterns GitHub skips (a leading ``!``, or ``[`` / ``]``) never match.
     """
     normalized = path.lstrip("/")
-    return tuple(rule for rule in rules if pattern_matches(rule.pattern, normalized))
+    return tuple(
+        rule
+        for rule in rules
+        if _supported_pattern(rule.pattern) and pattern_matches(rule.pattern, normalized)
+    )
+
+
+def _supported_pattern(pattern: str) -> bool:
+    """Return whether ``pattern`` may assign an owner."""
+    return not pattern.startswith("!") and "[" not in pattern and "]" not in pattern
+
+
+def _degenerate_globstar(pattern: str) -> bool:
+    """Return whether ``pattern`` contains only ``**`` segments.
+
+    ``**`` and ``/**`` are excluded: those match every relative path. A trailing
+    slash is an empty segment, so ``**/`` and ``**/**`` are included.
+    """
+    body = pattern[1:] if pattern.startswith("/") else pattern
+    if body in {"", "**"}:
+        return False
+    parts = body.split("/")
+    return all(part in {"**", ""} for part in parts)
 
 
 def match_path(rules: tuple[CodeownersRule, ...], path: str) -> CodeownersRule | None:
@@ -85,6 +106,8 @@ def match_path(rules: tuple[CodeownersRule, ...], path: str) -> CodeownersRule |
 
 def pattern_matches(pattern: str, path: str) -> bool:
     """True when a CODEOWNERS ``pattern`` covers the repo-relative ``path``."""
+    if not pattern or "***" in pattern or _degenerate_globstar(pattern):
+        return False
     regex = _compile_pattern(pattern)
     return regex.match(path) is not None
 
@@ -107,13 +130,15 @@ def _translate(pattern: str) -> str:
     if "/" in p:
         anchored = True
     if not p:
-        # Pattern was "/" or empty after stripping: match everything.
-        return r".*\Z"
+        return r"(?!)"
     segments = p.split("/")
     parts: list[str] = []
     for index, segment in enumerate(segments):
         if segment == "**":
             parts.append(r"(?:[^/]+/)*" if index < len(segments) - 1 else r".*")
+            continue
+        if segment == "*":
+            parts.append(r"[^/]+" + ("/" if index < len(segments) - 1 else ""))
             continue
         escaped = _translate_segment(segment)
         parts.append(escaped + ("/" if index < len(segments) - 1 else ""))
@@ -134,9 +159,24 @@ def _translate(pattern: str) -> str:
 
 
 def _translate_segment(segment: str) -> str:
-    """Translate one path segment: `*` and `?` stay within the segment."""
+    """Translate one path segment into a regex fragment.
+
+    ``*`` and ``?`` stay inside the segment. A backslash before ``*`` or ``?``
+    makes that wildcard literal. A leading ``\\#`` is not turned into ``#``.
+    """
     out: list[str] = []
+    escaped = False
     for char in segment:
+        if escaped:
+            if char == "#":
+                out.append(re.escape("\\") + re.escape(char))
+            else:
+                out.append(re.escape(char))
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
         if char == "*":
             out.append(r"[^/]*")
         elif char == "?":

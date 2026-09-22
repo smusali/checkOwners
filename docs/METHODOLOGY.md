@@ -91,3 +91,15 @@ authors below `min_commits` still qualify when blame is at least
 gate and the undamped `commits / max_commits` frequency ratio.
 
 Calibration against ground truth, and weight search, are out of scope here.
+
+## Pattern semantics
+
+CODEOWNERS rules are matched in file order. The last match wins. A pattern assigns owners only when it is a supported glob:
+
+- `*` stays inside one path segment. `**` crosses segments.
+- A leading `/` anchors the pattern to the repository root. An interior `/` does the same. A bare name floats to any directory.
+- `dir/*` matches direct children of `dir`, not deeper files.
+- A trailing `/` matches files inside that directory, not a sibling whose name only shares the prefix, and not the directory path itself.
+- A line that starts with `!`, or a pattern that contains `[` or `]`, does not assign an owner. A backslash before `#` does not turn a comment into a pattern that matches a path beginning with `#`.
+
+`corpus/compatibility.jsonl` locks these results. A differential test compares the supported glob language (one `**` segment, no leading `!`, no brackets, no `\#`) with an independent matcher. Repeated `**` segments such as `**/**` are outside that comparison.

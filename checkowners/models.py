@@ -87,6 +87,7 @@ class OutputConfig:
     consolidate: bool = True
     max_bytes: int = 2_500_000
     verify_round_trip: bool = True
+    allow_broad_patterns: bool = False
 
 
 @dataclass(frozen=True)

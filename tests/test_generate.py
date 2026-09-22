@@ -17,6 +17,7 @@ from checkowners.generate import (
     _collect_unowned_paths,
     _consolidate,
     _render_codeowners,
+    broad_pattern_warning,
     generate_codeowners,
     verify_round_trip,
 )
@@ -58,6 +59,7 @@ def _zero_threshold(
     include_unowned: bool = False,
     include_confidence: bool = False,
     consolidate: bool = True,
+    allow_broad_patterns: bool = False,
 ) -> Config:
     return Config(
         analysis=AnalysisConfig(confidence_threshold=0.0),
@@ -65,6 +67,7 @@ def _zero_threshold(
             include_unowned=include_unowned,
             include_confidence=include_confidence,
             consolidate=consolidate,
+            allow_broad_patterns=allow_broad_patterns,
         ),
     )
 
@@ -72,10 +75,10 @@ def _zero_threshold(
 def test_generate_writes_file(tmp_path: Path) -> None:
     ownership = _make_ownership({"src/main.py": (_entry("alice@example.com", 0.9),)})
     config = _zero_threshold()
-    content = generate_codeowners(tmp_path, ownership, config)
+    result = generate_codeowners(tmp_path, ownership, config)
     codeowners = tmp_path / ".github" / "CODEOWNERS"
     assert codeowners.exists()
-    assert codeowners.read_text(encoding="utf-8") == content
+    assert codeowners.read_text(encoding="utf-8") == result.content
 
 
 def test_generate_includes_header() -> None:
@@ -303,18 +306,32 @@ def test_output_ends_with_newline() -> None:
 
 
 def test_bracket_segments_become_wildcards() -> None:
-    """Next.js dynamic routes ([id]) are invalid CODEOWNERS ranges."""
+    """A sibling directory makes /app/*/ lossy, so per-file wildcards are used."""
     ownership = _make_ownership(
         {
             "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
             "app/[teamId]/layout.tsx": (_entry("@alice", 0.8),),
-            "app/other.tsx": (_entry("@bob", 0.9),),
+            "app/static/index.tsx": (_entry("@bob", 0.9),),
         }
     )
-    content = _build_codeowners_content(ownership, _zero_threshold())
+    content, _expected, records = _render_codeowners(ownership, _zero_threshold())
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
-    assert lines == ["/app/*/ @alice", "/app/other.tsx @bob"]
+    assert lines == [
+        "/app/*/layout.tsx @alice",
+        "/app/*/page.tsx @alice",
+        "/app/static/index.tsx @bob",
+    ]
     assert "[" not in content
+    assert records
+    assert all(not record.accepted for record in records)
+    payload = records[0].as_json()
+    assert payload["accepted"] is False
+    assert payload["owner_delta"]["intended"]
+    warning = broad_pattern_warning(records[0])
+    assert "WARNING: GitHub CODEOWNERS cannot precisely represent:" in warning
+    assert "Generated fallback:" in warning
+    assert "This also matches:" in warning
+    assert "Affected owners differ. Refusing automatic consolidation." in warning
 
 
 def test_colliding_sanitized_patterns_merge_owners() -> None:
@@ -330,16 +347,52 @@ def test_colliding_sanitized_patterns_merge_owners() -> None:
     assert lines == ["/app/*/page.tsx @alice", "/app/*/view.tsx @bob"]
 
 
-def test_identical_sanitized_patterns_merge_owner_sets() -> None:
+@pytest.mark.parametrize(
+    ("second_owner", "allow_broad", "expected_lines", "accepted"),
+    [
+        (
+            "@bob",
+            False,
+            [
+                "/app/*/page.tsx @bob",
+                "/app/[teamId]/page.tsx @alice",
+                "/app/[userId]/page.tsx @bob",
+            ],
+            False,
+        ),
+        ("@alice", False, ["/app/*/page.tsx @alice"], True),
+        ("@bob", True, ["/app/*/page.tsx @alice @bob"], True),
+    ],
+)
+def test_identical_sanitized_patterns_merge_owner_sets(
+    second_owner: str,
+    allow_broad: bool,
+    expected_lines: list[str],
+    accepted: bool,
+) -> None:
     ownership = _make_ownership(
         {
             "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
-            "app/[userId]/page.tsx": (_entry("@bob", 0.6),),
+            "app/[userId]/page.tsx": (_entry(second_owner, 0.6),),
+            "app/*/page.tsx": (_entry(second_owner, 0.6),),
         }
     )
-    content = _build_codeowners_content(ownership, _zero_threshold(consolidate=False))
+    config = _zero_threshold(consolidate=False, allow_broad_patterns=allow_broad)
+    content, _expected, records = _render_codeowners(ownership, config)
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
-    assert lines == ["/app/*/page.tsx @alice @bob"]
+    assert lines == expected_lines
+    assert records
+    assert all(record.accepted is accepted for record in records)
+    payload = records[0].as_json()
+    assert payload["accepted"] is accepted
+    assert payload["generated_fallback"] == "app/*/page.tsx"
+    if accepted:
+        return
+    warning = broad_pattern_warning(records[0])
+    assert "WARNING: GitHub CODEOWNERS cannot precisely represent: app/[teamId]/page.tsx" in warning
+    assert "Generated fallback: app/*/page.tsx" in warning
+    assert "app/[userId]/page.tsx" in warning
+    assert "Affected owners differ. Refusing automatic consolidation." in warning
 
 
 def test_pattern_spaces_escaped_on_write() -> None:
@@ -404,8 +457,8 @@ def test_generate_skips_round_trip_when_disabled(tmp_path: Path) -> None:
         analysis=AnalysisConfig(confidence_threshold=0.0),
         output=OutputConfig(verify_round_trip=False),
     )
-    content = generate_codeowners(tmp_path, ownership, config)
-    assert "@alice" in content
+    result = generate_codeowners(tmp_path, ownership, config)
+    assert "@alice" in result.content
 
 
 def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
@@ -414,10 +467,10 @@ def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
         analysis=AnalysisConfig(confidence_threshold=0.0),
         output=OutputConfig(max_bytes=20),
     )
-    content = generate_codeowners(tmp_path, ownership, config, force=True)
+    result = generate_codeowners(tmp_path, ownership, config, force=True)
     written = tmp_path / ".github" / "CODEOWNERS"
     assert written.exists()
-    assert written.read_text(encoding="utf-8") == content
+    assert written.read_text(encoding="utf-8") == result.content
 
 
 @pytest.mark.parametrize(
@@ -452,6 +505,23 @@ def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
             "t",
             "acme",
         ),
+        (
+            {
+                "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
+                "app/[userId]/page.tsx": (_entry("@bob", 0.6),),
+            },
+            "",
+            "",
+        ),
+        (
+            {
+                "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
+                "app/[teamId]/layout.tsx": (_entry("@alice", 0.8),),
+                "app/static/index.tsx": (_entry("@bob", 0.9),),
+            },
+            "",
+            "",
+        ),
     ],
 )
 def test_generated_file_round_trips_inference(
@@ -476,10 +546,10 @@ def test_generated_file_round_trips_inference(
         else nullcontext()
     )
     with team_patch:
-        content = generate_codeowners(tmp_path, ownership, config, token=token, org=org)
-        _rendered, expected = _render_codeowners(ownership, config, token=token, org=org)
-    assert content == _rendered
-    rules = parse_rules(content)
+        written = generate_codeowners(tmp_path, ownership, config, token=token, org=org)
+        _rendered, expected, _records = _render_codeowners(ownership, config, token=token, org=org)
+    assert written.content == _rendered
+    rules = parse_rules(written.content)
     for path, intended in expected.items():
         rule = match_path(rules, path)
         resolved = frozenset(o.casefold() for o in rule.owners) if rule else frozenset()

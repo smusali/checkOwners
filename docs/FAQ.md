@@ -196,6 +196,10 @@ Open a [false-positive report](https://github.com/smusali/checkowners/issues/new
 
 ## Troubleshooting
 
+### Why did generate warn about `routes/[id]/` and emit per-file rules?
+
+GitHub skips CODEOWNERS lines that contain `[...]` character ranges, so Next.js and Remix dynamic segments cannot be written as-is. Generate rewrites those segments to `*`. When that wildcard would also own paths that were inferred for someone else (`routes/[slug]/`, `routes/static/`), the default is to refuse the broad rule, warn, and emit per-file rules. Those per-file lines stay GitHub-valid when a narrower `*` is unique; otherwise they keep the literal `[id]` path, which GitHub will ignore. Pass `--allow-broad-patterns` (or set `output.allow_broad_patterns: true`) only when you accept that over-ownership. `--force` does not opt in. `generate --json` records the affected paths and owner delta under `broad_patterns`.
+
 ### `generate` failed with a round-trip verification error.
 
 The generated rules did not resolve to the owners generation assigned. The message names the path, the intended owners, the resolved owners, and the winning rule. Last-match-wins ordering is the usual cause: a later broader rule (for example `*`) un-owns a subtree that a directory rule was meant to cover. Fix the ordering, or set `output.consolidate: false` and regenerate. `--force` does not skip this check. `checkowners explain-path <path>` shows the match chain for a single path.

@@ -82,6 +82,7 @@ output:
   consolidate: true           # collapse uniform directories into one dir/ rule
   max_bytes: 2500000          # refuse to write above this without --force (GitHub ignores files over 3 MB)
   verify_round_trip: true     # re-resolve every generated path; fail on mismatch
+  allow_broad_patterns: false # emit * wildcards even when they cover extra paths with different owners
 
 drift:
   mode: commit                # commit | repo | both
@@ -216,7 +217,9 @@ After building the file, generate re-resolves every path that contributed a rule
 
 GitHub does not load a CODEOWNERS file over 3 MB. Generate warns on stderr at 2 MB and refuses above `output.max_bytes` (default 2_500_000) unless `--force` is passed. The error names the configured limit.
 
-`generate --json` and `sync --json` include `bytes_written` and `rules_written` alongside `path` and `content`.
+GitHub ignores CODEOWNERS lines that contain `[...]` character ranges, so generate rewrites those path segments to `*`. If the rewritten pattern would also match inferred paths with a different owner set (for example `routes/[id]/` and `routes/[slug]/` both becoming `routes/*/`, which also matches `routes/static/`), generate refuses the broad rule by default, prints a warning, and emits per-file rules instead. When every newly matched path has the same owners, the wildcard is kept and recorded in JSON only. Pass `--allow-broad-patterns` or set `output.allow_broad_patterns: true` to emit the broad rule anyway. `--force` does not opt in.
+
+`generate --json` and `sync --json` include `bytes_written`, `rules_written`, and `broad_patterns` alongside `path` and `content`. Each `broad_patterns` entry names the source pattern, the generated fallback, the extra matched paths, whether the wildcard was accepted, and the owner delta.
 
 `checkowners explain-path <path>` shows which rule owns a path and the full match chain (every matching rule in file order, last match wins). It reads the existing CODEOWNERS and does not re-run analysis.
 

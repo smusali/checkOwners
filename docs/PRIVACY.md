@@ -1,14 +1,16 @@
 # Privacy
 
-checkOwners reads git history on the machine where it runs. It writes an ownership map and, when identity lookup is enabled, contributor email addresses.
+checkOwners reads git history on the machine where it runs. It writes an ownership map. Email addresses are stored as tokens. When identity lookup is enabled, those addresses may be sent to the GitHub user-search API unless `contributors.exclude` lists them.
+
+`output.anonymize`, `output.aggregate_only`, `privacy.redact_emails` (`--redact-emails`), `identity.mode`, and `contributors.exclude` control what reports, graph exports, Action output, and pull-request comments may show. See [Privacy controls](USAGE.md#privacy-controls).
 
 ## What is stored
 
 | Location | Contents |
 |----------|----------|
-| `~/.checkowners/state/<id>.json` | Inferred owners, commits, and the analyzed commit |
-| `~/.checkowners/graph/<id>.json` | Serialized ownership graph for that analysis |
-| `~/.checkowners/handles.json` | Email to GitHub handle, including remembered misses |
+| `~/.checkowners/state/<id>.json` | Inferred owners, commits, and the analyzed commit. Email addresses are stored as `email:` tokens. |
+| `~/.checkowners/graph/<id>.json` | Serialized ownership graph for that analysis. Contributor emails in node ids are tokens. |
+| `~/.checkowners/handles.json` | Email token to GitHub handle, including remembered misses. A file that still has plaintext addresses is rewritten on the next read. |
 
 `checkowners cache path` prints the directory. `CHECKOWNERS_STATE_DIR` overrides it. Files are local. They are not uploaded by the analysis itself.
 

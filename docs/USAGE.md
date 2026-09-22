@@ -118,6 +118,8 @@ output:
   max_bytes: 2500000          # refuse to write above this without --force (GitHub ignores files over 3 MB)
   verify_round_trip: true     # re-resolve every generated path; fail on mismatch
   allow_broad_patterns: false # emit * wildcards even when they cover extra paths with different owners
+  anonymize: false           # stable person tokens; no real names in output
+  aggregate_only: false      # drop per-person fields; keep repository metrics
 
 drift:
   mode: commit                # commit | repo | both
@@ -141,6 +143,13 @@ git:
 
 identity:
   mailmap: true               # apply .mailmap in git log and git blame (default; cheapest identity fix)
+  mode: handle                # handle | email | hashed
+
+privacy:
+  redact_emails: false        # replace addresses in output with email tokens
+
+contributors:
+  exclude: []                 # omit these people from every command and output
 
 policy:
   incomplete_analysis:
@@ -149,7 +158,7 @@ policy:
 
 `decay`, `bus_factor`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` keep their current names on both schema versions. `bus_factor` is the qualified-owner classifier (`risk-v1`), not a truck-factor block.
 
-Keys with no implementation yet are refused on `version: 2`, including `criticality`, `security`, `privacy`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `output.anonymize`. `policy` accepts only `incomplete_analysis.fail`. A v1 file still ignores unknown keys.
+Keys with no implementation yet are refused on `version: 2`, including `criticality`, `security`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, and `git.merge_strategy`. `policy` accepts only `incomplete_analysis.fail`. A v1 file still ignores unknown keys, including the privacy controls below.
 
 | v1 key | v2 key |
 | --- | --- |
@@ -245,6 +254,20 @@ Commit emails are then rewritten to GitHub `@handles`, cheapest first:
 
 When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's qualified owner count is recomputed over distinct people. Analyze JSON reports `analysis.mailmap_applied` and `analysis.mailmap_file`.
 
+## Privacy controls
+
+Five settings change what a report may say about a person. They apply to terminal output, JSON, graph text and DOT export, Action JSON, the job summary, and pull-request comments. `generate` and `sync` exit 2 when `output.anonymize`, `output.aggregate_only`, or `identity.mode: hashed` is set, because a CODEOWNERS file has to name GitHub accounts.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `output.anonymize` | `false` | Replace each person with a `person-` token. The token is stable for that person in that repository and different in another repository. |
+| `output.aggregate_only` | `false` | Omit per-person fields. Path and repository metrics stay, including `qualified_owner_count` and review-load averages. |
+| `privacy.redact_emails` and `--redact-emails` | `false` | Replace email addresses in output with `email:` tokens. `--redact-emails` forces this on for one process. With redaction, `generate` skips owners that are still raw addresses. |
+| `identity.mode` | `handle` | `handle` shows a GitHub login when one was resolved. `email` shows the address when the process still has it. `hashed` shows the `email:` token for addresses. |
+| `contributors.exclude` | `[]` | Drop those people from analysis, reports, and graph export. Match a commit email, a `@handle`, or the stored `email:` token. Their address is not sent to the user-search API. |
+
+Email addresses are stored as `email:` tokens in `~/.checkowners` state, the graph cache, and `handles.json`. `@handles` stay. Changing `contributors.exclude` invalidates the analysis cache. The other four settings do not.
+
 ## Ownership scoring
 
 Each path-owner pair gets an `ownership_score` in `[0.0, 1.0]` from the available signals only. Missing evidence is skipped, not scored as zero, so the attainable range is `[0, 1]` with or without a review provider. JSON still emits `confidence` as a deprecated alias of `ownership_score` for one cycle. This number is a ranking signal, not a calibrated probability.
@@ -282,7 +305,7 @@ Weights and reliabilities are configurable under `scoring`. Review weight is omi
 
 Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis.ignore_revs_applied` and `analysis.ignore_revs_file` so you can see whether that correction ran, `analysis.mailmap_applied` / `analysis.mailmap_file` for `.mailmap`, and `analysis.excluded_gitattributes` / `analysis.excluded_static` for how many paths each exclusion mechanism dropped. Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
-**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3` and `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema v7; files whose model ids or schema do not match are ignored and replaced on the next analyze. To restore the previous gate and undamped frequency for one cycle:
+**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3` and `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema v8; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. To restore the previous gate and undamped frequency for one cycle:
 
 ```yaml
 qualification:
@@ -471,7 +494,7 @@ Set `max_output_entries` (default `50`) to cap each list in those summaries and 
 
 The composite action exports `GITHUB_TOKEN` on the `github-action` step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
 
-The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking. The default fails the step because `github-action` exits 3 when drift remains. It also accepts `baseline` for an accepted-findings file (fail only on new findings), `include_bus_factor` / `include_decay` toggles for the secondary outputs, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
+The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking. The default fails the step because `github-action` exits 3 when drift remains. It also accepts `baseline` for an accepted-findings file (fail only on new findings), `include_bus_factor` / `include_decay` toggles for the secondary outputs, `include_balance` (default `"false"`) for the review-load summary, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
 
 The action fails fast with a clear error when it detects a shallow clone: `git log` and `git blame` need history, so the `actions/checkout` step must set `fetch-depth: 0`.
 

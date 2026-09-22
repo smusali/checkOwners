@@ -3,7 +3,7 @@
 The state file is the cache of the most recent analyze run for a repo.
 Downstream commands (drift, decay, qualified-owners, topology, balance, onboard)
 read from it to avoid re-running git log on every invocation. State is keyed
-per repo (schema v7) by the normalized origin URL, or by the absolute path
+per repo (schema v8) by the normalized origin URL, or by the absolute path
 when the repo has no origin. The payload records that identity and it is
 checked on load.
 
@@ -47,8 +47,9 @@ from checkowners.models import (
     TeamCluster,
     models_payload,
 )
+from checkowners.privacy import rekey_handle_cache, stored_identity
 
-SCHEMA_VERSION: int = 7
+SCHEMA_VERSION: int = 8
 CACHE_LIMIT_BYTES: int = 256 * 1024 * 1024
 _STATE_DIR = Path.home() / ".checkowners"
 _STATE_SUBDIR = "state"
@@ -113,6 +114,7 @@ def config_hash(config: Config) -> str:
             "resolve_handles": config.github.resolve_handles,
             "resolve_teams": config.github.resolve_teams,
         },
+        "contributors_exclude": list(config.contributors_exclude),
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -332,7 +334,7 @@ def write_graph_cache(
         **_identity_fields(repo_root, config),
         "last_analyzed": last_analyzed.astimezone(UTC).isoformat(),
         "analysis_ref": analysis_ref,
-        "graph": graph_data,
+        "graph": _stored_graph(graph_data),
     }
     text = json.dumps(payload, indent=2, sort_keys=True)
     with _locked(target):
@@ -421,7 +423,7 @@ def write_state(
                 path: _serialize_path(po, qualified_owner_count_cap)
                 for path, po in sorted(ownership.paths.items())
             },
-            "topology": {"clusters": [asdict(c) for c in topology]},
+            "topology": {"clusters": [_serialize_cluster(cluster) for cluster in topology]},
             "bus_factor_summary": _serialize_bus_factor_summary(
                 bus_factor_summary, qualified_owner_count_cap
             ),
@@ -459,22 +461,29 @@ def _handle_map(data: dict[str, Any] | None) -> dict[str, str]:
 
 
 def read_handle_cache() -> dict[str, str]:
-    """Read the persistent email -> @handle cache (shared across repos).
+    """Read the email-token -> @handle cache (shared across repos).
 
-    An empty-string value is a remembered miss: the email was looked up before
-    and did not resolve, so callers should not re-query the API for it.
-    """
-    return _handle_map(_read_json(_base_dir() / _HANDLE_CACHE_FILENAME))
-
-
-def write_handle_cache(cache: dict[str, str]) -> Path:
-    """Persist the email -> @handle cache, merging over any existing entries.
-
-    Returns the cache file path.
+    An empty-string value is a remembered miss: the address was looked up
+    before and did not resolve, so callers should not re-query the API for it.
+    A file that still uses plaintext email keys is rewritten on read.
     """
     target = _base_dir() / _HANDLE_CACHE_FILENAME
     with _locked(target):
-        merged = {**_handle_map(_read_json(target)), **cache}
+        raw = _handle_map(_read_json(target))
+        stored = rekey_handle_cache(raw)
+        if stored != raw:
+            _atomic_write(target, json.dumps(stored, indent=2, sort_keys=True))
+        return stored
+
+
+def write_handle_cache(cache: dict[str, str]) -> Path:
+    """Persist the email-token -> @handle cache, merging over any existing entries.
+
+    Email keys are stored as tokens. Returns the cache file path.
+    """
+    target = _base_dir() / _HANDLE_CACHE_FILENAME
+    with _locked(target):
+        merged = rekey_handle_cache({**_handle_map(_read_json(target)), **cache})
         _atomic_write(target, json.dumps(merged, indent=2, sort_keys=True))
     return target
 
@@ -630,6 +639,46 @@ def _read_severity(raw: object) -> Severity | None:
     return None
 
 
+def _stored_names(names: tuple[str, ...]) -> list[str]:
+    return [stored_identity(name) for name in names]
+
+
+def _serialize_cluster(cluster: TeamCluster) -> dict[str, Any]:
+    payload = asdict(cluster)
+    payload["members"] = _stored_names(cluster.members)
+    return payload
+
+
+def _stored_node_id(node_id: object) -> object:
+    if not isinstance(node_id, str) or not node_id.startswith("contrib::"):
+        return node_id
+    handle = node_id.removeprefix("contrib::")
+    return f"contrib::{stored_identity(handle)}"
+
+
+def _stored_graph(graph_data: dict[str, Any]) -> dict[str, Any]:
+    nodes = graph_data.get("nodes")
+    edges = graph_data.get("edges")
+    stored_nodes: list[dict[str, Any]] = []
+    if isinstance(nodes, list):
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            copied = dict(node)
+            copied["id"] = _stored_node_id(copied.get("id"))
+            stored_nodes.append(copied)
+    stored_edges: list[dict[str, Any]] = []
+    if isinstance(edges, list):
+        for edge in edges:
+            if not isinstance(edge, dict):
+                continue
+            copied = dict(edge)
+            copied["source"] = _stored_node_id(copied.get("source"))
+            copied["target"] = _stored_node_id(copied.get("target"))
+            stored_edges.append(copied)
+    return {"nodes": stored_nodes, "edges": stored_edges}
+
+
 def _serialize_path(po: PathOwnership, cap: int) -> dict[str, Any]:
     return {
         "owners": [_serialize_owner(o) for o in po.owners],
@@ -640,7 +689,7 @@ def _serialize_path(po: PathOwnership, cap: int) -> dict[str, Any]:
 
 def _serialize_owner(entry: OwnerEntry) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "handle": entry.handle,
+        "handle": stored_identity(entry.handle),
         "ownership_score": entry.ownership_score,
         "confidence": entry.confidence,
         "evidence_quality": entry.evidence_quality,
@@ -654,7 +703,7 @@ def _serialize_owner(entry: OwnerEntry) -> dict[str, Any]:
 
 def _serialize_decay(warning: DecayWarning) -> dict[str, Any]:
     return {
-        "handle": warning.handle,
+        "handle": stored_identity(warning.handle),
         "path": warning.path,
         "last_commit": warning.last_commit.astimezone(UTC).isoformat(),
         "days_since_last_commit": warning.days_since_last_commit,
@@ -673,6 +722,8 @@ def _serialize_bus_factor_summary(
     serialized_entries: list[dict[str, Any]] = []
     for entry in entries:
         row = asdict(entry)
+        row["contributors_above_threshold"] = _stored_names(entry.contributors_above_threshold)
+        row["recommended_backups"] = _stored_names(entry.recommended_backups)
         row.update(qualified_owner_count_fields(entry.qualified_owner_count, cap))
         serialized_entries.append(row)
     return {

@@ -14,7 +14,8 @@ from __future__ import annotations
 from types import ModuleType
 from typing import TYPE_CHECKING
 
-from checkowners.models import OwnershipMap, TeamCluster
+from checkowners.models import Config, OwnershipMap, TeamCluster
+from checkowners.privacy import label
 
 if TYPE_CHECKING:
     import networkx as nx
@@ -67,6 +68,27 @@ def build_graph(
             graph.add_node(_path_node(path), kind="path")
             graph.add_edge(_team_node(cluster.name), _path_node(path), kind="responsibility")
     return graph
+
+
+def for_display(graph: nx.Graph, config: Config, repo_id: str) -> nx.Graph:
+    """Return `graph` with contributor ids labeled for output."""
+    nx = _require_networkx()
+    if config.output.aggregate_only:
+        kept = [
+            node for node, attrs in graph.nodes(data=True) if attrs.get("kind") != "contributor"
+        ]
+        return graph.subgraph(kept).copy()
+    mapping: dict[str, str] = {}
+    for node, attrs in graph.nodes(data=True):
+        if attrs.get("kind") != "contributor" or not isinstance(node, str):
+            continue
+        if not node.startswith("contrib::"):
+            continue
+        handle = node.removeprefix("contrib::")
+        mapping[node] = f"contrib::{label(handle, config, repo_id)}"
+    if not mapping:
+        return graph
+    return nx.relabel_nodes(graph, mapping, copy=True)
 
 
 def to_serializable(graph: nx.Graph) -> dict[str, list[dict[str, object]]]:

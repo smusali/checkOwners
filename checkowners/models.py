@@ -15,6 +15,7 @@ Severity = Literal["low", "medium", "high", "critical"]
 DriftMode = Literal["commit", "repo", "both"]
 QualificationStrategy = Literal["adaptive", "threshold"]
 FindingRule = Literal["missing", "stale", "changed", "single-expert"]
+IdentityMode = Literal["handle", "email", "hashed"]
 
 OWNERSHIP_MODEL_VERSION = "ownership-v3"
 RISK_MODEL_VERSION = "risk-v1"
@@ -120,6 +121,8 @@ class OutputConfig:
     max_bytes: int = 2_500_000
     verify_round_trip: bool = True
     allow_broad_patterns: bool = False
+    anonymize: bool = False
+    aggregate_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -184,6 +187,11 @@ class PolicyConfig:
 
 
 @dataclass(frozen=True)
+class PrivacyConfig:
+    redact_emails: bool = False
+
+
+@dataclass(frozen=True)
 class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     qualification: QualificationConfig = field(default_factory=QualificationConfig)
@@ -197,6 +205,9 @@ class Config:
     git: GitConfig = field(default_factory=GitConfig)
     models: ModelVersions = field(default_factory=ModelVersions)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
+    privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
+    identity_mode: IdentityMode = "handle"
+    contributors_exclude: tuple[str, ...] = ()
     suppressions: tuple[Suppression, ...] = ()
 
 

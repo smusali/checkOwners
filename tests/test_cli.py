@@ -72,7 +72,9 @@ from checkowners.models import (
     models_payload,
 )
 from checkowners.onboard import OnboardingPath, OnboardingStep
+from checkowners.privacy import email_token
 from checkowners.state import (
+    SCHEMA_VERSION,
     load_ownership,
     read_graph_cache,
     read_handle_cache,
@@ -845,6 +847,8 @@ def test_github_action_input_combinations(
     assert ("bus_factor_summary<<" in written) is include_bus_factor
     assert (tmp_path / "decay.json").is_file() is include_decay
     assert ("decay_summary<<" in written) is include_decay
+    assert not (tmp_path / "balance.json").exists()
+    assert "balance_summary<<" not in written
 
 
 def test_github_action_reads_toggles_from_env(
@@ -1214,6 +1218,7 @@ def test_graph_reports_topology_model() -> None:
     with (
         patch("checkowners.cli._load_or_analyze", return_value=_OWNERSHIP),
         patch("checkowners.cli._build_or_load_graph", return_value=object()),
+        patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph\n"),
         patch("checkowners.cli.to_dot", return_value="graph {\n}\n"),
     ):
@@ -2192,6 +2197,7 @@ def test_exit_code_contract(
             ),
         ),
         patch("checkowners.cli._build_or_load_graph", return_value=object()),
+        patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph"),
         patch(
             "checkowners.cli.subprocess.run",
@@ -2327,17 +2333,17 @@ def test_cache_commands(tmp_path: Path) -> None:
     assert path_result.stdout.strip() == str(tmp_path)
     text = runner.invoke(app, ["cache", "info"])
     assert text.exit_code == 0, text.output
-    assert "schema_version: 7" in text.stdout
+    assert f"schema_version: {SCHEMA_VERSION}" in text.stdout
     assert "handles: yes" in text.stdout
     info = runner.invoke(app, ["cache", "info", "--json"])
     assert info.exit_code == 0, info.output
     payload = json.loads(info.stdout)
     assert payload["state_files"] == 1
     assert payload["handles"] is True
-    assert payload["schema_version"] == 7
+    assert payload["schema_version"] == SCHEMA_VERSION
     cleared = runner.invoke(app, ["cache", "clear"])
     assert cleared.exit_code == 0, cleared.output
-    assert read_handle_cache()["alice@example.com"] == "@alice"
+    assert read_handle_cache()[email_token("alice@example.com")] == "@alice"
     assert json.loads(runner.invoke(app, ["cache", "info", "--json"]).stdout)["state_files"] == 0
     purged = runner.invoke(app, ["cache", "purge"])
     assert purged.exit_code == 0, purged.output

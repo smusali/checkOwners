@@ -29,6 +29,12 @@ github:
 
 Disable `resolve_teams` if you want raw `@username` entries even when a team would match.
 
+### Can a report omit people's names?
+
+Yes. `output.anonymize: true` replaces each person with a stable `person-` token for that repository. `output.aggregate_only: true` drops per-person fields and keeps repository metrics. `identity.mode` is `handle` (default), `email`, or `hashed`. `privacy.redact_emails: true` or `--redact-emails` replaces addresses in output with tokens. `contributors.exclude` removes those people from every command, including graph export.
+
+`generate` and `sync` exit 2 under anonymize, aggregate-only, or hashed mode. On disk, state and `handles.json` store email tokens rather than raw addresses. See [Privacy controls](USAGE.md#privacy-controls).
+
 ## GitHub API access
 
 ### Does checkowners require a GitHub token?
@@ -105,7 +111,7 @@ Note that `generate` and `sync` refuse to overwrite a CODEOWNERS that was not ge
 
 ### Where is the state cache?
 
-`~/.checkowners/` (schema v7). `checkowners cache path` prints that directory. State and graph files are named from the normalized `origin` URL, so two checkouts of the same remote share a cache. A repo with no `origin` is keyed by its absolute path, and the stored identity is checked on load, so one repo cannot read another's file. Downstream commands (`qualified-owners`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) reuse the file when its commit is still `HEAD` and the scoring config hash matches. If not, they re-analyze and say so on stderr. `--allow-stale` reuses a map from an older commit. `--max-age SECONDS` refuses a map older than that (`0` expires immediately). `--no-cache` skips the cache for one run. `cache clear` drops analysis files and keeps `handles.json`. `cache purge` deletes the directory contents, including contributor emails. State and graph files are capped at 256 MiB and the oldest files are removed past that cap. `explain` and `owners` do not read this cache. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#pipeline).
+`~/.checkowners/` (schema v8). `checkowners cache path` prints that directory. State and graph files are named from the normalized `origin` URL, so two checkouts of the same remote share a cache. A repo with no `origin` is keyed by its absolute path, and the stored identity is checked on load, so one repo cannot read another's file. Downstream commands (`qualified-owners`, `decay`, `topology`, `balance`, `onboard`, `expertise`, `graph`) reuse the file when its commit is still `HEAD` and the scoring config hash matches. If not, they re-analyze and say so on stderr. `--allow-stale` reuses a map from an older commit. `--max-age SECONDS` refuses a map older than that (`0` expires immediately). `--no-cache` skips the cache for one run. `cache clear` drops analysis files and keeps `handles.json`. `cache purge` deletes the directory contents, including handle tokens. State and graph files are capped at 256 MiB and the oldest files are removed past that cap. `explain` and `owners` do not read this cache. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action sets it to `${{ runner.temp }}/checkowners-state`. See [docs/USAGE.md](USAGE.md#pipeline).
 
 ## Inference behavior
 

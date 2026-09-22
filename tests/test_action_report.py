@@ -325,6 +325,17 @@ def test_summaries_include_ratchet_counts() -> None:
     assert bus["counts"]["stale_baseline"] == 0
 
 
+def test_balance_summary_is_absent_without_balance_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    publish_outputs(limit=1)
+    assert "balance_summary" not in output.read_text(encoding="utf-8")
+
+
 def test_existing_id_returns_none_after_short_page() -> None:
     page = [{"id": 1, "body": "nope"}]
 

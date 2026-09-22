@@ -22,10 +22,12 @@ from checkowners.models import (
     FindingRule,
     GitConfig,
     GithubConfig,
+    IdentityMode,
     ModelVersions,
     OutputConfig,
     PathsConfig,
     PolicyConfig,
+    PrivacyConfig,
     QualificationConfig,
     QualificationStrategy,
     ScoringConfig,
@@ -80,6 +82,8 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
         "identity",
         "bots",
         "policy",
+        "privacy",
+        "contributors",
     }
 )
 
@@ -123,6 +127,8 @@ _V2_OUTPUT: frozenset[str] = frozenset(
         "max_bytes",
         "verify_round_trip",
         "allow_broad_patterns",
+        "anonymize",
+        "aggregate_only",
     }
 )
 _V2_DRIFT: frozenset[str] = frozenset(
@@ -139,7 +145,10 @@ _V2_GIT: frozenset[str] = frozenset(
         "use_mailmap",
     }
 )
-_V2_IDENTITY: frozenset[str] = frozenset({"mailmap"})
+_V2_IDENTITY: frozenset[str] = frozenset({"mailmap", "mode"})
+_V2_PRIVACY: frozenset[str] = frozenset({"redact_emails"})
+_V2_CONTRIBUTORS: frozenset[str] = frozenset({"exclude"})
+_IDENTITY_MODES: frozenset[str] = frozenset(get_args(IdentityMode))
 _V2_POLICY: frozenset[str] = frozenset({"incomplete_analysis"})
 _V2_INCOMPLETE: frozenset[str] = frozenset({"fail"})
 _V2_BOTS: frozenset[str] = frozenset({"exclude"})
@@ -178,6 +187,8 @@ _V2_SECTIONS: dict[str, frozenset[str]] = {
     "git": _V2_GIT,
     "identity": _V2_IDENTITY,
     "policy": _V2_POLICY,
+    "privacy": _V2_PRIVACY,
+    "contributors": _V2_CONTRIBUTORS,
 }
 
 _MOVED_KEYS: tuple[tuple[tuple[str, str], str], ...] = (
@@ -206,6 +217,10 @@ def _is_qualification_strategy(value: str) -> TypeGuard[QualificationStrategy]:
 
 def _is_finding_rule(value: str) -> TypeGuard[FindingRule]:
     return value in _VALID_FINDING_RULES
+
+
+def _is_identity_mode(value: str) -> TypeGuard[IdentityMode]:
+    return value in _IDENTITY_MODES
 
 
 def find_codeowners_path(repo_root: Path) -> Path:
@@ -267,7 +282,26 @@ def _prepare_config(raw: dict[str, Any]) -> _Prepared:
     version = _config_version(raw)
     if version == 2:
         return _translate_v2(raw), _pinned_models(raw), []
-    return raw, ModelVersions(), _present_moved_keys(raw)
+    return _without_v2_privacy(raw), ModelVersions(), _present_moved_keys(raw)
+
+
+def _without_v2_privacy(raw: dict[str, Any]) -> dict[str, Any]:
+    """Drop privacy controls from a v1 file so unknown keys stay ignored."""
+    prepared = dict(raw)
+    prepared.pop("privacy", None)
+    prepared.pop("contributors", None)
+    identity = prepared.get("identity")
+    if isinstance(identity, dict):
+        identity_copy = dict(identity)
+        identity_copy.pop("mode", None)
+        prepared["identity"] = identity_copy
+    output = prepared.get("output")
+    if isinstance(output, dict):
+        output_copy = dict(output)
+        output_copy.pop("anonymize", None)
+        output_copy.pop("aggregate_only", None)
+        prepared["output"] = output_copy
+    return prepared
 
 
 def _config_version(raw: dict[str, Any]) -> int:
@@ -472,10 +506,11 @@ def _merge_config(raw: dict[str, Any]) -> Config:
     min_commits = _resolve_min_commits(analysis_raw, qualification_raw)
     kwargs["analysis"] = replace(analysis, min_commits=min_commits)
     kwargs["qualification"] = replace(qualification, min_commits=min_commits)
-    kwargs["git"] = _apply_identity_mailmap(
-        kwargs.get("git", GitConfig()),
-        _mapping_section(raw, "identity"),
-    )
+    identity = _mapping_section(raw, "identity")
+    kwargs["git"] = _apply_identity_mailmap(kwargs.get("git", GitConfig()), identity)
+    kwargs["identity_mode"] = _build_identity_mode(identity)
+    kwargs["privacy"] = _build_privacy_config(_mapping_section(raw, "privacy"))
+    kwargs["contributors_exclude"] = _build_contributors_exclude(raw.get("contributors"))
     if "suppressions" in raw:
         kwargs["suppressions"] = _build_suppressions(raw["suppressions"])
     return Config(**kwargs)
@@ -617,7 +652,55 @@ def _build_output_config(data: dict[str, Any]) -> OutputConfig:
         kwargs["verify_round_trip"] = bool(data["verify_round_trip"])
     if "allow_broad_patterns" in data:
         kwargs["allow_broad_patterns"] = bool(data["allow_broad_patterns"])
+    if "anonymize" in data:
+        kwargs["anonymize"] = _require_bool(data["anonymize"], "output.anonymize")
+    if "aggregate_only" in data:
+        kwargs["aggregate_only"] = _require_bool(data["aggregate_only"], "output.aggregate_only")
     return OutputConfig(**kwargs)
+
+
+def _require_bool(value: object, key: str) -> bool:
+    if not isinstance(value, bool):
+        msg = f"{key} must be a boolean"
+        raise ValueError(msg)
+    return value
+
+
+def _build_identity_mode(identity: dict[str, Any]) -> IdentityMode:
+    if "mode" not in identity:
+        return "handle"
+    mode = identity["mode"]
+    if not isinstance(mode, str) or not _is_identity_mode(mode):
+        msg = f"Invalid identity.mode: {mode!r}; expected one of {sorted(_IDENTITY_MODES)}"
+        raise ValueError(msg)
+    return mode
+
+
+def _build_privacy_config(data: dict[str, Any]) -> PrivacyConfig:
+    if "redact_emails" not in data:
+        return PrivacyConfig()
+    return PrivacyConfig(
+        redact_emails=_require_bool(data["redact_emails"], "privacy.redact_emails"),
+    )
+
+
+def _build_contributors_exclude(contributors: object) -> tuple[str, ...]:
+    if contributors is None:
+        return ()
+    section = _require_mapping(contributors, "contributors")
+    if "exclude" not in section:
+        return ()
+    excluded = section["exclude"]
+    if not isinstance(excluded, list):
+        msg = "contributors.exclude must be a list"
+        raise ValueError(msg)
+    names: list[str] = []
+    for item in excluded:
+        if not isinstance(item, str) or not item.strip():
+            msg = "contributors.exclude entries must be non-empty strings"
+            raise ValueError(msg)
+        names.append(item.strip())
+    return tuple(names)
 
 
 def _build_drift_config(data: dict[str, Any]) -> DriftConfig:

@@ -22,6 +22,7 @@ from checkowners.models import (
     AnalysisGap,
     GapCode,
 )
+from checkowners.privacy import email_token, is_email
 from checkowners.state import read_handle_cache, write_handle_cache
 
 if TYPE_CHECKING:
@@ -249,7 +250,7 @@ def resolve_handles(
     cached = read_handle_cache()
     api_queue: list[str] = []
     for email in remaining:
-        hit = cached.get(email)
+        hit = _cached_handle(cached, email)
         if hit:
             resolved[email] = hit
         elif hit is None:
@@ -273,6 +274,14 @@ def resolve_handles(
             resolved[email] = handle
     write_handle_cache(fresh)
     return resolved
+
+
+def _cached_handle(cache: dict[str, str], email: str) -> str | None:
+    token = email_token(email) if is_email(email) else email
+    hit = cache.get(token)
+    if hit is None and token != email:
+        return cache.get(email)
+    return hit
 
 
 def _rate_remaining(rate: object, bucket: str) -> int | None:

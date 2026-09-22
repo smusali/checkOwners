@@ -29,6 +29,7 @@ from checkowners.models import (
     TeamCluster,
     models_payload,
 )
+from checkowners.privacy import email_token
 from checkowners.state import (
     SCHEMA_VERSION,
     _as_gap_code,
@@ -647,15 +648,19 @@ def test_bus_factor_summary_empty(repo: Path) -> None:
 def test_handle_cache_roundtrip() -> None:
     write_handle_cache({"alice@example.com": "@alice", "gone@example.com": ""})
     cache = read_handle_cache()
-    assert cache["alice@example.com"] == "@alice"
-    assert cache["gone@example.com"] == ""
+    assert "alice@example.com" not in cache
+    assert cache[email_token("alice@example.com")] == "@alice"
+    assert cache[email_token("gone@example.com")] == ""
 
 
 def test_handle_cache_merges_on_write() -> None:
     write_handle_cache({"alice@example.com": "@alice"})
     write_handle_cache({"bob@example.com": "@bob"})
     cache = read_handle_cache()
-    assert cache == {"alice@example.com": "@alice", "bob@example.com": "@bob"}
+    assert cache == {
+        email_token("alice@example.com"): "@alice",
+        email_token("bob@example.com"): "@bob",
+    }
 
 
 def test_handle_cache_missing_returns_empty() -> None:
@@ -723,7 +728,7 @@ def test_parallel_handle_writes_do_not_corrupt() -> None:
     assert errors == []
     cache = read_handle_cache()
     assert len(cache) == 8
-    assert cache["user3@example.com"] == "@user3"
+    assert cache[email_token("user3@example.com")] == "@user3"
 
 
 def test_reusable_ownership_refuses_advanced_head(tmp_path: Path) -> None:

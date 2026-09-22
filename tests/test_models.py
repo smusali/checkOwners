@@ -9,11 +9,16 @@ from unittest.mock import patch
 
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
+    GAP_CATALOG,
+    AnalysisGap,
     ConfidenceScore,
     OwnerEntry,
     SignalScore,
     _coverage_count,
+    completeness_score,
     flat_signal_scores,
+    history_evidence_gaps,
+    merge_gaps,
     repository_label,
     risk_from_scores,
     signal_completeness,
@@ -100,3 +105,52 @@ def test_risk_from_scores_without_positive_mass() -> None:
 
 def test_coverage_count_uses_every_share_below_the_threshold() -> None:
     assert _coverage_count((0.1, 0.1), 0.75) == 2
+
+
+def test_each_history_gap_drops_completeness_once() -> None:
+    flags = (
+        ({"shallow": True}, "Shallow history: the clone does not contain full git history."),
+        ({"insufficient": True}, "Insufficient history: no commits in the lookback window."),
+        ({"renamed": True}, "Unresolved renames: path history is not followed across renames."),
+        ({"mailmap_missing": True}, "Missing .mailmap."),
+        ({"ignore_revs_missing": True}, "Missing .git-blame-ignore-revs."),
+        (
+            {"excluded_gitattributes": 2, "excluded_static": 1},
+            "Excluded files: 2 gitattributes, 1 static.",
+        ),
+        ({"review_missing": True}, "Review history unavailable."),
+        ({"runtime_truncated": True}, "Analysis incomplete: runtime budget exhausted."),
+    )
+    seen: set[str] = set()
+    base = {
+        "shallow": False,
+        "insufficient": False,
+        "renamed": False,
+        "mailmap_missing": False,
+        "ignore_revs_missing": False,
+        "excluded_gitattributes": 0,
+        "excluded_static": 0,
+        "review_missing": False,
+        "runtime_truncated": False,
+    }
+    for flag, reason in flags:
+        gaps = history_evidence_gaps(**{**base, **flag})
+        assert len(gaps) == 1
+        assert gaps[0].reason == reason
+        assert completeness_score(gaps) == round((len(GAP_CATALOG) - 1) / len(GAP_CATALOG), 4)
+        seen.add(gaps[0].code)
+    assert seen == {
+        "shallow_history",
+        "insufficient_history",
+        "unresolved_renames",
+        "missing_mailmap",
+        "missing_ignore_revs",
+        "excluded_files",
+        "review_history",
+        "runtime_budget",
+    }
+    duplicated = merge_gaps(gaps, gaps)
+    assert len(duplicated) == 1
+    assert completeness_score(
+        (AnalysisGap("api_budget", "spent"), AnalysisGap("absent_token", "none"))
+    ) == round((len(GAP_CATALOG) - 2) / len(GAP_CATALOG), 4)

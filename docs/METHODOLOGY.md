@@ -46,13 +46,19 @@ alias for one cycle. `analysis.confidence_threshold` still gates this number.
 Evidence quality is a separate quantity and is never folded into the score:
 
 ```text
-evidence_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
+signal_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
+evidence_quality = signal_quality × analysis_completeness
 ```
 
 `rᵢ` is `scoring.*_reliability` (default `1.0` for every signal). With those
-defaults, quality equals the fraction of configured weight that was observed.
-Unavailable review therefore lowers quality (by `0.15` by default) without
-pulling the owner's score toward zero.
+defaults, `signal_quality` equals the fraction of configured weight that was
+observed. Unavailable review therefore lowers quality (by `0.15` by default)
+without pulling the owner's score toward zero. `analysis_completeness` is the
+fraction of the evidence catalog that was collected (shallow history, token,
+review history, rate limit, budgets, team membership, identity, exclusions,
+renames, mailmap, ignore-revs). It is recomputed from the signal breakdown
+whenever gaps change, so the run score is applied once. A missing signal stays
+unavailable. A measured zero stays zero. The ownership score is not multiplied.
 
 Human output shows both values as `handle (score/quality)`, for example
 `@alice 0.91/0.93` versus `@bob 0.79/0.31`.

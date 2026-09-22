@@ -9,11 +9,19 @@ import os
 import re
 from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import islice
 from typing import TYPE_CHECKING
 
+from checkowners.models import (
+    API_BUDGET_REASON,
+    API_RATE_LIMIT_REASON,
+    API_RATE_LIMIT_TRUNCATED_REASON,
+    SEARCH_RATE_LIMIT_REASON,
+    AnalysisGap,
+    GapCode,
+)
 from checkowners.state import read_handle_cache, write_handle_cache
 
 if TYPE_CHECKING:
@@ -72,9 +80,77 @@ def note_api_call(teams: Mapping[str, Iterable[str]] | None = None) -> None:
     )
 
 
+@dataclass
+class _ApiBudget:
+    limit: int
+    used: int = 0
+    review_omitted: bool = False
+    gaps: dict[GapCode, AnalysisGap] = field(default_factory=dict)
+
+
+_API_BUDGET: ContextVar[_ApiBudget | None] = ContextVar("checkowners_api_budget", default=None)
+
+
+def begin_api_budget(limit: int) -> None:
+    """Start a request budget of `limit` calls for the current context."""
+    _API_BUDGET.set(_ApiBudget(limit=limit))
+
+
+def clear_api_budget() -> None:
+    """Drop the request budget and any gaps recorded for the current context."""
+    _API_BUDGET.set(None)
+
+
+def _budget() -> _ApiBudget:
+    current = _API_BUDGET.get()
+    if current is None:
+        current = _ApiBudget(limit=2**31 - 1)
+        _API_BUDGET.set(current)
+    return current
+
+
+def take_api_request() -> bool:
+    """Consume one request. Return false when the budget is already spent."""
+    budget = _API_BUDGET.get()
+    if budget is None:
+        return True
+    if budget.used >= budget.limit:
+        budget.gaps.setdefault("api_budget", AnalysisGap("api_budget", API_BUDGET_REASON))
+        return False
+    budget.used += 1
+    return True
+
+
+def note_collection_gap(gap: AnalysisGap, *, replace: bool = False) -> None:
+    """Record `gap`. A later call replaces the reason only when `replace` is true."""
+    budget = _budget()
+    if replace or gap.code not in budget.gaps:
+        budget.gaps[gap.code] = gap
+
+
+def mark_review_omitted() -> None:
+    """Mark review collection as skipped so scores do not treat it as a measured zero."""
+    _budget().review_omitted = True
+
+
+def review_was_omitted() -> bool:
+    """Return whether review collection was skipped for this context."""
+    budget = _API_BUDGET.get()
+    return budget is not None and budget.review_omitted
+
+
+def collection_gaps() -> tuple[AnalysisGap, ...]:
+    """Return API gaps recorded for the current context, in catalog order."""
+    budget = _API_BUDGET.get()
+    if budget is None:
+        return ()
+    return tuple(budget.gaps.values())
+
+
 def clear_api_evidence() -> None:
     """Drop recorded API evidence for the current context."""
     _API_EVIDENCE.set(None)
+    clear_api_budget()
 
 
 def external_evidence_payload(repository_head: str) -> dict[str, str]:
@@ -174,14 +250,68 @@ def resolve_handles(
     client = get_github_client(token)
     if client is None:
         return resolved
+    if not _search_budget_allows(client):
+        return resolved
     fresh: dict[str, str] = {}
     for email in api_queue:
+        if not take_api_request():
+            break
         handle = _lookup_handle(client, email)
         fresh[email] = handle if handle is not None else ""
         if handle is not None:
             resolved[email] = handle
     write_handle_cache(fresh)
     return resolved
+
+
+def _rate_remaining(rate: object, bucket: str) -> int | None:
+    section = getattr(rate, bucket, None)
+    remaining = getattr(section, "remaining", None)
+    if isinstance(remaining, bool) or not isinstance(remaining, int):
+        return None
+    return remaining
+
+
+def _search_budget_allows(client: Github) -> bool:
+    if not take_api_request():
+        return False
+    try:
+        rate = client.get_rate_limit()
+    except Exception:
+        logger.warning("Failed to read the GitHub search rate limit")
+        return True
+    remaining = _rate_remaining(rate, "search")
+    if remaining is None or remaining >= 1:
+        return True
+    note_collection_gap(AnalysisGap("api_rate_limit", SEARCH_RATE_LIMIT_REASON))
+    return False
+
+
+def _review_pull_limit(client: Github, planned: int) -> int:
+    """Return how many pull requests review collection can afford, or 0 to skip."""
+    if not take_api_request():
+        mark_review_omitted()
+        return 0
+    try:
+        rate = client.get_rate_limit()
+    except Exception:
+        logger.warning("Failed to read the GitHub core rate limit")
+        return planned
+    remaining = _rate_remaining(rate, "core")
+    if remaining is None:
+        return planned
+    if remaining < 2:
+        note_collection_gap(AnalysisGap("api_rate_limit", API_RATE_LIMIT_REASON), replace=True)
+        mark_review_omitted()
+        return 0
+    affordable = remaining // 2
+    if affordable < planned:
+        note_collection_gap(
+            AnalysisGap("api_rate_limit", API_RATE_LIMIT_TRUNCATED_REASON),
+            replace=True,
+        )
+        return affordable
+    return planned
 
 
 def _lookup_handle(client: Github, email: str) -> str | None:
@@ -218,7 +348,10 @@ def build_review_coverage(
     login_to_email = {handle.lstrip("@"): email for email, handle in email_to_handle.items()}
     if not login_to_email:
         return {}
-    raw = _gather_review_counts_by_path(client, repo_full_name)
+    limit = _review_pull_limit(client, REVIEW_SCAN_PR_LIMIT)
+    if limit == 0:
+        return {}
+    raw = _gather_review_counts_by_path(client, repo_full_name, limit=limit)
     coverage: dict[str, dict[str, float]] = {}
     for path, counts in raw.items():
         total = sum(counts.values())
@@ -254,15 +387,21 @@ def iter_recent_closed_pulls(
 def _gather_review_counts_by_path(
     client: Github,
     repo_full_name: str,
+    *,
+    limit: int = REVIEW_SCAN_PR_LIMIT,
 ) -> dict[str, dict[str, int]]:
     """Count, per file path, how many reviews each reviewer login contributed."""
     note_api_call()
     result: dict[str, dict[str, int]] = {}
     try:
-        for pull in iter_recent_closed_pulls(client, repo_full_name):
+        for pull in iter_recent_closed_pulls(client, repo_full_name, limit):
+            if not take_api_request():
+                break
             reviewers = {review.user.login for review in pull.get_reviews() if review.user}
             if not reviewers:
                 continue
+            if not take_api_request():
+                break
             for changed in pull.get_files():
                 per_path = result.setdefault(changed.filename, {})
                 for login in reviewers:

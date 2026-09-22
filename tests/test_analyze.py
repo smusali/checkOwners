@@ -232,7 +232,7 @@ def test_analyze_lookback_days() -> None:
     ):
         analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
-    args = mock.call_args[0][0]
+    args = next(call.args[0] for call in mock.call_args_list if "--name-only" in call.args[0])
     since = _NOW - timedelta(days=90)
     assert f"--since={since.isoformat()}" in args
     assert f"--until={_NOW.isoformat()}" in args
@@ -850,7 +850,38 @@ def test_adaptive_single_commit_full_blame_is_owner() -> None:
     owner = result.paths["new.py"].owners[0]
     assert owner.handle == "alice@example.com"
     assert owner.ownership_score > 0.3
-    assert owner.evidence_quality == pytest.approx(0.85)
+    assert owner.evidence_quality == pytest.approx(
+        0.85 * (result.analysis_completeness.score or 1.0)
+    )
+    reasons = {gap.code: gap.reason for gap in result.analysis_completeness.gaps}
+    assert reasons["missing_mailmap"] == "Missing .mailmap."
+    assert reasons["missing_ignore_revs"] == "Missing .git-blame-ignore-revs."
+    assert reasons["review_history"] == "Review history unavailable."
+    assert result.analysis_completeness.score == round(
+        (13 - len(reasons)) / 13,
+        4,
+    )
+
+
+def test_runtime_budget_marks_unblamed_paths_incomplete() -> None:
+    stdout = _make_git_log_output([("alice@example.com", _RECENT, ["src/main.py"])])
+    config = Config(
+        analysis=AnalysisConfig(max_runtime_seconds=0, confidence_threshold=0.0, min_commits=1),
+    )
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME) as blame,
+    ):
+        result = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
+    blame.assert_not_called()
+    owner = result.paths["src/main.py"].owners[0]
+    assert owner.score_breakdown is not None
+    assert owner.score_breakdown.blame.available is False
+    assert owner.ownership_score > 0
+    assert any(gap.code == "runtime_budget" for gap in result.analysis_completeness.gaps)
+    assert result.analysis_completeness.score is not None
+    assert result.analysis_completeness.score < 1
 
 
 def test_adaptive_squash_merge_produces_owners() -> None:
@@ -1382,6 +1413,9 @@ def test_gitattributes_and_static_exclusions_are_not_double_counted(tmp_path: Pa
     assert completeness.excluded_gitattributes == 2
     assert completeness.excluded_static == 1
     assert completeness.excluded_gitattributes + completeness.excluded_static == 3
+    assert any(
+        gap.reason == "Excluded files: 2 gitattributes, 1 static." for gap in completeness.gaps
+    )
 
 
 def test_pathspec_limits_blame_to_requested_path() -> None:
@@ -1494,4 +1528,6 @@ def test_owner_total_matches_combine_available_signals() -> None:
             signal_reliabilities(scoring),
         )
         assert total == pytest.approx(entry.ownership_score)
-        assert quality == pytest.approx(entry.evidence_quality)
+        factor = result.analysis_completeness.score
+        scaled = quality * (factor if factor is not None else 1.0)
+        assert scaled == pytest.approx(entry.evidence_quality)

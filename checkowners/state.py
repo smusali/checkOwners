@@ -23,11 +23,14 @@ from typing import Any
 from checkowners.busfactor import DEPRECATED_COUNT_KEY, qualified_owner_count_fields
 from checkowners.models import (
     DEPRECATED_SCORE_KEY,
+    GAP_CATALOG,
     OWNERSHIP_MODEL_VERSION,
     AnalysisCompleteness,
+    AnalysisGap,
     BusFactor,
     ConfidenceScore,
     DecayWarning,
+    GapCode,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
@@ -180,6 +183,11 @@ def write_state(
             "mailmap_file": ownership.analysis_completeness.mailmap_file,
             "excluded_gitattributes": ownership.analysis_completeness.excluded_gitattributes,
             "excluded_static": ownership.analysis_completeness.excluded_static,
+            "score": ownership.analysis_completeness.score,
+            "gaps": [
+                {"code": gap.code, "reason": gap.reason}
+                for gap in ownership.analysis_completeness.gaps
+            ],
         },
         "drift_detected": drift_detected,
         "drift_reported_severity": drift_reported_severity,
@@ -344,7 +352,46 @@ def _deserialize_completeness(raw: object) -> AnalysisCompleteness:
             excluded_gitattributes if isinstance(excluded_gitattributes, int) else 0
         ),
         excluded_static=excluded_static if isinstance(excluded_static, int) else 0,
+        score=_optional_score(raw.get("score")),
+        gaps=_deserialize_gaps(raw.get("gaps")),
     )
+
+
+def _optional_score(raw: object) -> float | None:
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, int):
+        return raw * 1.0
+    if isinstance(raw, float):
+        return raw
+    return None
+
+
+def _is_gap_code(value: str) -> bool:
+    return value in GAP_CATALOG
+
+
+def _deserialize_gaps(raw: object) -> tuple[AnalysisGap, ...]:
+    if not isinstance(raw, list):
+        return ()
+    gaps: list[AnalysisGap] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        code = item.get("code")
+        reason = item.get("reason")
+        if not isinstance(code, str) or not isinstance(reason, str) or not _is_gap_code(code):
+            continue
+        gaps.append(AnalysisGap(code=_as_gap_code(code), reason=reason))
+    return tuple(gaps)
+
+
+def _as_gap_code(code: str) -> GapCode:
+    for known in GAP_CATALOG:
+        if known == code:
+            return known
+    msg = f"unknown gap code: {code}"
+    raise ValueError(msg)
 
 
 def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:

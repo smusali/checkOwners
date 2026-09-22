@@ -26,6 +26,7 @@ from checkowners.analyze import GitRequirementError, resolve_as_of
 from checkowners.balance import BalanceReport, RebalanceSuggestion, ReviewLoad
 from checkowners.busfactor import BusFactorReport
 from checkowners.cli import (
+    _api_gaps,
     _days_since,
     _declared_owners,
     _merge_identities,
@@ -62,6 +63,7 @@ from checkowners.models import (
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    PolicyConfig,
     SignalScore,
     TeamCluster,
     models_payload,
@@ -339,6 +341,7 @@ def test_analyze_table() -> None:
     assert "Blame ignore-revs: not found" in result.stdout
     assert "Mailmap: not found" in result.stdout
     assert "Exclusions: 0 gitattributes, 0 static" in result.stdout
+    assert "analysis completeness: 75%" in result.stdout
 
     applied = replace(
         _OWNERSHIP,
@@ -381,6 +384,28 @@ def test_invalid_config_exits_config() -> None:
         result = runner.invoke(app, ["analyze"])
     assert result.exit_code == 2
     assert "bad config" in result.stdout
+
+
+def test_api_gaps_name_absent_token_and_unresolved_emails() -> None:
+    with patch("checkowners.cli.get_github_token", return_value=""):
+        gaps = {gap.code: gap.reason for gap in _api_gaps(_OWNERSHIP, Config())}
+    assert gaps["absent_token"] == "Absent token: GitHub API evidence was not collected."
+    assert gaps["ambiguous_identity"] == (
+        "Ambiguous identities: 3 emails were not resolved to a single GitHub account."
+    )
+
+
+def test_policy_incomplete_analysis_exits_findings() -> None:
+    policy = Config(policy=PolicyConfig(incomplete_analysis_fail=True))
+    with (
+        patch("checkowners.cli.load_config", return_value=policy),
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        _MOCK_TOKEN,
+    ):
+        failed = runner.invoke(app, ["analyze"])
+        cleared = runner.invoke(app, ["--exit-zero", "analyze"])
+    assert failed.exit_code == 3
+    assert cleared.exit_code == 0
 
 
 def test_fail_on_incomplete_stays_zero_when_signals_are_complete() -> None:

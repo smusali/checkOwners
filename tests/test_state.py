@@ -209,6 +209,8 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
         "mailmap_file": "",
         "excluded_gitattributes": 0,
         "excluded_static": 0,
+        "score": None,
+        "gaps": [],
     }
     assert data["drift_reported_severity"] is None
     assert data["drift_pending_severity"] is None

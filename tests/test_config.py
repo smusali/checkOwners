@@ -604,3 +604,37 @@ bots: {}
     assert omitted_cfg.analysis.lookback_days == 30
     assert omitted_cfg.analysis.top_n_owners == 3
     assert omitted_cfg.analysis.exclude_bots is True
+
+
+def test_analysis_budgets_and_incomplete_policy(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        "version: 2\n"
+        "analysis:\n"
+        "  max_runtime_seconds: 10\n"
+        "  max_git_workers: 2\n"
+        "  max_api_requests: 5\n"
+        "policy:\n"
+        "  incomplete_analysis:\n"
+        "    fail: true\n",
+    )
+    cfg = load_config(repo_root=root)
+    assert cfg.analysis.max_runtime_seconds == 10
+    assert cfg.analysis.max_git_workers == 2
+    assert cfg.analysis.max_api_requests == 5
+    assert cfg.policy.incomplete_analysis_fail is True
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        ("version: 2\nanalysis:\n  max_runtime_seconds: 0\n", "positive integer"),
+        ("version: 2\nanalysis:\n  max_git_workers: -1\n", "positive integer"),
+        ("version: 2\nanalysis:\n  max_api_requests: false\n", "positive integer"),
+        ("version: 2\npolicy:\n  drift: {}\n", "Unsupported checkowners config key: policy.drift"),
+    ],
+)
+def test_budget_and_policy_keys_rejected(tmp_path: Path, content: str, match: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)

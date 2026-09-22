@@ -8,15 +8,18 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from contextvars import ContextVar
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
 from checkowners.expertise import path_matches_glob
+from checkowners.github import collection_gaps, review_was_omitted
 from checkowners.models import (
     AnalysisCompleteness,
     ConfidenceScore,
@@ -29,6 +32,9 @@ from checkowners.models import (
     QualificationStrategy,
     ScoringConfig,
     SignalScore,
+    history_evidence_gaps,
+    merge_gaps,
+    with_gaps,
 )
 
 _COMMIT_SENTINEL = "COMMIT_START"
@@ -77,6 +83,10 @@ class _BlamePass:
     coverage: dict[str, dict[str, float]] = field(default_factory=dict)
     ignore_revs_file: str = ""
     ignore_revs_applied: bool = False
+    truncated: bool = False
+
+
+_BLAME_DEADLINE: ContextVar[float | None] = ContextVar("checkowners_blame_deadline", default=None)
 
 
 @dataclass(frozen=True)
@@ -190,6 +200,38 @@ def analyze_ownership(
     """
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     ref = analysis_ref if analysis_ref is not None else head_commit_sha(repo_root)
+    deadline = time.monotonic() + config.analysis.max_runtime_seconds
+    deadline_token = _BLAME_DEADLINE.set(deadline)
+    try:
+        return _analyze_ownership(
+            repo_root,
+            config,
+            when=when,
+            ref=ref,
+            review_provider=review_provider,
+            on_progress=on_progress,
+            max_workers=max_workers,
+            pathspec=pathspec,
+            retain_all=retain_all,
+            deadline=deadline,
+        )
+    finally:
+        _BLAME_DEADLINE.reset(deadline_token)
+
+
+def _analyze_ownership(
+    repo_root: Path,
+    config: Config,
+    *,
+    when: datetime,
+    ref: str,
+    review_provider: ReviewProvider | None,
+    on_progress: ProgressHook | None,
+    max_workers: int | None,
+    pathspec: tuple[str, ...] | None,
+    retain_all: bool,
+    deadline: float,
+) -> OwnershipMap:
     mailmap_path = _resolve_mailmap_file(repo_root)
     commits = _get_commit_history(
         repo_root,
@@ -218,38 +260,180 @@ def analyze_ownership(
         contributions = _filter_bot_authors(contributions)
     if config.qualification.strategy == "threshold":
         contributions = _filter_unqualified(contributions, config.analysis.min_commits)
-    blame_pass = _gather_blame_coverage(
-        contributions.keys(),
-        repo_root,
-        git=config.git,
-        on_progress=on_progress,
-        max_workers=max_workers,
-    )
+    if time.monotonic() >= deadline:
+        blame_pass = _BlamePass(truncated=True)
+    else:
+        blame_pass = _gather_blame_coverage(
+            contributions.keys(),
+            repo_root,
+            git=config.git,
+            on_progress=on_progress,
+            max_workers=max_workers,
+        )
     review_coverage = _gather_review_coverage(contributions, review_provider)
+    review_omitted = review_was_omitted()
     paths = _build_path_ownerships(
         contributions,
         blame_pass.coverage,
         review_coverage,
         config,
         when,
-        review_available=review_provider is not None,
+        review_available=review_provider is not None and not review_omitted,
         retain_all=retain_all,
     )
-    return OwnershipMap(
-        paths=dict(sorted(paths.items())),
-        last_analyzed=when,
-        analysis_ref=ref,
-        analysis_completeness=AnalysisCompleteness(
-            ignore_revs_applied=blame_pass.ignore_revs_applied,
-            ignore_revs_file=blame_pass.ignore_revs_file,
-            mailmap_applied=mailmap_path is not None and config.git.use_mailmap,
-            mailmap_file=(
-                _display_ignore_revs_path(repo_root, mailmap_path) if mailmap_path else ""
-            ),
-            excluded_gitattributes=gitattributes_n,
-            excluded_static=static_n,
-        ),
+    completeness = _run_completeness(
+        repo_root,
+        config,
+        when=when,
+        commits=commits,
+        mailmap_path=mailmap_path,
+        blame_pass=blame_pass,
+        gitattributes_n=gitattributes_n,
+        static_n=static_n,
+        review_missing=config.scoring.review_weight > 0
+        and review_provider is None
+        and not review_omitted,
     )
+    return apply_completeness(
+        OwnershipMap(
+            paths=dict(sorted(paths.items())),
+            last_analyzed=when,
+            analysis_ref=ref,
+            analysis_completeness=completeness,
+        ),
+        completeness,
+        config.scoring,
+    )
+
+
+def _run_completeness(
+    repo_root: Path,
+    config: Config,
+    *,
+    when: datetime,
+    commits: list[_RawCommit],
+    mailmap_path: Path | None,
+    blame_pass: _BlamePass,
+    gitattributes_n: int,
+    static_n: int,
+    review_missing: bool,
+) -> AnalysisCompleteness:
+    since = when - timedelta(days=config.analysis.lookback_days)
+    gaps = history_evidence_gaps(
+        shallow=_is_shallow_repository(repo_root),
+        insufficient=_insufficient_history(repo_root, commits),
+        renamed=_window_has_renames(repo_root, since, when),
+        mailmap_missing=config.git.use_mailmap and mailmap_path is None,
+        ignore_revs_missing=_resolve_ignore_revs_file(repo_root, config.git.blame_ignore_revs_file)
+        is None,
+        excluded_gitattributes=gitattributes_n,
+        excluded_static=static_n,
+        review_missing=review_missing,
+        runtime_truncated=blame_pass.truncated,
+    )
+    base = AnalysisCompleteness(
+        ignore_revs_applied=blame_pass.ignore_revs_applied,
+        ignore_revs_file=blame_pass.ignore_revs_file,
+        mailmap_applied=mailmap_path is not None and config.git.use_mailmap,
+        mailmap_file=(_display_ignore_revs_path(repo_root, mailmap_path) if mailmap_path else ""),
+        excluded_gitattributes=gitattributes_n,
+        excluded_static=static_n,
+    )
+    return with_gaps(base, merge_gaps(gaps, collection_gaps()))
+
+
+def apply_completeness(
+    ownership: OwnershipMap,
+    completeness: AnalysisCompleteness,
+    scoring: ScoringConfig,
+) -> OwnershipMap:
+    """Return `ownership` with evidence quality scaled by `completeness.score`."""
+    factor = completeness.score if completeness.score is not None else 1.0
+    weights = signal_weights(scoring)
+    reliabilities = signal_reliabilities(scoring)
+
+    def scale(owner: OwnerEntry) -> OwnerEntry:
+        breakdown = owner.score_breakdown
+        if breakdown is None:
+            return owner
+        _, quality = combine_available_signals(
+            {
+                "recency": (breakdown.recency.score, breakdown.recency.available),
+                "frequency": (breakdown.frequency.score, breakdown.frequency.available),
+                "blame": (breakdown.blame.score, breakdown.blame.available),
+                "review": (breakdown.review.score, breakdown.review.available),
+            },
+            weights,
+            reliabilities,
+        )
+        return replace(owner, evidence_quality=_clamp(quality * factor))
+
+    paths = {
+        path: replace(
+            path_ownership,
+            owners=tuple(scale(owner) for owner in path_ownership.owners),
+            candidates=tuple(scale(owner) for owner in path_ownership.candidates),
+        )
+        for path, path_ownership in ownership.paths.items()
+    }
+    return replace(ownership, paths=paths, analysis_completeness=completeness)
+
+
+def _git_stdout(repo_root: Path, argv: list[str]) -> str | None:
+    try:
+        result = subprocess.run(  # noqa: S603
+            argv,
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _is_shallow_repository(repo_root: Path) -> bool:
+    stdout = _git_stdout(repo_root, ["git", "rev-parse", "--is-shallow-repository"])
+    return stdout is not None and stdout.strip() == "true"
+
+
+def _insufficient_history(repo_root: Path, commits: list[_RawCommit]) -> bool:
+    if commits:
+        return False
+    stdout = _git_stdout(repo_root, ["git", "rev-parse", "--verify", "HEAD"])
+    if stdout is None:
+        return False
+    return _FULL_SHA_RE.fullmatch(stdout.strip()) is not None
+
+
+def _stdout_has_rename(stdout: str) -> bool:
+    for line in stdout.splitlines():
+        if line.startswith("R") and "\t" in line:
+            status = line.split("\t", 1)[0]
+            if status == "R" or (len(status) > 1 and status[1:].isdigit()):
+                return True
+    return False
+
+
+def _window_has_renames(repo_root: Path, since: datetime, until: datetime) -> bool:
+    stdout = _git_stdout(
+        repo_root,
+        [
+            "git",
+            "log",
+            "--diff-filter=R",
+            "--name-status",
+            "--pretty=format:",
+            f"--since={since.isoformat()}",
+            f"--until={until.isoformat()}",
+        ],
+    )
+    if not stdout:
+        return False
+    return _stdout_has_rename(stdout)
 
 
 def _gather_review_coverage(
@@ -836,20 +1020,24 @@ def _git_config_value(repo_root: Path, key: str) -> str:
     return result.stdout.strip()
 
 
-def _resolve_ignore_revs_file(repo_root: Path, configured: str) -> Path | None:
-    if configured:
-        candidate = Path(configured)
+def _existing_file(repo_root: Path, raw: str) -> Path | None:
+    if not raw or "\n" in raw or "\x00" in raw:
+        return None
+    try:
+        candidate = Path(raw)
         resolved = candidate if candidate.is_absolute() else repo_root / candidate
         if resolved.is_file():
             return resolved
-    native = _git_config_value(repo_root, "blame.ignoreRevsFile")
-    if not native:
+    except OSError:
         return None
-    native_path = Path(native)
-    resolved_native = native_path if native_path.is_absolute() else repo_root / native_path
-    if resolved_native.is_file():
-        return resolved_native
     return None
+
+
+def _resolve_ignore_revs_file(repo_root: Path, configured: str) -> Path | None:
+    found = _existing_file(repo_root, configured)
+    if found is not None:
+        return found
+    return _existing_file(repo_root, _git_config_value(repo_root, "blame.ignoreRevsFile"))
 
 
 def _display_ignore_revs_path(repo_root: Path, path: Path) -> str:
@@ -974,15 +1162,20 @@ def _gather_blame_coverage(
         workers = max_workers if max_workers is not None else min(32, os.cpu_count() or 4)
         workers = max(workers, 1)
         done = 0
+        truncated = False
+        deadline = _BLAME_DEADLINE.get()
         with (
             _suppress_workdir_mailmap(repo_root, enabled=git_config.use_mailmap),
             ThreadPoolExecutor(max_workers=workers) as pool,
         ):
-            for path, per_author in zip(
-                path_list,
-                pool.map(lambda p: _blame_for_path(repo_root, p, argv), path_list),
-                strict=True,
-            ):
+            pending: list[tuple[str, Future[dict[str, float]]]] = []
+            for path in path_list:
+                if deadline is not None and time.monotonic() >= deadline:
+                    truncated = True
+                    break
+                pending.append((path, pool.submit(_blame_for_path, repo_root, path, argv)))
+            for path, future in pending:
+                per_author = future.result()
                 done += 1
                 if on_progress is not None:
                     on_progress(done, total)
@@ -993,6 +1186,7 @@ def _gather_blame_coverage(
             coverage=dict(sorted(coverage.items())),
             ignore_revs_file=display,
             ignore_revs_applied=ignore_revs is not None,
+            truncated=truncated,
         )
     finally:
         if extra_path is not None:

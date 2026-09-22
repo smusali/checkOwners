@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 from checkowners.drift import drift_entry_payload
-from checkowners.github import external_evidence_payload
+from checkowners.github import external_evidence_payload, offline_enabled
 from checkowners.models import Config, DriftResult, Severity, repository_label, stamp_json
 
 logger = logging.getLogger(__name__)
@@ -151,6 +151,8 @@ def _post_webhook(url: str, payload: dict[str, object]) -> bool:
     Returns True on success, False on any network/HTTP failure. A failed
     delivery never raises.
     """
+    if offline_enabled():
+        return False
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         logger.warning("Webhook URL scheme %s is not http or https", parsed.scheme)

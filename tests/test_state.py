@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import threading
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -14,10 +18,12 @@ from checkowners.models import (
     AnalysisGap,
     BusFactor,
     ConfidenceScore,
+    Config,
     DecayWarning,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    ScoringConfig,
     SignalScore,
     TeamCluster,
     models_payload,
@@ -26,15 +32,21 @@ from checkowners.state import (
     SCHEMA_VERSION,
     _as_gap_code,
     _state_path,
+    cache_clear,
+    cache_info,
+    cache_purge,
     load_hysteresis,
     load_ownership,
     read_graph_cache,
     read_handle_cache,
     read_state,
+    repository_identity,
+    reusable_ownership,
     write_graph_cache,
     write_handle_cache,
     write_state,
 )
+from tests.conftest import git_commit, init_git_repo
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
@@ -82,10 +94,13 @@ def _make_ownership() -> OwnershipMap:
 
 
 def _write_raw_state(repo_root: Path, payload: object) -> None:
+    body = payload
+    if isinstance(payload, dict) and "repo_id" not in payload:
+        body = {**payload, "repo_id": repository_identity(repo_root)}
     target = _state_path(repo_root)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
-        payload if isinstance(payload, str) else json.dumps(payload),
+        body if isinstance(body, str) else json.dumps(body),
         encoding="utf-8",
     )
 
@@ -157,12 +172,33 @@ def test_read_state_non_dict_returns_none(repo: Path) -> None:
 
 
 def test_read_state_repo_mismatch_returns_none(repo: Path) -> None:
-    """State written under this repo's digest but naming another repo is rejected."""
+    """State whose repo_id does not match this checkout is rejected."""
     _write_raw_state(
         repo,
-        _readable_state({"schema_version": SCHEMA_VERSION, "repo": "/somewhere/else"}),
+        _readable_state(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "repo": str(repo.resolve()),
+                "repo_id": "origin:example.com/other",
+            }
+        ),
     )
     assert read_state(repo) is None
+    _write_raw_state(
+        repo,
+        _readable_state(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "repo": "/somewhere/else",
+                "repo_id": repository_identity(repo),
+                "inferred": {},
+                "last_analyzed": _NOW.isoformat(),
+            }
+        ),
+    )
+    loaded = read_state(repo)
+    assert loaded is not None
+    assert loaded["repo"] == "/somewhere/else"
 
 
 def test_write_and_read_roundtrip(repo: Path) -> None:
@@ -663,3 +699,102 @@ def test_graph_cache_keyed_by_repo(tmp_path: Path) -> None:
     write_graph_cache(repo_a, _NOW, {"nodes": [{"id": "a"}], "edges": []})
     assert read_graph_cache(repo_b, _NOW) is None
     assert read_graph_cache(repo_a, _NOW) == {"nodes": [{"id": "a"}], "edges": []}
+
+
+def test_parallel_handle_writes_do_not_corrupt() -> None:
+    errors: list[BaseException] = []
+
+    def write_one(index: int) -> None:
+        try:
+            write_handle_cache({f"user{index}@example.com": f"@user{index}"})
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=write_one, args=(index,)) for index in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    cache = read_handle_cache()
+    assert len(cache) == 8
+    assert cache["user3@example.com"] == "@user3"
+
+
+def test_reusable_ownership_refuses_advanced_head(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    (repo / "a.txt").write_text("a\n", encoding="utf-8")
+    first = git_commit(
+        repo, "first", author="Alice", email="alice@example.com", date="2024-01-01T00:00:00Z"
+    )
+    write_state(
+        repo,
+        OwnershipMap(paths={}, last_analyzed=_NOW, analysis_ref=first),
+        config=Config(),
+    )
+    assert reusable_ownership(repo, Config(), head=first) is not None
+    (repo / "b.txt").write_text("b\n", encoding="utf-8")
+    second = git_commit(
+        repo, "second", author="Alice", email="alice@example.com", date="2024-01-02T00:00:00Z"
+    )
+    assert reusable_ownership(repo, Config(), head=second) is None
+    reused = reusable_ownership(repo, Config(), head=second, allow_stale=True)
+    assert reused is not None
+    assert reused.analysis_ref == first
+    assert reusable_ownership(repo, Config(), head=first, max_age=0) is None
+
+
+def test_reusable_ownership_rejects_config_hash_mismatch(repo: Path) -> None:
+    write_state(repo, _make_ownership(), config=Config())
+    changed = replace(Config(), scoring=replace(ScoringConfig(), recency_weight=0.5))
+    assert reusable_ownership(repo, changed, head="deadbeef") is None
+    assert reusable_ownership(repo, Config(), head="deadbeef") is not None
+
+
+def test_same_origin_shares_state(tmp_path: Path) -> None:
+    first = init_git_repo(tmp_path / "first")
+    second = init_git_repo(tmp_path / "second")
+    for root, url in (
+        (first, "git@github.com:acme/widget.git"),
+        (second, "https://github.com/acme/widget.git"),
+    ):
+        subprocess.run(  # noqa: S603
+            ["git", "remote", "add", "origin", url],  # noqa: S607
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    write_state(first, _make_ownership(), config=Config())
+    loaded = load_ownership(second)
+    assert loaded is not None
+    assert loaded.analysis_ref == "deadbeef"
+    assert repository_identity(first) == repository_identity(second)
+
+
+def test_cache_evicts_oldest_state_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("checkowners.state.CACHE_LIMIT_BYTES", 1)
+    older = tmp_path / "older"
+    newer = tmp_path / "newer"
+    older.mkdir()
+    newer.mkdir()
+    first = write_state(older, _make_ownership())
+    os.utime(first, (1, 1))
+    second = write_state(newer, _make_ownership())
+    assert not first.exists()
+    assert second.exists()
+    info = cache_info()
+    assert info["state_files"] == 1
+    assert info["limit_bytes"] == 1
+
+
+def test_cache_clear_keeps_handles_and_purge_removes_them(repo: Path) -> None:
+    write_state(repo, _make_ownership())
+    write_handle_cache({"alice@example.com": "@alice"})
+    assert cache_info()["handles"] is True
+    assert cache_clear() >= 1
+    assert cache_info()["state_files"] == 0
+    assert cache_info()["handles"] is True
+    assert cache_purge() >= 1
+    assert cache_info()["handles"] is False
+    assert read_handle_cache() == {}

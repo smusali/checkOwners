@@ -3,8 +3,9 @@
 The state file is the cache of the most recent analyze run for a repo.
 Downstream commands (drift, decay, qualified-owners, topology, balance, onboard)
 read from it to avoid re-running git log on every invocation. State is keyed
-per repo (schema v6): each repo gets its own file, and the payload embeds the
-absolute repo path so state from one repo can never leak into another.
+per repo (schema v7) by the normalized origin URL, or by the absolute path
+when the repo has no origin. The payload records that identity and it is
+checked on load.
 
 Schema is versioned. Older state files are not auto-migrated; they are
 ignored and a fresh state replaces them on the next analyze.
@@ -15,11 +16,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import shutil
+import urllib.parse
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import IO, Any, TypedDict
 
+from checkowners import __version__
 from checkowners.busfactor import DEPRECATED_COUNT_KEY, qualified_owner_count_fields
 from checkowners.models import (
     DEPRECATED_SCORE_KEY,
@@ -29,6 +36,7 @@ from checkowners.models import (
     AnalysisGap,
     BusFactor,
     ConfidenceScore,
+    Config,
     DecayWarning,
     GapCode,
     OwnerEntry,
@@ -40,11 +48,36 @@ from checkowners.models import (
     models_payload,
 )
 
-SCHEMA_VERSION: int = 6
+SCHEMA_VERSION: int = 7
+CACHE_LIMIT_BYTES: int = 256 * 1024 * 1024
 _STATE_DIR = Path.home() / ".checkowners"
 _STATE_SUBDIR = "state"
 _GRAPH_CACHE_SUBDIR = "graph"
 _HANDLE_CACHE_FILENAME = "handles.json"
+_SCP_REMOTE = re.compile(r"^(?:[^@/]+@)?([^:/]+):(.+)$")
+
+
+class CacheEntry(TypedDict):
+    repo_id: str
+    analysis_ref: str
+    last_analyzed: str
+    bytes: int
+
+
+class CacheInfo(TypedDict):
+    path: str
+    schema_version: int
+    bytes: int
+    state_files: int
+    graph_files: int
+    handles: bool
+    limit_bytes: int
+    entries: list[CacheEntry]
+
+
+def cache_directory() -> Path:
+    """Return the cache root, honoring CHECKOWNERS_STATE_DIR."""
+    return _base_dir()
 
 
 def _base_dir() -> Path:
@@ -53,8 +86,107 @@ def _base_dir() -> Path:
     return Path(override) if override else _STATE_DIR
 
 
+def repository_identity(repo_root: Path) -> str:
+    """Return a stable id for `repo_root`: normalized origin, else absolute path."""
+    remote = _origin_url(repo_root)
+    if remote:
+        normalized = _normalize_remote(remote)
+        if normalized:
+            return f"origin:{normalized}"
+    return f"path:{repo_root.resolve()}"
+
+
+def config_hash(config: Config) -> str:
+    """Return a sha256 of the scoring-relevant fields of `config`."""
+    payload = {
+        "analysis": asdict(config.analysis),
+        "qualification": asdict(config.qualification),
+        "scoring": asdict(config.scoring),
+        "decay": asdict(config.decay),
+        "bus_factor": asdict(config.bus_factor),
+        "paths": asdict(config.paths),
+        "git": asdict(config.git),
+        "models": asdict(config.models),
+        "github": {
+            "api_enabled": config.github.api_enabled,
+            "org": config.github.org,
+            "resolve_handles": config.github.resolve_handles,
+            "resolve_teams": config.github.resolve_teams,
+        },
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _git_config_path(repo_root: Path) -> Path | None:
+    git_entry = repo_root / ".git"
+    if git_entry.is_dir():
+        return git_entry / "config"
+    if not git_entry.is_file():
+        return None
+    text = git_entry.read_text(encoding="utf-8", errors="replace").strip()
+    if not text.lower().startswith("gitdir:"):
+        return None
+    raw = text.split(":", 1)[1].strip()
+    git_dir = Path(raw)
+    if not git_dir.is_absolute():
+        git_dir = (repo_root / git_dir).resolve()
+    common = git_dir / "commondir"
+    if common.is_file():
+        common_raw = common.read_text(encoding="utf-8", errors="replace").strip()
+        common_dir = Path(common_raw)
+        if not common_dir.is_absolute():
+            common_dir = (git_dir / common_dir).resolve()
+        return common_dir / "config"
+    return git_dir / "config"
+
+
+def _origin_url(repo_root: Path) -> str | None:
+    config_path = _git_config_path(repo_root)
+    if config_path is None or not config_path.is_file():
+        return None
+    in_origin = False
+    try:
+        lines = config_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_origin = stripped.lower() == '[remote "origin"]'
+            continue
+        if not in_origin:
+            continue
+        key, separator, value = stripped.partition("=")
+        if separator and key.strip().lower() == "url":
+            url = value.strip()
+            return url or None
+    return None
+
+
+def _normalize_remote(url: str) -> str:
+    text = url.strip().rstrip("/")
+    if text.endswith(".git"):
+        text = text[: -len(".git")]
+    if "://" in text:
+        parsed = urllib.parse.urlsplit(text)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path.strip("/")
+        if host and path:
+            return f"{host}/{path}"
+        return ""
+    match = _SCP_REMOTE.fullmatch(text)
+    if match is None:
+        return ""
+    host = match.group(1).lower()
+    path = match.group(2).strip("/")
+    if not host or not path:
+        return ""
+    return f"{host}/{path}"
+
+
 def _repo_digest(repo_root: Path) -> str:
-    return hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(repository_identity(repo_root).encode("utf-8")).hexdigest()[:16]
 
 
 def _models_current(data: dict[str, Any]) -> bool:
@@ -75,54 +207,180 @@ def _graph_cache_path(repo_root: Path) -> Path:
     return _base_dir() / _GRAPH_CACHE_SUBDIR / f"{_repo_digest(repo_root)}.json"
 
 
-def write_graph_cache(repo_root: Path, last_analyzed: datetime, graph_data: dict[str, Any]) -> Path:
-    """Persist a serialized knowledge graph, tagged with the analysis timestamp."""
-    target = _graph_cache_path(repo_root)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
+def _resolved_config(config: Config | None) -> Config:
+    return config if config is not None else Config()
+
+
+def _identity_fields(repo_root: Path, config: Config | None) -> dict[str, object]:
+    resolved = _resolved_config(config)
+    return {
         "schema_version": SCHEMA_VERSION,
+        "model_version": OWNERSHIP_MODEL_VERSION,
         "models": models_payload(),
         "repo": str(repo_root.resolve()),
+        "repo_id": repository_identity(repo_root),
+        "config_hash": config_hash(resolved),
+        "package_version": __version__,
+    }
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        data: object = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    parsed: dict[str, Any] = {}
+    for key, value in data.items():
+        if not isinstance(key, str):
+            return None
+        parsed[key] = value
+    return parsed
+
+
+def _acquire_lock(handle: IO[str]) -> None:
+    try:
+        import fcntl  # noqa: PLC0415
+    except ImportError:
+        return
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+
+def _release_lock(handle: IO[str]) -> None:
+    try:
+        import fcntl  # noqa: PLC0415
+    except ImportError:
+        return
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _locked(target: Path) -> Iterator[None]:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = target.with_name(f"{target.name}.lock")
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        _acquire_lock(handle)
+        try:
+            yield
+        finally:
+            _release_lock(handle)
+
+
+def _atomic_write(target: Path, text: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _json_files(subdir: str) -> list[Path]:
+    directory = _base_dir() / subdir
+    if not directory.is_dir():
+        return []
+    return sorted(path for path in directory.glob("*.json") if path.is_file())
+
+
+def _bounded_files() -> list[Path]:
+    return _json_files(_STATE_SUBDIR) + _json_files(_GRAPH_CACHE_SUBDIR)
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _evict(keep: Path) -> None:
+    files = _bounded_files()
+    total = sum(_file_size(path) for path in files)
+    if total <= CACHE_LIMIT_BYTES:
+        return
+    keep_resolved = keep.resolve()
+    victims = [path for path in files if path.resolve() != keep_resolved]
+    victims.sort(key=lambda path: path.stat().st_mtime if path.exists() else 0)
+    for path in victims:
+        if total <= CACHE_LIMIT_BYTES:
+            break
+        size = _file_size(path)
+        path.unlink(missing_ok=True)
+        total -= size
+
+
+def _string_field(data: dict[str, Any] | None, key: str) -> str:
+    if data is None:
+        return ""
+    value = data.get(key, "")
+    return value if isinstance(value, str) else ""
+
+
+def write_graph_cache(
+    repo_root: Path,
+    last_analyzed: datetime,
+    graph_data: dict[str, Any],
+    *,
+    config: Config | None = None,
+    analysis_ref: str = "",
+) -> Path:
+    """Persist a serialized knowledge graph, tagged with the analysis timestamp.
+
+    `config` selects the scoring hash stored beside the graph. `analysis_ref`
+    is the commit the graph was built from. Returns the cache file path.
+    """
+    target = _graph_cache_path(repo_root)
+    payload = {
+        **_identity_fields(repo_root, config),
         "last_analyzed": last_analyzed.astimezone(UTC).isoformat(),
+        "analysis_ref": analysis_ref,
         "graph": graph_data,
     }
-    target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    with _locked(target):
+        _atomic_write(target, text)
+        _evict(target)
     return target
 
 
-def read_graph_cache(repo_root: Path, last_analyzed: datetime) -> dict[str, Any] | None:
-    """Return the cached graph for a repo when present and not stale, else None.
+def read_graph_cache(
+    repo_root: Path,
+    last_analyzed: datetime,
+    *,
+    config: Config | None = None,
+    analysis_ref: str | None = None,
+) -> dict[str, Any] | None:
+    """Return the cached graph when it matches this analysis, else None.
 
-    Freshness is keyed on the analysis timestamp: a cache built from an older
-    ``analyze`` run is ignored so the graph never lags the ownership map.
+    `config`, when passed, must hash to the stored config hash. `analysis_ref`,
+    when passed, must equal the stored commit. A timestamp mismatch also misses.
     """
-    target = _graph_cache_path(repo_root)
-    if not target.exists():
-        return None
-    try:
-        data: Any = json.loads(target.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, dict) or data.get("schema_version") != SCHEMA_VERSION:
+    data = _read_json(_graph_cache_path(repo_root))
+    if data is None or data.get("schema_version") != SCHEMA_VERSION:
         return None
     if not _models_current(data):
         return None
+    if data.get("repo_id") != repository_identity(repo_root):
+        return None
     if data.get("last_analyzed") != last_analyzed.astimezone(UTC).isoformat():
+        return None
+    if config is not None and data.get("config_hash") != config_hash(config):
+        return None
+    if analysis_ref is not None and data.get("analysis_ref") != analysis_ref:
         return None
     graph = data.get("graph")
     return graph if isinstance(graph, dict) else None
 
 
 def read_state(repo_root: Path) -> dict[str, Any] | None:
-    """Read a repo's state as a dict, or None if missing/version/repo mismatch."""
-    target = _state_path(repo_root)
-    if not target.exists():
-        return None
-    try:
-        data: Any = json.loads(target.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, dict):
+    """Read a repo's state as a dict, or None if missing or structurally invalid."""
+    data = _read_json(_state_path(repo_root))
+    if data is None:
         return None
     if data.get("schema_version") != SCHEMA_VERSION:
         return None
@@ -131,7 +389,7 @@ def read_state(repo_root: Path) -> dict[str, Any] | None:
     model_version = data.get("model_version")
     if model_version is not None and model_version != OWNERSHIP_MODEL_VERSION:
         return None
-    if data.get("repo") != str(repo_root.resolve()):
+    if data.get("repo_id") != repository_identity(repo_root):
         return None
     return data
 
@@ -147,55 +405,64 @@ def write_state(
     drift_reported_severity: str | None = None,
     drift_pending_severity: str | None = None,
     drift_pending_streak: int = 0,
+    config: Config | None = None,
 ) -> Path:
-    """Persist the latest ownership map and derived intelligence to disk."""
-    existing = read_state(repo_root)
-    if drift_reported_severity is None and existing is not None:
-        prior_reported = existing.get("drift_reported_severity")
-        prior_pending = existing.get("drift_pending_severity")
-        prior_streak = existing.get("drift_pending_streak", 0)
-        drift_reported_severity = prior_reported if isinstance(prior_reported, str) else None
-        drift_pending_severity = prior_pending if isinstance(prior_pending, str) else None
-        drift_pending_streak = prior_streak if isinstance(prior_streak, int) else 0
+    """Persist the latest ownership map and derived intelligence to disk.
+
+    `config` selects the scoring hash stored with the map. When omitted, the
+    default config is hashed. Returns the state file path.
+    """
     target = _state_path(repo_root)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
-        "model_version": OWNERSHIP_MODEL_VERSION,
-        "models": models_payload(),
-        "repo": str(repo_root.resolve()),
-        "inferred": {
-            path: _serialize_path(po, qualified_owner_count_cap)
-            for path, po in sorted(ownership.paths.items())
-        },
-        "topology": {"clusters": [asdict(c) for c in topology]},
-        "bus_factor_summary": _serialize_bus_factor_summary(
-            bus_factor_summary, qualified_owner_count_cap
-        ),
-        "qualified_owner_count_cap": qualified_owner_count_cap,
-        "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
-        "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
-        "analysis_ref": ownership.analysis_ref,
-        "analysis_completeness": {
-            "ignore_revs_applied": ownership.analysis_completeness.ignore_revs_applied,
-            "ignore_revs_file": ownership.analysis_completeness.ignore_revs_file,
-            "mailmap_applied": ownership.analysis_completeness.mailmap_applied,
-            "mailmap_file": ownership.analysis_completeness.mailmap_file,
-            "excluded_gitattributes": ownership.analysis_completeness.excluded_gitattributes,
-            "excluded_static": ownership.analysis_completeness.excluded_static,
-            "score": ownership.analysis_completeness.score,
-            "gaps": [
-                {"code": gap.code, "reason": gap.reason}
-                for gap in ownership.analysis_completeness.gaps
-            ],
-        },
-        "drift_detected": drift_detected,
-        "drift_reported_severity": drift_reported_severity,
-        "drift_pending_severity": drift_pending_severity,
-        "drift_pending_streak": drift_pending_streak,
-    }
-    target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    with _locked(target):
+        existing = read_state(repo_root)
+        if drift_reported_severity is None and existing is not None:
+            prior_reported = existing.get("drift_reported_severity")
+            prior_pending = existing.get("drift_pending_severity")
+            prior_streak = existing.get("drift_pending_streak", 0)
+            drift_reported_severity = prior_reported if isinstance(prior_reported, str) else None
+            drift_pending_severity = prior_pending if isinstance(prior_pending, str) else None
+            drift_pending_streak = prior_streak if isinstance(prior_streak, int) else 0
+        payload: dict[str, Any] = {
+            **_identity_fields(repo_root, config),
+            "inferred": {
+                path: _serialize_path(po, qualified_owner_count_cap)
+                for path, po in sorted(ownership.paths.items())
+            },
+            "topology": {"clusters": [asdict(c) for c in topology]},
+            "bus_factor_summary": _serialize_bus_factor_summary(
+                bus_factor_summary, qualified_owner_count_cap
+            ),
+            "qualified_owner_count_cap": qualified_owner_count_cap,
+            "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
+            "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
+            "analysis_ref": ownership.analysis_ref,
+            "analysis_completeness": {
+                "ignore_revs_applied": ownership.analysis_completeness.ignore_revs_applied,
+                "ignore_revs_file": ownership.analysis_completeness.ignore_revs_file,
+                "mailmap_applied": ownership.analysis_completeness.mailmap_applied,
+                "mailmap_file": ownership.analysis_completeness.mailmap_file,
+                "excluded_gitattributes": ownership.analysis_completeness.excluded_gitattributes,
+                "excluded_static": ownership.analysis_completeness.excluded_static,
+                "score": ownership.analysis_completeness.score,
+                "gaps": [
+                    {"code": gap.code, "reason": gap.reason}
+                    for gap in ownership.analysis_completeness.gaps
+                ],
+            },
+            "drift_detected": drift_detected,
+            "drift_reported_severity": drift_reported_severity,
+            "drift_pending_severity": drift_pending_severity,
+            "drift_pending_streak": drift_pending_streak,
+        }
+        _atomic_write(target, json.dumps(payload, indent=2, sort_keys=True))
+        _evict(target)
     return target
+
+
+def _handle_map(data: dict[str, Any] | None) -> dict[str, str]:
+    if data is None:
+        return {}
+    return {key: value for key, value in data.items() if isinstance(value, str)}
 
 
 def read_handle_cache() -> dict[str, str]:
@@ -204,24 +471,18 @@ def read_handle_cache() -> dict[str, str]:
     An empty-string value is a remembered miss: the email was looked up before
     and did not resolve, so callers should not re-query the API for it.
     """
-    target = _base_dir() / _HANDLE_CACHE_FILENAME
-    if not target.exists():
-        return {}
-    try:
-        data: Any = json.loads(target.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return {str(k): str(v) for k, v in data.items() if isinstance(v, str)}
+    return _handle_map(_read_json(_base_dir() / _HANDLE_CACHE_FILENAME))
 
 
 def write_handle_cache(cache: dict[str, str]) -> Path:
-    """Persist the email -> @handle cache, merging over any existing entries."""
+    """Persist the email -> @handle cache, merging over any existing entries.
+
+    Returns the cache file path.
+    """
     target = _base_dir() / _HANDLE_CACHE_FILENAME
-    target.parent.mkdir(parents=True, exist_ok=True)
-    merged = {**read_handle_cache(), **cache}
-    target.write_text(json.dumps(merged, indent=2, sort_keys=True), encoding="utf-8")
+    with _locked(target):
+        merged = {**_handle_map(_read_json(target)), **cache}
+        _atomic_write(target, json.dumps(merged, indent=2, sort_keys=True))
     return target
 
 
@@ -254,6 +515,102 @@ def load_ownership(repo_root: Path) -> OwnershipMap | None:
         analysis_ref=analysis_ref,
         analysis_completeness=_deserialize_completeness(data.get("analysis_completeness")),
     )
+
+
+def reusable_ownership(
+    repo_root: Path,
+    config: Config,
+    *,
+    head: str,
+    allow_stale: bool = False,
+    max_age: int | None = None,
+) -> OwnershipMap | None:
+    """Return cached ownership when it is safe to reuse, else None.
+
+    `head` is the current commit. The map is reused when `analysis_ref` equals
+    `head`, or when `allow_stale` is true. `max_age` is a maximum age in
+    seconds; `0` refuses every cached map. A config-hash mismatch returns None
+    even when `allow_stale` is true.
+    """
+    data = read_state(repo_root)
+    if data is None or data.get("config_hash") != config_hash(config):
+        return None
+    ownership = load_ownership(repo_root)
+    if ownership is None:
+        return None
+    if max_age is not None and (max_age == 0 or _age_seconds(ownership.last_analyzed) > max_age):
+        return None
+    if ownership.analysis_ref == head or allow_stale:
+        return ownership
+    return None
+
+
+def _age_seconds(last_analyzed: datetime) -> float:
+    aware = last_analyzed if last_analyzed.tzinfo is not None else last_analyzed.replace(tzinfo=UTC)
+    return (datetime.now(tz=UTC) - aware.astimezone(UTC)).total_seconds()
+
+
+def cache_info() -> CacheInfo:
+    """Return path, size, file counts, and one entry per state file."""
+    state_files = _json_files(_STATE_SUBDIR)
+    graph_files = _json_files(_GRAPH_CACHE_SUBDIR)
+    handles = _base_dir() / _HANDLE_CACHE_FILENAME
+    total = sum(_file_size(path) for path in (*state_files, *graph_files))
+    if handles.is_file():
+        total += _file_size(handles)
+    entries: list[CacheEntry] = []
+    for path in state_files:
+        data = _read_json(path)
+        entries.append(
+            {
+                "repo_id": _string_field(data, "repo_id"),
+                "analysis_ref": _string_field(data, "analysis_ref"),
+                "last_analyzed": _string_field(data, "last_analyzed"),
+                "bytes": _file_size(path),
+            }
+        )
+    return {
+        "path": str(_base_dir()),
+        "schema_version": SCHEMA_VERSION,
+        "bytes": total,
+        "state_files": len(state_files),
+        "graph_files": len(graph_files),
+        "handles": handles.is_file(),
+        "limit_bytes": CACHE_LIMIT_BYTES,
+        "entries": entries,
+    }
+
+
+def cache_clear() -> int:
+    """Delete state and graph JSON files. Return how many files were removed."""
+    return _unlink_json(_STATE_SUBDIR) + _unlink_json(_GRAPH_CACHE_SUBDIR)
+
+
+def cache_purge() -> int:
+    """Delete every file under the cache root, including handles.
+
+    Returns how many files were removed. The cache root directory is kept.
+    """
+    base = _base_dir()
+    if not base.exists():
+        return 0
+    removed = 0
+    for child in list(base.iterdir()):
+        if child.is_dir():
+            removed += sum(1 for path in child.rglob("*") if path.is_file())
+            shutil.rmtree(child)
+        elif child.is_file() or child.is_symlink():
+            child.unlink()
+            removed += 1
+    return removed
+
+
+def _unlink_json(subdir: str) -> int:
+    removed = 0
+    for path in _json_files(subdir):
+        path.unlink(missing_ok=True)
+        removed += 1
+    return removed
 
 
 def load_hysteresis(repo_root: Path) -> tuple[Severity | None, Severity | None, int]:

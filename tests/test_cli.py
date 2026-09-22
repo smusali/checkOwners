@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +23,18 @@ from checkowners.action_report import (
 )
 from checkowners.analyze import resolve_as_of
 from checkowners.balance import BalanceReport
-from checkowners.cli import _merge_identities, _owner_payload, _resolve_github_owners, app
+from checkowners.cli import (
+    _days_since,
+    _declared_owners,
+    _merge_identities,
+    _owner_payload,
+    _render_explained_owner,
+    _render_explanation,
+    _resolve_github_owners,
+    _signal_label,
+    app,
+)
+from checkowners.explain import ExplainedOwner, PathExplanation
 from checkowners.generate import (
     SIZE_WARN_BYTES,
     BroadPatternRecord,
@@ -1280,3 +1291,180 @@ def test_explain_and_owners_scope_analyze_to_the_path() -> None:
     assert first["retain_all"] is True
     assert second["pathspec"] == ("src/util.py",)
     assert second["retain_all"] is True
+
+
+def test_explain_analyze_value_error() -> None:
+    with (
+        patch("checkowners.cli.analyze_ownership", side_effect=ValueError("bad clock")),
+        patch("checkowners.cli.load_config", return_value=Config()),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["explain", "src/main.py"])
+    assert result.exit_code == 1
+    assert "bad clock" in result.stdout
+
+
+def test_explain_analyze_git_error() -> None:
+    with (
+        patch(
+            "checkowners.cli.analyze_ownership",
+            side_effect=subprocess.CalledProcessError(1, "git"),
+        ),
+        patch("checkowners.cli.load_config", return_value=Config()),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["explain", "src/main.py"])
+    assert result.exit_code == 1
+    assert "Git command failed" in result.stdout
+
+
+def test_explain_no_inferred_owners() -> None:
+    empty = OwnershipMap(paths={}, last_analyzed=_NOW, analysis_ref="deadbeef")
+    with _explain_run(empty):
+        result = runner.invoke(app, ["explain", "missing.py"])
+    assert result.exit_code == 0
+    assert "No inferred owners" in result.stdout
+
+
+def test_owners_empty_path() -> None:
+    empty = OwnershipMap(paths={}, last_analyzed=_NOW, analysis_ref="deadbeef")
+    with _explain_run(empty):
+        result = runner.invoke(app, ["owners", "missing.py"])
+    assert result.exit_code == 0
+    assert "No inferred owners" in result.stdout
+
+
+def test_explain_why_not_already_inferred() -> None:
+    with _explain_run():
+        result = runner.invoke(app, ["explain", "src/main.py", "--why-not", "@alice"])
+    assert result.exit_code == 0
+    assert "is an inferred owner" in result.stdout
+    assert "Would change the result" not in result.stdout
+
+
+def test_explain_why_not_json() -> None:
+    with _explain_run():
+        result = runner.invoke(app, ["explain", "src/main.py", "--why-not", "@carol", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["why_not"]["kind"] == "below_threshold"
+    assert data["why_not"]["handle"] == "@carol"
+
+
+def test_explain_shows_declared_codeowners_and_team(tmp_path: Path) -> None:
+    codeowners = tmp_path / "CODEOWNERS"
+    codeowners.write_text("src/main.py @org/platform\n", encoding="utf-8")
+    with (
+        _explain_run(),
+        patch("checkowners.cli.find_codeowners_path", return_value=codeowners),
+        patch(
+            "checkowners.cli.declared_teams_from_github",
+            return_value={"@org/platform": frozenset({"@alice"})},
+        ),
+    ):
+        result = runner.invoke(app, ["explain", "src/main.py"])
+    assert result.exit_code == 0
+    assert "aligned" in result.stdout
+    assert "@alice ∈ @org/platform" in result.stdout
+
+
+def test_explain_unknown_last_commit() -> None:
+    alice = OwnerEntry(
+        handle="@alice",
+        ownership_score=0.86,
+        last_commit=None,
+        commits=3,
+        evidence_quality=0.5,
+        score_breakdown=ConfidenceScore(
+            total=0.86,
+            recency=SignalScore(available=True, score=0.9),
+            frequency=SignalScore(available=True, score=0.8),
+            blame=SignalScore(available=True, score=0.7),
+            review=SignalScore(available=False),
+        ),
+    )
+    ownership = OwnershipMap(
+        paths={
+            "src/a.py": PathOwnership(
+                owners=(alice,),
+                qualified_owner_count=1,
+                candidates=(alice,),
+            )
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    with _explain_run(ownership):
+        result = runner.invoke(app, ["explain", "src/a.py"])
+    assert result.exit_code == 0
+    assert "unknown" in result.stdout
+
+
+def test_explain_human_shows_review_score() -> None:
+    alice = _scored("@alice", 0.86, review=0.74)
+    ownership = OwnershipMap(
+        paths={
+            "src/main.py": PathOwnership(
+                owners=(alice,),
+                qualified_owner_count=1,
+                candidates=(alice,),
+            )
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    with _explain_run(ownership):
+        result = runner.invoke(app, ["explain", "src/main.py"])
+    assert result.exit_code == 0
+    assert "Reviews 0.74" in result.stdout
+
+
+def test_declared_owners_missing_no_match_and_last_rule(tmp_path: Path) -> None:
+    missing = tmp_path / "missing" / "CODEOWNERS"
+    with patch("checkowners.cli.find_codeowners_path", return_value=missing):
+        assert _declared_owners(tmp_path, "src/a.py") == ()
+
+    unmatched = tmp_path / "CODEOWNERS"
+    unmatched.write_text("/docs/ @docs\n", encoding="utf-8")
+    with patch("checkowners.cli.find_codeowners_path", return_value=unmatched):
+        assert _declared_owners(tmp_path, "src/a.py") == ()
+
+    matched = tmp_path / "rules"
+    matched.write_text("* @global\nsrc/a.py @alice @bob\n", encoding="utf-8")
+    with patch("checkowners.cli.find_codeowners_path", return_value=matched):
+        assert _declared_owners(tmp_path, "src/a.py") == ("@alice", "@bob")
+
+
+def test_days_since_and_signal_label_helpers() -> None:
+    assert _days_since(None, _NOW) == "unknown"
+    assert _days_since(_NOW, _NOW) == "today"
+    assert _days_since(_NOW - timedelta(days=1), _NOW) == "1 day ago"
+    assert _days_since(_NOW - timedelta(days=9), _NOW) == "9 days ago"
+    assert _signal_label("review", 0.5, False) == "Reviews n/a"
+    assert _signal_label("review", 0.5, True) == "Reviews 0.50"
+    assert _signal_label("blame", 0.7, True) == "Blame 0.70"
+
+
+def test_render_explained_owner_without_optional_signals() -> None:
+    item = ExplainedOwner(
+        entry=_scored("@alice", 0.86),
+        signals=(),
+        source_path="src/a.py",
+    )
+    _render_explained_owner(item, _NOW)
+    explanation = PathExplanation(
+        target="src/a.py",
+        kind="file",
+        files=("src/a.py",),
+        inferred=(item,),
+        candidates=(),
+        evidence_quality=0.85,
+        declared=(),
+        team_resolution=(),
+        assessment="unverifiable",
+        lineage=(),
+        knobs=(),
+        weights={},
+        why_not=None,
+    )
+    _render_explanation(explanation, _NOW)

@@ -11,6 +11,7 @@ DriftMode = Literal["commit", "repo", "both"]
 QualificationStrategy = Literal["adaptive", "threshold"]
 
 OWNERSHIP_MODEL_VERSION = "ownership-v3"
+COMMAND_SCHEMA_VERSION = "1.0"
 DEPRECATED_SCORE_KEY = "confidence"
 
 
@@ -211,6 +212,7 @@ class PathOwnership:
     owners: tuple[OwnerEntry, ...]
     qualified_owner_count: int
     decay_warnings: tuple[DecayWarning, ...] = ()
+    candidates: tuple[OwnerEntry, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,9 @@ claim that the listed people are the only experts or the assigned owners.
   two identities until handle resolution merges them.
 - Rename lineage across history is not followed. `-M` and `-C` on blame
   preserve line attribution when content moves in one commit; they do not
-  rebuild a file's identity across later renames.
+  rebuild a file's identity across later renames. `explain` on a single file
+  may list prior names from `git log --follow`; that is a name list, not a
+  logical file identity used for scoring.
 
 ## Blame corrections have limits
 

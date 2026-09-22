@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from contextvars import ContextVar
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -53,8 +54,11 @@ from checkowners.drift import detect_drift, write_github_output
 from checkowners.expertise import rank_expertise
 from checkowners.generate import (
     SIZE_WARN_BYTES,
+    BroadPatternRecord,
     CodeownersGenerateError,
     CodeownersOverwriteError,
+    GenerateResult,
+    broad_pattern_warning,
     codeowners_write_metrics,
     ensure_overwrite_safe,
     generate_codeowners,
@@ -532,6 +536,16 @@ ForceOption = Annotated[
     ),
 ]
 
+AllowBroadOption = Annotated[
+    bool,
+    typer.Option(
+        "--allow-broad-patterns",
+        help=(
+            "Emit sanitized wildcard rules even when they match extra paths with different owners."
+        ),
+    ),
+]
+
 
 def _check_overwrite_or_exit(codeowners_path: Path, config: Config, force: bool) -> None:
     """Fail before the expensive analyze when the target would be refused."""
@@ -552,6 +566,13 @@ def _warn_codeowners_size(content: str) -> None:
     )
 
 
+def _warn_broad_patterns(records: tuple[BroadPatternRecord, ...]) -> None:
+    for record in records:
+        if record.accepted:
+            continue
+        err_console.print(f"[yellow]{escape(broad_pattern_warning(record))}[/yellow]")
+
+
 def _generate_or_exit(
     repo_root: Path,
     ownership: OwnershipMap,
@@ -559,10 +580,10 @@ def _generate_or_exit(
     codeowners_path: Path,
     *,
     force: bool,
-) -> str:
+) -> GenerateResult:
     token = get_github_token()
     try:
-        content = generate_codeowners(
+        result = generate_codeowners(
             repo_root,
             ownership,
             config,
@@ -574,26 +595,34 @@ def _generate_or_exit(
     except CodeownersGenerateError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from None
-    _warn_codeowners_size(content)
-    return content
+    _warn_codeowners_size(result.content)
+    _warn_broad_patterns(result.broad_patterns)
+    return result
 
 
 @app.command()
-def generate(json_output: JsonOption = False, force: ForceOption = False) -> None:
+def generate(
+    json_output: JsonOption = False,
+    force: ForceOption = False,
+    allow_broad_patterns: AllowBroadOption = False,
+) -> None:
     """Generate a CODEOWNERS file from inferred ownership."""
     config = load_config()
+    if allow_broad_patterns:
+        config = replace(config, output=replace(config.output, allow_broad_patterns=True))
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     _check_overwrite_or_exit(codeowners_path, config, force)
     ownership = _run_analyze(config, repo_root)
-    content = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
+    result = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
     rel_path = codeowners_path.relative_to(repo_root)
     if json_output:
         _emit_json(
             {
                 "path": str(rel_path),
-                "content": content,
-                **codeowners_write_metrics(content),
+                "content": result.content,
+                "broad_patterns": [record.as_json() for record in result.broad_patterns],
+                **codeowners_write_metrics(result.content),
                 **_analysis_stamp(ownership),
             }
         )
@@ -811,14 +840,20 @@ def notify(json_output: JsonOption = False) -> None:
 
 
 @app.command()
-def sync(json_output: JsonOption = False, force: ForceOption = False) -> None:
+def sync(
+    json_output: JsonOption = False,
+    force: ForceOption = False,
+    allow_broad_patterns: AllowBroadOption = False,
+) -> None:
     """Sync CODEOWNERS with inferred ownership (generate + commit)."""
     config = load_config()
+    if allow_broad_patterns:
+        config = replace(config, output=replace(config.output, allow_broad_patterns=True))
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     _check_overwrite_or_exit(codeowners_path, config, force)
     ownership = _run_analyze(config, repo_root)
-    content = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
+    result = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
     rel_path = codeowners_path.relative_to(repo_root)
     if not _has_uncommitted_changes(repo_root, rel_path):
         if json_output:
@@ -826,8 +861,9 @@ def sync(json_output: JsonOption = False, force: ForceOption = False) -> None:
                 {
                     "path": str(rel_path),
                     "committed": False,
-                    "content": content,
-                    **codeowners_write_metrics(content),
+                    "content": result.content,
+                    "broad_patterns": [record.as_json() for record in result.broad_patterns],
+                    **codeowners_write_metrics(result.content),
                     **_analysis_stamp(ownership),
                 }
             )
@@ -858,8 +894,9 @@ def sync(json_output: JsonOption = False, force: ForceOption = False) -> None:
             {
                 "path": str(rel_path),
                 "committed": True,
-                "content": content,
-                **codeowners_write_metrics(content),
+                "content": result.content,
+                "broad_patterns": [record.as_json() for record in result.broad_patterns],
+                **codeowners_write_metrics(result.content),
                 **_analysis_stamp(ownership),
             }
         )

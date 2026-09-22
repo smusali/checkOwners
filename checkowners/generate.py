@@ -14,10 +14,11 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 from checkowners.github import create_team_resolver
 from checkowners.models import Config, OwnerEntry, OwnershipMap
-from checkowners.patterns import match_path, parse_rules
+from checkowners.patterns import match_path, parse_rules, pattern_matches
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 SIZE_WARN_BYTES = 2 * 1024 * 1024
@@ -43,6 +44,54 @@ class CodeownersSizeError(CodeownersGenerateError):
     """Raised when generated content exceeds output.max_bytes without force."""
 
 
+class _OwnerDeltaAffected(TypedDict):
+    path: str
+    owners: list[str]
+
+
+class _OwnerDelta(TypedDict):
+    intended: list[str]
+    affected: list[_OwnerDeltaAffected]
+
+
+class BroadPatternJson(TypedDict):
+    source: str
+    generated_fallback: str
+    also_matches: list[str]
+    accepted: bool
+    owner_delta: _OwnerDelta
+
+
+@dataclass(frozen=True)
+class BroadPatternRecord:
+    source: str
+    generated_fallback: str
+    also_matches: tuple[str, ...]
+    intended_owners: tuple[str, ...]
+    affected: tuple[tuple[str, tuple[str, ...]], ...]
+    accepted: bool
+
+    def as_json(self) -> BroadPatternJson:
+        return {
+            "source": self.source,
+            "generated_fallback": self.generated_fallback,
+            "also_matches": list(self.also_matches),
+            "accepted": self.accepted,
+            "owner_delta": {
+                "intended": list(self.intended_owners),
+                "affected": [
+                    {"path": path, "owners": list(owners)} for path, owners in self.affected
+                ],
+            },
+        }
+
+
+@dataclass(frozen=True)
+class GenerateResult:
+    content: str
+    broad_patterns: tuple[BroadPatternRecord, ...]
+
+
 @dataclass(frozen=True)
 class _Row:
     pattern: str
@@ -59,21 +108,32 @@ def generate_codeowners(
     token: str = "",
     org: str = "",
     force: bool = False,
-) -> str:
+) -> GenerateResult:
     """Generate CODEOWNERS file content and write it to disk.
 
     Refuses to overwrite a hand-written CODEOWNERS (one that lacks the
     machine-generated header) unless ``force`` is set. ``force`` also writes
     past ``output.max_bytes``. Round-trip verification is not skipped.
     """
-    content, expected = _render_codeowners(ownership, config, token=token, org=org)
+    content, expected, records = _render_codeowners(ownership, config, token=token, org=org)
     if config.output.verify_round_trip:
         verify_round_trip(content, expected)
     _ensure_size_ok(content, config.output.max_bytes, force=force)
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     ensure_overwrite_safe(target, config.output.header, force=force)
     _write_codeowners(target, content)
-    return content
+    return GenerateResult(content=content, broad_patterns=records)
+
+
+def broad_pattern_warning(record: BroadPatternRecord) -> str:
+    """Format the refuse warning for ``record`` (plain text, no markup)."""
+    also = ", ".join(record.also_matches)
+    return (
+        f"WARNING: GitHub CODEOWNERS cannot precisely represent: {record.source}\n"
+        f"Generated fallback: {record.generated_fallback}\n"
+        f"This also matches: {also}\n"
+        f"Affected owners differ. Refusing automatic consolidation."
+    )
 
 
 def ensure_overwrite_safe(target: Path, header: str, *, force: bool) -> None:
@@ -139,7 +199,7 @@ def _build_codeowners_content(
     token: str = "",
     org: str = "",
 ) -> str:
-    content, _expected = _render_codeowners(ownership, config, token=token, org=org)
+    content, _expected, _records = _render_codeowners(ownership, config, token=token, org=org)
     return content
 
 
@@ -149,9 +209,9 @@ def _render_codeowners(
     *,
     token: str = "",
     org: str = "",
-) -> tuple[str, _ExpectedOwners]:
+) -> tuple[str, _ExpectedOwners, tuple[BroadPatternRecord, ...]]:
     lines: list[str] = [config.output.header, ""]
-    rows = _collect_rows(ownership, config)
+    rows, records = _collect_rows(ownership, config)
     unowned_paths = _collect_unowned_paths(ownership)
     expected: _ExpectedOwners = {}
 
@@ -182,7 +242,7 @@ def _render_codeowners(
             lines.append(f"# {path}")
 
     lines.append("")
-    return "\n".join(lines), expected
+    return "\n".join(lines), expected, records
 
 
 def _format_line(
@@ -199,26 +259,29 @@ def _format_line(
     return f"{line}  # {annotations}"
 
 
-def _collect_rows(ownership: OwnershipMap, config: Config) -> list[_Row]:
+def _collect_rows(
+    ownership: OwnershipMap, config: Config
+) -> tuple[list[_Row], tuple[BroadPatternRecord, ...]]:
     """Confidence-filtered rows, consolidated to directories when uniform."""
-    filtered: list[_FileRow] = []
-    for path, path_ownership in sorted(ownership.paths.items()):
-        owners = tuple(
-            o for o in path_ownership.owners if o.confidence >= config.analysis.confidence_threshold
-        )
-        if owners:
-            filtered.append((path.lstrip("/"), owners))
+    threshold = config.analysis.confidence_threshold
+    path_owners = _path_owner_map(ownership, threshold)
+    filtered: list[_FileRow] = [(path, owners) for path, owners in path_owners.items() if owners]
     filtered.sort(key=lambda row: row[0])
+    file_owners = dict(filtered)
     if config.output.consolidate:
         rows = _consolidate(filtered)
     else:
         rows = [_Row(pattern=f"/{path}", owners=owners, paths=(path,)) for path, owners in filtered]
-    rows = _merge_same_pattern(
-        _Row(pattern=_sanitize_pattern(row.pattern), owners=row.owners, paths=row.paths)
-        for row in rows
+    rows, records = _resolve_sanitized_rows(
+        rows,
+        path_owners,
+        file_owners,
+        allow_broad=config.output.allow_broad_patterns,
     )
+    rows = _merge_same_pattern(rows)
     rows.sort(key=lambda row: row.pattern)
-    return rows
+    records.sort(key=lambda record: (record.source, record.generated_fallback))
+    return rows, tuple(records)
 
 
 def _sanitize_pattern(pattern: str) -> str:
@@ -235,6 +298,124 @@ def _sanitize_pattern(pattern: str) -> str:
         "*" if ("[" in segment or "]" in segment) else segment for segment in pattern.split("/")
     ]
     return "/".join(segments)
+
+
+def _path_owner_map(ownership: OwnershipMap, threshold: float) -> dict[str, tuple[OwnerEntry, ...]]:
+    mapped: dict[str, tuple[OwnerEntry, ...]] = {}
+    for path, path_ownership in ownership.paths.items():
+        mapped[path.lstrip("/")] = tuple(
+            owner for owner in path_ownership.owners if owner.confidence >= threshold
+        )
+    return mapped
+
+
+def _display_pattern(pattern: str) -> str:
+    return pattern.lstrip("/")
+
+
+def _owner_handles(owners: tuple[OwnerEntry, ...]) -> tuple[str, ...]:
+    return tuple(sorted({owner.handle for owner in owners}))
+
+
+def _can_explode(row: _Row) -> bool:
+    return len(row.paths) > 1 or row.pattern.endswith("/") or row.pattern == "*"
+
+
+def _explode_row(row: _Row, file_owners: dict[str, tuple[OwnerEntry, ...]]) -> list[_Row]:
+    exploded: list[_Row] = []
+    for path in row.paths:
+        owners = file_owners.get(path, row.owners)
+        exploded.append(_Row(pattern=f"/{path}", owners=owners, paths=(path,)))
+    return exploded
+
+
+def _records_for_group(
+    bucket: list[_Row],
+    sanitized: str,
+    extra: list[str],
+    path_owners: dict[str, tuple[OwnerEntry, ...]],
+    *,
+    accepted: bool,
+) -> list[BroadPatternRecord]:
+    records: list[BroadPatternRecord] = []
+    fallback = _display_pattern(sanitized)
+    for row in bucket:
+        if row.pattern == sanitized:
+            continue
+        other_paths = [path for other in bucket if other is not row for path in other.paths]
+        also_matches = tuple(sorted(set(extra) | set(other_paths)))
+        affected = tuple((path, _owner_handles(path_owners.get(path, ()))) for path in also_matches)
+        records.append(
+            BroadPatternRecord(
+                source=_display_pattern(row.pattern),
+                generated_fallback=fallback,
+                also_matches=also_matches,
+                intended_owners=_owner_handles(row.owners),
+                affected=affected,
+                accepted=accepted,
+            )
+        )
+    return records
+
+
+def _resolve_sanitized_rows(
+    rows: list[_Row],
+    path_owners: dict[str, tuple[OwnerEntry, ...]],
+    file_owners: dict[str, tuple[OwnerEntry, ...]],
+    *,
+    allow_broad: bool,
+    depth: int = 0,
+) -> tuple[list[_Row], list[BroadPatternRecord]]:
+    grouped: dict[str, list[_Row]] = {}
+    for row in rows:
+        grouped.setdefault(_sanitize_pattern(row.pattern), []).append(row)
+
+    emitted: list[_Row] = []
+    records: list[BroadPatternRecord] = []
+    leftover: list[_Row] = []
+
+    for sanitized, bucket in grouped.items():
+        derived = {path for row in bucket for path in row.paths}
+        matched = [path for path in path_owners if pattern_matches(sanitized, path)]
+        extra = [path for path in matched if path not in derived]
+        lossless = len({_owner_key(path_owners[path]) for path in matched}) <= 1
+        changed = any(row.pattern != sanitized for row in bucket)
+        broadened = changed and (bool(extra) or len(bucket) > 1)
+
+        if not changed:
+            emitted.extend(_merge_same_pattern(bucket))
+            continue
+
+        if lossless or allow_broad:
+            emitted.extend(
+                _merge_same_pattern(
+                    _Row(pattern=sanitized, owners=row.owners, paths=row.paths) for row in bucket
+                )
+            )
+            if broadened:
+                records.extend(
+                    _records_for_group(bucket, sanitized, extra, path_owners, accepted=True)
+                )
+            continue
+
+        records.extend(_records_for_group(bucket, sanitized, extra, path_owners, accepted=False))
+        for row in bucket:
+            if _can_explode(row) and depth < 1:
+                leftover.extend(_explode_row(row, file_owners))
+            else:
+                emitted.append(row)
+
+    if leftover:
+        more_rows, more_records = _resolve_sanitized_rows(
+            leftover,
+            path_owners,
+            file_owners,
+            allow_broad=allow_broad,
+            depth=depth + 1,
+        )
+        emitted.extend(more_rows)
+        records.extend(more_records)
+    return emitted, records
 
 
 def _merge_same_pattern(rows: Iterable[_Row]) -> list[_Row]:

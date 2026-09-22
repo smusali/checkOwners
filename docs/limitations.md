@@ -26,6 +26,16 @@ claim that the listed people are the only experts or the assigned owners.
 - Whitespace-only edits are ignored (`-w`). Token-changing formatters still
   need ignore-revs or the mass-refactor threshold.
 
+## GitHub CODEOWNERS cannot express character ranges
+
+GitHub skips any CODEOWNERS line that uses `[ ]` as a character range. Paths such
+as `routes/[id]/page.tsx` therefore cannot be represented exactly. Generate
+rewrites bracket segments to `*` only when every inferred path the wildcard
+matches shares the same owners. When owners differ, the default is per-file
+rules rather than a wildcard that assigns review to people who did not earn
+those paths. Literal fallback lines with `[...]` are also skipped by GitHub;
+`--allow-broad-patterns` opts into the broader `*` rule.
+
 ## Other known gaps
 
 - CODEOWNERS may intentionally differ from inferred expertise.

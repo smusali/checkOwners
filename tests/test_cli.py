@@ -22,7 +22,11 @@ from checkowners.action_report import (
 from checkowners.analyze import resolve_as_of
 from checkowners.balance import BalanceReport
 from checkowners.cli import _merge_identities, _owner_payload, _resolve_github_owners, app
-from checkowners.generate import SIZE_WARN_BYTES, CodeownersVerificationError
+from checkowners.generate import (
+    SIZE_WARN_BYTES,
+    CodeownersVerificationError,
+    GenerateResult,
+)
 from checkowners.models import (
     OWNERSHIP_MODEL_VERSION,
     AnalysisCompleteness,
@@ -45,6 +49,7 @@ from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationError
 
 runner = CliRunner()
+_GENERATED = GenerateResult(content="content", broad_patterns=())
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
@@ -275,7 +280,7 @@ def test_analyze_git_version_error() -> None:
 def test_generate_rich() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value="content"),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
@@ -287,7 +292,7 @@ def test_generate_rich() -> None:
 def test_generate_json() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value="content"),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
@@ -299,6 +304,7 @@ def test_generate_json() -> None:
     assert data["analysis_epoch"] == _NOW.isoformat()
     assert data["bytes_written"] == len(b"content")
     assert data["rules_written"] == 1
+    assert data["broad_patterns"] == []
 
 
 # --- print ---
@@ -462,7 +468,7 @@ def test_notify_json() -> None:
 def test_sync_rich() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value="content"),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
         patch("checkowners.cli.subprocess.run") as mock_run,
         _MOCK_PATH,
         _MOCK_TOKEN,
@@ -476,7 +482,7 @@ def test_sync_rich() -> None:
 def test_sync_json() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value="content"),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
         patch("checkowners.cli.subprocess.run") as mock_run,
         _MOCK_PATH,
         _MOCK_TOKEN,
@@ -488,12 +494,13 @@ def test_sync_json() -> None:
     assert data["committed"] is True
     assert data["bytes_written"] == len(b"content")
     assert data["rules_written"] == 1
+    assert data["broad_patterns"] == []
 
 
 def test_sync_git_commit_error() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value="content"),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
         patch(
             "checkowners.cli.subprocess.run",
             side_effect=subprocess.CalledProcessError(1, "git", stderr="nothing to commit"),
@@ -919,7 +926,7 @@ def test_merge_identities_dedupes_same_handle() -> None:
 def test_sync_noop_when_already_in_sync() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value="content"),
+        patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
         patch("checkowners.cli._has_uncommitted_changes", return_value=False),
         patch("checkowners.cli.subprocess.run") as mock_run,
         _MOCK_PATH,
@@ -931,6 +938,7 @@ def test_sync_noop_when_already_in_sync() -> None:
     assert data["committed"] is False
     assert data["bytes_written"] == len(b"content")
     assert data["rules_written"] == 1
+    assert data["broad_patterns"] == []
     mock_run.assert_not_called()
 
 
@@ -986,7 +994,10 @@ def test_generate_warns_at_two_megabytes() -> None:
     huge = "x" * SIZE_WARN_BYTES
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.generate_codeowners", return_value=huge),
+        patch(
+            "checkowners.cli.generate_codeowners",
+            return_value=GenerateResult(content=huge, broad_patterns=()),
+        ),
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):

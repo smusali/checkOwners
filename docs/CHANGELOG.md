@@ -36,6 +36,13 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   3 MB. `--json` includes `bytes_written` and `rules_written`.
 - `checkowners explain-path <path>` shows the winning CODEOWNERS rule and
   the full match chain.
+- `generate` and `sync` refuse sanitized `*` rules that would assign a
+  different owner set to extra matched paths (for example Next.js
+  `routes/[id]/` collapsing toward `routes/*/`). The default is a warning
+  plus per-file fallback. `--allow-broad-patterns` and
+  `output.allow_broad_patterns` opt in. Lossless broadening (identical
+  owners) is kept and recorded. `--json` includes `broad_patterns` with
+  the affected paths and owner delta.
 
 ### Changed
 - The composite Action runs `checkowners github-action` once for drift,

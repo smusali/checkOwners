@@ -400,7 +400,7 @@ def publish_outputs(*, limit: int | None = None) -> None:
     drift = load("drift.json")
     if drift is not None:
         _write_multiline_output(
-            "checkowners_drift",
+            "drift_summary",
             json.dumps(summarize_drift(drift, resolved), separators=(",", ":")),
         )
 

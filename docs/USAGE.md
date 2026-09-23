@@ -398,7 +398,7 @@ Drift severity maps the max confidence delta plus qualified-owner / decay flags 
 | `medium` | `max_confidence_delta >= 0.3` |
 | `low` | otherwise |
 
-`--json` always includes the `severity` field. The composite Action publishes the same field on `checkowners_drift`.
+`--json` always includes the `severity` field. The composite Action publishes the same field on `drift_summary`.
 
 ## Exit codes
 
@@ -511,20 +511,20 @@ The action always writes the full report to the job summary. That needs no extra
 
 If `comment_on_pr` stays `"true"` under read-only workflow permissions, the comment step warns (`Grant 'pull-requests: write' or set comment_on_pr: false`) and does not fail the job. Set `comment_on_pr: false` to skip the attempt.
 
-The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_version: 2`) so workflow gates stay under GitHub's 1 MB per-output cap. Existing `fromJson(...)` checks keep working: `checkowners_drift.drift_detected`, `checkowners_drift.severity`, and `bus_factor_summary.critical_paths[0]`. Each summary includes `counts` and `truncated`. The qualified-owner summary also includes `qualified_owner_count_cap` and `deprecated_keys`. Drift still carries `notes` plus the top `missing` / `stale` / `changed` entries (with per-entry `qualified_owner_count` / deprecated `bus_factor` / `decay` flags). Per-path `entries` are omitted from the output; the full lists live in the uploaded artifact.
+The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_version: 2`) so workflow gates stay under GitHub's 1 MB per-output cap. This release renames the drift output to `drift_summary`. Gates read `drift_summary.drift_detected`, `drift_summary.severity`, and `bus_factor_summary.critical_paths[0]`. Each summary includes `counts` and `truncated`. The qualified-owner summary also includes `qualified_owner_count_cap` and `deprecated_keys`. Drift still carries `notes` plus the top `missing` / `stale` / `changed` entries (with per-entry `qualified_owner_count` / deprecated `bus_factor` / `decay` flags). Per-path `entries` are omitted from the output; the full lists live in the uploaded artifact.
 
 Post that drift summary to Slack when drift is present:
 
 ```yaml
 - id: checkowners
   uses: smusali/checkowners@v0
-- if: fromJson(steps.checkowners.outputs.checkowners_drift).drift_detected
+- if: fromJson(steps.checkowners.outputs.drift_summary).drift_detected
   uses: slackapi/slack-github-action@v2
   with:
     webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
     webhook-type: incoming-webhook
     payload: |
-      text: "checkOwners drift (${{ fromJson(steps.checkowners.outputs.checkowners_drift).severity }})"
+      text: "checkOwners drift (${{ fromJson(steps.checkowners.outputs.drift_summary).severity }})"
 ```
 
 Set `max_output_entries` (default `50`) to cap each list in those summaries and in the job-summary / PR-comment report. Workflows that need every entry should `actions/download-artifact` using the `artifact_name` output (`checkowners-reports`) and branch on `schema_version`.
@@ -610,7 +610,7 @@ Stability:
 - Those breaks bump `schema_version`.
 - A scoring-formula change bumps `model_version` even when the JSON types stay the same.
 - Deprecated properties remain through the next minor release, then disappear in a schema bump.
-- Action `GITHUB_OUTPUT` summaries are a separate integer contract, `schema_version: 2`. Adding fields there is allowed. Existing gates keep working: `checkowners_drift.drift_detected`, `checkowners_drift.severity`, `bus_factor_summary.critical_paths[0]`.
+- Action `GITHUB_OUTPUT` summaries are a separate integer contract, `schema_version: 2`. Adding fields there is allowed. This release renames the drift output to `drift_summary`. Gates read `drift_summary.drift_detected`, `drift_summary.severity`, and `bus_factor_summary.critical_paths[0]`.
 
 ## Development
 

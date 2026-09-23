@@ -64,7 +64,7 @@ jobs:
             });
 
       - name: Fail when drift detected
-        if: fromJson(steps.checkowners.outputs.checkowners_drift).drift_detected
+        if: fromJson(steps.checkowners.outputs.drift_summary).drift_detected
         run: |
           echo "checkowners drift detected. Run checkowners sync to resolve."
           exit 1

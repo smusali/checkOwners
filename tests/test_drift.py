@@ -237,7 +237,7 @@ def test_github_output_written(tmp_path: Path) -> None:
         assert not output_file.exists()
         write_github_output(result, 3)
     content = output_file.read_text(encoding="utf-8")
-    assert content.startswith("checkowners_drift=")
+    assert content.startswith("drift_summary=")
     assert '"drift_detected": true' in content
 
 

@@ -170,7 +170,7 @@ Drift severity maps the max confidence delta plus qualified-owner / decay flags 
 | `medium` | `max_confidence_delta >= 0.3` |
 | `low` | otherwise |
 
-`--json` and the Action output `checkowners_drift` include the severity field so a workflow can branch on it.
+`--json` and the Action output `drift_summary` include the severity field so a workflow can branch on it.
 
 ### How do I turn checkOwners on without failing on every existing finding?
 
@@ -190,7 +190,7 @@ The leftover baseline row is reported as stale (`stale_baseline`). That does not
 
 ### How do I fail a PR only on critical drift?
 
-The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.checkowners_drift).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want the job summary and optional PR comment without blocking.
+The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.drift_summary).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want the job summary and optional PR comment without blocking.
 
 ### Why is analysis completeness below 100% on a normal repository?
 

@@ -328,7 +328,7 @@ def write_github_output(
         sort_keys=True,
     )
     with Path(output_file).open("a", encoding="utf-8") as f:
-        f.write(f"checkowners_drift={payload}\n")
+        f.write(f"drift_summary={payload}\n")
 
 
 def owner_overlap(declared: tuple[str, ...], observed: tuple[str, ...]) -> float:

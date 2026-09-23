@@ -103,6 +103,11 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   conclusions are keyed by model version.
 
 ### Changed
+- Action output `checkowners_drift` is now `drift_summary`,
+  including the `github-action --json` key and the `GITHUB_OUTPUT` name
+  written by `checkowners drift`. Command JSON stays schema `1.0` and
+  Action summaries stay `schema_version` `2`. Workflows read
+  `steps.checkowners.outputs.drift_summary`.
 - Commands share one exit-code contract: 0 clean, 1 internal error, 2
   configuration or usage, 3 findings, 4 git or GitHub integration failure.
   `validate` findings and `github-action` drift move from 1 to 3. `drift`
@@ -111,8 +116,8 @@ Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADM
   when scored-signal completeness is below 1, and is off by default.
   A failed `git ls-files` is an integration failure, not an empty stale list.
 - The composite Action runs `checkowners github-action` once for drift,
-  qualified owners, decay, the job summary, and `GITHUB_OUTPUT`. Output
-  names and `schema_version: 2` summary shapes are unchanged.
+  qualified owners, decay, the job summary, and `GITHUB_OUTPUT`.
+  `schema_version: 2` summary shapes are unchanged.
 - Recency, decay, and the git-log lookback window age against one resolved
   instant (`--as-of`, else `SOURCE_DATE_EPOCH`, else HEAD committer time),
   never the wall clock. JSON payloads include `analysis_ref` and

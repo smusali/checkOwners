@@ -1595,7 +1595,7 @@ def github_action(
     publish_outputs(limit=max_output_entries)
 
     if json_output:
-        printed: dict[str, object] = {"checkowners_drift": drift_payload}
+        printed: dict[str, object] = {"drift_summary": drift_payload}
         if bus_payload is not None:
             printed["bus_factor_summary"] = bus_payload
         if decay_payload is not None:

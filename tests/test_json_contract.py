@@ -129,7 +129,7 @@ def test_command_stdout_matches_schema(
     validate_instance(command, payload)
     if command != "github-action":
         return
-    drift = payload["checkowners_drift"]
+    drift = payload["drift_summary"]
     bus = payload["bus_factor_summary"]
     decay = payload["decay_summary"]
     assert isinstance(drift, dict)

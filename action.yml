@@ -93,12 +93,12 @@ inputs:
     default: ${{ github.token }}
 
 outputs:
-  checkowners_drift:
+  drift_summary:
     description: >-
       Bounded JSON drift summary (schema_version 2): drift_detected, severity,
       max_confidence_delta, notes, counts, top entries, and truncated.
       Full drift.json is in the uploaded artifact.
-    value: ${{ steps.run.outputs.checkowners_drift }}
+    value: ${{ steps.run.outputs.drift_summary }}
   bus_factor_summary:
     description: >-
       Bounded JSON qualified-owner summary (schema_version 2): repo_average,
@@ -147,71 +147,7 @@ runs:
         CHECKOWNERS_INDEX_URL: ${{ inputs.index_url }}
         CHECKOWNERS_OFFLINE: ${{ inputs.offline }}
         CHECKOWNERS_PINNED_VERSION: "0.5.1"
-      run: |
-        set -euo pipefail
-        ACTION_ROOT="${GITHUB_ACTION_PATH}"
-        LOCK="${ACTION_ROOT}/requirements.lock"
-        VERSION="${CHECKOWNERS_VERSION:-$CHECKOWNERS_PINNED_VERSION}"
-        INDEX_ARGS=()
-        if [ -n "${CHECKOWNERS_INDEX_URL}" ]; then
-          INDEX_ARGS+=(--index-url "${CHECKOWNERS_INDEX_URL}")
-        fi
-
-        install_lockfile() {
-          python -m pip install --no-deps --require-hashes --only-binary=:all: \
-            "$@" -r "${LOCK}"
-        }
-
-        if [ -n "${CHECKOWNERS_INSTALL_SPEC}" ]; then
-          if [ "${CHECKOWNERS_INSTALL_SPEC}" != "." ] \
-            && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[graph]" ] \
-            && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[github]" ] \
-            && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[graph,github]" ] \
-            && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[github,graph]" ] \
-            && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[all]" ]; then
-            echo "::error::install_spec must be a local extras spec: . .[graph] .[github] .[graph,github] .[github,graph] .[all]"
-            exit 1
-          fi
-          install_lockfile "${INDEX_ARGS[@]}"
-          python -m pip install --no-deps "${CHECKOWNERS_INSTALL_SPEC}"
-        elif [ "${CHECKOWNERS_OFFLINE}" = "true" ]; then
-          if [ -n "${CHECKOWNERS_VERSION}" ] && [ "${CHECKOWNERS_VERSION}" != "${CHECKOWNERS_PINNED_VERSION}" ]; then
-            echo "::error::offline install requires checkowners_version to match the Action pin (${CHECKOWNERS_PINNED_VERSION})"
-            exit 1
-          fi
-          WHEEL="${ACTION_ROOT}/checkowners-${CHECKOWNERS_PINNED_VERSION}-py3-none-any.whl"
-          if [ ! -f "${WHEEL}" ]; then
-            echo "::error::offline install requires ${WHEEL}"
-            exit 1
-          fi
-          install_lockfile --no-index --find-links "${ACTION_ROOT}"
-          python -m pip install --no-deps --no-index --find-links "${ACTION_ROOT}" \
-            "checkowners==${CHECKOWNERS_PINNED_VERSION}"
-        elif [ -n "${CHECKOWNERS_VERSION}" ] && [ "${CHECKOWNERS_VERSION}" != "${CHECKOWNERS_PINNED_VERSION}" ]; then
-          install_lockfile "${INDEX_ARGS[@]}"
-          python -m pip install --no-deps --only-binary=:all: \
-            "${INDEX_ARGS[@]}" "checkowners==${VERSION}"
-        else
-          WHEEL="${ACTION_ROOT}/checkowners-${CHECKOWNERS_PINNED_VERSION}-py3-none-any.whl"
-          if [ ! -f "${WHEEL}" ]; then
-            echo "::error::missing pinned wheel ${WHEEL}"
-            exit 1
-          fi
-          install_lockfile "${INDEX_ARGS[@]}"
-          python -m pip install --no-deps --no-index --find-links "${ACTION_ROOT}" \
-            "checkowners==${CHECKOWNERS_PINNED_VERSION}"
-        fi
-
-        got="$(checkowners --version)"
-        if [ -n "${CHECKOWNERS_INSTALL_SPEC}" ]; then
-          if [[ ! "${got}" =~ ^checkowners\ [0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "::error::expected 'checkowners <semver>', got: ${got}"
-            exit 1
-          fi
-        elif [ "${got}" != "checkowners ${VERSION}" ]; then
-          echo "::error::installed '${got}', expected 'checkowners ${VERSION}'"
-          exit 1
-        fi
+      run: bash "${GITHUB_ACTION_PATH}/tools/install_checkowners.sh"
 
     - name: Run checkowners
       id: run

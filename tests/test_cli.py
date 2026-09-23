@@ -764,7 +764,7 @@ def test_github_action_fails_on_drift_and_writes_output(
     expected = (
         _gh_block("artifact_name", "checkowners-reports")
         + _gh_block(
-            "checkowners_drift",
+            "drift_summary",
             json.dumps(summarize_drift(drift, 50), separators=(",", ":")),
         )
         + _gh_block(
@@ -793,16 +793,16 @@ def test_github_action_no_fail_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     )
     assert exit_code == 0
     data = json.loads(stdout)
-    assert data["checkowners_drift"]["drift_detected"] is True
-    assert data["checkowners_drift"]["severity"] == "critical"
-    assert data["checkowners_drift"]["schema_version"] == COMMAND_SCHEMA_VERSION
+    assert data["drift_summary"]["drift_detected"] is True
+    assert data["drift_summary"]["severity"] == "critical"
+    assert data["drift_summary"]["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert "entries" in data["bus_factor_summary"]
     assert data["bus_factor_summary"]["deprecated_keys"] == ["bus_factor"]
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
     assert "reports" in data["decay_summary"]
     delim = f"ghadelim_{_FIXED_HEX}"
-    body = output_file.read_text(encoding="utf-8").split(f"checkowners_drift<<{delim}\n", 1)[1]
+    body = output_file.read_text(encoding="utf-8").split(f"drift_summary<<{delim}\n", 1)[1]
     summary = json.loads(body.split(f"\n{delim}\n", 1)[0])
     assert summary["schema_version"] == 2
     assert "counts" in summary
@@ -842,7 +842,7 @@ def test_github_action_input_combinations(
     assert exit_code == (3 if fail_on_drift else 0)
     written = output_file.read_text(encoding="utf-8")
     assert (tmp_path / "drift.json").is_file()
-    assert "checkowners_drift<<" in written
+    assert "drift_summary<<" in written
     assert (tmp_path / "bus_factor.json").is_file() is include_bus_factor
     assert ("bus_factor_summary<<" in written) is include_bus_factor
     assert (tmp_path / "decay.json").is_file() is include_decay

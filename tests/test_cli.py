@@ -34,9 +34,12 @@ from checkowners.cli import (
     _owner_payload,
     _render_explained_owner,
     _render_explanation,
+    _render_ignore_revs_line,
     _resolve_github_owners,
     _signal_label,
+    _warn_missing_api_token,
     app,
+    main,
 )
 from checkowners.config import load_config
 from checkowners.decay import DecayReport
@@ -2557,3 +2560,17 @@ def test_aggregate_text_reports_omit_people(
     assert "triage" in named_decay.stdout
     assert named_topology.exit_code == 0, named_topology.output
     assert "bob@example.com" in named_topology.stdout
+
+
+def test_analysis_flag_lines_and_main(capsys: pytest.CaptureFixture[str]) -> None:
+    applied = AnalysisCompleteness(
+        ignore_revs_applied=True,
+        ignore_revs_file=".git-blame-ignore-revs",
+    )
+    _render_ignore_revs_line(applied)
+    assert "Blame ignore-revs: applied" in capsys.readouterr().out
+    with patch("checkowners.cli.get_github_token", return_value=""):
+        _warn_missing_api_token(Config(github=GithubConfig(api_enabled=True)))
+    with patch("checkowners.cli.app") as cli_app:
+        main()
+    cli_app.assert_called_once_with()

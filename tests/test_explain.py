@@ -564,7 +564,7 @@ def test_payloads_include_why_not_and_null_last_commit() -> None:
         weights={"recency": 0.35},
         why_not=why,
     )
-    payload = explanation_payload(explanation, ownership)
+    payload = explanation_payload(explanation)
     owners = payload["owners"]
     assert isinstance(owners, list)
     first = owners[0]

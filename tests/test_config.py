@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from checkowners.config import find_codeowners_path, load_config
+from checkowners.config import (
+    _build_policy_config,
+    _build_suppressions,
+    find_codeowners_path,
+    load_config,
+)
 from checkowners.models import Config, DriftConfig, QualificationConfig, models_payload
 
 
@@ -650,3 +655,19 @@ def test_budget_and_policy_keys_rejected(tmp_path: Path, content: str, match: st
     root = _write_config(tmp_path, content)
     with pytest.raises(ValueError, match=match):
         load_config(repo_root=root)
+
+
+def test_output_consolidate_can_be_disabled(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "version: 1\noutput:\n  consolidate: false\n")
+    assert load_config(repo_root=root).output.consolidate is False
+
+
+def test_policy_builder_rejects_a_non_boolean_fail_flag() -> None:
+    with pytest.raises(ValueError, match="must be a boolean"):
+        _build_policy_config({"incomplete_analysis": {"fail": 1}})
+
+
+def test_suppression_builder_rejects_non_lists() -> None:
+    assert _build_suppressions(None) == ()
+    with pytest.raises(ValueError, match="expected a YAML list"):
+        _build_suppressions({})

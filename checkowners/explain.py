@@ -363,7 +363,7 @@ def owners_payload(
     }
 
 
-def explanation_payload(explanation: PathExplanation, ownership: OwnershipMap) -> dict[str, object]:
+def explanation_payload(explanation: PathExplanation) -> dict[str, object]:
     """Schema-versioned explain payload."""
     payload: dict[str, object] = {
         "schema_version": COMMAND_SCHEMA_VERSION,

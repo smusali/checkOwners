@@ -2175,7 +2175,7 @@ def explain(
         _finish_analysis(ownership)
         return
     if json_output:
-        _emit_json(explanation_payload(explanation, ownership), ownership)
+        _emit_json(explanation_payload(explanation), ownership)
         _finish_analysis(ownership)
         return
     _render_explanation(explanation, ownership.last_analyzed)

@@ -11,11 +11,11 @@ from typing import Literal
 
 from checkowners import __version__
 from checkowners.analyze import (
-    _Contribution,
-    _gather_blame_coverage,
-    _mailmap_flag,
-    _score_owners,
+    Contribution,
     frequency_prior_for,
+    gather_blame_coverage,
+    mailmap_flag,
+    score_owners,
     signal_weights,
 )
 from checkowners.expertise import path_matches_glob
@@ -219,7 +219,7 @@ def commit_shas(
         [  # noqa: S607
             "git",
             "log",
-            _mailmap_flag(config.git.use_mailmap),
+            mailmap_flag(config.git.use_mailmap),
             f"--format=%H%n{email_fmt}%n%cI",
             f"--since={window_start.isoformat()}",
             f"--until={as_of.isoformat()}",
@@ -279,7 +279,7 @@ def last_contribution(
         [  # noqa: S607
             "git",
             "log",
-            _mailmap_flag(use_mailmap),
+            mailmap_flag(use_mailmap),
             f"--format=%H%n{email_fmt}%n%cI",
             "--",
             target,
@@ -303,7 +303,7 @@ def blame_shares(
     """Blame only ``files`` and return per-path author shares."""
     if not files:
         return {}
-    return _gather_blame_coverage(files, repo_root, git=config.git).coverage
+    return gather_blame_coverage(files, repo_root, git=config.git).coverage
 
 
 def path_knobs(
@@ -564,8 +564,8 @@ def _why_not_outsider(
         return _never_contributed(handle, config)
     last_when = found[1] if found else as_of
     review_available = _review_available(ownership)
-    scored = _score_owners(
-        {handle: _Contribution(commits=0, last_commit=last_when)},
+    scored = score_owners(
+        {handle: Contribution(commits=0, last_commit=last_when)},
         {handle: share} if blame_available else {},
         {},
         max_commits=1,

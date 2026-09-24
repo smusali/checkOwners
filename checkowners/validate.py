@@ -25,7 +25,7 @@ _EMAIL_PATTERN = re.compile(r"^[\w.+-]+@[\w-]+(\.[\w-]+)+$")
 
 
 @dataclass(frozen=True)
-class ValidationError:
+class ValidationFinding:
     line_number: int
     line: str
     message: str
@@ -35,18 +35,18 @@ def validate_codeowners(
     repo_root: Path,
     *,
     codeowners_path: Path | None = None,
-) -> list[ValidationError]:
+) -> list[ValidationFinding]:
     """Validate CODEOWNERS syntax and return a list of errors."""
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     if not target.exists():
-        return [ValidationError(line_number=0, line="", message="CODEOWNERS file not found")]
+        return [ValidationFinding(line_number=0, line="", message="CODEOWNERS file not found")]
     content = target.read_text(encoding="utf-8")
     return _validate_lines(content)
 
 
-def _validate_lines(content: str) -> list[ValidationError]:
+def _validate_lines(content: str) -> list[ValidationFinding]:
     """Validate each line of CODEOWNERS content."""
-    errors: list[ValidationError] = []
+    errors: list[ValidationFinding] = []
     for line_number, raw_line in enumerate(content.splitlines(), start=1):
         # Strip inline comment so confidence annotations don't fail validation.
         line = strip_inline_comment(raw_line.strip()).strip()
@@ -56,9 +56,9 @@ def _validate_lines(content: str) -> list[ValidationError]:
     return errors
 
 
-def _validate_entry(line_number: int, line: str) -> list[ValidationError]:
+def _validate_entry(line_number: int, line: str) -> list[ValidationFinding]:
     """Validate a single CODEOWNERS entry line."""
-    errors: list[ValidationError] = []
+    errors: list[ValidationFinding] = []
     parts = split_escaped(line)
     if not parts:
         return errors
@@ -66,7 +66,7 @@ def _validate_entry(line_number: int, line: str) -> list[ValidationError]:
     pattern = parts[0]
     if pattern.startswith("!"):
         errors.append(
-            ValidationError(
+            ValidationFinding(
                 line_number=line_number,
                 line=line,
                 message=f"GitHub CODEOWNERS does not support '!' negation: {pattern}",
@@ -74,7 +74,7 @@ def _validate_entry(line_number: int, line: str) -> list[ValidationError]:
         )
     if "[" in pattern or "]" in pattern:
         errors.append(
-            ValidationError(
+            ValidationFinding(
                 line_number=line_number,
                 line=line,
                 message=f"GitHub CODEOWNERS does not support '[...]' character ranges: {pattern}",
@@ -86,7 +86,7 @@ def _validate_entry(line_number: int, line: str) -> list[ValidationError]:
     for owner in parts[1:]:
         if not _HANDLE_PATTERN.match(owner) and not _EMAIL_PATTERN.match(owner):
             errors.append(
-                ValidationError(
+                ValidationFinding(
                     line_number=line_number,
                     line=line,
                     message=f"Invalid owner format: {owner}",

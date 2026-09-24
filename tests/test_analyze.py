@@ -15,18 +15,17 @@ from checkowners.analyze import (
     _BLAME_DEADLINE,
     MIN_GIT_VERSION,
     SOURCE_DATE_EPOCH_ENV,
+    Contribution,
     GitRequirementError,
     _aggregate_contributions,
     _blame_for_path,
     _BlamePass,
-    _Contribution,
     _detect_decay,
     _display_ignore_revs_path,
     _existing_file,
     _filter_excluded,
     _filter_nonexistent,
     _frequency_score,
-    _gather_blame_coverage,
     _gather_review_coverage,
     _get_commit_history,
     _git_stdout,
@@ -40,19 +39,20 @@ from checkowners.analyze import (
     _parse_log_output,
     _RawCommit,
     _recency_score,
-    _score_owners,
     _stdout_has_rename,
     _window_has_renames,
     analysis_epoch,
     analyze_ownership,
     apply_completeness,
     combine_available_signals,
+    gather_blame_coverage,
     head_commit_datetime,
     head_commit_sha,
     parse_as_of,
     parse_git_version,
     parse_source_date_epoch,
     resolve_as_of,
+    score_owners,
     signal_reliabilities,
     signal_weights,
 )
@@ -89,13 +89,13 @@ def _mock_run(stdout: str) -> subprocess.CompletedProcess[str]:
 
 _MOCK_GIT = "checkowners.analyze.subprocess.run"
 _MOCK_EXIST = "checkowners.analyze._filter_nonexistent"
-_MOCK_BLAME = "checkowners.analyze._gather_blame_coverage"
+_MOCK_BLAME = "checkowners.analyze.gather_blame_coverage"
 
 
 def _passthrough(
-    contributions: dict[str, dict[str, _Contribution]],
+    contributions: dict[str, dict[str, Contribution]],
     _root: Path,
-) -> dict[str, dict[str, _Contribution]]:
+) -> dict[str, dict[str, Contribution]]:
     return contributions
 
 
@@ -528,12 +528,12 @@ def test_linguist_nested_gitattributes_and_negation(tmp_path: Path) -> None:
 
 
 def test_analyze_score_scale_with_and_without_review_provider() -> None:
-    contrib = _Contribution(commits=3, last_commit=_NOW)
+    contrib = Contribution(commits=3, last_commit=_NOW)
     qualified = {"alice@example.com": contrib}
     scoring = ScoringConfig()
     path_blame = {"alice@example.com": 1.0}
 
-    offline = _score_owners(
+    offline = score_owners(
         qualified,
         path_blame,
         {},
@@ -544,7 +544,7 @@ def test_analyze_score_scale_with_and_without_review_provider() -> None:
         review_available=False,
         frequency_prior=0.0,
     )
-    online = _score_owners(
+    online = score_owners(
         qualified,
         path_blame,
         {"alice@example.com": 1.0},
@@ -615,10 +615,10 @@ def test_aggregate_contributions_takes_latest_timestamp() -> None:
 
 
 def test_filter_excluded_removes_paths() -> None:
-    contribs: dict[str, dict[str, _Contribution]] = {
-        "src/main.py": {"alice": _Contribution(3, _NOW)},
-        "yarn.lock": {"alice": _Contribution(5, _NOW)},
-        "dist/out.js": {"bob": _Contribution(2, _NOW)},
+    contribs: dict[str, dict[str, Contribution]] = {
+        "src/main.py": {"alice": Contribution(3, _NOW)},
+        "yarn.lock": {"alice": Contribution(5, _NOW)},
+        "dist/out.js": {"bob": Contribution(2, _NOW)},
     }
     patterns = ("*.lock", "dist/**")
     filtered = _filter_excluded(contribs, patterns)
@@ -629,9 +629,9 @@ def test_filter_excluded_removes_paths() -> None:
 
 def test_filter_nonexistent(tmp_path: Path) -> None:
     (tmp_path / "exists.py").write_text("x", encoding="utf-8")
-    contribs: dict[str, dict[str, _Contribution]] = {
-        "exists.py": {"alice": _Contribution(3, _NOW)},
-        "deleted.py": {"bob": _Contribution(5, _NOW)},
+    contribs: dict[str, dict[str, Contribution]] = {
+        "exists.py": {"alice": Contribution(3, _NOW)},
+        "deleted.py": {"bob": Contribution(5, _NOW)},
     }
     result = _filter_nonexistent(contribs, tmp_path)
     assert "exists.py" in result
@@ -689,16 +689,16 @@ def test_blame_for_path_handles_error() -> None:
         assert _blame_for_path(Path("/fake"), "x.py", ["git", "blame"]) == {}
 
 
-def test_gather_blame_coverage_aggregates() -> None:
+def testgather_blame_coverage_aggregates() -> None:
     with patch(_MOCK_GIT, side_effect=_dispatch_git()):
-        result = _gather_blame_coverage(["x.py"], Path("/fake"))
+        result = gather_blame_coverage(["x.py"], Path("/fake"))
     assert result.coverage["x.py"]["alice@example.com"] == 1.0
-    assert _gather_blame_coverage([], Path("/fake")) == _BlamePass()
+    assert gather_blame_coverage([], Path("/fake")) == _BlamePass()
     with (
         patch(_MOCK_GIT, side_effect=_dispatch_git()),
         patch("checkowners.analyze._blame_for_path", return_value={}),
     ):
-        empty = _gather_blame_coverage(["empty.py"], Path("/fake"))
+        empty = gather_blame_coverage(["empty.py"], Path("/fake"))
         assert empty.coverage == {}
 
 
@@ -969,7 +969,7 @@ def test_blame_stops_when_the_deadline_has_passed(tmp_path: Path) -> None:
             patch("checkowners.analyze._blame_accepts_mailmap_flags", return_value=True),
             patch("checkowners.analyze._blame_for_path") as blame,
         ):
-            result = _gather_blame_coverage(["a.py"], tmp_path)
+            result = gather_blame_coverage(["a.py"], tmp_path)
     finally:
         _BLAME_DEADLINE.reset(token)
     blame.assert_not_called()
@@ -1012,8 +1012,8 @@ def test_adaptive_squash_merge_produces_owners() -> None:
 
 def test_adaptive_low_blame_scores_below_high_blame() -> None:
     scoring = ScoringConfig()
-    low = _score_owners(
-        {"alice@example.com": _Contribution(commits=1, last_commit=_RECENT)},
+    low = score_owners(
+        {"alice@example.com": Contribution(commits=1, last_commit=_RECENT)},
         {"alice@example.com": 0.03},
         {},
         max_commits=1,
@@ -1023,8 +1023,8 @@ def test_adaptive_low_blame_scores_below_high_blame() -> None:
         review_available=False,
         frequency_prior=3.0,
     )
-    high = _score_owners(
-        {"alice@example.com": _Contribution(commits=1, last_commit=_RECENT)},
+    high = score_owners(
+        {"alice@example.com": Contribution(commits=1, last_commit=_RECENT)},
         {"alice@example.com": 0.95},
         {},
         max_commits=1,
@@ -1190,29 +1190,6 @@ def test_same_as_of_is_byte_identical() -> None:
     assert _ownership_json(first) != _ownership_json(shifted)
 
 
-def test_source_date_epoch_same_value_matches(monkeypatch: pytest.MonkeyPatch) -> None:
-    stdout = _sample_commits()
-    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
-    monkeypatch.setenv(SOURCE_DATE_EPOCH_ENV, "1716900000")
-    pinned = resolve_as_of(None, Path("/fake"))
-    with (
-        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
-        patch(_MOCK_EXIST, side_effect=_passthrough),
-        patch(_MOCK_BLAME, side_effect=_no_blame),
-    ):
-        first = analyze_ownership(Path("/fake"), config, as_of=pinned, analysis_ref="deadbeef")
-        second = analyze_ownership(Path("/fake"), config, as_of=pinned, analysis_ref="deadbeef")
-    assert _ownership_json(first) == _ownership_json(second)
-    other = datetime.fromtimestamp(1_720_000_000, tz=UTC)
-    with (
-        patch(_MOCK_GIT, return_value=_mock_run(stdout)),
-        patch(_MOCK_EXIST, side_effect=_passthrough),
-        patch(_MOCK_BLAME, side_effect=_no_blame),
-    ):
-        different = analyze_ownership(Path("/fake"), config, as_of=other, analysis_ref="deadbeef")
-    assert _ownership_json(first) != _ownership_json(different)
-
-
 def test_max_workers_does_not_change_output() -> None:
     stdout = _sample_commits()
     config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
@@ -1242,7 +1219,7 @@ def test_parse_git_version_variants() -> None:
 def test_gather_includes_fidelity_flags_by_default() -> None:
     seen: list[list[str]] = []
     with patch(_MOCK_GIT, side_effect=_dispatch_git(on_blame=seen.append)):
-        _gather_blame_coverage(["x.py"], Path("/fake"))
+        gather_blame_coverage(["x.py"], Path("/fake"))
     assert "-w" in seen[0]
     assert "-M" in seen[0]
     assert "-C" in seen[0]
@@ -1255,7 +1232,7 @@ def test_gather_omits_move_flags_when_disabled() -> None:
         _MOCK_GIT,
         side_effect=_dispatch_git(on_blame=seen.append, reject_mailmap=True),
     ):
-        _gather_blame_coverage(
+        gather_blame_coverage(
             ["x.py"],
             Path("/fake"),
             git=GitConfig(detect_moves=False, use_mailmap=False),
@@ -1272,7 +1249,7 @@ def test_gather_rejects_old_git() -> None:
         patch(_MOCK_GIT, side_effect=_dispatch_git(version="git version 2.19.0")),
         pytest.raises(ValueError, match=r"requires Git 2\.23"),
     ):
-        _gather_blame_coverage(["x.py"], Path("/fake"))
+        gather_blame_coverage(["x.py"], Path("/fake"))
 
 
 def test_gather_wraps_unparseable_git_version() -> None:
@@ -1280,7 +1257,7 @@ def test_gather_wraps_unparseable_git_version() -> None:
         patch(_MOCK_GIT, side_effect=_dispatch_git(version="not a version")),
         pytest.raises(GitRequirementError, match="Could not parse"),
     ):
-        _gather_blame_coverage(["x.py"], Path("/fake"))
+        gather_blame_coverage(["x.py"], Path("/fake"))
 
 
 def test_gather_honors_git_config_ignore_revs(tmp_path: Path) -> None:
@@ -1290,7 +1267,7 @@ def test_gather_honors_git_config_ignore_revs(tmp_path: Path) -> None:
         _MOCK_GIT,
         side_effect=_dispatch_git(on_blame=seen.append, config_value="custom-revs"),
     ):
-        result = _gather_blame_coverage(
+        result = gather_blame_coverage(
             ["x.py"],
             tmp_path,
             git=GitConfig(blame_ignore_revs_file="missing-revs"),
@@ -1305,7 +1282,7 @@ def test_gather_passes_ignore_revs_file(tmp_path: Path) -> None:
     (tmp_path / ".git-blame-ignore-revs").write_text("a" * 40 + "\n", encoding="utf-8")
     seen: list[list[str]] = []
     with patch(_MOCK_GIT, side_effect=_dispatch_git(on_blame=seen.append)):
-        result = _gather_blame_coverage(["x.py"], tmp_path)
+        result = gather_blame_coverage(["x.py"], tmp_path)
     assert any(
         arg.startswith("--ignore-revs-file=") and arg.endswith(".git-blame-ignore-revs")
         for arg in seen[0]
@@ -1378,7 +1355,7 @@ def test_moved_file_keeps_original_author(tmp_path: Path) -> None:
     )
     (repo / "a.py").unlink()
     git_commit(repo, "bob moves", author="Bob", email="bob@example.com", date=_BOB_DATE)
-    blame = _gather_blame_coverage(["b.py"], repo)
+    blame = gather_blame_coverage(["b.py"], repo)
     assert blame.coverage["b.py"].get("alice@example.com", 0.0) > 0.5
 
 

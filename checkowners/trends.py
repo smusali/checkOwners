@@ -15,8 +15,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from checkowners.analyze import (
+    Contribution,
     _aggregate_contributions,
-    _Contribution,
     _frequency_score,
     _get_commit_history,
     _is_excluded,
@@ -134,7 +134,7 @@ def _summarize(window: list[_RawCommit], config: Config, as_of: datetime) -> Tre
 
 
 def _score_path(
-    authors: dict[str, _Contribution],
+    authors: dict[str, Contribution],
     config: Config,
     as_of: datetime,
 ) -> list[float]:
@@ -160,7 +160,7 @@ def _score_path(
 
 
 def _two_factor_confidence(
-    contrib: _Contribution,
+    contrib: Contribution,
     max_commits: int,
     scoring: ScoringConfig,
     as_of: datetime,

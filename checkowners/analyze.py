@@ -62,7 +62,7 @@ ProgressHook = Callable[[int, int], None]
 
 
 @dataclass(frozen=True)
-class _Contribution:
+class Contribution:
     """Raw per-(path, author) signal aggregated from git log."""
 
     commits: int
@@ -263,7 +263,7 @@ def _analyze_ownership(
     if time.monotonic() >= deadline:
         blame_pass = _BlamePass(truncated=True)
     else:
-        blame_pass = _gather_blame_coverage(
+        blame_pass = gather_blame_coverage(
             contributions.keys(),
             repo_root,
             git=config.git,
@@ -437,7 +437,7 @@ def _window_has_renames(repo_root: Path, since: datetime, until: datetime) -> bo
 
 
 def _gather_review_coverage(
-    contributions: dict[str, dict[str, _Contribution]],
+    contributions: dict[str, dict[str, Contribution]],
     review_provider: ReviewProvider | None,
 ) -> dict[str, dict[str, float]]:
     """Collect per-path, per-email review coverage from the injected provider."""
@@ -450,7 +450,7 @@ def _gather_review_coverage(
 
 
 def _build_path_ownerships(
-    contributions: dict[str, dict[str, _Contribution]],
+    contributions: dict[str, dict[str, Contribution]],
     blame_coverage: dict[str, dict[str, float]],
     review_coverage: dict[str, dict[str, float]],
     config: Config,
@@ -475,7 +475,7 @@ def _build_path_ownerships(
             continue
         max_commits = max(c.commits for c in qualified.values())
         path_review = review_coverage.get(path, {})
-        entries = _score_owners(
+        entries = score_owners(
             qualified,
             path_blame,
             path_review,
@@ -552,13 +552,13 @@ def frequency_prior_for(strategy: QualificationStrategy) -> float:
 
 
 def _qualify_authors(
-    authors: Mapping[str, _Contribution],
+    authors: Mapping[str, Contribution],
     *,
     min_commits: int,
     strategy: QualificationStrategy,
     path_blame: Mapping[str, float],
     blame_override: float,
-) -> dict[str, _Contribution]:
+) -> dict[str, Contribution]:
     if strategy == "threshold":
         return {
             author: contrib for author, contrib in authors.items() if contrib.commits >= min_commits
@@ -570,8 +570,8 @@ def _qualify_authors(
     }
 
 
-def _score_owners(
-    qualified: dict[str, _Contribution],
+def score_owners(
+    qualified: dict[str, Contribution],
     path_blame: dict[str, float],
     path_review: dict[str, float],
     *,
@@ -637,7 +637,7 @@ def _clamp(value: float) -> float:
 
 def _detect_decay(
     path: str,
-    qualified: dict[str, _Contribution],
+    qualified: dict[str, Contribution],
     top: tuple[OwnerEntry, ...],
     threshold_days: int,
     now: datetime,
@@ -668,7 +668,7 @@ def _count_qualified_owners(top: tuple[OwnerEntry, ...], threshold: float) -> in
 _MAILMAP_FLAGS = frozenset({"--use-mailmap", "--no-use-mailmap"})
 
 
-def _mailmap_flag(enabled: bool) -> str:
+def mailmap_flag(enabled: bool) -> str:
     return "--use-mailmap" if enabled else "--no-use-mailmap"
 
 
@@ -687,9 +687,9 @@ def _suppress_workdir_mailmap(repo_root: Path, *, enabled: bool) -> Iterator[Non
 
 
 def _filter_to_pathspec(
-    contributions: dict[str, dict[str, _Contribution]],
+    contributions: dict[str, dict[str, Contribution]],
     pathspec: tuple[str, ...],
-) -> dict[str, dict[str, _Contribution]]:
+) -> dict[str, dict[str, Contribution]]:
     return {
         path: authors
         for path, authors in contributions.items()
@@ -711,7 +711,7 @@ def _get_commit_history(
     argv = [  # git from PATH; not user-supplied
         "git",
         "log",
-        _mailmap_flag(use_mailmap),
+        mailmap_flag(use_mailmap),
         f"--format={_COMMIT_SENTINEL}%n{email_fmt}%n%cI",
         "--name-only",
         f"--since={since.isoformat()}",
@@ -758,7 +758,7 @@ def _parse_timestamp(raw: str) -> datetime | None:
 
 def _aggregate_contributions(
     commits: list[_RawCommit],
-) -> dict[str, dict[str, _Contribution]]:
+) -> dict[str, dict[str, Contribution]]:
     """Aggregate per-(path, author) commit counts and most-recent commit time."""
     counts: dict[str, dict[str, int]] = {}
     latest: dict[str, dict[str, datetime]] = {}
@@ -770,20 +770,20 @@ def _aggregate_contributions(
             prior = latest[file_path].get(commit.author)
             if prior is None or commit.timestamp > prior:
                 latest[file_path][commit.author] = commit.timestamp
-    result: dict[str, dict[str, _Contribution]] = {}
+    result: dict[str, dict[str, Contribution]] = {}
     for path in sorted(counts):
         authors = counts[path]
         result[path] = {
-            author: _Contribution(commits=commits_n, last_commit=latest[path][author])
+            author: Contribution(commits=commits_n, last_commit=latest[path][author])
             for author, commits_n in sorted(authors.items())
         }
     return result
 
 
 def _filter_excluded(
-    contributions: dict[str, dict[str, _Contribution]],
+    contributions: dict[str, dict[str, Contribution]],
     exclude_patterns: tuple[str, ...],
-) -> dict[str, dict[str, _Contribution]]:
+) -> dict[str, dict[str, Contribution]]:
     return {
         path: authors
         for path, authors in contributions.items()
@@ -792,9 +792,9 @@ def _filter_excluded(
 
 
 def _filter_nonexistent(
-    contributions: dict[str, dict[str, _Contribution]],
+    contributions: dict[str, dict[str, Contribution]],
     repo_root: Path,
-) -> dict[str, dict[str, _Contribution]]:
+) -> dict[str, dict[str, Contribution]]:
     return {path: authors for path, authors in contributions.items() if (repo_root / path).exists()}
 
 
@@ -805,9 +805,9 @@ def _is_bot_email(email: str) -> bool:
 
 
 def _filter_bot_authors(
-    contributions: dict[str, dict[str, _Contribution]],
-) -> dict[str, dict[str, _Contribution]]:
-    result: dict[str, dict[str, _Contribution]] = {}
+    contributions: dict[str, dict[str, Contribution]],
+) -> dict[str, dict[str, Contribution]]:
+    result: dict[str, dict[str, Contribution]] = {}
     for path, authors in contributions.items():
         humans = {a: c for a, c in authors.items() if not _is_bot_email(a)}
         if humans:
@@ -816,9 +816,9 @@ def _filter_bot_authors(
 
 
 def _filter_unqualified(
-    contributions: dict[str, dict[str, _Contribution]],
+    contributions: dict[str, dict[str, Contribution]],
     min_commits: int,
-) -> dict[str, dict[str, _Contribution]]:
+) -> dict[str, dict[str, Contribution]]:
     return {
         path: authors
         for path, authors in contributions.items()
@@ -1124,7 +1124,7 @@ def _blame_argv(
     ignore_revs: Path | None,
     extra_revs: Path | None,
 ) -> list[str]:
-    argv = ["git", "blame", "--line-porcelain", "-w", _mailmap_flag(git.use_mailmap)]
+    argv = ["git", "blame", "--line-porcelain", "-w", mailmap_flag(git.use_mailmap)]
     if git.detect_moves:
         argv.extend(["-M", "-C"])
     if ignore_revs is not None:
@@ -1134,7 +1134,7 @@ def _blame_argv(
     return argv
 
 
-def _gather_blame_coverage(
+def gather_blame_coverage(
     paths: Iterable[str],
     repo_root: Path,
     *,

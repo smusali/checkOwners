@@ -188,6 +188,7 @@ _V2_SECTIONS: dict[str, frozenset[str]] = {
     "contributors": _V2_CONTRIBUTORS,
 }
 
+
 def _is_drift_mode(value: str) -> TypeGuard[DriftMode]:
     return value in _VALID_DRIFT_MODES
 

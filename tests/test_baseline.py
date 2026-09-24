@@ -355,8 +355,7 @@ def test_load_baseline_rejects_invalid_files(tmp_path: Path) -> None:
             "path is required",
         ),
         (
-            '{"schema_version": "1", "findings": '
-            '[{"rule": "missing", "path": "a", "owners": 1}]}',
+            '{"schema_version": "1", "findings": [{"rule": "missing", "path": "a", "owners": 1}]}',
             "owners must be a list of strings",
         ),
         (

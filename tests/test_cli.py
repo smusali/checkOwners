@@ -639,6 +639,7 @@ def test_drift_json_includes_severity() -> None:
     assert data["max_confidence_delta"] == 1.0
     assert data["head_sha"] == "deadbeef"
 
+
 # --- sync ---
 
 
@@ -1017,6 +1018,7 @@ def test_trends_json() -> None:
     assert data["points"][1]["avg_qualified_owner_count"] == 1.8
     assert data["qualified_owner_count_cap"] == 3
     assert data["head_sha"] == "deadbeef"
+
 
 def test_trends_git_error() -> None:
     with patch(

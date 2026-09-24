@@ -9,21 +9,6 @@
 
 **Keep CODEOWNERS aligned with reality.**
 
-Your CODEOWNERS says:
-
-```text
-/payments/ @platform
-```
-
-Confidence on that tree over the last year:
-
-```text
-@alice  0.65
-@bob    0.63
-```
-
-The rule still names `@platform`. The people who change `/payments/` are `@alice` and `@bob`, now on the payments team.
-
 ```text
 $ checkowners --offline drift
 
@@ -170,13 +155,12 @@ What the tool reads, what leaves the machine, what the cache holds, how tokens a
 
 - [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md): full configuration reference, ownership scoring formula, drift severity tiers, GitHub Actions integration, comparison table.
 - [docs/METHODOLOGY.md](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md): formulas, prior art, terminology, and [project principles](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md#principles).
+- [docs/GLOSSARY.md](https://github.com/smusali/checkowners/blob/main/docs/GLOSSARY.md): one-sentence definitions of the terms used in reports.
 - [docs/limitations.md](https://github.com/smusali/checkowners/blob/main/docs/limitations.md): when the tool can be wrong, and what repository evidence cannot prove.
 - [docs/FAQ.md](https://github.com/smusali/checkowners/blob/main/docs/FAQ.md): identity (usernames vs emails, teams + subteams), GitHub API access, file locations, tuning, troubleshooting.
 - [docs/PRIVACY.md](https://github.com/smusali/checkowners/blob/main/docs/PRIVACY.md): what is read, what leaves the machine, the cache, `cache purge`, and the threat model.
 - [docs/CONTRIBUTING.md](https://github.com/smusali/checkowners/blob/main/docs/CONTRIBUTING.md): dev setup, commands, conventional commits, code conventions, PR workflow.
-- [ROADMAP.md](https://github.com/smusali/checkowners/blob/main/ROADMAP.md): milestones and how to pick an issue. The [action-item register](https://github.com/smusali/checkowners/blob/main/docs/ACTION_ITEMS.md) is the full list.
 - [Good first issues](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) · [Discussions](https://github.com/smusali/checkowners/discussions)
-- [docs/CHANGELOG.md](https://github.com/smusali/checkowners/blob/main/docs/CHANGELOG.md): release history.
 
 ## License
 

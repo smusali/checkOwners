@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "checkowners"
 dynamic = ["version"]
-description = "Keep CODEOWNERS aligned with reality. Compare git history with your ownership policy. Local-first, no LLM."
+description = "Keep CODEOWNERS aligned with reality."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"

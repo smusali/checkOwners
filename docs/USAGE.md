@@ -21,7 +21,9 @@ flowchart LR
     Drift --> CI[CI output]
 ```
 
-State is cached per repo at `~/.checkowners/state/<repo-hash>.json` (override the base directory with `CHECKOWNERS_STATE_DIR`). The hash is the normalized `origin` URL when the repo has one, so two checkouts of the same remote share a file. A repo with no `origin` is keyed by its absolute path. `trends` is independent of the cached state: it runs its own `git log` pass to reconstruct per-period snapshots. `explain` and `owners` (`who`) also skip the cache: they analyze only the requested file or directory and do not write state.
+State is cached per repo at `~/.checkowners/state/<repo-hash>.json` (override the base directory with `CHECKOWNERS_STATE_DIR`). The hash is the normalized `origin` URL when the repo has one, so two checkouts of the same remote share a file. A repo with no `origin` is keyed by its absolute path.
+
+`trends` is independent of the cached state. It runs its own `git log` pass to reconstruct per-period snapshots. `explain` and `owners` (`who`) also skip the cache. They analyze only the requested file or directory and do not write state.
 
 Downstream commands reuse that file only when its commit is `HEAD`, its scoring config hash matches, and its model ids match. Otherwise they re-analyze. Place these flags before the command name:
 
@@ -305,7 +307,11 @@ flowchart LR
 
 Weights and reliabilities are configurable under `scoring`. Review weight is omitted from the score when `github.api_enabled` is false; it is not filled in as `0.0`. The score is clamped to `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after `analysis.top_n_owners` truncation.
 
-Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis.ignore_revs_applied` and `analysis.ignore_revs_file` so you can see whether that correction ran, `analysis.mailmap_applied` / `analysis.mailmap_file` for `.mailmap`, and `analysis.excluded_gitattributes` / `analysis.excluded_static` for how many paths each exclusion mechanism dropped. Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
+Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting.
+
+Analyze JSON includes `analysis.ignore_revs_applied` and `analysis.ignore_revs_file` so you can see whether that correction ran. It also includes `analysis.mailmap_applied` / `analysis.mailmap_file` for `.mailmap`, and `analysis.excluded_gitattributes` / `analysis.excluded_static` for how many paths each exclusion mechanism dropped.
+
+Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way. Set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
 Offline scores are no longer capped at `0.85`. A value of `0.72` means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `models.ownership`, `models.risk`, and `models.topology` (`ownership-v1`, `risk-v1`, `topology-v1`). Per-repo state is schema 1; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. `qualification.strategy: threshold` keeps a commit-count gate and undamped frequency:
 
@@ -324,7 +330,9 @@ The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it
 
 `qualified_owner_count` is the number of owners on a path whose score is at or above `analysis.confidence_threshold`, taken from the list that has already been truncated to `analysis.top_n_owners` (default 3). Human output always states the cap: `3 (capped by top_n_owners=3)`. JSON emits `qualified_owner_count` and `qualified_owner_count_cap`.
 
-This is not truck factor, bus factor, or lottery factor. Those metrics are a removal simulation over a knowledge distribution: the smallest set of contributors whose departure leaves a threshold fraction of files without an owner. `qualified_owner_count` stays the capped threshold count. Raising `top_n_owners` raises the maximum reportable count without any code changing hands. It is not a repo-level truck factor. The formulas, the prior-art divergence, and the truncation caveat are in [Knowledge concentration](METHODOLOGY.md#knowledge-concentration).
+This is not truck factor, bus factor, or lottery factor. Those metrics are a removal simulation over a knowledge distribution: the smallest set of contributors whose departure leaves a threshold fraction of files without an owner.
+
+`qualified_owner_count` stays the capped threshold count. Raising `top_n_owners` raises the maximum reportable count without any code changing hands. It is not a repo-level truck factor. The formulas, the prior-art divergence, and the truncation caveat are in [Knowledge concentration](METHODOLOGY.md#knowledge-concentration).
 
 Per-path JSON also reports score mass under `risk`: `top_owner_share` (largest score divided by the sum of scores), `effective_owners` (the exponential of the Shannon entropy of the normalized scores), and `truck_factor_50` / `truck_factor_75` (the smallest owner count whose cumulative share reaches 0.50 / 0.75). Those numbers describe concentration of the scores already on that path. The `bus_factor:` config section still classifies the capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
 

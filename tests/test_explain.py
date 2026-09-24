@@ -417,7 +417,7 @@ def test_explain_why_not_outsider_without_score_breakdown() -> None:
             "checkowners.explain.blame_shares",
             return_value={"src/a.py": {"eve@example.com": 0.2}},
         ),
-        patch("checkowners.explain._score_owners", return_value=[bare]),
+        patch("checkowners.explain.score_owners", return_value=[bare]),
     ):
         result = explain_why_not(
             "eve",
@@ -494,7 +494,7 @@ def test_blame_shares_empty_and_delegated() -> None:
     assert blame_shares(Path(), (), Config()) == {}
     coverage = {"src/a.py": {"alice@example.com": 0.6}}
     with patch(
-        "checkowners.explain._gather_blame_coverage",
+        "checkowners.explain.gather_blame_coverage",
         return_value=_BlamePass(coverage=coverage),
     ) as mocked:
         assert blame_shares(Path(), ("src/a.py",), Config()) == coverage

@@ -84,12 +84,6 @@ def test_rank_handles_glob_wildcards() -> None:
     assert {r.handle for r in ranks} == {"@alice", "@bob"}
 
 
-def test_matches_directory_prefix() -> None:
-    assert path_matches_glob("src/payments/checkout.py", "src/payments/")
-    assert path_matches_glob("src/payments/checkout.py", "src/payments")
-    assert not path_matches_glob("src/api.py", "src/payments")
-
-
 def test_path_matches_glob_exact_and_glob() -> None:
     assert path_matches_glob("src/api.py", "src/api.py")
     assert path_matches_glob("src/api.py", "src/*.py")

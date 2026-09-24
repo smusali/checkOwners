@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from checkowners.analyze import _Contribution, _RawCommit, _score_owners
+from checkowners.analyze import Contribution, _RawCommit, score_owners
 from checkowners.models import AnalysisConfig, Config, ScoringConfig
 from checkowners.trends import _two_factor_confidence, analyze_trends, build_trends
 
@@ -91,10 +90,10 @@ def test_build_trends_confidence_in_unit_range() -> None:
 
 
 def test_analyze_and_trends_match_on_same_available_signals() -> None:
-    contrib = _Contribution(commits=4, last_commit=_NOW)
+    contrib = Contribution(commits=4, last_commit=_NOW)
     scoring = ScoringConfig()
     trend = _two_factor_confidence(contrib, 4, scoring, _NOW, 0.0)
-    owners = _score_owners(
+    owners = score_owners(
         {"alice@example.com": contrib},
         {},
         {},
@@ -110,10 +109,8 @@ def test_analyze_and_trends_match_on_same_available_signals() -> None:
 
 def test_analyze_trends_fetches_history_span() -> None:
     config = _config()
-    empty = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     with patch("checkowners.trends._get_commit_history", return_value=[]) as mock_hist:
         report = analyze_trends(Path("/fake"), config, periods=4, period_days=15, as_of=_NOW)
     assert mock_hist.call_args[0][1] == 60
     assert mock_hist.call_args[0][2] == _NOW
     assert report.periods == 4
-    assert empty.returncode == 0

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from check_json_contract import load_schema, validate_instance
 from jsonschema.exceptions import ValidationError
 
 from checkowners.action_report import summarize_bus_factor, summarize_decay, summarize_drift
@@ -26,11 +26,6 @@ from tests.test_cli import (
     runner,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
-
-from check_json_contract import load_schema, validate_instance  # noqa: E402
-
 _COMMANDS: tuple[tuple[list[str], str], ...] = (
     (["analyze", "--json"], "analyze"),
     (["generate", "--json"], "generate"),
@@ -42,7 +37,6 @@ _COMMANDS: tuple[tuple[list[str], str], ...] = (
     (["sync", "--json"], "sync"),
     (["github-action", "--json", "--no-fail-on-drift"], "github-action"),
     (["decay", "--json"], "decay"),
-    (["qualified-owners", "--all", "--json"], "qualified-owners"),
     (["qualified-owners", "--all", "--json"], "qualified-owners"),
     (["balance", "--json"], "balance"),
     (["topology", "--json"], "topology"),

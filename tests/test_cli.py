@@ -86,7 +86,7 @@ from checkowners.state import (
 )
 from checkowners.topology import TopologyReport
 from checkowners.trends import TrendPoint, TrendReport
-from checkowners.validate import ValidationError
+from checkowners.validate import ValidationFinding
 
 runner = CliRunner()
 _REFUSED_BROAD = BroadPatternRecord(
@@ -557,7 +557,7 @@ def test_validate_valid() -> None:
 
 
 def test_validate_errors() -> None:
-    errors = [ValidationError(line_number=3, line="bad", message="bad line")]
+    errors = [ValidationFinding(line_number=3, line="bad", message="bad line")]
     with patch("checkowners.cli.validate_codeowners", return_value=errors), _MOCK_PATH:
         result = runner.invoke(app, ["validate"])
     assert result.exit_code == 3
@@ -573,7 +573,7 @@ def test_validate_json_valid() -> None:
 
 
 def test_validate_json_errors() -> None:
-    errors = [ValidationError(line_number=1, line="x", message="oops")]
+    errors = [ValidationFinding(line_number=1, line="x", message="oops")]
     with patch("checkowners.cli.validate_codeowners", return_value=errors), _MOCK_PATH:
         result = runner.invoke(app, ["validate", "--json"])
     assert result.exit_code == 3
@@ -1586,7 +1586,7 @@ def test_explain_path_unmatched(tmp_path: Path) -> None:
 def test_validate_errors_render_brackets_verbatim() -> None:
     """Rich markup must not swallow [segments] from user paths."""
     errors = [
-        ValidationError(
+        ValidationFinding(
             line_number=7,
             line="x",
             message="bad pattern: /app/[companyId]/page.tsx",
@@ -1908,7 +1908,6 @@ def test_render_explained_owner_without_optional_signals() -> None:
         ["sync", "--json"],
         ["decay", "--json"],
         ["qualified-owners", "--all", "--json"],
-        ["qualified-owners", "--all", "--json"],
         ["balance", "--json"],
         ["topology", "--json"],
         ["onboard", "src/", "--json"],
@@ -2159,7 +2158,7 @@ def test_exit_code_contract(
 
     validation: object = []
     if kind == "findings" and command == "validate":
-        validation = [ValidationError(line_number=1, line="x", message="oops")]
+        validation = [ValidationFinding(line_number=1, line="x", message="oops")]
 
     codeowners_path = codeowners
     if kind == "config" and command == "explain-path":

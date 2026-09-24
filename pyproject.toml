@@ -100,7 +100,7 @@ features = ["dev"]
 
 [tool.hatch.envs.default.scripts]
 test = [
-    "pytest {args:tests/}",
+    "pytest {args}",
     "coverage report --include=checkowners/patterns.py,checkowners/analyze.py,checkowners/drift.py,checkowners/generate.py --show-missing",
 ]
 lint = ["ruff check .", "mypy --strict checkowners/"]
@@ -127,6 +127,7 @@ ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "S105", "S106", "S108", "S404"]
+"tools/test_*.py" = ["S101", "S105", "S106", "S108", "S404"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -159,7 +160,8 @@ pytest_add_cli_args = ["--no-cov"]
 pytest_add_cli_args_test_selection = ["tests/test_patterns.py", "-k", "not git_ls"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "tools"]
+pythonpath = ["tools"]
 markers = [
     "integration: tests that run real git in a temporary repository",
 ]

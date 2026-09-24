@@ -63,7 +63,7 @@ inputs:
       at the default to install the version that matches this Action tag.
       An empty value uses the pin, never the latest PyPI release.
     required: false
-    default: "0.5.1"
+    default: "0.6.0"
   install_spec:
     description: >-
       SECURITY-SENSITIVE. Interpolating untrusted workflow data into this
@@ -145,7 +145,7 @@ runs:
         CHECKOWNERS_INSTALL_SPEC: ${{ inputs.install_spec }}
         CHECKOWNERS_INDEX_URL: ${{ inputs.index_url }}
         CHECKOWNERS_OFFLINE: ${{ inputs.offline }}
-        CHECKOWNERS_PINNED_VERSION: "0.5.1"
+        CHECKOWNERS_PINNED_VERSION: "0.6.0"
       run: bash "${GITHUB_ACTION_PATH}/tools/install_checkowners.sh"
 
     - name: Run checkowners

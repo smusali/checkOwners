@@ -8,7 +8,11 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 
 ## [Unreleased]
 
-Next cycle is `0.6.0` (correctness and trust). See the [public roadmap](../ROADMAP.md).
+Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../ROADMAP.md).
+
+## [0.6.0] - 2026-09-24
+
+Correctness and trust: scored ownership, schema 1, privacy controls, and supply-chain checks. Inference stays local git.
 
 ### Added
 - [docs/METHODOLOGY.md](METHODOLOGY.md) states the formulas, truck-factor divergence, terminology, golden beliefs, and principles, [docs/limitations.md](limitations.md) states when the tool can be wrong, and CI fails if a shipped metric key is missing from the methodology page.
@@ -374,7 +378,8 @@ Repo now dogfoods its own generated CODEOWNERS.
 - Packaging via hatch; published to PyPI under `checkowners`.
 - CI workflow running tests and lint across Python 3.11, 3.12, 3.13.
 
-[Unreleased]: https://github.com/smusali/checkowners/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/smusali/checkowners/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/smusali/checkowners/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/smusali/checkowners/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/smusali/checkowners/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/smusali/checkowners/compare/v0.3.0...v0.4.0

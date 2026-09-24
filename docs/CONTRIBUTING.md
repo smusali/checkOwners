@@ -179,27 +179,32 @@ PyPI Trusted Publisher for project `checkowners` must match this repository exac
    git push origin vX.Y.Z
    ```
 
-8. Create a GitHub Release for **only** that full semver tag. Tick **Publish this Action to the GitHub Marketplace**. The REST API and `gh release create` cannot set that checkbox; if the Release is created from the CLI, edit it in the UI and tick the box. Do not create a Release for `v0` or `v0.5`; those tags must stay movable. The top-level `description` in `action.yml` must be under 125 characters or Marketplace blocks the listing. `python tools/check_changelog.py vX.Y.Z` enforces that.
+8. Create a GitHub Release for **only** that full semver tag. Tick **Publish this Action to the GitHub Marketplace**. The REST API and `gh release create` cannot set that checkbox; if the Release is created from the CLI, edit it in the UI and tick the box. Do not create a Release for a floating tag (`v0`, `v0.5`, `v0.6`, and so on); those tags must stay movable. The top-level `description` in `action.yml` must be under 125 characters or Marketplace blocks the listing. `python tools/check_changelog.py vX.Y.Z` enforces that.
 
    Publishing the Release triggers `.github/workflows/publish.yml`, which builds with hatch and uploads via Trusted Publishing (`id-token: write`, `pypa/gh-action-pypi-publish`). Sigstore attestations are on by default. The same workflow attaches a CycloneDX SBOM and a signed provenance bundle to the GitHub Release. Wait until that workflow is green before continuing.
 
-9. Point the floating Action tags at the **same commit** as `vX.Y.Z`. First time:
+9. Point the floating Action tags at the **same commit** as `vX.Y.Z`, and only after the publish workflow is green.
+
+   `vX.Y.Z` is immutable and is the only tag that gets a GitHub Release. `v0` moves on every new 0.x release. `v0.Y` is created on the first `0.Y.0` and force-moved only for later `0.Y.Z` patches. A new minor does not move the previous minor tag. Shipping `0.6.0` creates `v0.6` and moves `v0`. It leaves `v0.5` on `v0.5.1`.
+
+   First release of minor `Y` (example `0.6.0`, which also moves `v0`):
 
    ```bash
-   git tag v0 vX.Y.Z
-   git tag v0.5 vX.Y.Z
-   git push origin v0 v0.5
+   git tag v0.6 v0.6.0
+   git tag -f v0 v0.6.0
+   git push origin v0.6
+   git push -f origin v0
    ```
 
-   Later compatible releases move those two tags only:
+   A later patch on that same minor (example `0.6.1`) moves `v0` and `v0.6` only:
 
    ```bash
-   git tag -f v0 vX.Y.Z
-   git tag -f v0.5 vX.Y.Z
-   git push -f origin v0 v0.5
+   git tag -f v0 v0.6.1
+   git tag -f v0.6 v0.6.1
+   git push -f origin v0 v0.6
    ```
 
-   Consumers: `@v0` tracks the latest 0.x, `@v0.5` tracks 0.5.x patches, `@vX.Y.Z` is the immutable pin.
+   Consumers: `@v0` tracks the latest 0.x, `@v0.Y` tracks that minor's patches, `@vX.Y.Z` is the immutable pin.
 
 ### Verify
 
@@ -207,4 +212,4 @@ PyPI Trusted Publisher for project `checkowners` must match this repository exac
 - PyPI project URLs are `https://github.com/smusali/checkowners` and README links resolve.
 - Provenance exists for the wheel and sdist (Integrity API, or `pypi-attestations verify pypi --repository https://github.com/smusali/checkowners pypi:checkowners-X.Y.Z-py3-none-any.whl`).
 - The Marketplace listing shows `X.Y.Z`.
-- `git rev-parse v0 v0.5 vX.Y.Z` are the same SHA. A scratch workflow with `smusali/checkowners@vX.Y.Z` and `@v0` both resolve and run.
+- `git rev-parse v0 v0.Y vX.Y.Z` are the same SHA. The previous minor tag is a different SHA. A scratch workflow with `smusali/checkowners@vX.Y.Z` and `@v0` both resolve and run.

@@ -447,7 +447,7 @@ repos:
       - id: checkowners-drift
 ```
 
-Pin `rev` to a full commit SHA until the `0.6.0` tag exists. Pre-commit installs the package from that git ref (`language: python`).
+Pin `rev` to `v0.6.0` (or a later immutable tag). Pre-commit installs the package from that git ref (`language: python`).
 
 `checkowners-validate` runs `checkowners validate` at the `pre-commit`, `pre-merge-commit`, `pre-push`, and `manual` stages. It runs only when a changed path is `CODEOWNERS`, `.github/CODEOWNERS`, or `docs/CODEOWNERS`. A syntax error exits 3 and blocks the commit. A clean file exits 0.
 
@@ -513,7 +513,7 @@ jobs:
           config: .github/checkowners.yml
 ```
 
-`@v0` tracks the latest 0.x release. `@v0.5` tracks 0.5.x patches. `@v0.5.1` is the immutable pin for this release.
+`@v0` tracks the latest 0.x release. `@v0.6` tracks 0.6.x patches. `@v0.5` stays on the 0.5.x line. `@v0.6.0` is the immutable pin for this release.
 
 The action always writes the full report to the job summary. That needs no extra permissions and works on fork pull requests, where the job token is read-only regardless of the `permissions:` block. On a fork pull request the action skips commenting, emits a notice, and leaves the job green.
 

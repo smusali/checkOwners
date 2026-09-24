@@ -83,7 +83,8 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 
 ## Code conventions
 
-- Python 3.11 minimum through 3.14. Git 2.23 or newer is required at runtime (`ignore-revs` support). Use modern syntax (`X | Y` unions, `dict[str, int]`). Python 3.10 is not supported: it reaches upstream end of life in October 2026, and chasing it would only complicate the runtime. The Action installs its own interpreter. Older system Pythons are better served by standalone artifacts than by widening `requires-python`.
+- Python 3.11 minimum through 3.14. Git 2.23 or newer is required at runtime (`ignore-revs` support). Use modern syntax (`X | Y` unions, `dict[str, int]`).
+- Python 3.10 is not supported. It reaches upstream end of life in October 2026, and chasing it would only complicate the runtime. The Action installs its own interpreter. Older system Pythons are better served by standalone artifacts than by widening `requires-python`.
 - Functional style. The only classes allowed are dataclasses in `models.py` and small frozen dataclasses living inside the module that returns them.
 - Type hints on **every** function signature; `mypy --strict` is enforced.
 - All paths via `pathlib.Path`; never hardcode strings. Ruff `PTH` enforces this.
@@ -104,7 +105,8 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 - Tests that touch `~/.checkowners/state.json` set the `CHECKOWNERS_STATE_DIR` env var so they don't clobber the contributor's real state.
 - Coverage is enforced at 85% repo-wide (`--cov-fail-under=85`); new modules should land above that. The floor is a gate, not a substitute for tests against real git repositories and real CODEOWNERS files. For a focused run that should not apply the floor, pass `--no-cov`.
 - `checkowners/patterns.py` also fails CI below 100% branch coverage. The cases live in `corpus/compatibility.jsonl` (pattern, path, and whole-file rules) and `corpus/realworld.jsonl` (parser fixtures from permissively licensed public repositories). `corpus/README.md` is the format other tools can load.
-- Property and differential tests use Hypothesis. `HYPOTHESIS_PROFILE=ci` (the default) runs 200 examples. `HYPOTHESIS_PROFILE=nightly` runs 10,000. The nightly Fuzz workflow runs that profile, then mutation-tests `patterns.py` and fails if the killed-mutant score is below 90. A shrunk failure is a JSON object with `kind`, `category`, `pattern`, `path`, and `expected`. Append it to `corpus/compatibility.jsonl` and fix the matcher. Do not commit a bot-generated file.
+- Property and differential tests use Hypothesis. `HYPOTHESIS_PROFILE=ci` (the default) runs 200 examples. `HYPOTHESIS_PROFILE=nightly` runs 10,000.
+- The nightly Fuzz workflow runs that profile, then mutation-tests `patterns.py` and fails if the killed-mutant score is below 90. A shrunk failure is a JSON object with `kind`, `category`, `pattern`, `path`, and `expected`. Append it to `corpus/compatibility.jsonl` and fix the matcher. Do not commit a bot-generated file.
 
 ## Dependencies
 

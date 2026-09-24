@@ -6,7 +6,9 @@ Common questions about configuring and operating checkowners. For the full confi
 
 ### Will the generated CODEOWNERS show GitHub usernames or commit email addresses?
 
-GitHub usernames whenever they can be resolved. Start with a `.mailmap` at the repo root: that is the cheapest accuracy fix and the first identity stage (`identity.mailmap: true` by default). Git collapses one person's addresses before checkOwners parses GitHub noreply emails (`12345+login@users.noreply.github.com`) to `@login` locally, reads the on-disk cache (`~/.checkowners/handles.json`, misses remembered), or calls the GitHub user-search API when `GITHUB_TOKEN` is set. When resolution misses (private email, no GitHub account, API unavailable) the entry falls back to the raw email so the output stays usable.
+GitHub usernames whenever they can be resolved. Start with a `.mailmap` at the repo root. That is the cheapest accuracy fix and the first identity stage (`identity.mailmap: true` by default).
+
+Git collapses one person's addresses first. CheckOwners then parses GitHub noreply emails (`12345+login@users.noreply.github.com`) to `@login` locally, reads the on-disk cache (`~/.checkowners/handles.json`, misses remembered), or calls the GitHub user-search API when `GITHUB_TOKEN` is set. When resolution misses (private email, no GitHub account, API unavailable) the entry falls back to the raw email so the output stays usable.
 
 On squash-merge repos most contributors have noreply author emails, so usernames appear even without a token. When two emails resolve to the same username they merge into one owner and the path's qualified owner count is recomputed over distinct people. Set `identity.mailmap: false` to keep raw commit addresses.
 
@@ -47,20 +49,22 @@ No. The core inference is pure git and runs offline. A token is only needed for 
 | Team / subteam resolution | `github.resolve_teams` + `github.org` | List org teams + members |
 | Review history and team reconciliation | `github.api_enabled` | PR review API + team membership |
 
-Noreply emails (`login@users.noreply.github.com`) resolve to `@login` without any token. The API-backed features also need the `github` extra (`pip install "checkowners[github]"`); without it they degrade gracefully with a log hint.
+Noreply emails (`login@users.noreply.github.com`) resolve to `@login` without any token. The API-backed features also need the `github` extra (`pip install "checkowners[github]"`). Without it they degrade gracefully with a log hint.
 
-Without a token you still get scored ownership, drift detection, qualified owner counts, ownership freshness, and onboarding paths; they just operate on email handles and skip the review-activity signal. Remaining weights are renormalized so the score stays on `[0, 1]`. What that score is, and what it is not, is in [Methodology](METHODOLOGY.md). When it can be wrong is in [Limitations](limitations.md).
+Without a token you still get scored ownership, drift detection, qualified owner counts, ownership freshness, and onboarding paths. They operate on email handles and skip the review-activity signal. Remaining weights are renormalized so the score stays on `[0, 1]`. What that score is, and what it is not, is in [Methodology](METHODOLOGY.md). When it can be wrong is in [Limitations](limitations.md).
 
 ### What environment variable holds the token?
 
-`GITHUB_TOKEN` (not `GITHUB_API_KEY`). This is the **only** supported way to provide a token. `github.token` is intentionally **not** accepted in `checkowners.yml` because that file gets committed to git and storing a secret there would publish it to GitHub. `load_config` refuses to load a config that contains `github.token` so a misconfigured repo fails fast instead of silently leaking. The full environment-variable list and precedence live in [docs/USAGE.md](USAGE.md#environment-variables).
+`GITHUB_TOKEN` (not `GITHUB_API_KEY`). This is the **only** supported way to provide a token. `github.token` is intentionally **not** accepted in `checkowners.yml` because that file gets committed to git and storing a secret there would publish it to GitHub.
+
+`load_config` refuses to load a config that contains `github.token` so a misconfigured repo fails fast instead of silently leaking. The full environment-variable list and precedence live in [docs/USAGE.md](USAGE.md#environment-variables).
 
 ```bash
 export GITHUB_TOKEN=ghp_...
 checkowners generate
 ```
 
-In GitHub Actions the job token exists as `${{ secrets.GITHUB_TOKEN }}` / `${{ github.token }}`, but a `run:` step only sees `GITHUB_TOKEN` if the workflow exports it. The composite action does this for you: `github_token` defaults to `${{ github.token }}`, is exported on the `github-action` step and the PR comment step. Pass a PAT or App token only when the default job token is not enough (org team listing or commenting). See [docs/USAGE.md](USAGE.md#github-actions).
+In GitHub Actions the job token exists as `${{ secrets.GITHUB_TOKEN }}` / `${{ github.token }}`. A `run:` step only sees `GITHUB_TOKEN` if the workflow exports it. The composite action does this for you: `github_token` defaults to `${{ github.token }}` and is exported on the `github-action` step and the PR comment step. Pass a PAT or App token only when the default job token is not enough (org team listing or commenting). See [docs/USAGE.md](USAGE.md#github-actions).
 
 ```yaml
 - uses: smusali/checkowners@v0

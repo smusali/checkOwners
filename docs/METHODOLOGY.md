@@ -94,7 +94,9 @@ Three model ids are stamped on JSON output and on human reports:
 
 A formula change, a classifier change, or a topology-algorithm change bumps the matching id. That bump is a breaking change for anyone gating CI on a threshold, even when the JSON shape is unchanged. A config pin must equal the id this release implements, or be omitted. Cached analyze state and the graph cache are reused only when all three ids match.
 
-JSON carries `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema 1. Email addresses in that state are stored as tokens. Files without a matching `models` object and files whose scoring config hash does not match are ignored and replaced on the next analyze. A cached map is reused only when its commit is still `HEAD`, unless `--allow-stale` is set. Recency and the lookback window are evaluated at the analysis instant, not the wall clock. JSON payloads emit `head_sha` and `generated_at`.
+JSON carries `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema 1. Email addresses in that state are stored as tokens.
+
+Files without a matching `models` object, and files whose scoring config hash does not match, are ignored and replaced on the next analyze. A cached map is reused only when its commit is still `HEAD`, unless `--allow-stale` is set. Recency and the lookback window are evaluated at the analysis instant, not the wall clock. JSON payloads emit `head_sha` and `generated_at`.
 
 `qualification.strategy: adaptive` (the default) treats commit count as evidence:
 authors below `min_commits` still qualify when blame is at least
@@ -174,7 +176,7 @@ selected. They are still not the literature's truck factor.
 ## Terminology
 
 Use these names in human-facing output. JSON keys and command names stay as
-shipped.
+shipped. Definitions are in [docs/GLOSSARY.md](GLOSSARY.md).
 
 | Instead of | Use |
 |---|---|
@@ -278,18 +280,21 @@ No performance benchmark has been published. The intended measurements, when a
 harness exists, are cold runtime, warm runtime, peak resident memory, git
 command count, API request count, cache size, and incremental runtime, on
 fixed repository shapes. Until those runs exist, do not treat a single
-timing as a benchmark. On the 0.5.0 dogfood run, a 24k-commit, 12k-file
-production monorepo finished a 365-day analyze in under three minutes. That
-figure is one measurement on one machine.
+timing as a benchmark.
+
+On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo finished
+a 365-day analyze in under three minutes. That figure is one measurement on
+one machine.
 
 No calibration study has been run. The default weights
 `0.35 / 0.25 / 0.25 / 0.15` are heuristics. When a study is run, ground truth
 is who later maintains and reviews the code, not the CODEOWNERS file that was
 already committed. Existing CODEOWNERS can be stale, which is the condition
-the tool exists to detect. The study will report ranking quality (precision
-and recall at small cutoffs) against future authors and reviewers, and it
-will not treat an `ownership_score` as a calibrated probability until that
-evidence exists.
+the tool exists to detect.
+
+The study will report ranking quality (precision and recall at small cutoffs)
+against future authors and reviewers. It will not treat an `ownership_score`
+as a calibrated probability until that evidence exists.
 
 ## Principles
 

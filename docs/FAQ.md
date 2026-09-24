@@ -69,7 +69,7 @@ In GitHub Actions the job token exists as `${{ secrets.GITHUB_TOKEN }}` / `${{ g
 ```yaml
 - uses: smusali/checkowners@v0
   # github_token defaults to github.token; override only when you need a PAT.
-  # @v0 tracks the latest 0.x; @v0.5 tracks 0.5.x patches; @v0.5.1 is the pin.
+  # @v0 tracks the latest 0.x; @v0.6 tracks 0.6.x; @v0.5 stays on 0.5.x; @v0.6.0 is the pin.
   with:
     github_token: ${{ secrets.GITHUB_TOKEN }}
 ```

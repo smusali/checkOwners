@@ -10,7 +10,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = ROOT / "docs" / "schemas" / "commands-1.0.json"
+SCHEMA_PATH = ROOT / "docs" / "schemas" / "commands-v1.json"
 
 
 def load_schema() -> dict[str, object]:

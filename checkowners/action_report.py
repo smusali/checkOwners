@@ -13,7 +13,6 @@ from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 
 _PROVENANCE_KEYS = (
     "checkowners_version",
-    "model_version",
     "repository",
     "head_sha",
     "generated_at",
@@ -37,7 +36,7 @@ DIAGNOSTIC = (
 MAX_RISK_PATHS = 8
 MAX_PATH_DISPLAY = 80
 SOLO_LINE = "One human contributor has qualified ownership. Single-owner paths are expected here."
-OUTPUT_SCHEMA_VERSION = 2
+OUTPUT_SCHEMA_VERSION = 1
 DEFAULT_MAX_OUTPUT_ENTRIES = 50
 DEFAULT_ARTIFACT_NAME = "checkowners-reports"
 T = TypeVar("T")
@@ -281,8 +280,6 @@ def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
     return {
         **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
-        "analysis_ref": data.get("analysis_ref", ""),
-        "analysis_epoch": data.get("analysis_epoch", ""),
         "drift_detected": bool(data.get("drift_detected")),
         "severity": data.get("severity"),
         "max_confidence_delta": data.get("max_confidence_delta"),
@@ -321,11 +318,8 @@ def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, objec
     return {
         **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
-        "analysis_ref": data.get("analysis_ref", ""),
-        "analysis_epoch": data.get("analysis_epoch", ""),
         "repo_average": data.get("repo_average"),
         "qualified_owner_count_cap": cap,
-        "deprecated_keys": ["bus_factor"],
         "counts": {**counts, **_ratchet_counts(data)},
         "critical_paths": trimmed_paths,
         "truncated": paths_cut or bool(entries),
@@ -344,8 +338,6 @@ def summarize_balance(data: dict[str, object], limit: int) -> dict[str, object]:
     return {
         **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
-        "analysis_ref": data.get("analysis_ref", ""),
-        "analysis_epoch": data.get("analysis_epoch", ""),
         "source": data.get("source"),
         "average": data.get("average"),
         "fallback_reason": data.get("fallback_reason"),
@@ -369,8 +361,6 @@ def summarize_decay(data: dict[str, object], limit: int) -> dict[str, object]:
     return {
         **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
-        "analysis_ref": data.get("analysis_ref", ""),
-        "analysis_epoch": data.get("analysis_epoch", ""),
         "counts": {"reports": len(reports)},
         "reports": trimmed,
         "truncated": cut,

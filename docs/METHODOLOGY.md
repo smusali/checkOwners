@@ -10,7 +10,7 @@ For contributor `u` on path `p`:
 
 | Signal | Meaning | Available when |
 |--------|---------|----------------|
-| Recency | Exponential decay from last commit, half-life `scoring.recency_half_life_days` (default 90), aged against `analysis_epoch` (HEAD committer time by default, never the wall clock) | The owner has a last-commit timestamp |
+| Recency | Exponential decay from last commit, half-life `scoring.recency_half_life_days` (default 90), aged against the analysis instant (HEAD committer time by default, never the wall clock) | The owner has a last-commit timestamp |
 | Frequency | `commits(u, p) / (max_commits(p) + prior)` over the lookback window, with author emails from `git log` after `.mailmap` when `identity.mailmap` is on. `prior` is `3` when `qualification.strategy` is `adaptive`, and `0` when it is `threshold` | Commit counts exist for the path |
 | Blame | Share of current lines `git blame` (porcelain, `-w`, `.mailmap` when `identity.mailmap` is on, and `-M`/`-C` when `git.detect_moves`) attributes to `u`. Commits listed in a resolved ignore-revs file, and mass-refactor commits above `git.mass_refactor_file_fraction`, are omitted so the prior author keeps the line | Blame ran and produced lines for the path |
 | Review | Share of PR reviews on `p` attributed to `u` | A review provider was injected (`github.api_enabled` plus token and `GITHUB_REPOSITORY`) |
@@ -50,8 +50,7 @@ are `0.35 / 0.25 / 0.25 / 0.15` for recency, frequency, blame, and review.
 blame or review, so those two signals are unavailable and the same formula
 renormalizes over recency and frequency.
 
-JSON emits `ownership_score` as the primary key and `confidence` as a deprecated
-alias for one cycle. `analysis.confidence_threshold` still gates this number.
+JSON emits `ownership_score`. `analysis.confidence_threshold` still gates this number.
 
 ## Evidence quality
 
@@ -89,13 +88,13 @@ Three model ids are stamped on JSON output and on human reports:
 
 | Id | Config key | What it names |
 | --- | --- | --- |
-| `ownership-v3` | `model.ownership` | The renormalized score in this page |
+| `ownership-v1` | `model.ownership` | The renormalized score in this page |
 | `risk-v1` | `model.risk` | Qualified-owner count and its critical/warn thresholds |
 | `topology-v1` | `model.topology` | Co-occurrence clusters |
 
 A formula change, a classifier change, or a topology-algorithm change bumps the matching id. That bump is a breaking change for anyone gating CI on a threshold, even when the JSON shape is unchanged. A config pin must equal the id this release implements, or be omitted. Cached analyze state and the graph cache are reused only when all three ids match.
 
-Analyze JSON still includes `model_version: ownership-v3` for one minor cycle. Per-repo state is schema v8. Email addresses in that state are stored as tokens. Files without a matching `models` object, files whose `model_version` is not `ownership-v3`, and files whose scoring config hash does not match are ignored and replaced on the next analyze. A cached map is reused only when its `analysis_ref` is still `HEAD`, unless `--allow-stale` is set. Recency and the lookback window are evaluated at `analysis_epoch`, not the wall clock. JSON payloads emit `analysis_ref` (HEAD SHA) and `analysis_epoch`.
+JSON carries `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema 1. Email addresses in that state are stored as tokens. Files without a matching `models` object and files whose scoring config hash does not match are ignored and replaced on the next analyze. A cached map is reused only when its commit is still `HEAD`, unless `--allow-stale` is set. Recency and the lookback window are evaluated at the analysis instant, not the wall clock. JSON payloads emit `head_sha` and `generated_at`.
 
 `qualification.strategy: adaptive` (the default) treats commit count as evidence:
 authors below `min_commits` still qualify when blame is at least
@@ -108,15 +107,14 @@ Weight search has not been run. See [Benchmark and calibration](#benchmark-and-c
 
 `qualified_owner_count` is the number of owners on a path whose
 `ownership_score` is at or above `analysis.confidence_threshold`, taken from
-the list already truncated to `analysis.top_n_owners` (default 3). JSON also
-emits that same integer as `bus_factor` for one minor cycle, with
-`qualified_owner_count_cap`. Human output states the cap. Raising
-`top_n_owners` raises the maximum reportable count without any code changing
-hands.
+the list already truncated to `analysis.top_n_owners` (default 3). JSON emits
+`qualified_owner_count` and `qualified_owner_count_cap`. Human output states
+the cap. Raising `top_n_owners` raises the maximum reportable count without
+any code changing hands.
 
 Before that rename, the same count was labeled bus factor. It was a
 qualified-owner count, not a removal simulation. The count is unchanged. The
-name `bus_factor` remains only as the deprecated alias.
+`bus_factor` config section classifies the capped count.
 
 Concentration uses the same truncated list. Shares are not a JSON key. For
 each positive `ownership_score` on that list:
@@ -176,7 +174,7 @@ selected. They are still not the literature's truck factor.
 ## Terminology
 
 Use these names in human-facing output. JSON keys and command names stay as
-shipped, including the deprecated aliases.
+shipped.
 
 | Instead of | Use |
 |---|---|
@@ -225,7 +223,7 @@ These cases are the project's stated ownership philosophy.
 repository with pinned author and committer dates. Analysis uses a fixed as-of
 of `2026-06-01T12:00:00+00:00` (the handoff reuses one repository at three
 earlier pinned instants). The expected sentence for each case is stored under
-the model id, currently `ownership-v3`. A model-version bump fails until that
+the model id, currently `ownership-v1`. A model-version bump fails until that
 record gains the new id. A run that breaks a belief fails with the sentence.
 
 Strong ownership in that suite means a score of at least `0.5`. Medium evidence
@@ -259,19 +257,19 @@ signals are unavailable. The score stays inside `(0, 1]`. A commit still
 supplies frequency, so the case scores the signals that were observed.
 
 **Rename.** Intended belief: ownership survives a rename from `foo.py` to
-`bar.py`. Under `ownership-v3`, log aggregation keys on the literal path, so
+`bar.py`. Under `ownership-v1`, log aggregation keys on the literal path, so
 the author of the rename commit is the scored owner of `bar.py` and the earlier
 author is absent.
 
 **Stable cadence.** Intended belief: a path with an 18-month cadence keeps its
-owner. Under `ownership-v3`, a commit 18 months before the as-of falls outside
+owner. Under `ownership-v1`, a commit 18 months before the as-of falls outside
 the 365-day lookback and the 90-day half-life, so the path has no scored owner.
 
 **Co-authors.** Intended belief: a `Co-authored-by` trailer receives credit.
-Under `ownership-v3`, only the commit author is scored.
+Under `ownership-v1`, only the commit author is scored.
 
 When a later model makes one of those three records match the intended belief,
-update the `ownership-v3` sentences, or add the new model id, in the same
+update the `ownership-v1` sentences, or add the new model id, in the same
 change.
 
 ## Benchmark and calibration

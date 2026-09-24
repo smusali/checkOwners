@@ -17,11 +17,10 @@ QualificationStrategy = Literal["adaptive", "threshold"]
 FindingRule = Literal["missing", "stale", "changed", "single-expert"]
 IdentityMode = Literal["handle", "email", "hashed"]
 
-OWNERSHIP_MODEL_VERSION = "ownership-v3"
+OWNERSHIP_MODEL_VERSION = "ownership-v1"
 RISK_MODEL_VERSION = "risk-v1"
 TOPOLOGY_MODEL_VERSION = "topology-v1"
-COMMAND_SCHEMA_VERSION = "1.0"
-DEPRECATED_SCORE_KEY = "confidence"
+COMMAND_SCHEMA_VERSION = "1"
 
 
 def models_payload() -> dict[str, str]:
@@ -505,9 +504,7 @@ class SignalScores(TypedDict, total=False):
 
 class OwnerJson(TypedDict):
     identity: str
-    handle: str
     ownership_score: float
-    confidence: float
     evidence_quality: float
     commits: int
     last_commit: str | None
@@ -551,7 +548,6 @@ class PathOwnershipJson(TypedDict):
     analysis: PathAnalysisJson
     risk: RiskJson
     qualified_owner_count: int
-    bus_factor: int
     qualified_owner_count_cap: int
     decay_warnings: list[DecayWarningJson]
 
@@ -585,7 +581,6 @@ class DriftEntryJson(TypedDict):
     confidence_delta: float
     reason: str
     qualified_owner_count: NotRequired[int]
-    bus_factor: NotRequired[int]
     qualified_owner_count_cap: NotRequired[int]
     decay: NotRequired[bool]
 
@@ -604,13 +599,10 @@ class AnalysisGapJson(TypedDict):
 class ProvenanceEnvelope(TypedDict):
     schema_version: str
     checkowners_version: str
-    model_version: str
     models: ModelVersionsJson
     repository: str
     head_sha: str
-    analysis_ref: str
     generated_at: str
-    analysis_epoch: str
     analysis_completeness: float | None
     analysis_gaps: NotRequired[list[AnalysisGapJson]]
 
@@ -639,13 +631,10 @@ def provenance_envelope(
     return {
         "schema_version": COMMAND_SCHEMA_VERSION,
         "checkowners_version": __version__,
-        "model_version": OWNERSHIP_MODEL_VERSION,
         "models": versions,
         "repository": repository,
         "head_sha": head_sha,
-        "analysis_ref": head_sha,
         "generated_at": generated_at,
-        "analysis_epoch": generated_at,
         "analysis_completeness": analysis_completeness,
     }
 
@@ -785,9 +774,7 @@ def owner_json(owner: OwnerEntry) -> OwnerJson:
     """Return the machine-readable owner object for `owner`."""
     payload: OwnerJson = {
         "identity": owner.handle,
-        "handle": owner.handle,
         "ownership_score": round(owner.ownership_score, 4),
-        "confidence": round(owner.confidence, 4),
         "evidence_quality": round(owner.evidence_quality, 4),
         "commits": owner.commits,
         "last_commit": owner.last_commit.isoformat() if owner.last_commit else None,

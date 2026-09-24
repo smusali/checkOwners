@@ -17,5 +17,3 @@ Please report vulnerabilities privately via [GitHub private vulnerability report
 - The composite GitHub Action installs the `checkowners` version that matches its own tag from a committed wheel, and installs third-party dependencies from `requirements.lock` with `--require-hashes`. Trusted Publishing and Sigstore attestations on the way out of PyPI are not discarded on the way into consumer CI: a tag pin no longer silently tracks "latest."
 - Third-party GitHub Actions used by this repository and by the composite Action are pinned to full 40-character commit SHAs with a version comment. Dependabot (`github-actions`) keeps those pins current.
 - `install_spec` is constrained to a local extras allowlist for this repository's own dogfood workflow. Interpolating untrusted data into that input is remote code execution; downstream callers must omit it.
-
-The OpenSSF Best Practices badge is a self-assessment. Enroll this repository at [bestpractices.dev](https://www.bestpractices.dev/en/projects/new).

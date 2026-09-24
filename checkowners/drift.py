@@ -444,7 +444,6 @@ def drift_entry_payload(
     if entry.qualified_owner_count is not None:
         counts = qualified_owner_count_fields(entry.qualified_owner_count, cap)
         payload["qualified_owner_count"] = counts["qualified_owner_count"]
-        payload["bus_factor"] = counts["bus_factor"]
         payload["qualified_owner_count_cap"] = counts["qualified_owner_count_cap"]
     if entry.decay:
         payload["decay"] = True

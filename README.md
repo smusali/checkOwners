@@ -113,11 +113,20 @@ The composite Action posts that finding as one comment on same-repo pull request
 /payments/ @alice @bob
 ```
 
-## After drift
+## How it works
 
-`checkowners analyze` reads `git log` and `git blame` (in parallel, over paths that still have human commit evidence; a 24k-commit, 12k-file production monorepo completed a 365-day analyze in under three minutes on the 0.5.0 dogfood run) into a confidence-scored ownership map cached per repo under `~/.checkowners/`. Commit emails resolve to GitHub `@handles` (noreply emails locally with no token, the rest via the GitHub API), and same-person identities merge so qualified owner counts count people, not email addresses. From that map, `generate` writes a CODEOWNERS file with uniform directories consolidated into `dir/` rules, and `drift` compares the committed file against inference using real CODEOWNERS pattern matching (directory rules, globs, last-match-wins). Reviewer suggestions, ownership freshness, exploratory repository topology, a git authorship proxy (or completed reviews when the API is available), and onboarding paths are separate reports from the same evidence. In CI, the composite GitHub Action runs the same flow, writes structured `GITHUB_OUTPUT` and a job summary, and maintains a single up-to-date pull-request comment on same-repo pull requests. See [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md) for the full pipeline and a diagram.
+`analyze` reads `git log` and `git blame` and caches an ownership map per repo under `~/.checkowners/`.
 
-All commands accept `--json` (except `graph`, which exports DOT via `--export dot`) and persist their results per repo under `~/.checkowners/` so downstream commands can reuse the analysis. Scoring commands also accept `--as-of` and honor `SOURCE_DATE_EPOCH`; the default analysis instant is the HEAD committer timestamp.
+- Noreply addresses become GitHub `@handles` locally. Other addresses use the GitHub API when a token is set.
+- One person with several emails counts once.
+- `generate` writes CODEOWNERS and collapses a directory of identical owners into one `dir/` rule.
+- `drift` matches the committed file with GitHub's CODEOWNERS rules: directories, globs, last match wins.
+
+Other reports use that same map. The table below lists them. In CI, the composite Action writes `GITHUB_OUTPUT`, a job summary, and one pull-request comment on same-repo pull requests.
+
+Scoring commands accept `--json`, `--as-of`, and `SOURCE_DATE_EPOCH`. The default instant is the HEAD committer time. `graph` uses `--export dot` instead of `--json`.
+
+The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md).
 
 | Command | What it does |
 |---------|--------------|
@@ -134,7 +143,7 @@ All commands accept `--json` (except `graph`, which exports DOT via `--export do
 | `checkowners expertise <path>` | Evidence ranking for one path from cached analysis |
 | `checkowners decay` | Report ownership freshness and continuity risk; suggest a transfer |
 | `checkowners graph [--export dot]` | Render the ownership graph |
-| `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with candidate backup reviewers. `bus-factor` is a deprecated alias |
+| `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with candidate backup reviewers |
 | `checkowners topology` | Exploratory repository topology from commit co-occurrence |
 | `checkowners balance` | Compare a git authorship proxy, or completed reviews when the API is available |
 | `checkowners onboard <path>` | Learning path from broadly shared paths to concentrated qualified ownership |
@@ -149,7 +158,7 @@ Core inference is local git. `checkowners --offline` opens no network connection
 
 PyPI releases use [Trusted Publishing](https://docs.pypi.org/trusted-publishers/). The publish workflow authenticates with a GitHub OIDC token and does not store a PyPI API token. Sigstore signs each distribution.
 
-Each GitHub release also carries a CycloneDX SBOM and a signed build-provenance attestation. CI publishes an [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/smusali/checkowners) for the default branch.
+Each GitHub release also carries a CycloneDX SBOM and a signed build-provenance attestation.
 
 This repository moved here from a previous GitHub organization; Sigstore attestations for 0.5.0 and earlier record that earlier publisher. 0.5.1 and later are published from `smusali/checkowners`.
 

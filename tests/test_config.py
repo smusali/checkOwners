@@ -9,14 +9,23 @@ from pathlib import Path
 import pytest
 import yaml
 
-from checkowners.config import find_codeowners_path, load_config
+from checkowners.config import (
+    _build_policy_config,
+    _build_suppressions,
+    find_codeowners_path,
+    load_config,
+)
 from checkowners.models import Config, DriftConfig, QualificationConfig, models_payload
 
 
 def _write_config(tmp_path: Path, content: str) -> Path:
     config_dir = tmp_path / ".github"
     config_dir.mkdir(exist_ok=True)
-    (config_dir / "checkowners.yml").write_text(content, encoding="utf-8")
+    text = content
+    first = text.lstrip().splitlines()[0] if text.strip() else ""
+    if first and ":" in first and not first.startswith("version:"):
+        text = f"version: 1\n{text}"
+    (config_dir / "checkowners.yml").write_text(text, encoding="utf-8")
     return tmp_path
 
 
@@ -159,7 +168,6 @@ git:
   blame_ignore_revs_file: ignore-revs.txt
   detect_moves: false
   mass_refactor_file_fraction: 0.3
-  use_mailmap: true
 identity:
   mailmap: false
 """
@@ -218,10 +226,10 @@ def test_load_config_non_mapping(tmp_path: Path) -> None:
         load_config(repo_root=root)
 
 
-def test_load_config_unknown_keys_ignored(tmp_path: Path) -> None:
+def test_load_config_unknown_keys_rejected(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "custom_field: true\nanother: 42\n")
-    cfg = load_config(repo_root=root)
-    assert cfg == Config()
+    with pytest.raises(ValueError, match="Unsupported checkowners config key"):
+        load_config(repo_root=root)
 
 
 def test_load_config_custom_repo_root(tmp_path: Path) -> None:
@@ -277,7 +285,9 @@ def test_drift_mode_env_override_invalid_rejected(
 
 
 def test_config_path_env_override_relative(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (tmp_path / "custom.yml").write_text("analysis:\n  min_commits: 7\n", encoding="utf-8")
+    (tmp_path / "custom.yml").write_text(
+        "version: 1\nanalysis:\n  min_commits: 7\n", encoding="utf-8"
+    )
     monkeypatch.setenv("CHECKOWNERS_CONFIG", "custom.yml")
     cfg = load_config(repo_root=tmp_path)
     assert cfg.analysis.min_commits == 7
@@ -286,7 +296,7 @@ def test_config_path_env_override_relative(tmp_path: Path, monkeypatch: pytest.M
 def test_config_path_env_override_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     custom = tmp_path / "elsewhere" / "co.yml"
     custom.parent.mkdir()
-    custom.write_text("analysis:\n  top_n_owners: 9\n", encoding="utf-8")
+    custom.write_text("version: 1\nanalysis:\n  top_n_owners: 9\n", encoding="utf-8")
     monkeypatch.setenv("CHECKOWNERS_CONFIG", str(custom))
     # repo_root deliberately points somewhere without a config file.
     cfg = load_config(repo_root=tmp_path)
@@ -405,7 +415,7 @@ scoring:
 def _v2_alias() -> str:
     models = models_payload()
     return f"""\
-version: 2
+version: 1
 analysis:
   max_owners: 4
 qualification:
@@ -433,26 +443,39 @@ model:
 """
 
 
-def test_v1_and_v2_load_the_same_config(tmp_path: Path) -> None:
-    v1 = tmp_path / "v1"
-    v2 = tmp_path / "v2"
-    v1.mkdir()
-    v2.mkdir()
-    _write_config(v1, _V1_MOVED)
-    _write_config(v2, _v2_alias())
-    with pytest.warns(DeprecationWarning, match="analysis.top_n_owners"):
-        loaded_v1 = load_config(repo_root=v1)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        loaded_v2 = load_config(repo_root=v2)
-    assert caught == []
-    assert loaded_v1 == loaded_v2
-    assert loaded_v1.analysis.top_n_owners == 4
-    assert loaded_v1.analysis.exclude_bots is False
-    assert loaded_v1.qualification.min_commits == 2
-    assert loaded_v1.scoring.recency_half_life_days == 30
-    assert loaded_v1.scoring.review_weight == 0.2
-    assert loaded_v1.scoring.blame_reliability == 0.7
+def test_current_layout_loads(tmp_path: Path) -> None:
+    flat = tmp_path / "flat"
+    nested = tmp_path / "nested"
+    flat.mkdir()
+    nested.mkdir()
+    _write_config(flat, _V1_MOVED)
+    _write_config(nested, _v2_alias())
+    loaded_flat = load_config(repo_root=flat)
+    loaded_nested = load_config(repo_root=nested)
+    assert loaded_flat == loaded_nested
+    assert loaded_flat.analysis.top_n_owners == 4
+    assert loaded_flat.analysis.exclude_bots is False
+    assert loaded_flat.qualification.min_commits == 2
+    assert loaded_flat.scoring.recency_half_life_days == 30
+    assert loaded_flat.scoring.review_weight == 0.2
+    assert loaded_flat.scoring.blame_reliability == 0.7
+
+
+def test_missing_or_old_config_version_rejected(tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+    missing.mkdir()
+    _write_config(missing, "analysis:\n  lookback_days: 10\n")
+    (missing / ".github" / "checkowners.yml").write_text(
+        "analysis:\n  lookback_days: 10\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="requires version: 1"):
+        load_config(repo_root=missing)
+    old = tmp_path / "old"
+    old.mkdir()
+    _write_config(old, "version: 2\n")
+    with pytest.raises(ValueError, match="Unsupported checkowners config version"):
+        load_config(repo_root=old)
 
 
 def test_missing_config_does_not_warn(tmp_path: Path) -> None:
@@ -464,7 +487,7 @@ def test_missing_config_does_not_warn(tmp_path: Path) -> None:
 
 
 def test_model_pin_must_match_implementation(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 2\nmodel:\n  ownership: ownership-v2\n")
+    root = _write_config(tmp_path, "version: 1\nmodel:\n  ownership: ownership-v2\n")
     with pytest.raises(ValueError, match=r"model\.ownership"):
         load_config(repo_root=root)
 
@@ -474,10 +497,10 @@ def test_model_pin_must_match_implementation(tmp_path: Path) -> None:
     [
         ("version: 3\n", "Unsupported checkowners config version"),
         ("version: '2'\n", "Unsupported checkowners config version"),
-        ("version: 2\ncriticality:\n  'docs/**': 0.1\n", "criticality"),
-        ("version: 2\nanalysis:\n  lookback_days: adaptive\n", "lookback_days"),
+        ("version: 1\ncriticality:\n  'docs/**': 0.1\n", "criticality"),
+        ("version: 1\nanalysis:\n  lookback_days: adaptive\n", "lookback_days"),
         (
-            "version: 2\nmodel:\n  signals:\n    historical_depth:\n      weight: 0.1\n",
+            "version: 1\nmodel:\n  signals:\n    historical_depth:\n      weight: 0.1\n",
             "historical_depth",
         ),
     ],
@@ -491,20 +514,20 @@ def test_unknown_config_version_and_keys_rejected(tmp_path: Path, content: str, 
 @pytest.mark.parametrize(
     ("content", "match"),
     [
-        ("version: 2\nanalysis: []\n", "analysis must be a mapping"),
-        ("version: 2\nsuppressions: {}\n", "suppressions must be a list"),
-        ("version: 2\nanalysis:\n  max_owners: '4'\n", "analysis.max_owners must be an integer"),
+        ("version: 1\nanalysis: []\n", "analysis must be a mapping"),
+        ("version: 1\nsuppressions: {}\n", "suppressions must be a list"),
+        ("version: 1\nanalysis:\n  max_owners: '4'\n", "analysis.max_owners must be an integer"),
         (
-            "version: 2\nanalysis:\n  max_owners: 4\n  top_n_owners: 3\n",
+            "version: 1\nanalysis:\n  max_owners: 4\n  top_n_owners: 3\n",
             "disagree",
         ),
-        ("version: 2\nbots:\n  exclude: 1\n", "bots.exclude must be a boolean"),
+        ("version: 1\nbots:\n  exclude: 1\n", "bots.exclude must be a boolean"),
         (
-            "version: 2\nanalysis:\n  exclude_bots: true\nbots:\n  exclude: false\n",
+            "version: 1\nanalysis:\n  exclude_bots: true\nbots:\n  exclude: false\n",
             "bots.exclude and analysis.exclude_bots disagree",
         ),
         (
-            "version: 2\nscoring:\n  review_weight: 0.2\n"
+            "version: 1\nscoring:\n  review_weight: 0.2\n"
             "model:\n  signals:\n    reviews:\n      weight: 0.3\n",
             "scoring.review_weight disagree",
         ),
@@ -517,7 +540,7 @@ def test_v2_invalid_aliases_rejected(tmp_path: Path, content: str, match: str) -
 
 
 def test_v2_without_model_keeps_defaults(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 2\n")
+    root = _write_config(tmp_path, "version: 1\n")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         cfg = load_config(repo_root=root)
@@ -527,7 +550,7 @@ def test_v2_without_model_keeps_defaults(tmp_path: Path) -> None:
 
 def test_v2_alias_edges_load(tmp_path: Path) -> None:
     agreed = """\
-version: 2
+version: 1
 analysis:
   max_owners: 4
   top_n_owners: 4
@@ -546,7 +569,7 @@ suppressions:
     reason: later
 """
     omitted = """\
-version: 2
+version: 1
 analysis:
   lookback_days: 30
 bots: {}
@@ -572,7 +595,7 @@ bots: {}
 def test_analysis_budgets_and_incomplete_policy(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
-        "version: 2\n"
+        "version: 1\n"
         "analysis:\n"
         "  max_runtime_seconds: 10\n"
         "  max_git_workers: 2\n"
@@ -595,14 +618,13 @@ def test_policy_without_a_fail_flag_stays_off(tmp_path: Path) -> None:
     empty.mkdir()
     omitted.mkdir()
     blank.mkdir()
-    _write_config(empty, "version: 2\npolicy: {}\n")
-    _write_config(omitted, "version: 2\npolicy:\n  incomplete_analysis: {}\n")
-    _write_config(blank, "policy:\n  incomplete_analysis: []\n")
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        assert load_config(repo_root=empty).policy.incomplete_analysis_fail is False
-        assert load_config(repo_root=omitted).policy.incomplete_analysis_fail is False
-        assert load_config(repo_root=blank).policy.incomplete_analysis_fail is False
+    _write_config(empty, "version: 1\npolicy: {}\n")
+    _write_config(omitted, "version: 1\npolicy:\n  incomplete_analysis: {}\n")
+    _write_config(blank, "version: 1\npolicy:\n  incomplete_analysis: []\n")
+    assert load_config(repo_root=empty).policy.incomplete_analysis_fail is False
+    assert load_config(repo_root=omitted).policy.incomplete_analysis_fail is False
+    with pytest.raises(ValueError, match="must be a mapping"):
+        load_config(repo_root=blank)
 
 
 def test_policy_fail_rejects_non_booleans(tmp_path: Path) -> None:
@@ -610,7 +632,7 @@ def test_policy_fail_rejects_non_booleans(tmp_path: Path) -> None:
     legacy = tmp_path / "legacy"
     current.mkdir()
     legacy.mkdir()
-    _write_config(current, "version: 2\npolicy:\n  incomplete_analysis:\n    fail: 1\n")
+    _write_config(current, "version: 1\npolicy:\n  incomplete_analysis:\n    fail: 1\n")
     _write_config(legacy, "policy:\n  incomplete_analysis:\n    fail: 1\n")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
@@ -623,13 +645,29 @@ def test_policy_fail_rejects_non_booleans(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("content", "match"),
     [
-        ("version: 2\nanalysis:\n  max_runtime_seconds: 0\n", "positive integer"),
-        ("version: 2\nanalysis:\n  max_git_workers: -1\n", "positive integer"),
-        ("version: 2\nanalysis:\n  max_api_requests: false\n", "positive integer"),
-        ("version: 2\npolicy:\n  drift: {}\n", "Unsupported checkowners config key: policy.drift"),
+        ("version: 1\nanalysis:\n  max_runtime_seconds: 0\n", "positive integer"),
+        ("version: 1\nanalysis:\n  max_git_workers: -1\n", "positive integer"),
+        ("version: 1\nanalysis:\n  max_api_requests: false\n", "positive integer"),
+        ("version: 1\npolicy:\n  drift: {}\n", "Unsupported checkowners config key: policy.drift"),
     ],
 )
 def test_budget_and_policy_keys_rejected(tmp_path: Path, content: str, match: str) -> None:
     root = _write_config(tmp_path, content)
     with pytest.raises(ValueError, match=match):
         load_config(repo_root=root)
+
+
+def test_output_consolidate_can_be_disabled(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "version: 1\noutput:\n  consolidate: false\n")
+    assert load_config(repo_root=root).output.consolidate is False
+
+
+def test_policy_builder_rejects_a_non_boolean_fail_flag() -> None:
+    with pytest.raises(ValueError, match="must be a boolean"):
+        _build_policy_config({"incomplete_analysis": {"fail": 1}})
+
+
+def test_suppression_builder_rejects_non_lists() -> None:
+    assert _build_suppressions(None) == ()
+    with pytest.raises(ValueError, match="expected a YAML list"):
+        _build_suppressions({})

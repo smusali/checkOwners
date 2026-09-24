@@ -1,4 +1,4 @@
-version: 2
+version: 1
 
 analysis:
   lookback_days: 365

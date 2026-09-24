@@ -171,7 +171,7 @@ jobs:
         run: |
           checkowners analyze --json > analyze.json
           checkowners drift --json > drift.json
-          checkowners bus-factor --all --json > bus.json
+          checkowners qualified-owners --all --json > bus.json
           checkowners decay --json > decay.json
           checkowners topology --json > topology.json
           checkowners balance --json > balance.json

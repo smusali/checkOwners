@@ -541,11 +541,10 @@ def test_payloads_include_why_not_and_null_last_commit() -> None:
     ownership = _single("src/a.py", (alice.entry,), (alice.entry,))
     listed = owners_payload((alice.entry,), "src/a.py", ownership)
     assert listed["schema_version"] == COMMAND_SCHEMA_VERSION
-    assert listed["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert listed["models"]["ownership"] == OWNERSHIP_MODEL_VERSION
     assert listed["models"] == models_payload()
     listed_owner = listed["owners"][0]
     assert listed_owner["identity"] == "@alice"
-    assert listed_owner["handle"] == "@alice"
     assert listed_owner["ownership_score"] == 0.86
     assert listed_owner["last_commit"] is None
     assert "review" not in listed_owner["signals"]
@@ -565,7 +564,7 @@ def test_payloads_include_why_not_and_null_last_commit() -> None:
         weights={"recency": 0.35},
         why_not=why,
     )
-    payload = explanation_payload(explanation, ownership)
+    payload = explanation_payload(explanation)
     owners = payload["owners"]
     assert isinstance(owners, list)
     first = owners[0]

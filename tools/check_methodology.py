@@ -10,7 +10,6 @@ _METHODOLOGY = _ROOT / "docs" / "METHODOLOGY.md"
 _METRIC_KEYS = (
     "ownership_score",
     "evidence_quality",
-    "confidence",
     "top_owner_share",
     "effective_owners",
     "truck_factor_50",

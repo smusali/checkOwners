@@ -417,7 +417,7 @@
       "owners": [
         "samir.musali@gmail.com"
       ],
-      "path": "docs/schemas/commands-1.0.json",
+      "path": "docs/schemas/commands-v1.json",
       "rule": "single-expert"
     },
     {
@@ -722,5 +722,5 @@
       "rule": "single-expert"
     }
   ],
-  "schema_version": "1.0"
+  "schema_version": "1"
 }

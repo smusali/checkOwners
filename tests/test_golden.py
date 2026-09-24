@@ -1,4 +1,4 @@
-"""Judgment checks for ownership-v3 on pinned git histories."""
+"""Judgment checks for ownership-v1 on pinned git histories."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _HOME = "alice@home.example"
 _OLD = "alice@old.example"
 
 _GOLDEN: dict[str, dict[str, str]] = {
-    "ownership-v3": {
+    "ownership-v1": {
         "formatting": (
             "Alice remains the primary expert on foo.py; "
             "Bob's formatting commit has no blame and a lower score."

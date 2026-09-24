@@ -15,7 +15,6 @@ from unittest.mock import patch
 import pytest
 
 from checkowners.models import (
-    OWNERSHIP_MODEL_VERSION,
     AnalysisGap,
     BusFactor,
     ConfidenceScore,
@@ -60,7 +59,6 @@ _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 def _readable_state(payload: dict[str, object]) -> dict[str, object]:
     return {
         **payload,
-        "model_version": OWNERSHIP_MODEL_VERSION,
         "models": models_payload(),
     }
 
@@ -134,8 +132,8 @@ def test_read_state_wrong_schema_returns_none(repo: Path) -> None:
         repo,
         {
             "schema_version": SCHEMA_VERSION,
-            "model_version": "ownership-v2",
-            "models": models_payload(),
+            "models": {**models_payload(), "ownership": "ownership-v0"},
+            "repo_id": repository_identity(repo),
             "repo": str(repo.resolve()),
         },
     )
@@ -145,7 +143,6 @@ def test_read_state_wrong_schema_returns_none(repo: Path) -> None:
         repo,
         {
             "schema_version": SCHEMA_VERSION,
-            "model_version": OWNERSHIP_MODEL_VERSION,
             "models": {**current, "risk": "risk-v0"},
             "repo": str(repo.resolve()),
         },
@@ -155,7 +152,6 @@ def test_read_state_wrong_schema_returns_none(repo: Path) -> None:
         repo,
         {
             "schema_version": SCHEMA_VERSION,
-            "model_version": OWNERSHIP_MODEL_VERSION,
             "models": {**current, "topology": "topology-v0"},
             "repo": str(repo.resolve()),
         },
@@ -165,7 +161,6 @@ def test_read_state_wrong_schema_returns_none(repo: Path) -> None:
         repo,
         {
             "schema_version": SCHEMA_VERSION,
-            "model_version": OWNERSHIP_MODEL_VERSION,
             "repo": str(repo.resolve()),
         },
     )
@@ -242,9 +237,7 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["bus_factor_summary"]["critical_paths"] == ["src/auth.py"]
     assert data["bus_factor_summary"]["repo_average"] == 1.0
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
-    assert data["model_version"] == OWNERSHIP_MODEL_VERSION
     assert data["models"] == models_payload()
-    assert data["deprecated_keys"] == ["bus_factor", "confidence"]
     assert data["analysis_ref"] == "deadbeef"
     assert data["analysis_completeness"] == {
         "ignore_revs_applied": False,
@@ -262,7 +255,6 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert "src/auth.py" in data["inferred"]
     inferred = data["inferred"]["src/auth.py"]
     assert inferred["qualified_owner_count"] == 1
-    assert inferred["bus_factor"] == 1
     assert inferred["qualified_owner_count_cap"] == 3
 
 

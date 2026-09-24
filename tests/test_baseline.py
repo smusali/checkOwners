@@ -67,7 +67,11 @@ def _isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def _write_config(root: Path, content: str) -> None:
     config_dir = root / ".github"
     config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "checkowners.yml").write_text(content, encoding="utf-8")
+    text = content
+    first = text.lstrip().splitlines()[0] if text.strip() else ""
+    if first and not first.startswith("version:"):
+        text = f"version: 1\n{text}"
+    (config_dir / "checkowners.yml").write_text(text, encoding="utf-8")
 
 
 def _cli_run(args: list[str], *, drift: DriftResult = _DRIFT_DETECTED) -> tuple[int, str]:
@@ -187,7 +191,7 @@ def test_expired_suppression_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPat
             ),
             "YYYY-MM-DD",
         ),
-        ("suppressions: {}\n", "expected a YAML list"),
+        ("suppressions: {}\n", "must be a list"),
         ("suppressions:\n  - just-a-string\n", "expected a mapping"),
         (
             "suppressions:\n  - rule: stale\n    reason: later\n",
@@ -337,26 +341,25 @@ def test_load_baseline_rejects_invalid_files(tmp_path: Path) -> None:
         ("[", "Invalid baseline"),
         ("[]", "JSON object"),
         ('{"schema_version": "0.9", "findings": []}', "schema_version"),
-        ('{"schema_version": "1.0", "findings": {}}', "findings must be a list"),
-        ('{"schema_version": "1.0", "findings": [1]}', "expected an object"),
-        ('{"schema_version": "1.0", "findings": [{}]}', "rule is required"),
-        ('{"schema_version": "1.0", "findings": [{"rule": "", "path": "a"}]}', "rule is required"),
+        ('{"schema_version": "1", "findings": {}}', "findings must be a list"),
+        ('{"schema_version": "1", "findings": [1]}', "expected an object"),
+        ('{"schema_version": "1", "findings": [{}]}', "rule is required"),
+        ('{"schema_version": "1", "findings": [{"rule": "", "path": "a"}]}', "rule is required"),
         (
-            '{"schema_version": "1.0", "findings": [{"rule": "nope", "path": "a"}]}',
+            '{"schema_version": "1", "findings": [{"rule": "nope", "path": "a"}]}',
             "unsupported rule",
         ),
-        ('{"schema_version": "1.0", "findings": [{"rule": "missing"}]}', "path is required"),
+        ('{"schema_version": "1", "findings": [{"rule": "missing"}]}', "path is required"),
         (
-            '{"schema_version": "1.0", "findings": [{"rule": "missing", "path": ""}]}',
+            '{"schema_version": "1", "findings": [{"rule": "missing", "path": ""}]}',
             "path is required",
         ),
         (
-            '{"schema_version": "1.0", "findings": '
-            '[{"rule": "missing", "path": "a", "owners": 1}]}',
+            '{"schema_version": "1", "findings": [{"rule": "missing", "path": "a", "owners": 1}]}',
             "owners must be a list of strings",
         ),
         (
-            '{"schema_version": "1.0", "findings": '
+            '{"schema_version": "1", "findings": '
             '[{"rule": "missing", "path": "a", "owners": [1]}]}',
             "owners must be a list of strings",
         ),

@@ -8,9 +8,6 @@ from typing import Literal
 from checkowners.expertise import common_prefix_depth, path_matches_glob
 from checkowners.models import BusFactor, BusFactorConfig, Config, OwnershipMap
 
-DEPRECATED_COUNT_KEY = "bus_factor"
-DEPRECATED_AVG_COUNT_KEY = "avg_bus_factor"
-
 Tier = Literal["critical", "warning", "ok"]
 
 
@@ -39,7 +36,6 @@ def format_qualified_owner_count(count: int, cap: int) -> str:
 def qualified_owner_count_fields(count: int, cap: int) -> dict[str, int]:
     return {
         "qualified_owner_count": count,
-        "bus_factor": count,
         "qualified_owner_count_cap": cap,
     }
 

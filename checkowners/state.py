@@ -3,7 +3,7 @@
 The state file is the cache of the most recent analyze run for a repo.
 Downstream commands (drift, decay, qualified-owners, topology, balance, onboard)
 read from it to avoid re-running git log on every invocation. State is keyed
-per repo (schema v8) by the normalized origin URL, or by the absolute path
+per repo (schema 1) by the normalized origin URL, or by the absolute path
 when the repo has no origin. The payload records that identity and it is
 checked on load.
 
@@ -27,11 +27,9 @@ from pathlib import Path
 from typing import IO, Any, TypedDict
 
 from checkowners import __version__
-from checkowners.busfactor import DEPRECATED_COUNT_KEY, qualified_owner_count_fields
+from checkowners.busfactor import qualified_owner_count_fields
 from checkowners.models import (
-    DEPRECATED_SCORE_KEY,
     GAP_CATALOG,
-    OWNERSHIP_MODEL_VERSION,
     AnalysisCompleteness,
     AnalysisGap,
     BusFactor,
@@ -49,7 +47,7 @@ from checkowners.models import (
 )
 from checkowners.privacy import rekey_handle_cache, stored_identity
 
-SCHEMA_VERSION: int = 8
+SCHEMA_VERSION: int = 1
 CACHE_LIMIT_BYTES: int = 256 * 1024 * 1024
 _STATE_DIR = Path.home() / ".checkowners"
 _STATE_SUBDIR = "state"
@@ -215,7 +213,6 @@ def _identity_fields(repo_root: Path, config: Config | None) -> dict[str, object
     resolved = _resolved_config(config)
     return {
         "schema_version": SCHEMA_VERSION,
-        "model_version": OWNERSHIP_MODEL_VERSION,
         "models": models_payload(),
         "repo": str(repo_root.resolve()),
         "repo_id": repository_identity(repo_root),
@@ -381,9 +378,6 @@ def read_state(repo_root: Path) -> dict[str, Any] | None:
         return None
     if not _models_current(data):
         return None
-    model_version = data.get("model_version")
-    if model_version is not None and model_version != OWNERSHIP_MODEL_VERSION:
-        return None
     if data.get("repo_id") != repository_identity(repo_root):
         return None
     return data
@@ -428,7 +422,6 @@ def write_state(
                 bus_factor_summary, qualified_owner_count_cap
             ),
             "qualified_owner_count_cap": qualified_owner_count_cap,
-            "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
             "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
             "analysis_ref": ownership.analysis_ref,
             "analysis_completeness": {
@@ -691,7 +684,6 @@ def _serialize_owner(entry: OwnerEntry) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "handle": stored_identity(entry.handle),
         "ownership_score": entry.ownership_score,
-        "confidence": entry.confidence,
         "evidence_quality": entry.evidence_quality,
         "last_commit": entry.last_commit.astimezone(UTC).isoformat() if entry.last_commit else None,
         "commits": entry.commits,
@@ -730,7 +722,6 @@ def _serialize_bus_factor_summary(
         "critical_paths": critical_paths,
         "repo_average": repo_average,
         "qualified_owner_count_cap": cap,
-        "deprecated_keys": [DEPRECATED_COUNT_KEY],
         "entries": serialized_entries,
     }
 
@@ -823,7 +814,7 @@ def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:
 
 
 def _read_qualified_owner_count(raw: dict[str, Any]) -> int:
-    raw_count = raw.get("qualified_owner_count", raw.get("bus_factor", 0))
+    raw_count = raw.get("qualified_owner_count", 0)
     if isinstance(raw_count, bool) or not isinstance(raw_count, int):
         return 0
     return raw_count
@@ -831,7 +822,7 @@ def _read_qualified_owner_count(raw: dict[str, Any]) -> int:
 
 def _deserialize_owner(raw: dict[str, Any]) -> OwnerEntry | None:
     handle = raw.get("handle")
-    score_raw = raw.get("ownership_score", raw.get("confidence"))
+    score_raw = raw.get("ownership_score")
     quality_raw = raw.get("evidence_quality", 1.0)
     commits = raw.get("commits")
     last_commit_raw = raw.get("last_commit")

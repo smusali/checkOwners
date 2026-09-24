@@ -63,7 +63,7 @@ _COMMIT_DATE = "2025-12-01T00:00:00Z"
 _PRIVACY_COMMANDS = (
     ["--offline", "--as-of", _AS_OF, "analyze", "--json"],
     ["--offline", "--as-of", _AS_OF, "decay", "--json"],
-    ["--offline", "--as-of", _AS_OF, "bus-factor", "--all", "--json"],
+    ["--offline", "--as-of", _AS_OF, "qualified-owners", "--all", "--json"],
     ["--offline", "--as-of", _AS_OF, "topology", "--json"],
     ["--offline", "--as-of", _AS_OF, "balance", "--json"],
     ["--offline", "--as-of", _AS_OF, "expertise", "foo.py", "--json"],
@@ -98,7 +98,7 @@ def test_privacy_controls_load(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
         """
-version: 2
+version: 1
 output:
   anonymize: true
   aggregate_only: true
@@ -121,22 +121,18 @@ contributors:
 
 
 def test_identity_mode_is_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 2\nidentity:\n  mode: name\n")
+    root = _write_config(tmp_path, "version: 1\nidentity:\n  mode: name\n")
     with pytest.raises(ValueError, match=r"identity\.mode"):
         load_config(repo_root=root)
 
 
-def test_v1_ignores_privacy_keys(tmp_path: Path) -> None:
+def test_config_without_version_is_rejected(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
         "output:\n  anonymize: true\nprivacy:\n  redact_emails: true\nidentity:\n  mode: hashed\n",
     )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        loaded = load_config(repo_root=root)
-    assert loaded.output.anonymize is False
-    assert loaded.privacy.redact_emails is False
-    assert loaded.identity_mode == "handle"
+    with pytest.raises(ValueError, match="requires version: 1"):
+        load_config(repo_root=root)
 
 
 def test_state_stores_email_tokens(tmp_path: Path) -> None:
@@ -178,7 +174,7 @@ def test_privacy_modes_hide_identities(
     repo = _privacy_repo(tmp_path)
     flag = "anonymize: true" if mode == "anonymize" else "aggregate_only: true"
     config_path = tmp_path / "checkowners.yml"
-    config_path.write_text(f"version: 2\noutput:\n  {flag}\n", encoding="utf-8")
+    config_path.write_text(f"version: 1\noutput:\n  {flag}\n", encoding="utf-8")
     monkeypatch.chdir(repo.path)
     monkeypatch.setenv("CHECKOWNERS_CONFIG", str(config_path))
     result = runner.invoke(app, args)
@@ -202,7 +198,7 @@ def test_pseudonyms_are_stable_and_repo_scoped(
     assert left.startswith("person-")
     repo = _privacy_repo(tmp_path)
     config_path = tmp_path / "checkowners.yml"
-    config_path.write_text("version: 2\noutput:\n  anonymize: true\n", encoding="utf-8")
+    config_path.write_text("version: 1\noutput:\n  anonymize: true\n", encoding="utf-8")
     monkeypatch.chdir(repo.path)
     monkeypatch.setenv("CHECKOWNERS_CONFIG", str(config_path))
     first = runner.invoke(app, ["--offline", "--as-of", _AS_OF, "--no-cache", "analyze", "--json"])
@@ -227,7 +223,7 @@ def test_excluded_contributor_is_absent(
     )
     config_path = tmp_path / "checkowners.yml"
     config_path.write_text(
-        f'version: 2\ncontributors:\n  exclude:\n    - "{_ALICE}"\n',
+        f'version: 1\ncontributors:\n  exclude:\n    - "{_ALICE}"\n',
         encoding="utf-8",
     )
     monkeypatch.chdir(repo.path)
@@ -398,14 +394,14 @@ def test_graph_cache_skips_malformed_entries(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("content", "match"),
     [
-        ('version: 2\noutput:\n  anonymize: "yes"\n', "output.anonymize"),
-        ("version: 2\noutput:\n  aggregate_only: 1\n", "output.aggregate_only"),
-        ('version: 2\nprivacy:\n  redact_emails: "yes"\n', "privacy.redact_emails"),
-        ("version: 2\nidentity:\n  mode: 1\n", "identity.mode"),
-        ("version: 2\ncontributors: []\n", "contributors must be a mapping"),
-        ("version: 2\ncontributors:\n  exclude: alice\n", "contributors.exclude must be a list"),
-        ("version: 2\ncontributors:\n  exclude:\n    - '  '\n", "non-empty strings"),
-        ("version: 2\ncontributors:\n  exclude:\n    - 1\n", "non-empty strings"),
+        ('version: 1\noutput:\n  anonymize: "yes"\n', "output.anonymize"),
+        ("version: 1\noutput:\n  aggregate_only: 1\n", "output.aggregate_only"),
+        ('version: 1\nprivacy:\n  redact_emails: "yes"\n', "privacy.redact_emails"),
+        ("version: 1\nidentity:\n  mode: 1\n", "identity.mode"),
+        ("version: 1\ncontributors: []\n", "contributors must be a mapping"),
+        ("version: 1\ncontributors:\n  exclude: alice\n", "contributors.exclude must be a list"),
+        ("version: 1\ncontributors:\n  exclude:\n    - '  '\n", "non-empty strings"),
+        ("version: 1\ncontributors:\n  exclude:\n    - 1\n", "non-empty strings"),
     ],
 )
 def test_privacy_config_values_are_rejected(tmp_path: Path, content: str, match: str) -> None:
@@ -415,21 +411,17 @@ def test_privacy_config_values_are_rejected(tmp_path: Path, content: str, match:
 
 
 def test_contributors_section_without_exclude_is_empty(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 2\ncontributors: {}\n")
+    root = _write_config(tmp_path, "version: 1\ncontributors: {}\n")
     assert load_config(repo_root=root).contributors_exclude == ()
 
 
-def test_v1_ignores_non_mapping_privacy_sections(tmp_path: Path) -> None:
+def test_non_mapping_privacy_sections_rejected(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
-        "identity: true\noutput: []\nprivacy: true\ncontributors: true\n",
+        "version: 1\nidentity: true\noutput: []\nprivacy: true\ncontributors: true\n",
     )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        loaded = load_config(repo_root=root)
-    assert loaded.identity_mode == "handle"
-    assert loaded.output.anonymize is False
-    assert loaded.privacy.redact_emails is False
+    with pytest.raises(ValueError, match="must be a mapping"):
+        load_config(repo_root=root)
 
 
 def test_helpers_without_an_active_config() -> None:

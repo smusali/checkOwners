@@ -15,14 +15,12 @@ from checkowners.analyze import (
     _gather_blame_coverage,
     _mailmap_flag,
     _score_owners,
-    analysis_epoch,
     frequency_prior_for,
     signal_weights,
 )
 from checkowners.expertise import path_matches_glob
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
-    OWNERSHIP_MODEL_VERSION,
     Config,
     OwnerEntry,
     OwnershipMap,
@@ -355,7 +353,6 @@ def owners_payload(
     """Return the ownership document for `target` and `owners`."""
     return {
         "schema_version": COMMAND_SCHEMA_VERSION,
-        "model_version": OWNERSHIP_MODEL_VERSION,
         "models": models_payload(),
         "checkowners_version": __version__,
         "path": target,
@@ -363,8 +360,6 @@ def owners_payload(
         "analysis": path_analysis_json(owners),
         "owners": [owner_json(entry) for entry in owners],
         "risk": risk_from_scores(tuple(entry.ownership_score for entry in owners)),
-        "analysis_ref": ownership.analysis_ref,
-        "analysis_epoch": analysis_epoch(ownership.last_analyzed),
     }
 
 
@@ -372,7 +367,6 @@ def explanation_payload(explanation: PathExplanation, ownership: OwnershipMap) -
     """Schema-versioned explain payload."""
     payload: dict[str, object] = {
         "schema_version": COMMAND_SCHEMA_VERSION,
-        "model_version": OWNERSHIP_MODEL_VERSION,
         "models": models_payload(),
         "checkowners_version": __version__,
         "path": explanation.target,
@@ -387,8 +381,6 @@ def explanation_payload(explanation: PathExplanation, ownership: OwnershipMap) -
         "lineage": list(explanation.lineage),
         "knobs": list(explanation.knobs),
         "weights": {name: round(weight, 4) for name, weight in explanation.weights.items()},
-        "analysis_ref": ownership.analysis_ref,
-        "analysis_epoch": analysis_epoch(ownership.last_analyzed),
     }
     if explanation.why_not is not None:
         payload["why_not"] = _why_not_payload(explanation.why_not)

@@ -262,25 +262,19 @@ def test_analyze_json() -> None:
     assert "src/main.py" in data["inferred"]
     owners = data["inferred"]["src/main.py"]["owners"]
     assert owners[0]["identity"] == "alice@example.com"
-    assert owners[0]["handle"] == "alice@example.com"
     assert owners[0]["ownership_score"] == 0.92
-    assert owners[0]["confidence"] == 0.92
     assert owners[0]["evidence_quality"] == 1.0
     assert owners[0]["signals"]["recency"] == 1.0
     assert "review" not in owners[0]["signals"]
     path_data = data["inferred"]["src/main.py"]
     assert path_data["qualified_owner_count"] == 2
-    assert path_data["bus_factor"] == 2
     assert path_data["qualified_owner_count_cap"] == 3
     assert path_data["analysis"]["completeness"] == 0.75
     assert path_data["risk"]["truck_factor_50"] == 1
-    assert data["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert data["models"]["ownership"] == OWNERSHIP_MODEL_VERSION
     assert data["models"] == models_payload()
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["head_sha"] == "deadbeef"
-    assert data["deprecated_keys"] == ["bus_factor", "confidence"]
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
     assert data["generated_at"] == _NOW.isoformat()
     assert data["analysis_completeness"] == 0.75
     assert data["analysis"]["ignore_revs_applied"] is False
@@ -315,7 +309,7 @@ def test_analyze_deterministic_flag() -> None:
     with patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP), _MOCK_TOKEN:
         result = runner.invoke(app, ["--deterministic", "analyze", "--json"])
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["analysis_ref"] == "deadbeef"
+    assert json.loads(result.stdout)["head_sha"] == "deadbeef"
 
 
 def test_analyze_as_of_overrides() -> None:
@@ -517,8 +511,7 @@ def test_generate_json() -> None:
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert "CODEOWNERS" in data["path"]
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["head_sha"] == "deadbeef"
     assert data["bytes_written"] == len(b"content")
     assert data["rules_written"] == 1
     assert data["broad_patterns"] == [_ACCEPTED_BROAD.as_json(), _REFUSED_BROAD.as_json()]
@@ -534,10 +527,8 @@ def test_print_json() -> None:
     data = json.loads(result.stdout)
     assert "src/main.py" in data["paths"]
     assert data["paths"]["src/main.py"]["qualified_owner_count"] == 2
-    assert data["paths"]["src/main.py"]["bus_factor"] == 2
     assert data["paths"]["src/main.py"]["qualified_owner_count_cap"] == 3
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["head_sha"] == "deadbeef"
     bare = OwnerEntry(handle="@bare", ownership_score=0.4, last_commit=None, commits=1)
     payload = _owner_payload(bare)
     assert payload["last_commit"] is None
@@ -643,9 +634,7 @@ def test_drift_json_includes_severity() -> None:
     assert data["drift_detected"] is True
     assert data["severity"] == "critical"
     assert data["max_confidence_delta"] == 1.0
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
-
+    assert data["head_sha"] == "deadbeef"
 
 # --- sync ---
 
@@ -777,7 +766,7 @@ def test_github_action_fails_on_drift_and_writes_output(
         )
     )
     assert written == expected
-    assert '"schema_version":2' in written
+    assert '"schema_version":1' in written
     assert (tmp_path / "checkowners-report.md").read_text(encoding="utf-8") == (
         summary_file.read_text(encoding="utf-8")
     )
@@ -798,13 +787,12 @@ def test_github_action_no_fail_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert data["drift_summary"]["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert "entries" in data["bus_factor_summary"]
-    assert data["bus_factor_summary"]["deprecated_keys"] == ["bus_factor"]
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
     assert "reports" in data["decay_summary"]
     delim = f"ghadelim_{_FIXED_HEX}"
     body = output_file.read_text(encoding="utf-8").split(f"drift_summary<<{delim}\n", 1)[1]
     summary = json.loads(body.split(f"\n{delim}\n", 1)[0])
-    assert summary["schema_version"] == 2
+    assert summary["schema_version"] == 1
     assert "counts" in summary
     assert "truncated" in summary
 
@@ -1024,12 +1012,8 @@ def test_trends_json() -> None:
     assert data["points"][1]["avg_top_confidence"] == 0.72
     assert data["points"][0]["active_contributors"] == 2
     assert data["points"][1]["avg_qualified_owner_count"] == 1.8
-    assert data["points"][1]["avg_bus_factor"] == 1.8
-    assert data["deprecated_keys"] == ["avg_bus_factor"]
     assert data["qualified_owner_count_cap"] == 3
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
-
+    assert data["head_sha"] == "deadbeef"
 
 def test_trends_git_error() -> None:
     with patch(
@@ -1046,8 +1030,7 @@ def test_decay_json_includes_stamp() -> None:
         result = runner.invoke(app, ["decay", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["head_sha"] == "deadbeef"
     assert "reports" in data
 
 
@@ -1056,8 +1039,7 @@ def test_qualified_owners_json_includes_stamp() -> None:
         result = runner.invoke(app, ["qualified-owners", "--all", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["head_sha"] == "deadbeef"
     assert "entries" in data
 
 
@@ -1131,8 +1113,7 @@ def test_balance_json_includes_stamp() -> None:
         result = runner.invoke(app, ["balance", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["head_sha"] == "deadbeef"
     assert data["source"] == "git_authorship"
 
 
@@ -1147,8 +1128,7 @@ def test_topology_json_includes_stamp() -> None:
         result = runner.invoke(app, ["topology", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["head_sha"] == "deadbeef"
     assert data["clusters"] == []
 
 
@@ -1190,8 +1170,7 @@ def test_onboard_json_includes_stamp() -> None:
         result = runner.invoke(app, ["onboard", "src/", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["head_sha"] == "deadbeef"
     assert data["target"] == "src/"
 
 
@@ -1204,8 +1183,7 @@ def test_expertise_json_includes_stamp() -> None:
         result = runner.invoke(app, ["expertise", "src/main.py", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
-    assert data["analysis_ref"] == "deadbeef"
-    assert data["analysis_epoch"] == _NOW.isoformat()
+    assert data["head_sha"] == "deadbeef"
     assert data["path"] == "src/main.py"
     assert data["ranking"] == []
 
@@ -1621,10 +1599,10 @@ def test_explain_json_decomposes_signals() -> None:
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
-    assert data["model_version"] == OWNERSHIP_MODEL_VERSION
+    assert data["models"]["ownership"] == OWNERSHIP_MODEL_VERSION
     assert data["models"] == models_payload()
     assert data["path"] == "src/main.py"
-    assert data["analysis_ref"] == "deadbeef"
+    assert data["head_sha"] == "deadbeef"
     alice = data["owners"][0]
     assert alice["handle"] == "@alice"
     assert alice["signals"]["recency"]["available"] is True
@@ -1708,7 +1686,7 @@ def test_owners_and_who_are_minimal() -> None:
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["models"] == models_payload()
     assert data["owners"][0]["identity"] == "@alice"
-    assert data["owners"][0]["handle"] == "@alice"
+    assert data["owners"][0]["identity"] == "@alice"
     assert data["owners"][0]["ownership_score"] == 0.86
     assert data["owners"][0]["signals"]["recency"] == 0.9
     assert "risk" in data
@@ -1925,7 +1903,7 @@ def test_render_explained_owner_without_optional_signals() -> None:
         ["sync", "--json"],
         ["decay", "--json"],
         ["qualified-owners", "--all", "--json"],
-        ["bus-factor", "--all", "--json"],
+        ["qualified-owners", "--all", "--json"],
         ["balance", "--json"],
         ["topology", "--json"],
         ["onboard", "src/", "--json"],
@@ -2008,7 +1986,6 @@ _EXIT_OK: tuple[tuple[str, list[str]], ...] = (
     ("decay", ["decay"]),
     ("graph", ["graph"]),
     ("qualified-owners", ["qualified-owners", "--all"]),
-    ("bus-factor", ["bus-factor", "--all"]),
     ("balance", ["balance"]),
     ("topology", ["topology"]),
     ("onboard", ["onboard", "src"]),
@@ -2088,7 +2065,6 @@ def _exit_cases() -> list[object]:
                 id="explain-usage",
             ),
             pytest.param("config", "qualified-owners", ["qualified-owners"], 2, id="owners-usage"),
-            pytest.param("config", "bus-factor", ["bus-factor"], 2, id="bus-usage"),
             pytest.param(
                 "config",
                 "github-action",
@@ -2422,9 +2398,9 @@ def _set_privacy_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: s
 @pytest.mark.parametrize(
     "body",
     [
-        "version: 2\noutput:\n  anonymize: true\n",
-        "version: 2\noutput:\n  aggregate_only: true\n",
-        "version: 2\nidentity:\n  mode: hashed\n",
+        "version: 1\noutput:\n  anonymize: true\n",
+        "version: 1\noutput:\n  aggregate_only: true\n",
+        "version: 1\nidentity:\n  mode: hashed\n",
     ],
 )
 def test_generate_refuses_anonymous_modes(
@@ -2446,7 +2422,7 @@ def test_generate_refuses_anonymous_modes(
 def test_generate_redaction_skips_raw_emails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _set_privacy_config(tmp_path, monkeypatch, "version: 2\nprivacy:\n  redact_emails: true\n")
+    _set_privacy_config(tmp_path, monkeypatch, "version: 1\nprivacy:\n  redact_emails: true\n")
     ownership = OwnershipMap(
         paths={
             "a.py": PathOwnership(
@@ -2490,7 +2466,7 @@ def test_redact_emails_flag_hides_addresses() -> None:
 def test_aggregate_text_reports_omit_people(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _set_privacy_config(tmp_path, monkeypatch, "version: 2\noutput:\n  aggregate_only: true\n")
+    _set_privacy_config(tmp_path, monkeypatch, "version: 1\noutput:\n  aggregate_only: true\n")
     warning = DecayWarning(
         handle="dave@example.com",
         path="src/auth.py",
@@ -2549,7 +2525,7 @@ def test_aggregate_text_reports_omit_people(
     ):
         analyzed = runner.invoke(app, ["analyze"])
         printed = runner.invoke(app, ["print"])
-        listed = runner.invoke(app, ["bus-factor", "--all"])
+        listed = runner.invoke(app, ["qualified-owners", "--all"])
         decayed = runner.invoke(app, ["decay"])
         balanced = runner.invoke(app, ["balance"])
         clustered = runner.invoke(app, ["topology"])
@@ -2558,7 +2534,7 @@ def test_aggregate_text_reports_omit_people(
         combined = result.stdout + result.stderr
         assert "alice@example.com" not in combined
         assert "@alice" not in combined
-    _set_privacy_config(tmp_path, monkeypatch, "version: 2\n")
+    _set_privacy_config(tmp_path, monkeypatch, "version: 1\n")
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.analyze_balance", return_value=balance),
@@ -2569,7 +2545,7 @@ def test_aggregate_text_reports_omit_people(
         _MOCK_TOKEN,
     ):
         named_balance = runner.invoke(app, ["balance"])
-        named_owners = runner.invoke(app, ["bus-factor", "--all"])
+        named_owners = runner.invoke(app, ["qualified-owners", "--all"])
         named_decay = runner.invoke(app, ["decay"])
         named_topology = runner.invoke(app, ["topology"])
     assert named_balance.exit_code == 0, named_balance.output

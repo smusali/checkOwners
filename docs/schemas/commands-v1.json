@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "commands-1.0.json",
+  "$id": "commands-v1.json",
   "$defs": {
     "stringList": {
       "type": "array",
@@ -33,23 +33,17 @@
       "required": [
         "schema_version",
         "checkowners_version",
-        "model_version",
         "models",
         "repository",
         "head_sha",
-        "analysis_ref",
         "generated_at",
-        "analysis_epoch",
         "analysis_completeness"
       ],
       "properties": {
         "schema_version": {
-          "const": "1.0"
+          "const": "1"
         },
         "checkowners_version": {
-          "type": "string"
-        },
-        "model_version": {
           "type": "string"
         },
         "models": {
@@ -61,16 +55,8 @@
         "head_sha": {
           "type": "string"
         },
-        "analysis_ref": {
-          "type": "string",
-          "deprecated": true
-        },
         "generated_at": {
           "type": "string"
-        },
-        "analysis_epoch": {
-          "type": "string",
-          "deprecated": true
         },
         "analysis_completeness": {
           "description": "Fraction of the evidence catalog that was collected. Null when the command did not score owners.",
@@ -134,9 +120,7 @@
       "additionalProperties": false,
       "required": [
         "identity",
-        "handle",
         "ownership_score",
-        "confidence",
         "evidence_quality",
         "commits",
         "last_commit"
@@ -145,16 +129,8 @@
         "identity": {
           "type": "string"
         },
-        "handle": {
-          "type": "string",
-          "deprecated": true
-        },
         "ownership_score": {
           "type": "number"
-        },
-        "confidence": {
-          "type": "number",
-          "deprecated": true
         },
         "evidence_quality": {
           "type": "number"
@@ -291,7 +267,6 @@
         "analysis",
         "risk",
         "qualified_owner_count",
-        "bus_factor",
         "qualified_owner_count_cap",
         "decay_warnings"
       ],
@@ -310,10 +285,6 @@
         },
         "qualified_owner_count": {
           "type": "integer"
-        },
-        "bus_factor": {
-          "type": "integer",
-          "deprecated": true
         },
         "qualified_owner_count_cap": {
           "type": "integer"
@@ -424,6 +395,21 @@
             }
           }
         },
+        "confidence_delta": {
+          "type": "number"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "qualified_owner_count": {
+          "type": "integer"
+        },
+        "qualified_owner_count_cap": {
+          "type": "integer"
+        },
+        "decay": {
+          "type": "boolean"
+        },
         "recommendation": {
           "type": "object",
           "additionalProperties": false,
@@ -441,29 +427,6 @@
               "type": "string"
             }
           }
-        },
-        "confidence_delta": {
-          "type": "number",
-          "deprecated": true
-        },
-        "reason": {
-          "type": "string",
-          "deprecated": true
-        },
-        "qualified_owner_count": {
-          "type": "integer",
-          "deprecated": true
-        },
-        "bus_factor": {
-          "type": "integer",
-          "deprecated": true
-        },
-        "qualified_owner_count_cap": {
-          "type": "integer"
-        },
-        "decay": {
-          "type": "boolean",
-          "deprecated": true
         }
       }
     },
@@ -647,8 +610,7 @@
           "required": [
             "analysis",
             "inferred",
-            "last_analyzed",
-            "deprecated_keys"
+            "last_analyzed"
           ],
           "properties": {
             "analysis": {
@@ -662,9 +624,6 @@
             },
             "last_analyzed": {
               "type": "string"
-            },
-            "deprecated_keys": {
-              "$ref": "#/$defs/stringList"
             }
           }
         }
@@ -672,19 +631,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "analysis": {
             "completeness": 0.75,
@@ -705,9 +661,7 @@
               "owners": [
                 {
                   "identity": "@alice",
-                  "handle": "@alice",
                   "ownership_score": 0.89,
-                  "confidence": 0.89,
                   "evidence_quality": 0.93,
                   "commits": 12,
                   "last_commit": "2026-05-01T00:00:00+00:00",
@@ -733,16 +687,11 @@
                 "truck_factor_75": 1
               },
               "qualified_owner_count": 1,
-              "bus_factor": 1,
               "qualified_owner_count_cap": 3,
               "decay_warnings": []
             }
           },
-          "last_analyzed": "2026-05-28T12:00:00+00:00",
-          "deprecated_keys": [
-            "bus_factor",
-            "confidence"
-          ]
+          "last_analyzed": "2026-05-28T12:00:00+00:00"
         }
       ]
     },
@@ -756,7 +705,6 @@
         "severity",
         "max_confidence_delta",
         "notes",
-        "deprecated_keys",
         "baselined",
         "stale_baseline",
         "suppressed"
@@ -797,9 +745,6 @@
         "notes": {
           "$ref": "#/$defs/stringList"
         },
-        "deprecated_keys": {
-          "$ref": "#/$defs/stringList"
-        },
         "baselined": {
           "type": "integer"
         },
@@ -829,7 +774,6 @@
             "severity",
             "max_confidence_delta",
             "notes",
-            "deprecated_keys",
             "baselined",
             "stale_baseline",
             "suppressed"
@@ -870,9 +814,6 @@
             "notes": {
               "$ref": "#/$defs/stringList"
             },
-            "deprecated_keys": {
-              "$ref": "#/$defs/stringList"
-            },
             "baselined": {
               "type": "integer"
             },
@@ -891,19 +832,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "stale": [],
           "missing": [
@@ -937,9 +875,6 @@
           "severity": "low",
           "max_confidence_delta": 0.2,
           "notes": [],
-          "deprecated_keys": [
-            "bus_factor"
-          ],
           "baselined": 0,
           "stale_baseline": [],
           "suppressed": 0
@@ -985,19 +920,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "path": "CODEOWNERS",
           "content": "# generated\n* @alice\n",
@@ -1050,19 +982,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "path": "CODEOWNERS",
           "committed": false,
@@ -1096,28 +1025,23 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "paths": {
             "src/main.py": {
               "owners": [
                 {
                   "identity": "@alice",
-                  "handle": "@alice",
                   "ownership_score": 0.89,
-                  "confidence": 0.89,
                   "evidence_quality": 0.93,
                   "commits": 12,
                   "last_commit": "2026-05-01T00:00:00+00:00",
@@ -1143,7 +1067,6 @@
                 "truck_factor_75": 1
               },
               "qualified_owner_count": 1,
-              "bus_factor": 1,
               "qualified_owner_count_cap": 3,
               "decay_warnings": []
             }
@@ -1191,19 +1114,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": null,
           "valid": true,
           "errors": []
@@ -1282,19 +1202,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": null,
           "path": "src/main.py",
           "matches": [
@@ -1344,19 +1261,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "path": ".checkowners-baseline.json",
           "findings": [
@@ -1381,7 +1295,6 @@
           "required": [
             "repo_average",
             "qualified_owner_count_cap",
-            "deprecated_keys",
             "entries",
             "critical_paths"
           ],
@@ -1392,9 +1305,6 @@
             "qualified_owner_count_cap": {
               "type": "integer"
             },
-            "deprecated_keys": {
-              "$ref": "#/$defs/stringList"
-            },
             "entries": {
               "type": "array",
               "items": {
@@ -1403,7 +1313,6 @@
                 "required": [
                   "path",
                   "qualified_owner_count",
-                  "bus_factor",
                   "qualified_owner_count_cap",
                   "tier",
                   "contributors_above_threshold",
@@ -1415,10 +1324,6 @@
                   },
                   "qualified_owner_count": {
                     "type": "integer"
-                  },
-                  "bus_factor": {
-                    "type": "integer",
-                    "deprecated": true
                   },
                   "qualified_owner_count_cap": {
                     "type": "integer"
@@ -1460,30 +1365,23 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "repo_average": 1.0,
           "qualified_owner_count_cap": 3,
-          "deprecated_keys": [
-            "bus_factor"
-          ],
           "entries": [
             {
               "path": "src/main.py",
               "qualified_owner_count": 1,
-              "bus_factor": 1,
               "qualified_owner_count_cap": 3,
               "tier": "critical",
               "contributors_above_threshold": [
@@ -1557,19 +1455,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "reports": []
         }
@@ -1650,7 +1545,6 @@
                 "required": [
                   "overloaded",
                   "candidate",
-                  "confidence",
                   "proposed_shift"
                 ],
                 "properties": {
@@ -1659,9 +1553,6 @@
                   },
                   "candidate": {
                     "type": "string"
-                  },
-                  "confidence": {
-                    "type": "number"
                   },
                   "proposed_shift": {
                     "type": "integer"
@@ -1675,19 +1566,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "source": "git_authorship",
           "fallback_reason": "",
@@ -1746,19 +1634,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "clusters": [],
           "mismatches": []
@@ -1821,19 +1706,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "target": "src/",
           "steps": []
@@ -1923,19 +1805,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "path": "src/main.py",
           "kind": "file",
@@ -1993,19 +1872,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.0,
           "path": "src/main.py",
           "analysis": {
@@ -2044,17 +1920,12 @@
                 "additionalProperties": false,
                 "required": [
                   "handle",
-                  "confidence",
                   "commits",
                   "last_commit"
                 ],
                 "properties": {
                   "handle": {
                     "type": "string"
-                  },
-                  "confidence": {
-                    "type": "number",
-                    "deprecated": true
                   },
                   "commits": {
                     "type": "integer"
@@ -2074,19 +1945,16 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "path": "src/main.py",
           "ranking": []
@@ -2104,7 +1972,6 @@
             "periods",
             "period_days",
             "qualified_owner_count_cap",
-            "deprecated_keys",
             "points"
           ],
           "properties": {
@@ -2116,9 +1983,6 @@
             },
             "qualified_owner_count_cap": {
               "type": "integer"
-            },
-            "deprecated_keys": {
-              "$ref": "#/$defs/stringList"
             },
             "points": {
               "type": "array",
@@ -2132,7 +1996,6 @@
                   "tracked_paths",
                   "avg_top_confidence",
                   "avg_qualified_owner_count",
-                  "avg_bus_factor",
                   "qualified_owner_count_cap"
                 ],
                 "properties": {
@@ -2154,10 +2017,6 @@
                   "avg_qualified_owner_count": {
                     "type": "number"
                   },
-                  "avg_bus_factor": {
-                    "type": "number",
-                    "deprecated": true
-                  },
                   "qualified_owner_count_cap": {
                     "type": "integer"
                   }
@@ -2170,26 +2029,20 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": null,
           "periods": 1,
           "period_days": 30,
           "qualified_owner_count_cap": 3,
-          "deprecated_keys": [
-            "avg_bus_factor"
-          ],
           "points": []
         }
       ]
@@ -2220,34 +2073,28 @@
       "unevaluatedProperties": false,
       "examples": [
         {
-          "schema_version": "1.0",
+          "schema_version": "1",
           "checkowners_version": "0.5.1",
-          "model_version": "ownership-v3",
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
-          "analysis_ref": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "drift_summary": {
-            "schema_version": "1.0",
+            "schema_version": "1",
             "checkowners_version": "0.5.1",
-            "model_version": "ownership-v3",
             "models": {
-              "ownership": "ownership-v3",
+              "ownership": "ownership-v1",
               "risk": "risk-v1",
               "topology": "topology-v1"
             },
             "repository": "acme/payments",
             "head_sha": "abc123",
-            "analysis_ref": "abc123",
             "generated_at": "2026-05-28T12:00:00+00:00",
-            "analysis_epoch": "2026-05-28T12:00:00+00:00",
             "analysis_completeness": 0.75,
             "stale": [],
             "missing": [
@@ -2281,38 +2128,28 @@
             "severity": "low",
             "max_confidence_delta": 0.2,
             "notes": [],
-            "deprecated_keys": [
-              "bus_factor"
-            ],
             "baselined": 0,
             "stale_baseline": [],
             "suppressed": 0
           },
           "bus_factor_summary": {
-            "schema_version": "1.0",
+            "schema_version": "1",
             "checkowners_version": "0.5.1",
-            "model_version": "ownership-v3",
             "models": {
-              "ownership": "ownership-v3",
+              "ownership": "ownership-v1",
               "risk": "risk-v1",
               "topology": "topology-v1"
             },
             "repository": "acme/payments",
             "head_sha": "abc123",
-            "analysis_ref": "abc123",
             "generated_at": "2026-05-28T12:00:00+00:00",
-            "analysis_epoch": "2026-05-28T12:00:00+00:00",
             "analysis_completeness": 0.75,
             "repo_average": 1.0,
             "qualified_owner_count_cap": 3,
-            "deprecated_keys": [
-              "bus_factor"
-            ],
             "entries": [
               {
                 "path": "src/main.py",
                 "qualified_owner_count": 1,
-                "bus_factor": 1,
                 "qualified_owner_count_cap": 3,
                 "tier": "critical",
                 "contributors_above_threshold": [
@@ -2326,19 +2163,16 @@
             ]
           },
           "decay_summary": {
-            "schema_version": "1.0",
+            "schema_version": "1",
             "checkowners_version": "0.5.1",
-            "model_version": "ownership-v3",
             "models": {
-              "ownership": "ownership-v3",
+              "ownership": "ownership-v1",
               "risk": "risk-v1",
               "topology": "topology-v1"
             },
             "repository": "acme/payments",
             "head_sha": "abc123",
-            "analysis_ref": "abc123",
             "generated_at": "2026-05-28T12:00:00+00:00",
-            "analysis_epoch": "2026-05-28T12:00:00+00:00",
             "analysis_completeness": 0.75,
             "reports": []
           }
@@ -2350,8 +2184,6 @@
       "additionalProperties": false,
       "required": [
         "schema_version",
-        "analysis_ref",
-        "analysis_epoch",
         "models",
         "drift_detected",
         "severity",
@@ -2365,21 +2197,12 @@
       ],
       "properties": {
         "schema_version": {
-          "const": 2
-        },
-        "analysis_ref": {
-          "type": "string"
-        },
-        "analysis_epoch": {
-          "type": "string"
+          "const": 1
         },
         "models": {
           "$ref": "#/$defs/models"
         },
         "checkowners_version": {
-          "type": "string"
-        },
-        "model_version": {
           "type": "string"
         },
         "repository": {
@@ -2479,11 +2302,9 @@
       },
       "examples": [
         {
-          "schema_version": 2,
-          "analysis_ref": "abc123",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
+          "schema_version": 1,
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
@@ -2511,33 +2332,21 @@
       "additionalProperties": false,
       "required": [
         "schema_version",
-        "analysis_ref",
-        "analysis_epoch",
         "models",
         "repo_average",
         "qualified_owner_count_cap",
-        "deprecated_keys",
         "counts",
         "critical_paths",
         "truncated"
       ],
       "properties": {
         "schema_version": {
-          "const": 2
-        },
-        "analysis_ref": {
-          "type": "string"
-        },
-        "analysis_epoch": {
-          "type": "string"
+          "const": 1
         },
         "models": {
           "$ref": "#/$defs/models"
         },
         "checkowners_version": {
-          "type": "string"
-        },
-        "model_version": {
           "type": "string"
         },
         "repository": {
@@ -2569,9 +2378,6 @@
         },
         "qualified_owner_count_cap": {
           "type": "integer"
-        },
-        "deprecated_keys": {
-          "$ref": "#/$defs/stringList"
         },
         "counts": {
           "type": "object",
@@ -2618,19 +2424,14 @@
       },
       "examples": [
         {
-          "schema_version": 2,
-          "analysis_ref": "abc123",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
+          "schema_version": 1,
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
           "repo_average": 1.0,
           "qualified_owner_count_cap": 3,
-          "deprecated_keys": [
-            "bus_factor"
-          ],
           "counts": {
             "critical": 1,
             "warning": 0,
@@ -2652,8 +2453,6 @@
       "additionalProperties": false,
       "required": [
         "schema_version",
-        "analysis_ref",
-        "analysis_epoch",
         "models",
         "counts",
         "reports",
@@ -2661,21 +2460,12 @@
       ],
       "properties": {
         "schema_version": {
-          "const": 2
-        },
-        "analysis_ref": {
-          "type": "string"
-        },
-        "analysis_epoch": {
-          "type": "string"
+          "const": 1
         },
         "models": {
           "$ref": "#/$defs/models"
         },
         "checkowners_version": {
-          "type": "string"
-        },
-        "model_version": {
           "type": "string"
         },
         "repository": {
@@ -2762,11 +2552,9 @@
       },
       "examples": [
         {
-          "schema_version": 2,
-          "analysis_ref": "abc123",
-          "analysis_epoch": "2026-05-28T12:00:00+00:00",
+          "schema_version": 1,
           "models": {
-            "ownership": "ownership-v3",
+            "ownership": "ownership-v1",
             "risk": "risk-v1",
             "topology": "topology-v1"
           },

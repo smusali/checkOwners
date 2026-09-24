@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
-import warnings
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -62,7 +60,7 @@ _VALID_DRIFT_MODES: frozenset[str] = frozenset(get_args(DriftMode))
 _VALID_QUALIFICATION_STRATEGIES: frozenset[str] = frozenset(get_args(QualificationStrategy))
 _VALID_FINDING_RULES: frozenset[str] = frozenset(get_args(FindingRule))
 
-SUPPORTED_CONFIG_VERSIONS: frozenset[int] = frozenset({1, 2})
+SUPPORTED_CONFIG_VERSIONS: frozenset[int] = frozenset({1})
 
 _V2_TOP_LEVEL: frozenset[str] = frozenset(
     {
@@ -142,7 +140,6 @@ _V2_GIT: frozenset[str] = frozenset(
         "blame_ignore_revs_file",
         "detect_moves",
         "mass_refactor_file_fraction",
-        "use_mailmap",
     }
 )
 _V2_IDENTITY: frozenset[str] = frozenset({"mailmap", "mode"})
@@ -191,22 +188,6 @@ _V2_SECTIONS: dict[str, frozenset[str]] = {
     "contributors": _V2_CONTRIBUTORS,
 }
 
-_MOVED_KEYS: tuple[tuple[tuple[str, str], str], ...] = (
-    (("analysis", "top_n_owners"), "analysis.max_owners"),
-    (("analysis", "min_commits"), "qualification.min_commits"),
-    (("analysis", "exclude_bots"), "bots.exclude"),
-    (("scoring", "recency_weight"), "model.signals.recency.weight"),
-    (("scoring", "frequency_weight"), "model.signals.frequency.weight"),
-    (("scoring", "blame_weight"), "model.signals.blame.weight"),
-    (("scoring", "review_weight"), "model.signals.reviews.weight"),
-    (("scoring", "recency_half_life_days"), "model.signals.recency.half_life_days"),
-    (("scoring", "recency_reliability"), "model.signals.recency.reliability"),
-    (("scoring", "frequency_reliability"), "model.signals.frequency.reliability"),
-    (("scoring", "blame_reliability"), "model.signals.blame.reliability"),
-    (("scoring", "review_reliability"), "model.signals.reviews.reliability"),
-)
-
-
 def _is_drift_mode(value: str) -> TypeGuard[DriftMode]:
     return value in _VALID_DRIFT_MODES
 
@@ -243,9 +224,7 @@ def load_config(repo_root: Path | None = None) -> Config:
     if not isinstance(raw, dict):
         msg = f"Invalid checkowners config: expected a YAML mapping, got {type(raw).__name__}"
         raise ValueError(msg)
-    prepared, models, moved = _prepare_config(raw)
-    if moved:
-        _warn_deprecated_config(moved)
+    prepared, models = _prepare_config(raw)
     return _apply_env_overrides(replace(_merge_config(prepared), models=models))
 
 
@@ -275,38 +254,18 @@ def _apply_env_overrides(config: Config) -> Config:
     return config
 
 
-_Prepared = tuple[dict[str, Any], ModelVersions, list[tuple[str, str]]]
+_Prepared = tuple[dict[str, Any], ModelVersions]
 
 
 def _prepare_config(raw: dict[str, Any]) -> _Prepared:
-    version = _config_version(raw)
-    if version == 2:
-        return _translate_v2(raw), _pinned_models(raw), []
-    return _without_v2_privacy(raw), ModelVersions(), _present_moved_keys(raw)
-
-
-def _without_v2_privacy(raw: dict[str, Any]) -> dict[str, Any]:
-    """Drop privacy controls from a v1 file so unknown keys stay ignored."""
-    prepared = dict(raw)
-    prepared.pop("privacy", None)
-    prepared.pop("contributors", None)
-    identity = prepared.get("identity")
-    if isinstance(identity, dict):
-        identity_copy = dict(identity)
-        identity_copy.pop("mode", None)
-        prepared["identity"] = identity_copy
-    output = prepared.get("output")
-    if isinstance(output, dict):
-        output_copy = dict(output)
-        output_copy.pop("anonymize", None)
-        output_copy.pop("aggregate_only", None)
-        prepared["output"] = output_copy
-    return prepared
+    _config_version(raw)
+    return _translate_v2(raw), _pinned_models(raw)
 
 
 def _config_version(raw: dict[str, Any]) -> int:
     if "version" not in raw:
-        return 1
+        msg = "checkowners config requires version: 1"
+        raise ValueError(msg)
     value = raw["version"]
     if (
         isinstance(value, int)
@@ -317,25 +276,6 @@ def _config_version(raw: dict[str, Any]) -> int:
     supported = ", ".join(str(item) for item in sorted(SUPPORTED_CONFIG_VERSIONS))
     msg = f"Unsupported checkowners config version {value!r}; this release supports {supported}"
     raise ValueError(msg)
-
-
-def _warn_deprecated_config(moved: list[tuple[str, str]]) -> None:
-    listed = "; ".join(f"{old} -> {new}" for old, new in moved)
-    message = (
-        "checkowners config version 1 is deprecated and remains supported for one minor cycle. "
-        f"Moved keys: {listed}"
-    )
-    warnings.warn(message, DeprecationWarning, stacklevel=2)
-    print(message, file=sys.stderr)
-
-
-def _present_moved_keys(raw: dict[str, Any]) -> list[tuple[str, str]]:
-    found: list[tuple[str, str]] = []
-    for (section, key), destination in _MOVED_KEYS:
-        block = raw.get(section)
-        if isinstance(block, dict) and key in block:
-            found.append((f"{section}.{key}", destination))
-    return found
 
 
 def _reject_unknown_keys(block: dict[str, Any], allowed: frozenset[str], prefix: str) -> None:
@@ -367,7 +307,9 @@ def _translate_v2(raw: dict[str, Any]) -> dict[str, Any]:
             continue
         section = _require_mapping(translated[name], name)
         _reject_unknown_keys(section, allowed, name)
-    if "suppressions" in translated and not isinstance(translated["suppressions"], list):
+    if translated.get("suppressions") is None:
+        translated.pop("suppressions", None)
+    elif "suppressions" in translated and not isinstance(translated["suppressions"], list):
         msg = "suppressions must be a list"
         raise ValueError(msg)
     _validate_policy(translated.get("policy"))
@@ -808,8 +750,6 @@ def _build_git_config(data: dict[str, Any]) -> GitConfig:
             )
             raise ValueError(msg)
         kwargs["mass_refactor_file_fraction"] = fraction
-    if "use_mailmap" in data:
-        kwargs["use_mailmap"] = bool(data["use_mailmap"])
     return GitConfig(**kwargs)
 
 

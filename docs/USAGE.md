@@ -27,7 +27,7 @@ Downstream commands reuse that file only when its commit is `HEAD`, its scoring 
 
 ```bash
 checkowners --allow-stale decay
-checkowners --max-age 86400 bus-factor
+checkowners --max-age 86400 qualified-owners
 checkowners --no-cache decay
 checkowners --offline analyze
 ```
@@ -44,12 +44,12 @@ Team verification: unavailable
 
 ## Configuration
 
-Create `.github/checkowners.yml`. Every field is optional; defaults shown. `version: 2` is the current schema. A file with no `version`, or `version: 1`, still loads for one minor cycle after `0.6.0` and warns when it uses a key that moved. Any other `version` is refused.
+Create `.github/checkowners.yml`. Every field is optional; defaults shown. `version: 1` is required. Any other `version`, or a file with no `version`, is refused.
 
 The numbers below are the runtime defaults. Longer-term proposals (adaptive lookback, `max_owners: 5`, different signal weights, truck-factor thresholds) are not applied here.
 
 ```yaml
-version: 2
+version: 1
 
 analysis:
   lookback_days: 365          # integer days; adaptive lookback is not accepted
@@ -61,12 +61,12 @@ analysis:
   max_api_requests: 2000      # stop GitHub calls at this count and mark the run incomplete
 
 qualification:
-  strategy: adaptive          # adaptive | threshold (legacy, one cycle)
+  strategy: adaptive          # adaptive | threshold
   min_commits: 1              # was analysis.min_commits; this key wins if both are set
   strong_blame_override: 0.5  # adaptive: keep authors at or above this blame share
 
 model:
-  ownership: ownership-v3     # pin must match this release, or be omitted
+  ownership: ownership-v1     # pin must match this release, or be omitted
   risk: risk-v1
   topology: topology-v1
   signals:
@@ -158,11 +158,11 @@ policy:
     fail: false               # same exit as --fail-on-incomplete; other policy keys are refused
 ```
 
-`decay`, `bus_factor`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` keep their current names on both schema versions. `bus_factor` is the qualified-owner classifier (`risk-v1`), not a truck-factor block.
+`decay`, `bus_factor`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier (`risk-v1`), not a truck-factor block. Mailmap is `identity.mailmap`.
 
-Keys with no implementation yet are refused on `version: 2`, including `criticality`, `security`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, and `git.merge_strategy`. `policy` accepts only `incomplete_analysis.fail`. A v1 file still ignores unknown keys, including the privacy controls below.
+Keys with no implementation yet are refused, including `criticality`, `security`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`.
 
-| v1 key | v2 key |
+| Also accepted | Same setting |
 | --- | --- |
 | `analysis.top_n_owners` | `analysis.max_owners` |
 | `analysis.min_commits` | `qualification.min_commits` |
@@ -174,7 +174,7 @@ Keys with no implementation yet are refused on `version: 2`, including `critical
 | `scoring.recency_half_life_days` | `model.signals.recency.half_life_days` |
 | `scoring.*_reliability` | `model.signals.*.reliability` |
 
-JSON from every command includes `models` with `ownership`, `risk`, and `topology`. Analyze, explain, and owners JSON also keep `model_version` equal to the ownership id for one minor cycle. Human reports print the applicable ids on stderr. Per-repo analyze state and the graph cache are reused only when all three ids match and the scoring config hash matches; a file without `models` is ignored.
+JSON from every command includes `models` with `ownership`, `risk`, and `topology`. Human reports print the applicable ids on stderr. Per-repo analyze state and the graph cache are reused only when all three ids match and the scoring config hash matches; a file without `models` is ignored.
 
 The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` environment variable instead. `checkowners.yml` is committed to your repo, so storing a token here would push it to GitHub. `load_config` raises a clear error if `github.token` is present.
 
@@ -188,7 +188,7 @@ The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` enviro
 | `CHECKOWNERS_STATE_DIR` | Action, or the user | State / handle / graph cache root | Wins over `~/.checkowners` |
 | `GITHUB_TOKEN` | Action `github_token` input, or the user | Only supported token source | Never read from YAML (`github.token` is rejected) |
 | `GITHUB_REPOSITORY` | GitHub runner | `owner/repo` for review coverage, topology, balance | Required for those API features; ignored otherwise |
-| `GITHUB_OUTPUT` | GitHub runner | `github-action` writes bounded `schema_version: 2` summaries when set | Full `drift.json` / `bus_factor.json` / `decay.json` payloads are the uploaded artifact; summaries stay under the 1 MB per-output cap |
+| `GITHUB_OUTPUT` | GitHub runner | `github-action` writes bounded `schema_version: 1` summaries when set | Full `drift.json` / `bus_factor.json` / `decay.json` payloads are the uploaded artifact; summaries stay under the 1 MB per-output cap |
 | `SOURCE_DATE_EPOCH` | User or CI | Integer POSIX seconds used as the analysis instant when `--as-of` is omitted | After `--as-of`; before HEAD committer time |
 
 The composite Action sets `CHECKOWNERS_STATE_DIR` to `${{ runner.temp }}/checkowners-state`. CLI and hand-rolled CI must set it themselves if they want an ephemeral cache.
@@ -211,7 +211,7 @@ checkowners drift --baseline .checkowners-baseline.json
 
 Or set `drift.baseline_file: .checkowners-baseline.json` in `.github/checkowners.yml`, or pass the Action `baseline` input (exported as `CHECKOWNERS_BASELINE`). The CLI flag wins over the environment variable, which wins over the config key.
 
-The file is JSON (`schema_version: "1.0"`) with a sorted `findings` list. Each finding is identified by `rule` plus `path` plus `owners`. Line numbers and CODEOWNERS order are not part of the identity, so reordering the file does not invalidate the baseline.
+The file is JSON (`schema_version: "1"`) with a sorted `findings` list. Each finding is identified by `rule` plus `path` plus `owners`. Line numbers and CODEOWNERS order are not part of the identity, so reordering the file does not invalidate the baseline.
 
 Rules that can appear: `missing`, `stale`, `changed`, and `single-expert` (qualified-owner critical paths). Decay is not snapshotted.
 
@@ -239,7 +239,7 @@ Scoring and lookback are a pure function of the repository, the commit, and the 
 2. `SOURCE_DATE_EPOCH` (integer POSIX seconds, UTC)
 3. The HEAD committer timestamp (`git log -1 --format=%cI`)
 
-`--deterministic` documents that contract. It does not change the resolution order. JSON payloads include `analysis_ref` (HEAD SHA) and `analysis_epoch` (the resolved instant as ISO 8601 UTC). `git log` uses `--since` / `--until` pinned to that instant, so the same commit scored twice with a clock offset is byte-identical.
+`--deterministic` documents that contract. It does not change the resolution order. JSON payloads include `head_sha` (HEAD SHA) and `generated_at` (the resolved instant as ISO 8601 UTC). `git log` uses `--since` / `--until` pinned to that instant, so the same commit scored twice with a clock offset is byte-identical.
 
 `drift.hysteresis_runs` (default `1`) holds a severity flip until the new tier appears on N consecutive drift runs, unless `max_confidence_delta` is at least `2 * min_confidence_delta`. Default `1` matches previous behavior.
 
@@ -249,7 +249,7 @@ Maintaining a `.mailmap` at the repository root is the cheapest, most reliable w
 
 Commit emails are then rewritten to GitHub `@handles`, cheapest first:
 
-1. **`.mailmap`** (default, `identity.mailmap: true`; `git.use_mailmap` is the same flag): `git log` and `git blame` emit canonical emails before any later stage sees them. Set `identity.mailmap: false` to keep raw commit addresses.
+1. **`.mailmap`** (default, `identity.mailmap: true`): `git log` and `git blame` emit canonical emails before any later stage sees them. Set `identity.mailmap: false` to keep raw commit addresses.
 2. **Noreply parsing** (no token, no network): `12345+login@users.noreply.github.com` and `login@users.noreply.github.com` become `@login`. On squash-merge repos this resolves most contributors for free.
 3. **Disk cache** at `~/.checkowners/handles.json`, including remembered misses, so the search API is queried at most once per email.
 4. **GitHub user-search API** (needs `GITHUB_TOKEN` and the `github` extra) for the rest.
@@ -272,7 +272,7 @@ Email addresses are stored as `email:` tokens in `~/.checkowners` state, the gra
 
 ## Ownership scoring
 
-Each path-owner pair gets an `ownership_score` in `[0.0, 1.0]` from the available signals only. Missing evidence is skipped, not scored as zero, so the attainable range is `[0, 1]` with or without a review provider. JSON still emits `confidence` as a deprecated alias of `ownership_score` for one cycle. This number is a ranking signal, not a calibrated probability.
+Each path-owner pair gets an `ownership_score` in `[0.0, 1.0]` from the available signals only. Missing evidence is skipped, not scored as zero, so the attainable range is `[0, 1]` with or without a review provider. This number is a ranking signal, not a calibrated probability.
 
 | Signal | Source | Weight (default) | Reliability (default) |
 |--------|--------|------------------|------------------------|
@@ -307,7 +307,7 @@ Weights and reliabilities are configurable under `scoring`. Review weight is omi
 
 Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among `git.blame_ignore_revs_file` (default `.git-blame-ignore-revs` at the repo root) and the native `blame.ignoreRevsFile` git setting. Analyze JSON includes `analysis.ignore_revs_applied` and `analysis.ignore_revs_file` so you can see whether that correction ran, `analysis.mailmap_applied` / `analysis.mailmap_file` for `.mailmap`, and `analysis.excluded_gitattributes` / `analysis.excluded_static` for how many paths each exclusion mechanism dropped. Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way; set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
-**Migration.** If CI gates on `confidence >= X`, re-check the threshold. Offline scores rise because they are no longer capped at `0.85`. A value of `0.72` now means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `model_version: ownership-v3` and `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema v8; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. To restore the previous gate and undamped frequency for one cycle:
+Offline scores are no longer capped at `0.85`. A value of `0.72` means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `models.ownership`, `models.risk`, and `models.topology` (`ownership-v1`, `risk-v1`, `topology-v1`). Per-repo state is schema 1; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. `qualification.strategy: threshold` keeps a commit-count gate and undamped frequency:
 
 ```yaml
 qualification:
@@ -322,13 +322,13 @@ The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it
 
 ## Qualified owner count
 
-`qualified_owner_count` is the number of owners on a path whose confidence is at or above `analysis.confidence_threshold`, taken from the list that has already been truncated to `analysis.top_n_owners` (default 3). Human output always states the cap: `3 (capped by top_n_owners=3)`. JSON emits `qualified_owner_count`, `qualified_owner_count_cap`, and the deprecated `bus_factor` alias for one minor cycle.
+`qualified_owner_count` is the number of owners on a path whose score is at or above `analysis.confidence_threshold`, taken from the list that has already been truncated to `analysis.top_n_owners` (default 3). Human output always states the cap: `3 (capped by top_n_owners=3)`. JSON emits `qualified_owner_count` and `qualified_owner_count_cap`.
 
 This is not truck factor, bus factor, or lottery factor. Those metrics are a removal simulation over a knowledge distribution: the smallest set of contributors whose departure leaves a threshold fraction of files without an owner. `qualified_owner_count` stays the capped threshold count. Raising `top_n_owners` raises the maximum reportable count without any code changing hands. It is not a repo-level truck factor. The formulas, the prior-art divergence, and the truncation caveat are in [Knowledge concentration](METHODOLOGY.md#knowledge-concentration).
 
 Per-path JSON also reports score mass under `risk`: `top_owner_share` (largest score divided by the sum of scores), `effective_owners` (the exponential of the Shannon entropy of the normalized scores), and `truck_factor_50` / `truck_factor_75` (the smallest owner count whose cumulative share reaches 0.50 / 0.75). Those numbers describe concentration of the scores already on that path. The `bus_factor:` config section still classifies the capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
 
-`checkowners qualified-owners` is the canonical command. `checkowners bus-factor` remains as a deprecated alias; that name will be redefined.
+`checkowners qualified-owners` is the command for this count.
 
 ## Generated CODEOWNERS
 
@@ -371,7 +371,7 @@ A directory target uses the same path matcher as `expertise`: the union of survi
 @bob    0.61
 ```
 
-Both commands accept `--json` with `schema_version: "1.0"`, `model_version: ownership-v3`, and `models`. `explain --json` includes per-signal availability, weights, evidence, knobs, and optional `why_not`. `owners --json` stays a handle plus `ownership_score` list.
+Both commands accept `--json` with `schema_version: "1"` and `models`. `explain --json` includes per-signal availability, weights, evidence, knobs, and optional `why_not`, and names each person with `handle`. `owners --json` uses `identity` and `ownership_score`.
 
 `expertise` remains the cache-backed ranking table. `explain-path` remains the CODEOWNERS rule-chain command. Neither is a substitute for `explain`.
 
@@ -511,7 +511,7 @@ The action always writes the full report to the job summary. That needs no extra
 
 If `comment_on_pr` stays `"true"` under read-only workflow permissions, the comment step warns (`Grant 'pull-requests: write' or set comment_on_pr: false`) and does not fail the job. Set `comment_on_pr: false` to skip the attempt.
 
-The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_version: 2`) so workflow gates stay under GitHub's 1 MB per-output cap. This release renames the drift output to `drift_summary`. Gates read `drift_summary.drift_detected`, `drift_summary.severity`, and `bus_factor_summary.critical_paths[0]`. Each summary includes `counts` and `truncated`. The qualified-owner summary also includes `qualified_owner_count_cap` and `deprecated_keys`. Drift still carries `notes` plus the top `missing` / `stale` / `changed` entries (with per-entry `qualified_owner_count` / deprecated `bus_factor` / `decay` flags). Per-path `entries` are omitted from the output; the full lists live in the uploaded artifact.
+The composite action writes bounded JSON summaries to `GITHUB_OUTPUT` (`schema_version: 1`) so workflow gates stay under GitHub's 1 MB per-output cap. The drift output is `drift_summary`. Gates read `drift_summary.drift_detected`, `drift_summary.severity`, and `bus_factor_summary.critical_paths[0]`. Each summary includes `counts` and `truncated`. The qualified-owner summary also includes `qualified_owner_count_cap`. Drift still carries `notes` plus the top `missing` / `stale` / `changed` entries (with per-entry `qualified_owner_count` and `decay` flags). Per-path `entries` are omitted from the output; the full lists live in the uploaded artifact.
 
 Post that drift summary to Slack when drift is present:
 
@@ -576,15 +576,14 @@ The project will not be positioned around who contributes least, who is really w
 
 ## JSON contract
 
-Every `--json` command emits schema `1.0`. The document is [docs/schemas/commands-1.0.json](schemas/commands-1.0.json) (JSON Schema draft 2020-12). Each command is `#/$defs/<command>`. `bus-factor` uses `qualified-owners`. `who` uses `owners`.
+Every `--json` command emits schema `1`. The document is [docs/schemas/commands-v1.json](schemas/commands-v1.json) (JSON Schema draft 2020-12). Each command is `#/$defs/<command>`. `who` uses `owners`.
 
 Shared fields on every command:
 
 | Field | Meaning |
 | --- | --- |
-| `schema_version` | `"1.0"` |
+| `schema_version` | `"1"` |
 | `checkowners_version` | The installed package version |
-| `model_version` | `ownership-v3` |
 | `models` | `ownership`, `risk`, and `topology` ids |
 | `repository` | `GITHUB_REPOSITORY` when set, otherwise the repo directory name |
 | `head_sha` | HEAD at analysis time. Empty when HEAD cannot be read |
@@ -592,7 +591,7 @@ Shared fields on every command:
 | `analysis_completeness` | Fraction of the evidence catalog that was collected, rounded to 4 decimals. `null` when the command did not score owners (`validate`, `explain-path`, `trends`). A cached analysis written before this score existed falls back to the signal fraction |
 | `analysis_gaps` | Present when the score was computed. Each item is `{code, reason}` for one missing-evidence source |
 
-`analysis_ref` and `analysis_epoch` are still emitted and are deprecated copies of `head_sha` and `generated_at`. `print --json` puts path objects under `paths`, so a file cannot collide with an envelope key. On-disk baselines and `~/.checkowners` state are not stamped with this envelope. `baseline create --json` stdout is.
+`print --json` puts path objects under `paths`, so a file cannot collide with an envelope key. On-disk baselines and `~/.checkowners` state are not stamped with this envelope. `baseline create --json` stdout is.
 
 `analyze` keeps ignore-revs, mailmap, and exclusion counts on `analysis`, next to per-path `completeness` and `signals_available`. Per-path `completeness` is still the fraction of scored `(owner, signal)` pairs. The envelope `analysis_completeness` is the run score, not that fraction and not the flag object.
 
@@ -600,17 +599,16 @@ Human summaries print `analysis completeness: 73%` and one line per gap. A skipp
 
 When a GitHub API call ran in the process, the envelope also includes `github_evidence_collected_at` and `repository_head`. `team_snapshot` is present only when org teams were fetched. Cache-only and noreply-only resolution do not add these fields.
 
-Ownership objects (`owners`, `who`, and each path inside `analyze` and `print`) use `identity`, `ownership_score`, `evidence_quality`, and flat `signals` for available signals only. Unavailable signals are omitted. `handle` and `confidence` remain for one minor cycle. `explain` keeps its per-signal breakdown and only adds the envelope.
+Ownership objects (`owners`, `who`, and each path inside `analyze` and `print`) use `identity`, `ownership_score`, `evidence_quality`, and flat `signals` for available signals only. Unavailable signals are omitted. `explain` names each person with `handle` and keeps its per-signal breakdown.
 
-Drift entries add a nested `drift` object (`severity`, `type`, `declared_observed_overlap`) and `recommendation`. The flat keys `confidence_delta`, `reason`, `decay`, `qualified_owner_count`, and `bus_factor` remain for one minor cycle.
+Drift entries add a nested `drift` object (`severity`, `type`, `declared_observed_overlap`) and `recommendation`. The flat keys `confidence_delta`, `reason`, `decay`, and `qualified_owner_count` stay beside those objects.
 
 Stability:
 
 - The same `schema_version` may gain an optional property only when this schema file changes in the same commit. Do not remove, rename, or change the type of an existing property.
 - Those breaks bump `schema_version`.
-- A scoring-formula change bumps `model_version` even when the JSON types stay the same.
-- Deprecated properties remain through the next minor release, then disappear in a schema bump.
-- Action `GITHUB_OUTPUT` summaries are a separate integer contract, `schema_version: 2`. Adding fields there is allowed. This release renames the drift output to `drift_summary`. Gates read `drift_summary.drift_detected`, `drift_summary.severity`, and `bus_factor_summary.critical_paths[0]`.
+- A scoring-formula change bumps `models.ownership` even when the JSON types stay the same.
+- Action `GITHUB_OUTPUT` summaries are a separate integer contract, `schema_version: 1`. Adding fields there is allowed. The drift output is `drift_summary`. Gates read `drift_summary.drift_detected`, `drift_summary.severity`, and `bus_factor_summary.critical_paths[0]`.
 
 ## Development
 

@@ -52,8 +52,6 @@ from checkowners.baseline import (
     write_baseline,
 )
 from checkowners.busfactor import (
-    DEPRECATED_AVG_COUNT_KEY,
-    DEPRECATED_COUNT_KEY,
     BusFactorReport,
     classify,
     compute_qualified_owners,
@@ -113,7 +111,6 @@ from checkowners.graph import (
 )
 from checkowners.models import (
     ABSENT_TOKEN_REASON,
-    DEPRECATED_SCORE_KEY,
     AnalysisCompleteness,
     AnalysisGap,
     AnalyzeAnalysisJson,
@@ -693,7 +690,6 @@ def _path_payload(po: PathOwnership, cap: int) -> PathOwnershipJson:
         "analysis": path_analysis_json(po.owners),
         "risk": risk_from_scores(tuple(owner.ownership_score for owner in po.owners)),
         "qualified_owner_count": counts["qualified_owner_count"],
-        "bus_factor": counts["bus_factor"],
         "qualified_owner_count_cap": counts["qualified_owner_count_cap"],
         "decay_warnings": [_decay_warning_json(warning) for warning in po.decay_warnings],
     }
@@ -895,8 +891,6 @@ def analyze(json_output: JsonOption = False) -> None:
                 path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())
             },
             "last_analyzed": ownership.last_analyzed.isoformat(),
-            "deprecated_keys": [DEPRECATED_COUNT_KEY, DEPRECATED_SCORE_KEY],
-            **_analysis_stamp(ownership),
         }
         _emit_json(data, ownership)
     else:
@@ -1011,7 +1005,6 @@ def generate(
                 "content": result.content,
                 "broad_patterns": [record.as_json() for record in result.broad_patterns],
                 **codeowners_write_metrics(result.content),
-                **_analysis_stamp(ownership),
             },
             ownership,
         )
@@ -1032,7 +1025,6 @@ def print_cmd(json_output: JsonOption = False) -> None:
                 "paths": {
                     path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())
                 },
-                **_analysis_stamp(ownership),
             },
             ownership,
         )
@@ -1262,13 +1254,11 @@ def baseline_create(
     )
     write_baseline(output, outcome.new)
     ownership = _apply_extra_gaps(ownership, evidence_gaps(outcome.drift), config.scoring)
-    stamp = _analysis_stamp(ownership)
     if json_output:
         _emit_json(
             {
                 "path": str(output),
                 "findings": [finding_payload(item) for item in outcome.new],
-                **stamp,
             },
             ownership,
         )
@@ -1322,9 +1312,7 @@ def drift(
             "severity": severity,
             "max_confidence_delta": round(result.max_confidence_delta, 4),
             "notes": list(result.notes),
-            "deprecated_keys": [DEPRECATED_COUNT_KEY],
             **_ratchet_json(outcome),
-            **stamp,
         }
         _emit_json(data, ownership)
     else:
@@ -1376,7 +1364,6 @@ def sync(
                     "content": result.content,
                     "broad_patterns": [record.as_json() for record in result.broad_patterns],
                     **codeowners_write_metrics(result.content),
-                    **_analysis_stamp(ownership),
                 },
                 ownership,
             )
@@ -1414,7 +1401,6 @@ def sync(
                 "content": result.content,
                 "broad_patterns": [record.as_json() for record in result.broad_patterns],
                 **codeowners_write_metrics(result.content),
-                **_analysis_stamp(ownership),
             },
             ownership,
         )
@@ -1514,19 +1500,17 @@ def github_action(
         ownership = _run_analyze(config, repo_root)
         cap = config.analysis.top_n_owners
         result = _detect_drift(repo_root, ownership, config, codeowners_path)
-        stamp = _analysis_stamp(ownership)
         if include_bus_factor:
             owners_report = compute_qualified_owners(ownership, config, target=None)
         if include_decay:
             decay_reports = detect_decay(ownership, config)
             decay_payload = {
                 "reports": [_decay_report_payload(r) for r in decay_reports],
-                **stamp,
             }
             decay_count = len(decay_reports)
         if include_balance:
             balance_report = analyze_balance(ownership, config)
-            balance_payload = {**_balance_payload(balance_report), **stamp}
+            balance_payload = _balance_payload(balance_report)
     except typer.Exit:
         _publish_action_failure()
         raise
@@ -1561,15 +1545,13 @@ def github_action(
         "missing": [drift_entry_payload(e, cap, config) for e in result.missing],
         "changed": [drift_entry_payload(e, cap, config) for e in result.changed],
         "notes": list(result.notes),
-        "deprecated_keys": [DEPRECATED_COUNT_KEY],
         **ratchet,
-        **stamp,
     }
     bus_payload: dict[str, object] | None = None
     critical_paths = 0
     if owners_report is not None:
         bus_payload = _filter_bus_payload(
-            {**_qualified_owners_payload(owners_report, config), **ratchet, **stamp},
+            {**_qualified_owners_payload(owners_report, config), **ratchet},
             outcome.hidden_bus_paths,
         )
         raw_paths = bus_payload.get("critical_paths")
@@ -1695,7 +1677,6 @@ def decay(json_output: JsonOption = False) -> None:
         _emit_json(
             {
                 "reports": [_decay_report_payload(r) for r in reports],
-                **_analysis_stamp(ownership),
             },
             ownership,
         )
@@ -1743,7 +1724,7 @@ def _qualified_owners_impl(
     target = path if path else None
     report = compute_qualified_owners(ownership, config, target=target)
     if json_output:
-        data = {**_qualified_owners_payload(report, config), **_analysis_stamp(ownership)}
+        data = _qualified_owners_payload(report, config)
         _emit_json(data, ownership)
         _finish_analysis(ownership)
         return
@@ -1798,23 +1779,7 @@ def qualified_owners(
     _qualified_owners_impl(path, all_paths, json_output)
 
 
-def bus_factor(
-    path: Annotated[
-        str | None,
-        typer.Argument(help="Path (or glob) to limit the report to."),
-    ] = None,
-    all_paths: Annotated[
-        bool,
-        typer.Option("--all", help="Report every path in the repo."),
-    ] = False,
-    json_output: JsonOption = False,
-) -> None:
-    """Deprecated alias of qualified-owners. The name will be redefined."""
-    _qualified_owners_impl(path, all_paths, json_output)
-
-
 app.command(name="qualified-owners")(qualified_owners)
-app.command(name="bus-factor")(bus_factor)
 
 
 def _qualified_owners_payload(report: BusFactorReport, config: Config) -> dict[str, Any]:
@@ -1822,7 +1787,6 @@ def _qualified_owners_payload(report: BusFactorReport, config: Config) -> dict[s
     return {
         "repo_average": report.repo_average,
         "qualified_owner_count_cap": cap,
-        "deprecated_keys": [DEPRECATED_COUNT_KEY],
         "entries": [
             {
                 "path": entry.path,
@@ -1880,7 +1844,7 @@ def balance(json_output: JsonOption = False) -> None:
     ownership = _load_or_analyze(config, Path.cwd())
     report = analyze_balance(ownership, config)
     if json_output:
-        _emit_json({**_balance_payload(report), **_analysis_stamp(ownership)}, ownership)
+        _emit_json(_balance_payload(report), ownership)
         _finish_analysis(ownership)
         return
     if not report.loads:
@@ -1943,7 +1907,7 @@ def topology(json_output: JsonOption = False) -> None:
     declared = declared_teams_from_github(config)
     report = infer_topology(ownership, config, declared_teams=declared)
     if json_output:
-        _emit_json({**_topology_payload(report), **_analysis_stamp(ownership)}, ownership)
+        _emit_json(_topology_payload(report), ownership)
         _finish_analysis(ownership)
         return
     if not report.clusters:
@@ -2006,7 +1970,7 @@ def onboard(
     ownership = _load_or_analyze(config, Path.cwd())
     report = generate_onboarding_path(ownership, config, target=path)
     if json_output:
-        _emit_json({**_onboarding_payload(report), **_analysis_stamp(ownership)}, ownership)
+        _emit_json(_onboarding_payload(report), ownership)
         _finish_analysis(ownership)
         return
     if markdown:
@@ -2265,7 +2229,6 @@ def expertise(
         data = {
             "path": path,
             "ranking": [_expertise_rank_payload(r) for r in ranking],
-            **_analysis_stamp(ownership),
         }
         _emit_json(data, ownership)
         _finish_analysis(ownership)
@@ -2302,7 +2265,6 @@ def _trend_point_payload(point: TrendPoint, cap: int) -> dict[str, Any]:
         "tracked_paths": point.tracked_paths,
         "avg_top_confidence": point.avg_top_confidence,
         "avg_qualified_owner_count": point.avg_qualified_owner_count,
-        "avg_bus_factor": point.avg_qualified_owner_count,
         "qualified_owner_count_cap": cap,
     }
 
@@ -2337,10 +2299,7 @@ def trends(
             "periods": report.periods,
             "period_days": report.period_days,
             "qualified_owner_count_cap": cap,
-            "deprecated_keys": [DEPRECATED_AVG_COUNT_KEY],
             "points": [_trend_point_payload(p, cap) for p in report.points],
-            "analysis_ref": analysis_ref,
-            "analysis_epoch": generated,
         }
         _emit_json(data, head_sha=analysis_ref, generated_at=generated)
         return

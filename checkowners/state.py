@@ -103,6 +103,7 @@ def config_hash(config: Config) -> str:
         "scoring": asdict(config.scoring),
         "decay": asdict(config.decay),
         "bus_factor": asdict(config.bus_factor),
+        "risk": asdict(config.risk),
         "paths": asdict(config.paths),
         "git": asdict(config.git),
         "models": asdict(config.models),
@@ -675,6 +676,7 @@ def _stored_graph(graph_data: dict[str, Any]) -> dict[str, Any]:
 def _serialize_path(po: PathOwnership, cap: int) -> dict[str, Any]:
     return {
         "owners": [_serialize_owner(o) for o in po.owners],
+        "scored_owners": [_serialize_owner(o) for o in po.scored_owners],
         **qualified_owner_count_fields(po.qualified_owner_count, cap),
         "decay_warnings": [_serialize_decay(w) for w in po.decay_warnings],
     }
@@ -786,17 +788,26 @@ def _as_gap_code(code: str) -> GapCode:
     raise ValueError(msg)
 
 
-def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:
-    raw_owners = raw.get("owners")
-    if not isinstance(raw_owners, list):
-        return None
+def _deserialize_owners(raw: object) -> tuple[OwnerEntry, ...]:
+    if not isinstance(raw, list):
+        return ()
     owners: list[OwnerEntry] = []
-    for entry in raw_owners:
+    for entry in raw:
         if not isinstance(entry, dict):
             continue
         deserialized = _deserialize_owner(entry)
         if deserialized is not None:
             owners.append(deserialized)
+    return tuple(owners)
+
+
+def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:
+    if not isinstance(raw.get("owners"), list):
+        return None
+    owners = _deserialize_owners(raw.get("owners"))
+    scored_owners = (
+        _deserialize_owners(raw.get("scored_owners")) if "scored_owners" in raw else owners
+    )
     qualified_owner_count = _read_qualified_owner_count(raw)
     raw_decay = raw.get("decay_warnings", [])
     decay_warnings: list[DecayWarning] = []
@@ -807,9 +818,10 @@ def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:
                 if deserialized_warning is not None:
                     decay_warnings.append(deserialized_warning)
     return PathOwnership(
-        owners=tuple(owners),
+        owners=owners,
         qualified_owner_count=qualified_owner_count,
         decay_warnings=tuple(decay_warnings),
+        scored_owners=scored_owners,
     )
 
 

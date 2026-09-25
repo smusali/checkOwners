@@ -21,6 +21,7 @@ from checkowners.analyze import (
 from checkowners.expertise import path_matches_glob
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
+    DEFAULT_TRUCK_FACTOR_THRESHOLDS,
     Config,
     OwnerEntry,
     OwnershipMap,
@@ -349,6 +350,7 @@ def owners_payload(
     owners: tuple[OwnerEntry, ...],
     target: str,
     ownership: OwnershipMap,
+    thresholds: tuple[float, float, float] = DEFAULT_TRUCK_FACTOR_THRESHOLDS,
 ) -> dict[str, object]:
     """Return the ownership document for `target` and `owners`."""
     return {
@@ -359,8 +361,27 @@ def owners_payload(
         "head_sha": ownership.analysis_ref,
         "analysis": path_analysis_json(owners),
         "owners": [owner_json(entry) for entry in owners],
-        "risk": risk_from_scores(tuple(entry.ownership_score for entry in owners)),
+        "risk": risk_from_scores(_concentration_scores(ownership, target, owners), thresholds),
     }
+
+
+def _concentration_scores(
+    ownership: OwnershipMap,
+    target: str,
+    owners: tuple[OwnerEntry, ...],
+) -> tuple[float, ...]:
+    """Return one ownership score per identity on `target`, before display truncation."""
+    best: dict[str, float] = {}
+    for path in matching_files(ownership, target):
+        path_ownership = ownership.paths[path]
+        source = path_ownership.scored_owners or path_ownership.owners
+        for entry in source:
+            current = best.get(entry.handle)
+            if current is None or entry.ownership_score > current:
+                best[entry.handle] = entry.ownership_score
+    if best:
+        return tuple(best.values())
+    return tuple(entry.ownership_score for entry in owners)
 
 
 def explanation_payload(explanation: PathExplanation) -> dict[str, object]:

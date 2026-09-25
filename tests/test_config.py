@@ -226,6 +226,30 @@ def test_load_config_non_mapping(tmp_path: Path) -> None:
         load_config(repo_root=root)
 
 
+def test_risk_thresholds_default_and_custom(tmp_path: Path) -> None:
+    assert load_config(repo_root=tmp_path).risk.truck_factor_thresholds == (0.5, 0.75, 0.9)
+    root = _write_config(
+        tmp_path,
+        "risk:\n  truck_factor_thresholds: [0.4, 0.6, 0.8]\n",
+    )
+    assert load_config(repo_root=root).risk.truck_factor_thresholds == (0.4, 0.6, 0.8)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "risk:\n  truck_factor_thresholds: [0.5, 0.9]\n",
+        "risk:\n  truck_factor_thresholds: [0.9, 0.5, 0.75]\n",
+        "risk:\n  truck_factor_thresholds: [0, 0.5, 0.9]\n",
+        "risk:\n  truck_factor_thresholds: [0.5, 0.75, 1.1]\n",
+    ],
+)
+def test_risk_thresholds_rejected(tmp_path: Path, content: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match="truck_factor_thresholds"):
+        load_config(repo_root=root)
+
+
 def test_load_config_unknown_keys_rejected(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "custom_field: true\nanother: 42\n")
     with pytest.raises(ValueError, match="Unsupported checkowners config key"):

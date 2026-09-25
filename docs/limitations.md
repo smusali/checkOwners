@@ -41,8 +41,8 @@ wrong. Observed expertise is evidence, not authority.
 - Managerial accountability.
 
 `qualified_owner_count` is a capped count, not a truck factor. `top_owner_share`,
-`effective_owners`, `truck_factor_50`, and `truck_factor_75` describe score
-mass on the owner list after the confidence threshold and `top_n_owners`
+`effective_owners`, `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`
+describe score mass after the confidence threshold and before `top_n_owners`
 truncation. They are not a repository removal simulation. See
 [Methodology](METHODOLOGY.md).
 

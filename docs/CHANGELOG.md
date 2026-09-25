@@ -11,7 +11,8 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../ROADMAP.md).
 
 ### Added
-- The composite Action caches pip and `~/.checkowners`. The `cache` input defaults to `"true"`. A restored state file is reused only when its commit is `HEAD` and the config hash and model versions match.
+- Per-path `risk` reports inverse-Herfindahl `effective_owners`, Shannon entropy, HHI, `truck_factor_50`, `truck_factor_75`, `truck_factor_90`, minor-contributor share, and major-contributor count from every `ownership_score` above the confidence threshold, with `risk.truck_factor_thresholds` defaulting to `[0.50, 0.75, 0.90]` and echoed on the risk object, while `top_n_owners` still caps only the displayed owner list and `qualified_owner_count`.
+- The composite Action caches pip and `~/.checkowners`, with the `cache` input defaulting to `"true"` and a restored state file reused only when its commit is `HEAD` and the config hash and model versions match.
 
 ## [0.6.0] - 2026-09-24
 

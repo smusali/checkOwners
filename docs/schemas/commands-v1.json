@@ -156,7 +156,13 @@
         "top_owner_share",
         "effective_owners",
         "truck_factor_50",
-        "truck_factor_75"
+        "truck_factor_75",
+        "truck_factor_90",
+        "shannon_entropy",
+        "hhi",
+        "minor_contributor_share",
+        "major_contributor_count",
+        "truck_factor_thresholds"
       ],
       "properties": {
         "top_owner_share": {
@@ -172,6 +178,31 @@
         "truck_factor_75": {
           "type": "integer",
           "minimum": 0
+        },
+        "truck_factor_90": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "shannon_entropy": {
+          "type": "number"
+        },
+        "hhi": {
+          "type": "number"
+        },
+        "minor_contributor_share": {
+          "type": "number"
+        },
+        "major_contributor_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truck_factor_thresholds": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
         }
       }
     },
@@ -684,7 +715,13 @@
                 "top_owner_share": 1.0,
                 "effective_owners": 1.0,
                 "truck_factor_50": 1,
-                "truck_factor_75": 1
+                "truck_factor_75": 1,
+                "truck_factor_90": 1,
+                "shannon_entropy": 0.0,
+                "hhi": 1.0,
+                "minor_contributor_share": 0.0,
+                "major_contributor_count": 1,
+                "truck_factor_thresholds": [0.5, 0.75, 0.9]
               },
               "qualified_owner_count": 1,
               "qualified_owner_count_cap": 3,
@@ -1064,7 +1101,13 @@
                 "top_owner_share": 1.0,
                 "effective_owners": 1.0,
                 "truck_factor_50": 1,
-                "truck_factor_75": 1
+                "truck_factor_75": 1,
+                "truck_factor_90": 1,
+                "shannon_entropy": 0.0,
+                "hhi": 1.0,
+                "minor_contributor_share": 0.0,
+                "major_contributor_count": 1,
+                "truck_factor_thresholds": [0.5, 0.75, 0.9]
               },
               "qualified_owner_count": 1,
               "qualified_owner_count_cap": 3,
@@ -1893,7 +1936,13 @@
             "top_owner_share": 0.0,
             "effective_owners": 0.0,
             "truck_factor_50": 0,
-            "truck_factor_75": 0
+            "truck_factor_75": 0,
+            "truck_factor_90": 0,
+            "shannon_entropy": 0.0,
+            "hhi": 0.0,
+            "minor_contributor_share": 0.0,
+            "major_contributor_count": 0,
+            "truck_factor_thresholds": [0.5, 0.75, 0.9]
           }
         }
       ]

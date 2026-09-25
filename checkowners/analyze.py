@@ -373,6 +373,7 @@ def apply_completeness(
             path_ownership,
             owners=tuple(scale(owner) for owner in path_ownership.owners),
             candidates=tuple(scale(owner) for owner in path_ownership.candidates),
+            scored_owners=tuple(scale(owner) for owner in path_ownership.scored_owners),
         )
         for path, path_ownership in ownership.paths.items()
     }
@@ -497,6 +498,7 @@ def _build_path_ownerships(
             qualified_owner_count=qualified_owner_count,
             decay_warnings=decay,
             candidates=entries if retain_all else (),
+            scored_owners=filtered,
         )
     return dict(sorted(result.items()))
 

@@ -343,6 +343,18 @@ This is not truck factor, bus factor, or lottery factor. Those metrics are a rem
 
 `qualified_owner_count` stays the capped threshold count. Raising `top_n_owners` raises the maximum reportable count without any code changing hands. It is not a repo-level truck factor. The formulas, the prior-art divergence, and the truncation caveat are in [Knowledge concentration](METHODOLOGY.md#knowledge-concentration).
 
+## Departure simulation
+
+`checkowners simulate --remove @alice --remove @bob` answers what breaks if those people leave. It reads the cached ownership map and does not collect new evidence. Repeat `--remove`, or pass `--remove-file` with one identity per line (blank lines and `#` comments are ignored). An identity that is not in the map exits 2. A person who is in the map but authors no file changes nothing.
+
+An author of a path is someone on the untruncated scored list whose ownership score is at or above `analysis.confidence_threshold`. `top_n_owners` does not cap that set. A file loses its only owner when that set had one author and they are removed. A file drops to one when at least two authors remain as exactly one. A directory is fully orphaned when every mapped file under it has no author left; the report keeps the roots of those subtrees.
+
+The repository truck factor is the greedy count from Avelino et al.: remove the author who still covers the most files until covered files drop below `risk.truck_factor_thresholds[0]` (default `0.50`). The report shows that count before and after the named removal. Per-path `truck_factor_50`, `truck_factor_75`, and `truck_factor_90` stay the score-mass counts on one path.
+
+Suggested transfers are candidate backup reviewers, ranked by the highest remaining ownership score under an orphaned directory, including scores below the author threshold. They are not a claim that the person is a backup reviewer.
+
+The command refuses a missing cache, `--no-cache`, a stored commit that is not HEAD, and a cache older than `--max-age`. `--allow-stale` reuses a non-HEAD commit. It never re-analyzes. `--json` uses schema `1` (`#/$defs/simulate`) with the before/after risk distribution, repository truck factor, affected paths, and candidate transfers.
+
 Per-path JSON also reports score mass under `risk`, computed before `top_n_owners` truncation. Expertise is `ownership_score`. `top_owner_share` is the largest share. `effective_owners` is `1 / sum(p_i^2)`. `shannon_entropy` is in nats. `hhi` is `sum(p_i^2)`. `truck_factor_50`, `truck_factor_75`, and `truck_factor_90` are the smallest owner counts whose largest shares reach the three values in `risk.truck_factor_thresholds` (default `0.50`, `0.75`, `0.90`). A major contributor has a share of at least `0.05`; `minor_contributor_share` is the rest. Changing `top_n_owners` does not change these numbers. The `bus_factor:` config section still classifies the capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
 
 `checkowners qualified-owners` is the command for this count. Repository output is a distribution of `top_owner_share`, weighted by `criticality`. JSON reports `distribution.minimum`, `distribution.p10`, `distribution.median`, `distribution.p90`, `distribution.critical_path_risk` (the weighted mean of `top_owner_share`), and `distribution.knowledge_at_risk` (the share of criticality weight on paths at or below `bus_factor.critical_threshold`). The first matching `criticality` pattern wins. A path with no match weighs `1.0`. An empty `criticality` map uses that same weight and sets `distribution.criticality_incomplete` to true, because repository risk without criticality is incomplete.
@@ -591,7 +603,7 @@ Representative tools, so the credits are reviewable: [tomasbjerre/generate-codeo
 - **Dedicated validators.** Account, org, and team checks that CheckOwners `validate` does not do. Use a validator for integrity; use CheckOwners for observed-versus-declared drift.
 - **Generators and compilers.** Distributed declarations and a compile/`check` mode that fails CI when the composed file is stale. CheckOwners infers from history; it does not compose satellite CODEOWNERS files.
 - **Ownership-audit CLIs.** Coverage stats over the committed file (owned vs unowned, per-owner counts). CheckOwners scores inferred expertise and knowledge risk.
-- **Bus/truck-factor research tools.** Formal removal simulation over a knowledge distribution. CheckOwners reports a capped `qualified_owner_count` plus decay, topology, and balance. Those are not the same metric; see [Qualified owner count](#qualified-owner-count).
+- **Bus/truck-factor research tools.** Formal removal simulation over degree of authorship. `qualified_owner_count` is still a capped count. `simulate` removes named people from the cached author sets and reports the repository truck factor; it does not compute degree of authorship. See [Departure simulation](#departure-simulation).
 - **Commercial behavioral analysis.** Mature framing around knowledge distribution, key-person risk, and team/code alignment. CheckOwners is the local-first open-source ownership-intelligence layer, not a commercial suite clone.
 
 The project will not be positioned around who contributes least, who is really working, or which engineer is underperforming. Position it around repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. See [Privacy](PRIVACY.md).

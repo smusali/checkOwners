@@ -2256,6 +2256,93 @@ def test_exit_code_contract(
         assert (tmp_path / "drift.json").is_file()
 
 
+def test_simulate_refuses_stale_cache_and_unknown_identity() -> None:
+    write_state(
+        Path.cwd(),
+        replace(_OWNERSHIP, analysis_ref="oldsha"),
+        config=load_config(),
+    )
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP) as analyze:
+        stale = runner.invoke(app, ["simulate", "--remove", "alice@example.com"])
+    assert stale.exit_code == 2, stale.output
+    assert not analyze.called
+    assert "stale or missing" in stale.stdout + stale.stderr
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP) as analyze:
+        allowed = runner.invoke(
+            app,
+            ["--allow-stale", "simulate", "--remove", "alice@example.com"],
+        )
+    assert allowed.exit_code == 0, allowed.output
+    assert not analyze.called
+    assert "Repo truck factor" in allowed.stdout
+    unknown = runner.invoke(app, ["--allow-stale", "simulate", "--remove", "@nobody"])
+    assert unknown.exit_code == 2, unknown.output
+    assert "does not appear in the ownership map" in unknown.stdout + unknown.stderr
+
+
+def test_simulate_requires_an_identity_and_a_cache(tmp_path: Path) -> None:
+    missing = runner.invoke(app, ["simulate"])
+    assert missing.exit_code == 2, missing.output
+    assert "at least one identity" in missing.output
+    blank = runner.invoke(app, ["simulate", "--remove", "   "])
+    assert blank.exit_code == 2, blank.output
+    assert "at least one identity" in blank.output
+    bad_roster = runner.invoke(app, ["simulate", "--remove-file", str(tmp_path / "missing.txt")])
+    assert bad_roster.exit_code == 2, bad_roster.output
+    assert "Cannot read roster" in bad_roster.output
+    write_state(
+        Path.cwd(),
+        replace(_OWNERSHIP, analysis_ref="oldsha"),
+        config=load_config(),
+    )
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP) as analyze:
+        refused = runner.invoke(app, ["--no-cache", "simulate", "--remove", "alice@example.com"])
+    assert refused.exit_code == 2, refused.output
+    assert not analyze.called
+    assert "Cached analysis is required" in refused.output
+
+
+def test_simulate_roster_renders_directories_and_candidates(tmp_path: Path) -> None:
+    ownership = OwnershipMap(
+        paths={
+            "services/billing/a.py": PathOwnership(
+                owners=(
+                    _entry("@alice", 0.9),
+                    _entry("@carol", 0.19),
+                    _entry("@dave", 0.15),
+                ),
+                qualified_owner_count=1,
+            ),
+            "services/billing/b.py": PathOwnership(
+                owners=(_entry("@alice", 0.8), _entry("@carol", 0.11)),
+                qualified_owner_count=1,
+            ),
+            "services/keep.py": PathOwnership(
+                owners=(_entry("@bob", 0.9),),
+                qualified_owner_count=1,
+            ),
+            "infra/vpc/main.tf": PathOwnership(
+                owners=(_entry("@alice", 0.9), _entry("@erin", 0.11)),
+                qualified_owner_count=1,
+            ),
+        },
+        last_analyzed=_NOW,
+        analysis_ref="oldsha",
+    )
+    write_state(Path.cwd(), ownership, config=load_config())
+    roster = tmp_path / "roster.txt"
+    roster.write_text("# note\n\n@alice\n", encoding="utf-8")
+    result = runner.invoke(app, ["--allow-stale", "simulate", "--remove-file", str(roster)])
+    assert result.exit_code == 0, result.output
+    assert "services/billing/" in result.stdout
+    assert "infra/" in result.stdout
+    assert "no remaining owner" in result.stdout
+    assert "@carol (0.19)" in result.stdout
+    assert "@dave (0.15)" in result.stdout
+    assert "@erin (0.11)" in result.stdout
+    assert result.stdout.count("no strong second") == 1
+
+
 def test_stale_cache_is_refused_unless_allow_stale() -> None:
     write_state(
         Path.cwd(),

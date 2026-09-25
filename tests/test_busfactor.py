@@ -4,14 +4,20 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from checkowners.busfactor import (
+    UnknownIdentityError,
+    _repo_truck_factor,
+    _residual,
     _weighted_percentile,
     classify,
     compute_qualified_owners,
     owner_distribution,
+    simulate_removal,
+    simulation_payload,
 )
 from checkowners.models import (
     AnalysisConfig,
@@ -84,7 +90,8 @@ def test_compute_qualified_owners_recommends_adjacent_backups() -> None:
     ownership = _ownership(
         {
             "src/auth.py": (_entry("@alice", 0.9),),
-            "src/session.py": (_entry("@bob", 0.85),),
+            "src/session.py": (_entry("@bob", 0.85), _entry("@low", 0.1)),
+            "src/other.py": (_entry("@bob", 0.4),),
             "tests/test_session.py": (_entry("@carol", 0.95),),
         }
     )
@@ -261,3 +268,123 @@ def test_distribution_percentile_order(counts: list[int], weights: list[float]) 
     report = compute_qualified_owners(_ownership(paths), config)
     distribution = report.distribution
     assert distribution.minimum <= distribution.p10 <= distribution.median <= distribution.p90
+
+
+def _departure_map() -> OwnershipMap:
+    return _ownership(
+        {
+            "services/billing/a.py": (_entry("@alice", 0.9),),
+            "services/billing/b.py": (_entry("@alice", 0.8), _entry("@carol", 0.25)),
+            "services/keep.py": (_entry("@dave", 0.9),),
+            "src/pair.py": (_entry("@alice", 0.9), _entry("@bob", 0.7)),
+            "src/other.py": (_entry("@bob", 0.8), _entry("@carol", 0.6)),
+        }
+    )
+
+
+def test_simulate_one_and_two_removals() -> None:
+    ownership = _departure_map()
+    one = simulate_removal(ownership, _config(), ("@alice",))
+    assert one.files_losing_only_owner == 2
+    assert one.files_losing_only_owner_ratio == round(2 / 5, 4)
+    assert one.files_dropping_to_one == 1
+    assert [(item.path, item.files) for item in one.orphaned_directories] == [
+        ("services/billing/", 2)
+    ]
+    assert one.repo_truck_factor_before == 2
+    assert one.repo_truck_factor_after == 1
+    assert one.transfers[0].candidates[0].identity == "@carol"
+    assert one.transfers[0].candidates[0].confidence == 0.25
+    two = simulate_removal(ownership, _config(), ("@alice", "@bob"))
+    assert two.files_losing_only_owner == 2
+    assert two.files_dropping_to_one == 1
+    assert [(item.path, item.files) for item in two.orphaned_directories] == [
+        ("services/billing/", 2)
+    ]
+    assert two.repo_truck_factor_before == 2
+    assert two.repo_truck_factor_after == 0
+
+
+def test_simulate_removing_every_author_orphans_every_path() -> None:
+    ownership = _departure_map()
+    report = simulate_removal(ownership, _config(), ("@alice", "@bob", "@carol", "@dave"))
+    assert sum(item.files for item in report.orphaned_directories) == len(ownership.paths)
+    assert report.repo_truck_factor_after == 0
+    assert all(not item.authors_after for item in report.affected)
+
+
+def test_simulate_non_author_changes_nothing() -> None:
+    ownership = _ownership(
+        {
+            "services/keep.py": (_entry("@dave", 0.9), _entry("@zoe", 0.1)),
+        }
+    )
+    before = simulate_removal(ownership, _config(), ("@dave",))
+    report = simulate_removal(ownership, _config(), ("@zoe",))
+    assert report.files_losing_only_owner == 0
+    assert report.files_dropping_to_one == 0
+    assert report.orphaned_directories == ()
+    assert report.affected == ()
+    assert report.repo_truck_factor_before == report.repo_truck_factor_after
+    assert report.repo_truck_factor_before == before.repo_truck_factor_before
+
+
+def test_simulate_unknown_identity() -> None:
+    with pytest.raises(UnknownIdentityError, match="mallory"):
+        simulate_removal(_departure_map(), _config(), ("@mallory",))
+
+
+def test_simulate_rejects_blank_identities_and_collapses_duplicates() -> None:
+    ownership = _departure_map()
+    with pytest.raises(ValueError, match="at least one identity"):
+        simulate_removal(ownership, _config(), (" ", ""))
+    report = simulate_removal(ownership, _config(), ("@alice", " ", "@alice"))
+    assert report.removed == ("@alice",)
+    assert report.files_losing_only_owner == 2
+
+
+def test_simulate_keeps_the_stronger_stored_score() -> None:
+    ownership = OwnershipMap(
+        paths={
+            "services/billing/a.py": PathOwnership(
+                owners=(
+                    _entry("@alice", 0.9),
+                    _entry("@bob", 0.8),
+                    _entry("@carol", 0.22),
+                ),
+                qualified_owner_count=1,
+                scored_owners=(_entry("@alice", 0.9), _entry("@carol", 0.15)),
+                candidates=(_entry("@carol", 0.10),),
+            ),
+            "services/billing/b.py": PathOwnership(
+                owners=(
+                    _entry("@alice", 0.8),
+                    _entry("@carol", 0.28),
+                    _entry("@dave", 0.1),
+                    _entry("@zero", 0.0),
+                ),
+                qualified_owner_count=1,
+            ),
+        },
+        last_analyzed=_NOW,
+    )
+    report = simulate_removal(ownership, _config(), ("@alice",))
+    assert report.files_losing_only_owner == 2
+    assert [(item.path, item.files) for item in report.orphaned_directories] == [("services/", 2)]
+    candidates = report.transfers[0].candidates
+    assert [(item.identity, item.confidence) for item in candidates] == [
+        ("@bob", 0.8),
+        ("@carol", 0.28),
+    ]
+    bare = _residual(ownership, "services/billing", ("@alice",))
+    assert bare[0].identity == "@bob"
+    payload = simulation_payload(report)
+    transfers = payload["transfers"]
+    assert isinstance(transfers, list)
+    assert transfers[0]["candidates"][0]["identity"] == "@bob"
+
+
+def test_repo_truck_factor_empty_and_zero_coverage() -> None:
+    assert _repo_truck_factor({}, 0.5) == 0
+    assert _repo_truck_factor({"a.py": frozenset()}, 0.0) == 0
+    assert _repo_truck_factor({"a.py": frozenset({"@alice"})}, 0.0) == 1

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from checkowners.busfactor import (
+    UnknownIdentityError,
     _weighted_percentile,
     classify,
     compute_qualified_owners,
     owner_distribution,
+    simulate_removal,
 )
 from checkowners.models import (
     AnalysisConfig,
@@ -261,3 +264,67 @@ def test_distribution_percentile_order(counts: list[int], weights: list[float]) 
     report = compute_qualified_owners(_ownership(paths), config)
     distribution = report.distribution
     assert distribution.minimum <= distribution.p10 <= distribution.median <= distribution.p90
+
+
+def _departure_map() -> OwnershipMap:
+    return _ownership(
+        {
+            "services/billing/a.py": (_entry("@alice", 0.9),),
+            "services/billing/b.py": (_entry("@alice", 0.8), _entry("@carol", 0.25)),
+            "services/keep.py": (_entry("@dave", 0.9),),
+            "src/pair.py": (_entry("@alice", 0.9), _entry("@bob", 0.7)),
+            "src/other.py": (_entry("@bob", 0.8), _entry("@carol", 0.6)),
+        }
+    )
+
+
+def test_simulate_one_and_two_removals() -> None:
+    ownership = _departure_map()
+    one = simulate_removal(ownership, _config(), ("@alice",))
+    assert one.files_losing_only_owner == 2
+    assert one.files_losing_only_owner_ratio == round(2 / 5, 4)
+    assert one.files_dropping_to_one == 1
+    assert [(item.path, item.files) for item in one.orphaned_directories] == [
+        ("services/billing/", 2)
+    ]
+    assert one.repo_truck_factor_before == 2
+    assert one.repo_truck_factor_after == 1
+    assert one.transfers[0].candidates[0].identity == "@carol"
+    assert one.transfers[0].candidates[0].confidence == 0.25
+    two = simulate_removal(ownership, _config(), ("@alice", "@bob"))
+    assert two.files_losing_only_owner == 2
+    assert two.files_dropping_to_one == 1
+    assert [(item.path, item.files) for item in two.orphaned_directories] == [
+        ("services/billing/", 2)
+    ]
+    assert two.repo_truck_factor_before == 2
+    assert two.repo_truck_factor_after == 0
+
+
+def test_simulate_removing_every_author_orphans_every_path() -> None:
+    ownership = _departure_map()
+    report = simulate_removal(ownership, _config(), ("@alice", "@bob", "@carol", "@dave"))
+    assert sum(item.files for item in report.orphaned_directories) == len(ownership.paths)
+    assert report.repo_truck_factor_after == 0
+    assert all(not item.authors_after for item in report.affected)
+
+
+def test_simulate_non_author_changes_nothing() -> None:
+    ownership = _ownership(
+        {
+            "services/keep.py": (_entry("@dave", 0.9), _entry("@zoe", 0.1)),
+        }
+    )
+    before = simulate_removal(ownership, _config(), ("@dave",))
+    report = simulate_removal(ownership, _config(), ("@zoe",))
+    assert report.files_losing_only_owner == 0
+    assert report.files_dropping_to_one == 0
+    assert report.orphaned_directories == ()
+    assert report.affected == ()
+    assert report.repo_truck_factor_before == report.repo_truck_factor_after
+    assert report.repo_truck_factor_before == before.repo_truck_factor_before
+
+
+def test_simulate_unknown_identity() -> None:
+    with pytest.raises(UnknownIdentityError, match="mallory"):
+        simulate_removal(_departure_map(), _config(), ("@mallory",))

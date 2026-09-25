@@ -2674,6 +2674,248 @@
           "truncated": false
         }
       ]
+    },
+    "simulate": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "required": [
+            "removed",
+            "contributor_count",
+            "files_losing_only_owner",
+            "files_losing_only_owner_ratio",
+            "files_dropping_to_one",
+            "orphaned_directories",
+            "repo_truck_factor",
+            "risk",
+            "affected",
+            "transfers"
+          ],
+          "properties": {
+            "removed": {
+              "$ref": "#/$defs/stringList"
+            },
+            "contributor_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "files_losing_only_owner": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "files_losing_only_owner_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "files_dropping_to_one": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "orphaned_directories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "files"],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "repo_truck_factor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["before", "after"],
+              "properties": {
+                "before": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "after": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "risk": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["before", "after"],
+              "properties": {
+                "before": {
+                  "$ref": "#/$defs/ownerDistribution"
+                },
+                "after": {
+                  "$ref": "#/$defs/ownerDistribution"
+                }
+              }
+            },
+            "affected": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "authors_before",
+                  "authors_after",
+                  "risk_before",
+                  "risk_after"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "authors_before": {
+                    "$ref": "#/$defs/stringList"
+                  },
+                  "authors_after": {
+                    "$ref": "#/$defs/stringList"
+                  },
+                  "risk_before": {
+                    "$ref": "#/$defs/risk"
+                  },
+                  "risk_after": {
+                    "$ref": "#/$defs/risk"
+                  }
+                }
+              }
+            },
+            "transfers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "candidates"],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "candidates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["identity", "confidence"],
+                      "properties": {
+                        "identity": {
+                          "type": "string"
+                        },
+                        "confidence": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.6.0",
+          "models": {
+            "ownership": "ownership-v1",
+            "risk": "risk-v1",
+            "topology": "topology-v1"
+          },
+          "repository": "acme/payments",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": 0.75,
+          "removed": ["@alice"],
+          "contributor_count": 2,
+          "files_losing_only_owner": 1,
+          "files_losing_only_owner_ratio": 0.5,
+          "files_dropping_to_one": 0,
+          "orphaned_directories": [
+            {
+              "path": "services/billing/",
+              "files": 1
+            }
+          ],
+          "repo_truck_factor": {
+            "before": 1,
+            "after": 0
+          },
+          "risk": {
+            "before": {
+              "minimum": 1.0,
+              "p10": 1.0,
+              "median": 1.0,
+              "p90": 1.0,
+              "critical_path_risk": 1.0,
+              "knowledge_at_risk": 1.0,
+              "criticality_incomplete": true
+            },
+            "after": {
+              "minimum": 0.0,
+              "p10": 0.0,
+              "median": 0.0,
+              "p90": 0.0,
+              "critical_path_risk": 0.0,
+              "knowledge_at_risk": 1.0,
+              "criticality_incomplete": true
+            }
+          },
+          "affected": [
+            {
+              "path": "services/billing/invoice.py",
+              "authors_before": ["@alice"],
+              "authors_after": [],
+              "risk_before": {
+                "top_owner_share": 1.0,
+                "effective_owners": 1.0,
+                "truck_factor_50": 1,
+                "truck_factor_75": 1,
+                "truck_factor_90": 1,
+                "shannon_entropy": 0.0,
+                "hhi": 1.0,
+                "minor_contributor_share": 0.0,
+                "major_contributor_count": 1,
+                "truck_factor_thresholds": [0.5, 0.75, 0.9]
+              },
+              "risk_after": {
+                "top_owner_share": 0.0,
+                "effective_owners": 0.0,
+                "truck_factor_50": 0,
+                "truck_factor_75": 0,
+                "truck_factor_90": 0,
+                "shannon_entropy": 0.0,
+                "hhi": 0.0,
+                "minor_contributor_share": 0.0,
+                "major_contributor_count": 0,
+                "truck_factor_thresholds": [0.5, 0.75, 0.9]
+              }
+            }
+          ],
+          "transfers": [
+            {
+              "path": "services/billing/",
+              "candidates": [
+                {
+                  "identity": "@carol",
+                  "confidence": 0.25
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   }
 }

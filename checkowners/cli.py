@@ -53,11 +53,15 @@ from checkowners.baseline import (
 )
 from checkowners.busfactor import (
     BusFactorReport,
+    SimulationReport,
+    UnknownIdentityError,
     classify,
     compute_qualified_owners,
     distribution_json,
     format_qualified_owner_count,
     qualified_owner_count_fields,
+    simulate_removal,
+    simulation_payload,
 )
 from checkowners.config import find_codeowners_path, load_config
 from checkowners.decay import DecayReport, detect_decay
@@ -1791,6 +1795,108 @@ def qualified_owners(
 
 
 app.command(name="qualified-owners")(qualified_owners)
+
+
+def _load_cached(config: Config, repo_root: Path) -> OwnershipMap:
+    """Return this repo's cached ownership, or exit 2 when it cannot be reused."""
+    if _NO_CACHE.get():
+        console.print("[red]Cached analysis is required; run `checkowners analyze`.[/red]")
+        exit_with(ExitCode.CONFIG)
+    cached = reusable_ownership(
+        repo_root,
+        config,
+        head=_try_head_sha(repo_root),
+        allow_stale=_ALLOW_STALE.get(),
+        max_age=_MAX_AGE.get(),
+    )
+    if cached is None:
+        console.print("[red]Cached analysis is stale or missing; run `checkowners analyze`.[/red]")
+        exit_with(ExitCode.CONFIG)
+    return cached
+
+
+def _roster(path: Path) -> tuple[str, ...]:
+    """Return identities from `path`, skipping blanks and comments."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        console.print(f"[red]Cannot read roster: {exc}[/red]")
+        exit_with(ExitCode.CONFIG)
+    identities: list[str] = []
+    for line in text.splitlines():
+        item = line.split("#", 1)[0].strip()
+        if item:
+            identities.append(item)
+    return tuple(identities)
+
+
+def _leader(label: str, value: str) -> None:
+    width = 42
+    pad = max(2, width - len(label))
+    typer.echo(f"{label} {'.' * pad} {value}")
+
+
+def _render_simulation(report: SimulationReport) -> None:
+    removed = len(report.removed)
+    typer.echo(f"Removing {removed} of {report.contributor_count} contributors:")
+    typer.echo("")
+    percent = report.files_losing_only_owner_ratio * 100
+    only = f"{report.files_losing_only_owner:,}  ({percent:.1f}% of repo)"
+    _leader("Files losing their ONLY owner", only)
+    _leader("Files dropping to bus factor 1", f"{report.files_dropping_to_one:,}")
+    directory_count = len(report.orphaned_directories)
+    _leader("Directories fully orphaned", f"{directory_count:,}")
+    for directory in report.orphaned_directories:
+        typer.echo(f"   {directory.path:<22} {directory.files:>4} files   no remaining owner")
+    change = f"{report.repo_truck_factor_before} -> {report.repo_truck_factor_after}"
+    _leader("Repo truck factor", change)
+    typer.echo("")
+    typer.echo("Suggested transfers (candidate backup reviewers, by residual confidence):")
+    if not report.transfers:
+        typer.echo("   none")
+        return
+    for transfer in report.transfers:
+        parts = [
+            f"{_person(candidate.identity)} ({candidate.confidence:.2f})"
+            for candidate in transfer.candidates
+        ]
+        if len(parts) < 2:
+            parts.append("no strong second")
+        typer.echo(f"   {transfer.path:<22} -> {'  '.join(parts)}")
+
+
+@app.command()
+def simulate(
+    remove: Annotated[
+        list[str] | None,
+        typer.Option("--remove", help="Identity to exclude. Repeat for each person."),
+    ] = None,
+    remove_file: Annotated[
+        Path | None,
+        typer.Option("--remove-file", help="Roster of identities, one per line."),
+    ] = None,
+    json_output: JsonOption = False,
+) -> None:
+    """Report what changes if the named contributors leave. Uses cached analysis only."""
+    identities = tuple(remove or ())
+    if remove_file is not None:
+        identities = (*identities, *_roster(remove_file))
+    if not any(item.strip() for item in identities):
+        console.print("[red]Pass --remove or --remove-file with at least one identity.[/red]")
+        exit_with(ExitCode.CONFIG)
+    config = _load_config()
+    ownership = _load_cached(config, Path.cwd())
+    try:
+        report = simulate_removal(ownership, config, identities)
+    except UnknownIdentityError as exc:
+        console.print(f"[red]Identity {exc.identity} does not appear in the ownership map.[/red]")
+        exit_with(ExitCode.CONFIG)
+    if json_output:
+        _emit_json(simulation_payload(report), ownership)
+    else:
+        _render_simulation(report)
+        _report_models("risk")
+    _finish_analysis(ownership)
 
 
 def _print_owner_distribution(report: BusFactorReport) -> None:

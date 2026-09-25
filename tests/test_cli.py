@@ -2256,6 +2256,30 @@ def test_exit_code_contract(
         assert (tmp_path / "drift.json").is_file()
 
 
+def test_simulate_refuses_stale_cache_and_unknown_identity() -> None:
+    write_state(
+        Path.cwd(),
+        replace(_OWNERSHIP, analysis_ref="oldsha"),
+        config=load_config(),
+    )
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP) as analyze:
+        stale = runner.invoke(app, ["simulate", "--remove", "alice@example.com"])
+    assert stale.exit_code == 2, stale.output
+    assert not analyze.called
+    assert "stale or missing" in stale.stdout + stale.stderr
+    with patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP) as analyze:
+        allowed = runner.invoke(
+            app,
+            ["--allow-stale", "simulate", "--remove", "alice@example.com"],
+        )
+    assert allowed.exit_code == 0, allowed.output
+    assert not analyze.called
+    assert "Repo truck factor" in allowed.stdout
+    unknown = runner.invoke(app, ["--allow-stale", "simulate", "--remove", "@nobody"])
+    assert unknown.exit_code == 2, unknown.output
+    assert "does not appear in the ownership map" in unknown.stdout + unknown.stderr
+
+
 def test_stale_cache_is_refused_unless_allow_stale() -> None:
     write_state(
         Path.cwd(),

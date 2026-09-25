@@ -152,8 +152,11 @@ An empty or all-zero list reports `top_owner_share` `0.0`,
 factors `0`.
 
 These truck factors are coverage counts on one path's score mass. They are
-not a repository truck factor. There is no removal simulation and no
-`simulate` command. Changing `top_n_owners` changes the displayed list and
+not a repository truck factor. `checkowners simulate --remove` is that
+repository removal: it drops named people from the cached map and reports
+files that lose their only author, files left with one author, fully orphaned
+directories, and the repository truck factor before and after. Changing
+`top_n_owners` changes the displayed list and
 `qualified_owner_count`. It does not change concentration. The `bus_factor`
 config section still classifies the capped count: `critical` at or below
 `critical_threshold`, `warning` at or below `warn_threshold`.
@@ -187,7 +190,8 @@ Degree of knowledge, Fritz, Ou, Murphy, and Murphy-Hill (ICSE 2010) and Fritz,
 Murphy, Murphy-Hill, Ou, and Hill, "Degree-of-Knowledge: Modeling a
 Developer's Knowledge of Code" (TOSEM 2014), adds interaction (reviews,
 navigation) to authorship. CheckOwners does not compute degree of authorship
-or degree of knowledge, and it does not run that removal simulation.
+or degree of knowledge. `simulate` removes people from the existing author
+sets (scores at or above the confidence threshold). It does not compute DOA.
 
 The divergence is deliberate. The old headline number was the capped
 `qualified_owner_count`. Calling it bus factor overclaimed the literature.
@@ -195,8 +199,11 @@ CheckOwners reports per-path knowledge shares, inverse-Herfindahl
 `effective_owners`, and `truck_factor_50`, `truck_factor_75`, and
 `truck_factor_90` over every score above the confidence threshold. Those
 counts remove the highest-knowledge contributors on one path until a share of
-inferred knowledge is gone. They do not remove people until files lose their
-last author, which is the truck factor in Avelino et al. and Ferreira et al.
+inferred knowledge is gone. The repository truck factor, reported by
+`simulate`, greedily removes the author who still covers the most files until
+covered files drop below the first `risk.truck_factor_thresholds` value
+(default `0.50`). That coverage line is the one in Avelino et al. Ties break
+by identity so the count is stable.
 
 ## Terminology
 

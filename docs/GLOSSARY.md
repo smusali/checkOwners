@@ -26,4 +26,4 @@ One sentence for each term used in reports. Naming rules are in [Terminology](ME
 - **qualified owner count**: the number of owners on a path at or above the confidence threshold after the list is truncated to `top_n_owners`, which is a capped count and not a truck factor.
 - **Shannon entropy**: the entropy, in nats, of the ownership-score shares on a path.
 - **top owner share**: the largest ownership-score share on a path.
-- **truck factor**: the smallest number of highest-share contributors whose scores sum to a configured fraction of inferred knowledge on one path.
+- **truck factor**: on one path, the smallest number of highest-share contributors whose scores sum to a configured fraction of inferred knowledge. The repository truck factor, from `simulate`, is the number of authors whose departure drops file coverage below the first truck-factor threshold.

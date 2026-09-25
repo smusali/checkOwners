@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,9 +12,12 @@ from check_json_contract import load_schema, validate_instance
 from jsonschema.exceptions import ValidationError
 
 from checkowners.action_report import summarize_bus_factor, summarize_decay, summarize_drift
+from checkowners.analyze import head_commit_sha
 from checkowners.balance import BalanceReport
+from checkowners.config import load_config
 from checkowners.explain import PathExplanation
 from checkowners.onboard import OnboardingPath
+from checkowners.state import write_state
 from checkowners.topology import TopologyReport
 from tests.conftest import git_commit, init_git_repo
 from tests.test_cli import (
@@ -46,6 +50,7 @@ _COMMANDS: tuple[tuple[list[str], str], ...] = (
     (["who", "src/main.py", "--json"], "owners"),
     (["expertise", "src/main.py", "--json"], "expertise"),
     (["trends", "--json"], "trends"),
+    (["simulate", "--remove", "alice@example.com", "--json"], "simulate"),
 )
 
 
@@ -61,6 +66,12 @@ def _invoke(tmp_path: Path, args: list[str]) -> dict[str, object]:
     )
     if args[0] == "explain-path":
         (tmp_path / "CODEOWNERS").write_text("* @alice\n", encoding="utf-8")
+    if args[0] == "simulate":
+        write_state(
+            tmp_path,
+            replace(_OWNERSHIP, analysis_ref=head_commit_sha(tmp_path)),
+            config=load_config(repo_root=tmp_path),
+        )
     explanation = PathExplanation(
         target="src/main.py",
         kind="file",

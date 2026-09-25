@@ -29,6 +29,9 @@ _PERSON_KEYS = frozenset(
         "recommended_transfer",
         "recommended_backups",
         "contributors_above_threshold",
+        "authors_before",
+        "authors_after",
+        "removed",
         "candidate",
         "reviewer",
     }

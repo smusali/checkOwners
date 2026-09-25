@@ -129,11 +129,27 @@ The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/b
 | `checkowners decay` | Report ownership freshness and continuity risk; suggest a transfer |
 | `checkowners graph [--export dot]` | Render the ownership graph |
 | `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with candidate backup reviewers |
+| `checkowners simulate --remove @alice` | What breaks if those people leave, from the cached map |
 | `checkowners topology` | Exploratory repository topology from commit co-occurrence |
 | `checkowners balance` | Compare a git authorship proxy, or completed reviews when the API is available |
 | `checkowners onboard <path>` | Learning path from broadly shared paths to concentrated qualified ownership |
 | `checkowners trends [--periods N] [--period-days D]` | Historical activity and qualified owner count over time |
 | `checkowners github-action` | Run the full CI flow and write `GITHUB_OUTPUT`; used by the composite Action |
+
+```text
+Removing 2 of 34 contributors:
+
+Files losing their ONLY owner ......... 412  (3.4% of repo)
+Files dropping to bus factor 1 ........ 1,203
+Directories fully orphaned ............ 7
+   services/billing/          182 files   no remaining owner
+   infra/terraform/vpc/        41 files   no remaining owner
+Repo truck factor ..................... 4 -> 2
+
+Suggested transfers (candidate backup reviewers, by residual confidence):
+   services/billing/   -> @carol (0.61)  @dave (0.44)
+   infra/terraform/vpc -> @erin  (0.38)  no strong second
+```
 
 Trimmed JSON from this repository is in [examples/sample-output.md](https://github.com/smusali/checkowners/blob/main/examples/sample-output.md). Reference configs live under [examples/](https://github.com/smusali/checkowners/tree/main/examples).
 

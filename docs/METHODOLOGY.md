@@ -11,7 +11,7 @@ For contributor `u` on path `p`:
 | Signal | Meaning | Available when |
 |--------|---------|----------------|
 | Recency | Exponential decay from last commit. `scoring.recency_strategy: adaptive` (default) sets the half-life to the path's median inter-commit gap, clamped to `recency_half_life_floor_days` and `recency_half_life_ceiling_days` (14 and 730). No positive gap falls back to `recency_half_life_days` (90). `fixed` uses that value for every path. Aged against the analysis instant (HEAD committer time by default, never the wall clock) | The owner has a last-commit timestamp |
-| Frequency | `commits(u, p) / (max_commits(p) + prior)` over the lookback window, with author emails from `git log` after `.mailmap` when `identity.mailmap` is on. `prior` is `3` when `qualification.strategy` is `adaptive`, and `0` when it is `threshold` | Commit counts exist for the path |
+| Frequency | Weighted commit credit on the path inside the lookback, divided by that path's maximum credit plus `prior`. The commit author adds `1`. A credited `Co-authored-by` trailer adds `git.co_author_weight` (default `1`) when `git.count_co_authors` is on. Emails come from `git log` after `.mailmap` when `identity.mailmap` is on. `prior` is `3` when `qualification.strategy` is `adaptive`, and `0` when it is `threshold`. The `commits` field counts appearances. At the default weight it matches the numerator | Commit counts exist for the path |
 | Blame | Share of current lines `git blame` (porcelain, `-w`, `.mailmap` when `identity.mailmap` is on, and `-M`/`-C` when `git.detect_moves`) attributes to `u`. Commits listed in a resolved ignore-revs file, and mass-refactor commits above `git.mass_refactor_file_fraction`, are omitted so the prior author keeps the line | Blame ran and produced lines for the path |
 | Review | Share of PR reviews on `p` attributed to `u` | A review provider was injected (`github.api_enabled` plus token and `GITHUB_REPOSITORY`) |
 
@@ -25,7 +25,7 @@ mark those signals unavailable.
 | Signal | It measures | It proxies for | It does not establish |
 |--------|-------------|----------------|------------------------|
 | Recency | Days since the last commit, with exponential half-life decay relative to the path's own cadence unless strategy is `fixed` | How fresh the contact with the path is | What the person knows, availability, or current employment |
-| Frequency | Share of commits on the path inside the lookback window | Repeated authorship | Ownership, or that a squash-merge author wrote the lines |
+| Frequency | Share of weighted commit credit on the path inside the lookback window | Repeated authorship | Ownership, or that a squash-merge author wrote the lines |
 | Blame | Share of current lines attributed to the person | Who the current text is attributed to, after whitespace, move, and ignore-revs corrections | Authority to decide, or that a formatter did not touch the file |
 | Review | Share of recorded pull-request reviews on the path | Review participation when a provider returned data | Organizational accountability, or that the person is the right reviewer now |
 
@@ -314,12 +314,13 @@ author is absent.
 owner. Under `ownership-v1`, a commit 18 months before the as-of falls outside
 the 365-day lookback and the 90-day half-life, so the path has no scored owner.
 
-**Co-authors.** Intended belief: a `Co-authored-by` trailer receives credit.
-Under `ownership-v1`, only the commit author is scored.
+**Co-authors.** A `Co-authored-by` trailer adds a scored owner on every file in
+that commit. Blame stays with the commit author, so the co-author's blame
+share is zero. `git.count_co_authors: false` scores only the commit author.
 
-When a later model makes one of those three records match the intended belief,
-update the `ownership-v1` sentences, or add the new model id, in the same
-change.
+When a later model makes the rename or cadence record match the intended
+belief, update the `ownership-v1` sentences, or add the new model id, in the
+same change.
 
 ## Benchmark and calibration
 

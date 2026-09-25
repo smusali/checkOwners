@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any, TypedDict
+from typing import IO, Any, TypedDict, TypeGuard, get_args
 
 from checkowners import __version__
 from checkowners.busfactor import (
@@ -46,6 +46,7 @@ from checkowners.models import (
     OwnershipFreshness,
     OwnershipMap,
     PathOwnership,
+    ReportedMergeStrategy,
     Severity,
     SignalScore,
     TeamCluster,
@@ -442,6 +443,8 @@ def write_state(
                 "mailmap_file": ownership.analysis_completeness.mailmap_file,
                 "excluded_gitattributes": ownership.analysis_completeness.excluded_gitattributes,
                 "excluded_static": ownership.analysis_completeness.excluded_static,
+                "merge_strategy": ownership.analysis_completeness.merge_strategy,
+                "co_author_count": ownership.analysis_completeness.co_author_count,
                 "score": ownership.analysis_completeness.score,
                 "gaps": [
                     {"code": gap.code, "reason": gap.reason}
@@ -760,6 +763,8 @@ def _deserialize_completeness(raw: object) -> AnalysisCompleteness:
     mailmap_file = raw.get("mailmap_file", "")
     excluded_gitattributes = raw.get("excluded_gitattributes", 0)
     excluded_static = raw.get("excluded_static", 0)
+    merge_strategy = raw.get("merge_strategy", "rebase")
+    co_author_count = raw.get("co_author_count", 0)
     return AnalysisCompleteness(
         ignore_revs_applied=applied is True,
         ignore_revs_file=path if isinstance(path, str) else "",
@@ -769,9 +774,25 @@ def _deserialize_completeness(raw: object) -> AnalysisCompleteness:
             excluded_gitattributes if isinstance(excluded_gitattributes, int) else 0
         ),
         excluded_static=excluded_static if isinstance(excluded_static, int) else 0,
+        merge_strategy=(
+            merge_strategy
+            if isinstance(merge_strategy, str) and _is_reported_strategy(merge_strategy)
+            else "rebase"
+        ),
+        co_author_count=_nonnegative_int(co_author_count),
         score=_optional_score(raw.get("score")),
         gaps=_deserialize_gaps(raw.get("gaps")),
     )
+
+
+def _is_reported_strategy(value: str) -> TypeGuard[ReportedMergeStrategy]:
+    return value in get_args(ReportedMergeStrategy)
+
+
+def _nonnegative_int(raw: object) -> int:
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        return 0
+    return raw
 
 
 def _optional_score(raw: object) -> float | None:

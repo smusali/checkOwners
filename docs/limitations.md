@@ -6,7 +6,7 @@ wrong. Observed history is evidence, not authority.
 ## Where the tool can be wrong
 
 - Git history is not complete human expertise.
-- Squash merges can hide authorship.
+- Squash merges hide authors who are absent from the commit and its `Co-authored-by` trailers.
 - Blame can over-credit formatting changes.
 - CODEOWNERS may intentionally differ from repository evidence.
 - GitHub team analysis requires API access.
@@ -48,8 +48,41 @@ truncation. They are not a repository removal simulation. See
 
 ## Git history is incomplete evidence
 
-- Squash merges collapse many authors into one commit, so recency and
-  frequency can credit the merger more than the people who wrote the code.
+Git attribution is not a complete engineering contribution history. Analyze
+reports `merge_strategy` and `co_author_count` so that gap is visible.
+`git.merge_strategy: auto` detects the dominant style in the lookback window.
+An explicit `squash`, `merge`, or `rebase` is reported as given. Detection
+does not change which commits are read. `git log` walks every parent. It does
+not pass `-m` or `--first-parent`: `-m` would count a merge's files twice, and
+`--first-parent` would hide the authors on the merged branch.
+
+- **auto.** If at least 5% of commits in the window have two or more parents,
+  the strategy is `merge`. Otherwise, if at least half of the remaining
+  commits have a subject ending in `(#<number>)`, the strategy is `squash`.
+  Otherwise, including an empty window, it is `rebase`.
+- **squash.** One commit stands in for the change. Other authors are recovered
+  only from `Co-authored-by` trailers when `git.count_co_authors` is true.
+  Each credited person is scored on every file in that commit, with
+  `git.co_author_weight` relative to the author's `1`. Blame still names only
+  the commit author. Reviewers, and authors left off the trailer, are not
+  recovered. Pull-request participant lists are not read.
+- **merge.** Commits that were merged keep their own files and authors. The
+  merge commit itself adds no file credit. A trailer on a merged commit still
+  credits that co-author.
+- **rebase.** Each replayed commit keeps its author. A trailer credits an
+  extra person on that commit. It does not stand in for commits the rebase
+  dropped.
+
+`git.count_co_authors: false` scores only the commit author and reports
+`co_author_count: 0`.
+
+A `Co-authored-by` line counts only in the form `Name <email>`. The key is
+case-insensitive. Any other trailer is ignored and does not fail the run. The
+same email twice on one commit counts once. A trailer that is the author, or
+that `.mailmap` maps to the author, is not a second person. Co-author emails
+use the same `.mailmap` mapping, bot filter, and handle resolution as authors.
+Blame does not split lines across co-authors.
+
 - Unmapped emails stay distinct. `.mailmap` (on by default) collapses
   addresses the repository already listed; anything left unmapped is still
   two identities until handle resolution merges them.

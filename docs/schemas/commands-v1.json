@@ -298,6 +298,14 @@
         },
         "excluded_static": {
           "type": "integer"
+        },
+        "merge_strategy": {
+          "type": "string",
+          "enum": ["squash", "merge", "rebase"]
+        },
+        "co_author_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -723,7 +731,9 @@
             "mailmap_applied": false,
             "mailmap_file": "",
             "excluded_gitattributes": 0,
-            "excluded_static": 0
+            "excluded_static": 0,
+            "merge_strategy": "rebase",
+            "co_author_count": 0
           },
           "inferred": {
             "services/payments/core.py": {

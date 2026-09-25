@@ -11,7 +11,11 @@ from typing import Literal
 
 from checkowners import __version__
 from checkowners.analyze import (
+    _BODY_END,
+    _BODY_START,
     Contribution,
+    assign_coauthors,
+    coauthor_contacts,
     frequency_prior_for,
     gather_blame_coverage,
     lookback_start,
@@ -221,7 +225,7 @@ def commit_shas(
         "git",
         "log",
         mailmap_flag(config.git.use_mailmap),
-        f"--format=%H%n{email_fmt}%n%cI",
+        f"--format=%H%n{email_fmt}%n%cI%n{_BODY_START}%n%b%n{_BODY_END}",
     ]
     if window_start is not None:
         argv.append(f"--since={window_start.isoformat()}")
@@ -233,7 +237,12 @@ def commit_shas(
         cwd=repo_root,
         check=False,
     )
-    return _parse_sha_log(result.stdout)
+    return _parse_sha_log(
+        result.stdout,
+        repo_root,
+        use_mailmap=config.git.use_mailmap,
+        count_co_authors=config.git.count_co_authors,
+    )
 
 
 def rename_lineage(repo_root: Path, target: str) -> tuple[str, ...]:
@@ -274,6 +283,7 @@ def last_contribution(
     query: str,
     *,
     use_mailmap: bool,
+    count_co_authors: bool = True,
 ) -> tuple[str, datetime] | None:
     """Newest matching commit on ``target`` with no lookback bound."""
     email_fmt = "%aE" if use_mailmap else "%ae"
@@ -282,7 +292,7 @@ def last_contribution(
             "git",
             "log",
             mailmap_flag(use_mailmap),
-            f"--format=%H%n{email_fmt}%n%cI",
+            f"--format=%H%n{email_fmt}%n%cI%n{_BODY_START}%n%b%n{_BODY_END}",
             "--",
             target,
         ],
@@ -291,7 +301,13 @@ def last_contribution(
         cwd=repo_root,
         check=False,
     )
-    for author, when, _sha in _iter_sha_log(result.stdout):
+    rows = _credited_rows(
+        _iter_sha_log(result.stdout),
+        repo_root,
+        use_mailmap=use_mailmap,
+        count_co_authors=count_co_authors,
+    )
+    for author, when, _sha in rows:
         if identities_match(author, query):
             return author, when
     return None
@@ -577,7 +593,13 @@ def _why_not_outsider(
     *,
     as_of: datetime,
 ) -> WhyNotResult:
-    found = last_contribution(repo_root, target, query, use_mailmap=config.git.use_mailmap)
+    found = last_contribution(
+        repo_root,
+        target,
+        query,
+        use_mailmap=config.git.use_mailmap,
+        count_co_authors=config.git.count_co_authors,
+    )
     files = matching_files(ownership, target)
     blame_paths = files if files else (target,)
     coverage = blame_shares(repo_root, blame_paths, config)
@@ -588,7 +610,7 @@ def _why_not_outsider(
     last_when = found[1] if found else as_of
     review_available = _review_available(ownership)
     scored = score_owners(
-        {handle: Contribution(commits=0, last_commit=last_when)},
+        {handle: Contribution(commits=0, last_commit=last_when, credit=0.0)},
         {handle: share} if blame_available else {},
         {},
         max_commits=1,
@@ -835,9 +857,21 @@ def _lookup_shas(handle: str, shas: Mapping[str, tuple[str, ...]]) -> tuple[str,
     return ()
 
 
-def _parse_sha_log(stdout: str) -> dict[str, tuple[str, ...]]:
+def _parse_sha_log(
+    stdout: str,
+    repo_root: Path,
+    *,
+    use_mailmap: bool,
+    count_co_authors: bool,
+) -> dict[str, tuple[str, ...]]:
     grouped: dict[str, list[str]] = {}
-    for author, _when, sha in _iter_sha_log(stdout):
+    rows = _credited_rows(
+        _iter_sha_log(stdout),
+        repo_root,
+        use_mailmap=use_mailmap,
+        count_co_authors=count_co_authors,
+    )
+    for author, _when, sha in rows:
         bucket = grouped.setdefault(author, [])
         if sha in bucket or len(bucket) >= _SHA_CAP:
             continue
@@ -845,21 +879,68 @@ def _parse_sha_log(stdout: str) -> dict[str, tuple[str, ...]]:
     return {author: tuple(values) for author, values in grouped.items()}
 
 
-def _iter_sha_log(stdout: str) -> tuple[tuple[str, datetime, str], ...]:
+@dataclass(frozen=True)
+class _ShaRow:
+    author: str
+    when: datetime
+    sha: str
+    contacts: tuple[tuple[str, str], ...]
+
+
+def _iter_sha_log(stdout: str) -> tuple[_ShaRow, ...]:
     lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    rows: list[tuple[str, datetime, str]] = []
+    rows: list[_ShaRow] = []
     index = 0
     while index + 2 < len(lines):
-        sha = _short_sha(lines[index])
-        author = lines[index + 1]
         try:
             when = datetime.fromisoformat(lines[index + 2])
         except ValueError:
             index += 1
             continue
-        rows.append((author, when, sha))
+        author = lines[index + 1]
+        sha = _short_sha(lines[index])
         index += 3
+        if index >= len(lines) or lines[index] != _BODY_START:
+            continue
+        index += 1
+        body: list[str] = []
+        while index < len(lines) and lines[index] != _BODY_END:
+            body.append(lines[index])
+            index += 1
+        if index >= len(lines) or lines[index] != _BODY_END:
+            continue
+        index += 1
+        rows.append(
+            _ShaRow(
+                author=author,
+                when=when,
+                sha=sha,
+                contacts=coauthor_contacts("\n".join(body)),
+            )
+        )
     return tuple(rows)
+
+
+def _credited_rows(
+    rows: tuple[_ShaRow, ...],
+    repo_root: Path,
+    *,
+    use_mailmap: bool,
+    count_co_authors: bool,
+) -> tuple[tuple[str, datetime, str], ...]:
+    credited = assign_coauthors(
+        repo_root,
+        tuple(row.author for row in rows),
+        tuple(row.contacts for row in rows),
+        use_mailmap=use_mailmap,
+        enabled=count_co_authors,
+    )
+    expanded: list[tuple[str, datetime, str]] = []
+    for row, coauthors in zip(rows, credited, strict=True):
+        expanded.append((row.author, row.when, row.sha))
+        for email in coauthors:
+            expanded.append((email, row.when, row.sha))
+    return tuple(expanded)
 
 
 def _short_sha(value: str) -> str:

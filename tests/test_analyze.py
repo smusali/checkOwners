@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -65,6 +66,7 @@ from checkowners.models import (
     AnalysisCompleteness,
     AnalysisConfig,
     Config,
+    ConfiguredMergeStrategy,
     DecayConfig,
     GitConfig,
     OwnerEntry,
@@ -82,7 +84,10 @@ def _make_git_log_output(
     """Build a fake git log stdout string from (author, timestamp, files) triples."""
     chunks: list[str] = []
     for author, ts, files in commits:
-        chunk = f"COMMIT_START\n{author}\n{ts.isoformat()}\n\n" + "\n".join(files)
+        chunk = (
+            f"COMMIT_START\n{author}\n{ts.isoformat()}\n"
+            f"\nsubject\nBODY_START\n\nBODY_END\n" + "\n".join(files)
+        )
         chunks.append(chunk)
     return "\n".join(chunks) + "\n"
 
@@ -585,8 +590,8 @@ def test_decay_without_freshness_uses_the_day_threshold() -> None:
     stale = OwnerEntry(handle="bob", ownership_score=0.4, last_commit=stale_at, commits=1)
     missing = OwnerEntry(handle="carol", ownership_score=0.3, last_commit=stale_at, commits=1)
     qualified = {
-        "alice": Contribution(commits=1, last_commit=_NOW),
-        "bob": Contribution(commits=1, last_commit=stale_at),
+        "alice": Contribution(commits=1, last_commit=_NOW, credit=1.0),
+        "bob": Contribution(commits=1, last_commit=stale_at, credit=1.0),
     }
     warnings = _detect_decay("src/a.py", qualified, (recent, stale, missing), 180, _NOW)
     assert [warning.handle for warning in warnings] == ["bob"]
@@ -594,7 +599,7 @@ def test_decay_without_freshness_uses_the_day_threshold() -> None:
 
 
 def test_analyze_score_scale_with_and_without_review_provider() -> None:
-    contrib = Contribution(commits=3, last_commit=_NOW)
+    contrib = Contribution(commits=3, last_commit=_NOW, credit=3.0)
     qualified = {"alice@example.com": contrib}
     scoring = ScoringConfig()
     path_blame = {"alice@example.com": 1.0}
@@ -744,9 +749,9 @@ def test_aggregate_contributions_takes_latest_timestamp() -> None:
 
 def test_filter_excluded_removes_paths() -> None:
     contribs: dict[str, dict[str, Contribution]] = {
-        "src/main.py": {"alice": Contribution(3, _NOW)},
-        "yarn.lock": {"alice": Contribution(5, _NOW)},
-        "dist/out.js": {"bob": Contribution(2, _NOW)},
+        "src/main.py": {"alice": Contribution(3, _NOW, credit=3.0)},
+        "yarn.lock": {"alice": Contribution(5, _NOW, credit=5.0)},
+        "dist/out.js": {"bob": Contribution(2, _NOW, credit=2.0)},
     }
     patterns = ("*.lock", "dist/**")
     filtered = _filter_excluded(contribs, patterns)
@@ -758,8 +763,8 @@ def test_filter_excluded_removes_paths() -> None:
 def test_filter_nonexistent(tmp_path: Path) -> None:
     (tmp_path / "exists.py").write_text("x", encoding="utf-8")
     contribs: dict[str, dict[str, Contribution]] = {
-        "exists.py": {"alice": Contribution(3, _NOW)},
-        "deleted.py": {"bob": Contribution(5, _NOW)},
+        "exists.py": {"alice": Contribution(3, _NOW, credit=3.0)},
+        "deleted.py": {"bob": Contribution(5, _NOW, credit=5.0)},
     }
     result = _filter_nonexistent(contribs, tmp_path)
     assert "exists.py" in result
@@ -1141,7 +1146,7 @@ def test_adaptive_squash_merge_produces_owners() -> None:
 def test_adaptive_low_blame_scores_below_high_blame() -> None:
     scoring = ScoringConfig()
     low = score_owners(
-        {"alice@example.com": Contribution(commits=1, last_commit=_RECENT)},
+        {"alice@example.com": Contribution(commits=1, last_commit=_RECENT, credit=1.0)},
         {"alice@example.com": 0.03},
         {},
         max_commits=1,
@@ -1152,7 +1157,7 @@ def test_adaptive_low_blame_scores_below_high_blame() -> None:
         frequency_prior=3.0,
     )
     high = score_owners(
-        {"alice@example.com": Contribution(commits=1, last_commit=_RECENT)},
+        {"alice@example.com": Contribution(commits=1, last_commit=_RECENT, credit=1.0)},
         {"alice@example.com": 0.95},
         {},
         max_commits=1,
@@ -1729,3 +1734,194 @@ def test_owner_total_matches_combine_available_signals() -> None:
         factor = result.analysis_completeness.score
         scaled = quality * (factor if factor is not None else 1.0)
         assert scaled == pytest.approx(entry.evidence_quality)
+
+
+def _credit_config(
+    *,
+    count_co_authors: bool = True,
+    co_author_weight: float = 1.0,
+    merge_strategy: ConfiguredMergeStrategy = "auto",
+) -> Config:
+    return Config(
+        analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0),
+        git=GitConfig(
+            mass_refactor_file_fraction=0.0,
+            count_co_authors=count_co_authors,
+            co_author_weight=co_author_weight,
+            merge_strategy=merge_strategy,
+        ),
+    )
+
+
+def _git(repo: Path, args: list[str], *, date: str | None = None) -> None:
+    env = {
+        **os.environ,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "HOME": str(repo),
+        "XDG_CONFIG_HOME": str(repo),
+    }
+    if date is not None:
+        env["GIT_AUTHOR_NAME"] = "Merger"
+        env["GIT_AUTHOR_EMAIL"] = "merger@example.com"
+        env["GIT_AUTHOR_DATE"] = date
+        env["GIT_COMMITTER_NAME"] = "Merger"
+        env["GIT_COMMITTER_EMAIL"] = "merger@example.com"
+        env["GIT_COMMITTER_DATE"] = date
+    subprocess.run(  # noqa: S603
+        ["git", *args],  # noqa: S607
+        cwd=repo,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_coauthor_trailers_credit_authors(tmp_path: Path) -> None:
+    repo = init_git_repo(tmp_path / "repo")
+    (repo / "zero.py").write_text("v = 0\n", encoding="utf-8")
+    git_commit(repo, "zero trailers", author="Alice", email="alice@example.com", date=_PINNED)
+    (repo / "one.py").write_text("v = 1\n", encoding="utf-8")
+    git_commit(
+        repo,
+        "one trailer\n\nCo-authored-by: Bob <bob@example.com>",
+        author="Alice",
+        email="alice@example.com",
+        date=_BOB_DATE,
+    )
+    (repo / "two.py").write_text("v = 2\n", encoding="utf-8")
+    git_commit(
+        repo,
+        (
+            "two trailers\n\n"
+            "Co-authored-by: Bob <bob@example.com>\n"
+            "Co-authored-by: Carol <carol@example.com>\n"
+            "Co-authored-by: Bob <bob@example.com>"
+        ),
+        author="Alice",
+        email="alice@example.com",
+        date=_THIRD_DATE,
+    )
+    (repo / "bad.py").write_text("v = 3\n", encoding="utf-8")
+    git_commit(
+        repo,
+        (
+            "malformed\n\n"
+            "Co-authored-by: not an email\n"
+            "Co-authored-by: Dana <dana@example.com>\n"
+            "Co-authored-by: <missing-at>"
+        ),
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-04T12:00:00+00:00",
+    )
+    result = analyze_ownership(repo, _credit_config(), as_of=_AS_OF, analysis_ref="test")
+    assert result.analysis_completeness.merge_strategy == "rebase"
+    assert result.analysis_completeness.co_author_count == 4
+    assert _owner_handles(result, "zero.py") == ["alice@example.com"]
+    assert set(_owner_handles(result, "one.py")) == {"alice@example.com", "bob@example.com"}
+    assert set(_owner_handles(result, "two.py")) == {
+        "alice@example.com",
+        "bob@example.com",
+        "carol@example.com",
+    }
+    assert set(_owner_handles(result, "bad.py")) == {"alice@example.com", "dana@example.com"}
+
+    full = {owner.handle: owner for owner in result.paths["one.py"].owners}
+    weighed = analyze_ownership(
+        repo,
+        _credit_config(co_author_weight=0.5),
+        as_of=_AS_OF,
+        analysis_ref="test",
+    )
+    half = {owner.handle: owner for owner in weighed.paths["one.py"].owners}
+    full_bob = full["bob@example.com"].score_breakdown
+    half_bob = half["bob@example.com"].score_breakdown
+    full_alice = full["alice@example.com"].score_breakdown
+    half_alice = half["alice@example.com"].score_breakdown
+    assert full_bob is not None and half_bob is not None
+    assert full_alice is not None and half_alice is not None
+    assert half_bob.frequency.score < full_bob.frequency.score
+    assert half_alice.frequency.score == pytest.approx(full_alice.frequency.score)
+
+    author_only = analyze_ownership(
+        repo,
+        _credit_config(count_co_authors=False),
+        as_of=_AS_OF,
+        analysis_ref="test",
+    )
+    assert _owner_handles(author_only, "one.py") == ["alice@example.com"]
+    assert _owner_handles(author_only, "two.py") == ["alice@example.com"]
+    assert author_only.analysis_completeness.co_author_count == 0
+
+    mapped = init_git_repo(tmp_path / "mapped")
+    (mapped / "pair.py").write_text("v = 1\n", encoding="utf-8")
+    git_commit(mapped, "bob writes", author="Bob", email="bob@example.com", date=_PINNED)
+    (mapped / "pair.py").write_text("v = 2\n", encoding="utf-8")
+    git_commit(
+        mapped,
+        "alice with bob home\n\nCo-authored-by: Bob Home <bob@home.example>",
+        author="Alice",
+        email="alice@example.com",
+        date=_BOB_DATE,
+    )
+    (mapped / ".mailmap").write_text(
+        "Bob <bob@example.com> <bob@home.example>\n",
+        encoding="utf-8",
+    )
+    git_commit(mapped, "mailmap", author="Alice", email="alice@example.com", date=_THIRD_DATE)
+    collapsed = analyze_ownership(mapped, _credit_config(), as_of=_AS_OF, analysis_ref="test")
+    handles = _owner_handles(collapsed, "pair.py")
+    assert "bob@example.com" in handles
+    assert "bob@home.example" not in handles
+
+
+def test_squash_and_merge_histories_differ(tmp_path: Path) -> None:
+    merged = init_git_repo(tmp_path / "merge")
+    (merged / "a.py").write_text("a = 1\n", encoding="utf-8")
+    git_commit(merged, "alice adds a", author="Alice", email="alice@example.com", date=_PINNED)
+    _git(merged, ["checkout", "-b", "feature"])
+    (merged / "b.py").write_text("b = 1\n", encoding="utf-8")
+    git_commit(merged, "bob adds b", author="Bob", email="bob@example.com", date=_BOB_DATE)
+    _git(merged, ["checkout", "main"])
+    _git(
+        merged,
+        ["merge", "--no-ff", "-m", "Merge branch feature", "feature"],
+        date=_THIRD_DATE,
+    )
+    squashed = init_git_repo(tmp_path / "squash")
+    (squashed / "a.py").write_text("a = 1\n", encoding="utf-8")
+    (squashed / "b.py").write_text("b = 1\n", encoding="utf-8")
+    git_commit(
+        squashed,
+        "Add files (#7)\n\nCo-authored-by: Bob <bob@example.com>",
+        author="Alice",
+        email="alice@example.com",
+        date=_PINNED,
+    )
+    config = _credit_config()
+    merge_result = analyze_ownership(merged, config, as_of=_AS_OF, analysis_ref="test")
+    squash_result = analyze_ownership(squashed, config, as_of=_AS_OF, analysis_ref="test")
+    assert merge_result.analysis_completeness.merge_strategy == "merge"
+    assert merge_result.analysis_completeness.co_author_count == 0
+    assert _owner_handles(merge_result, "a.py") == ["alice@example.com"]
+    assert _owner_handles(merge_result, "b.py") == ["bob@example.com"]
+    assert squash_result.analysis_completeness.merge_strategy == "squash"
+    assert squash_result.analysis_completeness.co_author_count == 1
+    assert set(_owner_handles(squash_result, "a.py")) == {"alice@example.com", "bob@example.com"}
+    assert set(_owner_handles(squash_result, "b.py")) == {"alice@example.com", "bob@example.com"}
+    squash_owners = {owner.handle: owner for owner in squash_result.paths["a.py"].owners}
+    alice = squash_owners["alice@example.com"].score_breakdown
+    bob = squash_owners["bob@example.com"].score_breakdown
+    assert alice is not None and bob is not None
+    assert alice.blame.available is True
+    assert alice.blame.score == pytest.approx(1.0)
+    assert bob.blame.available is True
+    assert bob.blame.score == pytest.approx(0.0)
+    forced = analyze_ownership(
+        merged,
+        _credit_config(merge_strategy="rebase"),
+        as_of=_AS_OF,
+        analysis_ref="test",
+    )
+    assert forced.analysis_completeness.merge_strategy == "rebase"

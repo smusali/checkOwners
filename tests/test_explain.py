@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from checkowners.analyze import _BlamePass
+from checkowners.analyze import _BODY_END, _BODY_START, _BlamePass
 from checkowners.explain import (
     ExplainedOwner,
     PathExplanation,
@@ -65,6 +65,10 @@ _ISO = "2026-05-28T12:00:00+00:00"
 
 def _proc(stdout: str) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+
+
+def _sha_commit(sha: str, author: str, when: str) -> tuple[str, ...]:
+    return (sha, author, when, _BODY_START, _BODY_END)
 
 
 def _breakdown(
@@ -437,12 +441,12 @@ def test_explain_why_not_outsider_without_score_breakdown() -> None:
 def test_commit_shas_parses_and_respects_mailmap() -> None:
     stdout = "\n".join(
         (
-            "aaaaaaaaaaaaxxxx",
-            "alice@example.com",
-            _ISO,
-            "bbbbbbbbbbbbxxxx",
-            "alice@example.com",
-            "2026-05-27T12:00:00+00:00",
+            *_sha_commit("aaaaaaaaaaaaxxxx", "alice@example.com", _ISO),
+            *_sha_commit(
+                "bbbbbbbbbbbbxxxx",
+                "alice@example.com",
+                "2026-05-27T12:00:00+00:00",
+            ),
         )
     )
     with patch("checkowners.explain.subprocess.run", return_value=_proc(stdout)) as mocked:
@@ -484,7 +488,10 @@ def test_rename_lineage_keeps_unseen_old_names() -> None:
 
 def test_last_contribution_matches_identity() -> None:
     stdout = "\n".join(
-        ("ccccccccccccxxxx", "eve@example.com", _ISO, "ddddddddddddxxxx", "bob", _ISO)
+        (
+            *_sha_commit("ccccccccccccxxxx", "eve@example.com", _ISO),
+            *_sha_commit("ddddddddddddxxxx", "bob", _ISO),
+        )
     )
     with patch("checkowners.explain.subprocess.run", return_value=_proc(stdout)) as mocked:
         found = last_contribution(Path(), "src/a.py", "eve", use_mailmap=True)
@@ -717,36 +724,20 @@ def test_lookup_and_parse_sha_log() -> None:
     assert _lookup_shas("@alice", {"@bob": ("ccc",)}) == ()
     stdout = "\n".join(
         (
-            "111111111111xxxx",
-            "alice",
-            _ISO,
-            "111111111111xxxx",
-            "alice",
-            _ISO,
-            "222222222222xxxx",
-            "alice",
-            _ISO,
-            "333333333333xxxx",
-            "alice",
-            _ISO,
-            "444444444444xxxx",
-            "alice",
-            _ISO,
-            "555555555555xxxx",
-            "alice",
-            _ISO,
-            "666666666666xxxx",
-            "alice",
-            _ISO,
+            *_sha_commit("111111111111xxxx", "alice", _ISO),
+            *_sha_commit("111111111111xxxx", "alice", _ISO),
+            *_sha_commit("222222222222xxxx", "alice", _ISO),
+            *_sha_commit("333333333333xxxx", "alice", _ISO),
+            *_sha_commit("444444444444xxxx", "alice", _ISO),
+            *_sha_commit("555555555555xxxx", "alice", _ISO),
+            *_sha_commit("666666666666xxxx", "alice", _ISO),
             "not-a-sha",
             "bob",
             "not-a-date",
-            "777777777777xxxx",
-            "bob",
-            _ISO,
+            *_sha_commit("777777777777xxxx", "bob", _ISO),
         )
     )
-    parsed = _parse_sha_log(stdout)
+    parsed = _parse_sha_log(stdout, Path(), use_mailmap=False, count_co_authors=True)
     assert parsed["alice"] == (
         "111111111111",
         "222222222222",

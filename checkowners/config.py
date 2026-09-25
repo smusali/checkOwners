@@ -14,6 +14,7 @@ from checkowners.models import (
     AnalysisConfig,
     BusFactorConfig,
     Config,
+    ConfiguredMergeStrategy,
     DecayConfig,
     DriftConfig,
     DriftMode,
@@ -150,6 +151,9 @@ _V2_GIT: frozenset[str] = frozenset(
         "blame_ignore_revs_file",
         "detect_moves",
         "mass_refactor_file_fraction",
+        "count_co_authors",
+        "co_author_weight",
+        "merge_strategy",
     }
 )
 _V2_IDENTITY: frozenset[str] = frozenset({"mailmap", "mode"})
@@ -217,6 +221,10 @@ def _is_finding_rule(value: str) -> TypeGuard[FindingRule]:
 
 def _is_identity_mode(value: str) -> TypeGuard[IdentityMode]:
     return value in _IDENTITY_MODES
+
+
+def _is_merge_strategy(value: str) -> TypeGuard[ConfiguredMergeStrategy]:
+    return value in {"auto", "squash", "merge", "rebase"}
 
 
 def find_codeowners_path(repo_root: Path) -> Path:
@@ -858,6 +866,31 @@ def _build_git_config(data: dict[str, Any]) -> GitConfig:
             )
             raise ValueError(msg)
         kwargs["mass_refactor_file_fraction"] = fraction
+    if "count_co_authors" in data:
+        flag = data["count_co_authors"]
+        if not isinstance(flag, bool):
+            msg = f"Invalid git.count_co_authors: {flag!r}; expected a boolean"
+            raise ValueError(msg)
+        kwargs["count_co_authors"] = flag
+    if "co_author_weight" in data:
+        raw_weight = data["co_author_weight"]
+        if isinstance(raw_weight, bool) or not isinstance(raw_weight, (int, float)):
+            msg = f"Invalid git.co_author_weight: {raw_weight!r}; expected a number in [0, 1]"
+            raise ValueError(msg)
+        weight = float(raw_weight)
+        if weight < 0.0 or weight > 1.0:
+            msg = f"Invalid git.co_author_weight: {weight!r}; expected a number in [0, 1]"
+            raise ValueError(msg)
+        kwargs["co_author_weight"] = weight
+    if "merge_strategy" in data:
+        strategy = data["merge_strategy"]
+        if not isinstance(strategy, str) or not _is_merge_strategy(strategy):
+            msg = (
+                f"Invalid git.merge_strategy: {strategy!r}; "
+                "expected one of auto, squash, merge, rebase"
+            )
+            raise ValueError(msg)
+        kwargs["merge_strategy"] = strategy
     return GitConfig(**kwargs)
 
 

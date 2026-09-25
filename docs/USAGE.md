@@ -97,6 +97,12 @@ bus_factor:
   critical_threshold: 1
   warn_threshold: 2
 
+criticality:
+  "payments/**": 1.0         # first matching pattern wins; unmatched paths weigh 1.0
+  "auth/**": 1.0
+  "analytics/**": 0.6
+  "docs/**": 0.1
+
 risk:
   truck_factor_thresholds: [0.50, 0.75, 0.90]
 
@@ -163,9 +169,9 @@ policy:
     fail: false               # same exit as --fail-on-incomplete; other policy keys are refused
 ```
 
-`decay`, `bus_factor`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
+`decay`, `bus_factor`, `criticality`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `criticality` is an ordered map of path globs to weights in `(0, 1]`. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
 
-Keys with no implementation yet are refused, including `criticality`, `security`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`. `risk` accepts only `truck_factor_thresholds`.
+Keys with no implementation yet are refused, including `security`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`. `risk` accepts only `truck_factor_thresholds`.
 
 | Also accepted | Same setting |
 | --- | --- |
@@ -339,7 +345,7 @@ This is not truck factor, bus factor, or lottery factor. Those metrics are a rem
 
 Per-path JSON also reports score mass under `risk`, computed before `top_n_owners` truncation. Expertise is `ownership_score`. `top_owner_share` is the largest share. `effective_owners` is `1 / sum(p_i^2)`. `shannon_entropy` is in nats. `hhi` is `sum(p_i^2)`. `truck_factor_50`, `truck_factor_75`, and `truck_factor_90` are the smallest owner counts whose largest shares reach the three values in `risk.truck_factor_thresholds` (default `0.50`, `0.75`, `0.90`). A major contributor has a share of at least `0.05`; `minor_contributor_share` is the rest. Changing `top_n_owners` does not change these numbers. The `bus_factor:` config section still classifies the capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
 
-`checkowners qualified-owners` is the command for this count.
+`checkowners qualified-owners` is the command for this count. Repository output is a distribution of `top_owner_share`, weighted by `criticality`. JSON reports `distribution.minimum`, `distribution.p10`, `distribution.median`, `distribution.p90`, `distribution.critical_path_risk` (the weighted mean of `top_owner_share`), and `distribution.knowledge_at_risk` (the share of criticality weight on paths at or below `bus_factor.critical_threshold`). The first matching `criticality` pattern wins. A path with no match weighs `1.0`. An empty `criticality` map uses that same weight and sets `distribution.criticality_incomplete` to true, because repository risk without criticality is incomplete.
 
 ## Generated CODEOWNERS
 

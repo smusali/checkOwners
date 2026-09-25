@@ -235,7 +235,8 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["drift_detected"] is True
     assert data["topology"]["clusters"][0]["name"] == "backend"
     assert data["bus_factor_summary"]["critical_paths"] == ["src/auth.py"]
-    assert data["bus_factor_summary"]["repo_average"] == 1.0
+    assert data["bus_factor_summary"]["distribution"]["critical_path_risk"] == 1.0
+    assert data["bus_factor_summary"]["distribution"]["criticality_incomplete"] is True
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
     assert data["models"] == models_payload()
     assert data["analysis_ref"] == "deadbeef"
@@ -656,7 +657,8 @@ def test_bus_factor_summary_empty(repo: Path) -> None:
     target = write_state(repo, ownership)
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["bus_factor_summary"]["critical_paths"] == []
-    assert data["bus_factor_summary"]["repo_average"] == 0.0
+    assert data["bus_factor_summary"]["distribution"]["knowledge_at_risk"] == 0.0
+    assert data["bus_factor_summary"]["distribution"]["criticality_incomplete"] is True
 
 
 def test_handle_cache_roundtrip() -> None:

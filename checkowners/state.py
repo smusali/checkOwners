@@ -27,7 +27,11 @@ from pathlib import Path
 from typing import IO, Any, TypedDict
 
 from checkowners import __version__
-from checkowners.busfactor import qualified_owner_count_fields
+from checkowners.busfactor import (
+    distribution_json,
+    owner_distribution,
+    qualified_owner_count_fields,
+)
 from checkowners.models import (
     GAP_CATALOG,
     AnalysisCompleteness,
@@ -114,6 +118,7 @@ def config_hash(config: Config) -> str:
             "resolve_teams": config.github.resolve_teams,
         },
         "contributors_exclude": list(config.contributors_exclude),
+        "criticality": [list(rule) for rule in config.criticality],
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -420,7 +425,10 @@ def write_state(
             },
             "topology": {"clusters": [_serialize_cluster(cluster) for cluster in topology]},
             "bus_factor_summary": _serialize_bus_factor_summary(
-                bus_factor_summary, qualified_owner_count_cap
+                bus_factor_summary,
+                qualified_owner_count_cap,
+                ownership,
+                config if config is not None else Config(),
             ),
             "qualified_owner_count_cap": qualified_owner_count_cap,
             "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
@@ -708,11 +716,11 @@ def _serialize_decay(warning: DecayWarning) -> dict[str, Any]:
 def _serialize_bus_factor_summary(
     entries: tuple[BusFactor, ...],
     cap: int,
+    ownership: OwnershipMap,
+    config: Config,
 ) -> dict[str, Any]:
     critical_paths = sorted(e.path for e in entries if e.qualified_owner_count <= 1)
-    repo_average = (
-        round(sum(e.qualified_owner_count for e in entries) / len(entries), 2) if entries else 0.0
-    )
+    distribution = owner_distribution(entries, ownership, config)
     serialized_entries: list[dict[str, Any]] = []
     for entry in entries:
         row = asdict(entry)
@@ -722,7 +730,7 @@ def _serialize_bus_factor_summary(
         serialized_entries.append(row)
     return {
         "critical_paths": critical_paths,
-        "repo_average": repo_average,
+        "distribution": distribution_json(distribution),
         "qualified_owner_count_cap": cap,
         "entries": serialized_entries,
     }

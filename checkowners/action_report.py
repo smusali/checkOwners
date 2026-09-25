@@ -318,7 +318,7 @@ def summarize_bus_factor(data: dict[str, object], limit: int) -> dict[str, objec
     return {
         **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
-        "repo_average": data.get("repo_average"),
+        "distribution": _distribution_summary(data),
         "qualified_owner_count_cap": cap,
         "counts": {**counts, **_ratchet_counts(data)},
         "critical_paths": trimmed_paths,
@@ -422,9 +422,16 @@ def knowledge_risk_lines(
 ) -> tuple[list[str], bool]:
     if bus is None:
         return [], False
-    if is_solo_repo(bus):
-        return [SOLO_LINE], False
+    summary = _distribution_line(bus)
     lines: list[str] = []
+    if is_solo_repo(bus):
+        lines.append(SOLO_LINE)
+        if summary:
+            lines.append(summary)
+        return lines, False
+    if summary:
+        lines.append(summary)
+        lines.append("")
     truncated = False
     singles = single_owner_entries(bus)
     for entry in singles[:MAX_RISK_PATHS]:
@@ -453,6 +460,55 @@ def knowledge_risk_lines(
     while lines and lines[-1] == "":
         lines.pop()
     return lines, truncated
+
+
+_DISTRIBUTION_NUMBERS = (
+    "minimum",
+    "p10",
+    "median",
+    "p90",
+    "critical_path_risk",
+    "knowledge_at_risk",
+)
+
+
+def _distribution_summary(data: dict[str, object]) -> dict[str, object]:
+    raw = data.get("distribution")
+    if not isinstance(raw, dict):
+        return {
+            "minimum": 0.0,
+            "p10": 0.0,
+            "median": 0.0,
+            "p90": 0.0,
+            "critical_path_risk": 0.0,
+            "knowledge_at_risk": 0.0,
+            "criticality_incomplete": True,
+        }
+    summary: dict[str, object] = {}
+    for key in _DISTRIBUTION_NUMBERS:
+        summary[key] = _distribution_number(raw.get(key))
+    incomplete = raw.get("criticality_incomplete")
+    summary["criticality_incomplete"] = incomplete if isinstance(incomplete, bool) else True
+    return summary
+
+
+def _distribution_number(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value)
+
+
+def _distribution_line(bus: dict[str, object]) -> str | None:
+    raw = bus.get("distribution")
+    if not isinstance(raw, dict):
+        return None
+    if raw.get("criticality_incomplete") is True:
+        return "Repository risk is incomplete without criticality."
+    risk = raw.get("knowledge_at_risk")
+    if isinstance(risk, bool) or not isinstance(risk, (int, float)):
+        return None
+    percent = round(risk * 100)
+    return f"Knowledge at risk: {percent}%."
 
 
 def _artifact_name() -> str:

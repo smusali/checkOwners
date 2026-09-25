@@ -449,7 +449,6 @@ def test_apply_ratchet_suppresses_bus_and_ignores_unevaluated_stale() -> None:
                 recommended_backups=(),
             ),
         ),
-        repo_average=2.0,
         qualified_owner_count_cap=3,
         config=BusFactorConfig(),
     )

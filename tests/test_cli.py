@@ -66,6 +66,7 @@ from checkowners.models import (
     ExpertiseRank,
     GitConfig,
     GithubConfig,
+    OwnerDistribution,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
@@ -1287,7 +1288,7 @@ def test_decay_reports_ownership_and_risk_models() -> None:
 
 
 def test_qualified_owners_reports_risk_model() -> None:
-    empty = BusFactorReport(entries=(), repo_average=0.0, qualified_owner_count_cap=3)
+    empty = BusFactorReport(entries=(), qualified_owner_count_cap=3)
     filled = BusFactorReport(
         entries=(
             BusFactor(
@@ -1297,8 +1298,16 @@ def test_qualified_owners_reports_risk_model() -> None:
                 recommended_backups=("@bob",),
             ),
         ),
-        repo_average=1.0,
         qualified_owner_count_cap=3,
+        distribution=OwnerDistribution(
+            minimum=1.0,
+            p10=1.0,
+            median=1.0,
+            p90=1.0,
+            critical_path_risk=1.0,
+            knowledge_at_risk=1.0,
+            criticality_incomplete=False,
+        ),
     )
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
@@ -2505,7 +2514,6 @@ def test_aggregate_text_reports_omit_people(
                 recommended_backups=(),
             ),
         ),
-        repo_average=0.5,
         qualified_owner_count_cap=3,
     )
     topology = TopologyReport(

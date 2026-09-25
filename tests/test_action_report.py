@@ -97,6 +97,12 @@ def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert fmt_delta("1.5") == "1.50"
     assert qualified_humans(None) == []
     assert summarize_bus_factor({"entries": "nope"}, 1)["counts"]["entries"] == 0
+    summary = summarize_bus_factor(
+        {"distribution": {"minimum": "n/a", "criticality_incomplete": "no"}},
+        1,
+    )
+    assert summary["distribution"]["minimum"] == 0.0
+    assert summary["distribution"]["criticality_incomplete"] is True
     assert summarize_decay({"reports": "nope"}, 1)["counts"]["reports"] == 0
     assert has_actionable_findings(None, None, None) is False
     assert has_actionable_findings({"drift_detected": True}, None, None) is True
@@ -134,6 +140,34 @@ def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         ]
     }
     assert knowledge_risk_lines(solo, None) == ([SOLO_LINE], False)
+    solo_risk = {
+        **solo,
+        "distribution": {"criticality_incomplete": True},
+    }
+    assert knowledge_risk_lines(solo_risk, None) == (
+        [SOLO_LINE, "Repository risk is incomplete without criticality."],
+        False,
+    )
+    measured = {
+        "entries": [
+            {
+                "path": "solo.py",
+                "contributors_above_threshold": ["@a", "@b"],
+            }
+        ],
+        "distribution": {"criticality_incomplete": False, "knowledge_at_risk": 0.42},
+    }
+    assert "Knowledge at risk: 42%." in knowledge_risk_lines(measured, None)[0]
+    skipped = knowledge_risk_lines(
+        {
+            "entries": [
+                {"path": "a.py", "contributors_above_threshold": ["@a", "@b"]},
+            ],
+            "distribution": {"criticality_incomplete": False, "knowledge_at_risk": True},
+        },
+        None,
+    )
+    assert skipped == ([], False)
     assert knowledge_risk_lines(None, None) == ([], False)
     risk, _cut = knowledge_risk_lines(
         {

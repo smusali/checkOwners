@@ -84,6 +84,7 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
         "policy",
         "privacy",
         "contributors",
+        "criticality",
     }
 )
 
@@ -461,6 +462,8 @@ def _merge_config(raw: dict[str, Any]) -> Config:
     kwargs["contributors_exclude"] = _build_contributors_exclude(raw.get("contributors"))
     if "suppressions" in raw:
         kwargs["suppressions"] = _build_suppressions(raw["suppressions"])
+    if "criticality" in raw:
+        kwargs["criticality"] = _build_criticality(raw["criticality"])
     return Config(**kwargs)
 
 
@@ -582,6 +585,28 @@ def _build_risk_config(data: dict[str, Any]) -> RiskConfig:
         msg = "risk.truck_factor_thresholds must be three increasing numbers in (0, 1]"
         raise ValueError(msg)
     return RiskConfig(truck_factor_thresholds=(low, mid, high))
+
+
+def _build_criticality(value: object) -> tuple[tuple[str, float], ...]:
+    section = _require_mapping(value, "criticality")
+    rules: list[tuple[str, float]] = []
+    for pattern, weight in section.items():
+        if not isinstance(pattern, str) or not pattern.strip():
+            msg = "criticality patterns must be non-empty strings"
+            raise ValueError(msg)
+        rules.append((pattern, _require_open_unit(weight, f"criticality.{pattern}")))
+    return tuple(rules)
+
+
+def _require_open_unit(value: object, key: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        msg = f"{key} must be a number in (0, 1]"
+        raise ValueError(msg)
+    number = float(value)
+    if number <= 0 or number > 1:
+        msg = f"{key} must be a number in (0, 1]"
+        raise ValueError(msg)
+    return number
 
 
 def _require_unit_interval(value: object) -> float:

@@ -158,6 +158,16 @@ not a repository truck factor. There is no removal simulation and no
 config section still classifies the capped count: `critical` at or below
 `critical_threshold`, `warning` at or below `warn_threshold`.
 
+Repository output does not average that capped count. It distributes
+`top_owner_share` after weighting each path by `criticality`. The first
+matching glob wins. An unmatched path weighs `1.0`. An empty map uses that
+weight and sets `criticality_incomplete`, because risk without a criticality
+map is incomplete. Weighted percentiles of `top_owner_share` are `minimum`,
+`p10`, `median`, and `p90`, taken as the first share whose cumulative weight
+reaches the quantile. `critical_path_risk` is `sum(weight * top_owner_share) / sum(weight)`.
+`knowledge_at_risk` is the share of total weight on paths whose
+`qualified_owner_count` is at or below `critical_threshold`.
+
 ## Prior art
 
 Published truck factor, also called bus factor or lottery factor, is the

@@ -526,7 +526,6 @@ def test_model_pin_must_match_implementation(tmp_path: Path) -> None:
     [
         ("version: 3\n", "Unsupported checkowners config version"),
         ("version: '2'\n", "Unsupported checkowners config version"),
-        ("version: 1\ncriticality:\n  'docs/**': 0.1\n", "criticality"),
         ("version: 1\nanalysis:\n  lookback_days: adaptive\n", "lookback_days"),
         (
             "version: 1\nmodel:\n  signals:\n    historical_depth:\n      weight: 0.1\n",
@@ -543,6 +542,10 @@ def test_unknown_config_version_and_keys_rejected(tmp_path: Path, content: str, 
 @pytest.mark.parametrize(
     ("content", "match"),
     [
+        ("version: 1\ncriticality: []\n", "criticality must be a mapping"),
+        ("version: 1\ncriticality:\n  '': 0.5\n", "non-empty"),
+        ("version: 1\ncriticality:\n  'docs/**': 0\n", r"criticality\.docs/"),
+        ("version: 1\ncriticality:\n  'docs/**': true\n", r"criticality\.docs/"),
         ("version: 1\nanalysis: []\n", "analysis must be a mapping"),
         ("version: 1\nsuppressions: {}\n", "suppressions must be a list"),
         ("version: 1\nanalysis:\n  max_owners: '4'\n", "analysis.max_owners must be an integer"),
@@ -566,6 +569,15 @@ def test_v2_invalid_aliases_rejected(tmp_path: Path, content: str, match: str) -
     root = _write_config(tmp_path, content)
     with pytest.raises(ValueError, match=match):
         load_config(repo_root=root)
+
+
+def test_criticality_map_parses(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        'version: 1\ncriticality:\n  "payments/**": 1.0\n  "auth/**": 1\n  "docs/**": 0.1\n',
+    )
+    cfg = load_config(repo_root=root)
+    assert cfg.criticality == (("payments/**", 1.0), ("auth/**", 1.0), ("docs/**", 0.1))
 
 
 def test_v2_without_model_keeps_defaults(tmp_path: Path) -> None:

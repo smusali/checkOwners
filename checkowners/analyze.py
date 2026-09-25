@@ -6,6 +6,7 @@ import fnmatch
 import math
 import os
 import re
+import statistics
 import subprocess
 import tempfile
 import time
@@ -16,6 +17,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
+from itertools import pairwise
 from pathlib import Path
 
 from checkowners.expertise import path_matches_glob
@@ -25,8 +27,11 @@ from checkowners.models import (
     ConfidenceScore,
     Config,
     DecayWarning,
+    FreshnessStatus,
     GitConfig,
+    LookbackDays,
     OwnerEntry,
+    OwnershipFreshness,
     OwnershipMap,
     PathOwnership,
     QualificationStrategy,
@@ -67,6 +72,8 @@ class Contribution:
 
     commits: int
     last_commit: datetime
+    later_commits: int = 0
+    cadence_days: float | None = None
 
 
 @dataclass(frozen=True)
@@ -235,7 +242,7 @@ def _analyze_ownership(
     mailmap_path = _resolve_mailmap_file(repo_root)
     commits = _get_commit_history(
         repo_root,
-        config.analysis.lookback_days,
+        lookback_start(config.analysis.lookback_days, when),
         when,
         use_mailmap=config.git.use_mailmap,
         pathspec=pathspec,
@@ -318,7 +325,7 @@ def _run_completeness(
     static_n: int,
     review_missing: bool,
 ) -> AnalysisCompleteness:
-    since = when - timedelta(days=config.analysis.lookback_days)
+    since = lookback_start(config.analysis.lookback_days, when)
     gaps = history_evidence_gaps(
         shallow=_is_shallow_repository(repo_root),
         insufficient=_insufficient_history(repo_root, commits),
@@ -419,18 +426,20 @@ def _stdout_has_rename(stdout: str) -> bool:
     return False
 
 
-def _window_has_renames(repo_root: Path, since: datetime, until: datetime) -> bool:
+def _window_has_renames(repo_root: Path, since: datetime | None, until: datetime) -> bool:
+    argv = [
+        "git",
+        "log",
+        "--diff-filter=R",
+        "--name-status",
+        "--pretty=format:",
+    ]
+    if since is not None:
+        argv.append(f"--since={since.isoformat()}")
+    argv.append(f"--until={until.isoformat()}")
     stdout = _git_stdout(
         repo_root,
-        [
-            "git",
-            "log",
-            "--diff-filter=R",
-            "--name-status",
-            "--pretty=format:",
-            f"--since={since.isoformat()}",
-            f"--until={until.isoformat()}",
-        ],
+        argv,
     )
     if not stdout:
         return False
@@ -486,6 +495,7 @@ def _build_path_ownerships(
             blame_available=path in blame_coverage,
             review_available=review_available,
             frequency_prior=frequency_prior,
+            threshold_days=config.decay.threshold_days,
         )
         filtered = tuple(e for e in entries if e.confidence >= config.analysis.confidence_threshold)
         if not filtered and not retain_all:
@@ -583,12 +593,18 @@ def score_owners(
     blame_available: bool,
     review_available: bool,
     frequency_prior: float = 0.0,
+    threshold_days: int = 180,
 ) -> tuple[OwnerEntry, ...]:
+    """Return owners of `qualified` scored at `now`."""
+    if not qualified:
+        return ()
     scored: list[OwnerEntry] = []
     weights = signal_weights(scoring)
     reliabilities = signal_reliabilities(scoring)
+    path_last = max(contrib.last_commit for contrib in qualified.values())
     for author, contrib in qualified.items():
-        recency = _recency_score(contrib.last_commit, now, scoring.recency_half_life_days)
+        half_life = effective_half_life(contrib.cadence_days, scoring)
+        recency = _recency_score(contrib.last_commit, now, half_life)
         frequency = _frequency_score(contrib.commits, max_commits, frequency_prior)
         blame = path_blame.get(author, 0.0) if blame_available else 0.0
         review = _clamp(path_review.get(author, 0.0)) if review_available else 0.0
@@ -606,6 +622,7 @@ def score_owners(
             blame=SignalScore(available=blame_available, score=blame),
             review=SignalScore(available=review_available, score=review),
         )
+        days = _elapsed_days(contrib.last_commit, now)
         scored.append(
             OwnerEntry(
                 handle=author,
@@ -614,17 +631,101 @@ def score_owners(
                 commits=contrib.commits,
                 evidence_quality=quality,
                 score_breakdown=breakdown,
+                freshness=OwnershipFreshness(
+                    active_expertise=recency,
+                    historical_expertise=_historical_expertise(
+                        contrib.commits, contrib.later_commits
+                    ),
+                    maintenance_recency=_recency_score(path_last, now, half_life),
+                    status=_classify_freshness(
+                        contrib,
+                        days=days,
+                        half_life_days=half_life,
+                        path_last=path_last,
+                        ceiling_days=scoring.recency_half_life_ceiling_days,
+                        threshold_days=threshold_days,
+                    ),
+                    half_life_days=half_life,
+                ),
             )
         )
     scored.sort(key=lambda e: (-e.confidence, e.handle))
     return tuple(scored)
 
 
-def _recency_score(last_commit: datetime, now: datetime, half_life_days: int) -> float:
+def lookback_start(lookback: LookbackDays, when: datetime) -> datetime | None:
+    """Return the window start for `lookback` at `when`, or None when adaptive."""
+    if lookback == "adaptive":
+        return None
+    return when - timedelta(days=lookback)
+
+
+def effective_half_life(cadence_days: float | None, scoring: ScoringConfig) -> float:
+    """Return the recency half-life in days for `cadence_days` under `scoring`."""
+    if scoring.recency_strategy == "fixed" or cadence_days is None:
+        return _as_days(scoring.recency_half_life_days)
+    return _bounded_half_life(
+        cadence_days,
+        scoring.recency_half_life_floor_days,
+        scoring.recency_half_life_ceiling_days,
+    )
+
+
+def _as_days(value: int) -> float:
+    return value + 0.0
+
+
+def _bounded_half_life(cadence_days: float, floor_days: int, ceiling_days: int) -> float:
+    low = _as_days(floor_days)
+    high = _as_days(ceiling_days)
+    if cadence_days < low:
+        return low
+    if cadence_days > high:
+        return high
+    return cadence_days
+
+
+def _historical_expertise(commits: int, later_commits: int) -> float:
+    total = commits + later_commits
+    if total <= 0:
+        return 0.0
+    return _clamp(commits / total)
+
+
+def _classify_freshness(
+    contrib: Contribution,
+    *,
+    days: int,
+    half_life_days: float,
+    path_last: datetime,
+    ceiling_days: int,
+    threshold_days: int,
+) -> FreshnessStatus:
+    if contrib.later_commits > contrib.commits:
+        return "superseded"
+    if contrib.cadence_days is None:
+        if days > threshold_days:
+            return "inactive"
+        return "stable"
+    if days <= half_life_days:
+        return "stable"
+    if contrib.last_commit == path_last and days <= ceiling_days:
+        return "stable"
+    return "inactive"
+
+
+def _recency_score(last_commit: datetime, now: datetime, half_life_days: float) -> float:
     if half_life_days <= 0:
         return 1.0
     delta_days = max(0.0, (now - last_commit).total_seconds() / 86400.0)
     return _clamp(math.pow(0.5, delta_days / half_life_days))
+
+
+def _elapsed_days(last_commit: datetime, now: datetime) -> int:
+    seconds = (now - last_commit).total_seconds()
+    if seconds <= 0:
+        return 0
+    return int(seconds // 86400)
 
 
 def _frequency_score(commits: int, max_commits: int, prior: float = 0.0) -> float:
@@ -649,18 +750,36 @@ def _detect_decay(
         contrib = qualified.get(entry.handle)
         if contrib is None:
             continue
-        days = int((now - contrib.last_commit).total_seconds() // 86400)
-        if days > threshold_days:
-            warnings.append(
-                DecayWarning(
-                    handle=entry.handle,
-                    path=path,
-                    last_commit=contrib.last_commit,
-                    days_since_last_commit=days,
-                    historical_confidence=entry.confidence,
-                )
+        status = _warning_status(entry, contrib, threshold_days, now)
+        if status is None:
+            continue
+        warnings.append(
+            DecayWarning(
+                handle=entry.handle,
+                path=path,
+                last_commit=contrib.last_commit,
+                days_since_last_commit=_elapsed_days(contrib.last_commit, now),
+                historical_confidence=entry.confidence,
+                status=status,
             )
+        )
     return tuple(warnings)
+
+
+def _warning_status(
+    entry: OwnerEntry,
+    contrib: Contribution,
+    threshold_days: int,
+    now: datetime,
+) -> FreshnessStatus | None:
+    freshness = entry.freshness
+    if freshness is not None:
+        if freshness.status == "stable":
+            return None
+        return freshness.status
+    if _elapsed_days(contrib.last_commit, now) <= threshold_days:
+        return None
+    return "inactive"
 
 
 def _count_qualified_owners(top: tuple[OwnerEntry, ...], threshold: float) -> int:
@@ -701,14 +820,13 @@ def _filter_to_pathspec(
 
 def _get_commit_history(
     repo_root: Path,
-    since_days: int,
+    since: datetime | None,
     as_of: datetime,
     *,
     use_mailmap: bool = True,
     pathspec: tuple[str, ...] | None = None,
 ) -> list[_RawCommit]:
-    """Run git log and parse (author, timestamp, files) triples."""
-    since = as_of - timedelta(days=since_days)
+    """Return parsed commits from `since` until `as_of`. `since` None omits the lower bound."""
     email_fmt = "%aE" if use_mailmap else "%ae"
     argv = [  # git from PATH; not user-supplied
         "git",
@@ -716,9 +834,10 @@ def _get_commit_history(
         mailmap_flag(use_mailmap),
         f"--format={_COMMIT_SENTINEL}%n{email_fmt}%n%cI",
         "--name-only",
-        f"--since={since.isoformat()}",
-        f"--until={as_of.isoformat()}",
     ]
+    if since is not None:
+        argv.append(f"--since={since.isoformat()}")
+    argv.append(f"--until={as_of.isoformat()}")
     if pathspec:
         argv.append("--")
         argv.extend(pathspec)
@@ -761,25 +880,44 @@ def _parse_timestamp(raw: str) -> datetime | None:
 def _aggregate_contributions(
     commits: list[_RawCommit],
 ) -> dict[str, dict[str, Contribution]]:
-    """Aggregate per-(path, author) commit counts and most-recent commit time."""
-    counts: dict[str, dict[str, int]] = {}
-    latest: dict[str, dict[str, datetime]] = {}
+    """Aggregate per-(path, author) counts, cadence, and commits that followed each author."""
+    events: dict[str, list[tuple[str, datetime]]] = {}
     for commit in commits:
         for file_path in commit.files:
-            counts.setdefault(file_path, {})
-            latest.setdefault(file_path, {})
-            counts[file_path][commit.author] = counts[file_path].get(commit.author, 0) + 1
-            prior = latest[file_path].get(commit.author)
-            if prior is None or commit.timestamp > prior:
-                latest[file_path][commit.author] = commit.timestamp
+            events.setdefault(file_path, []).append((commit.author, commit.timestamp))
     result: dict[str, dict[str, Contribution]] = {}
-    for path in sorted(counts):
-        authors = counts[path]
+    for path in sorted(events):
+        path_events = events[path]
+        counts: dict[str, int] = {}
+        latest: dict[str, datetime] = {}
+        for author, timestamp in path_events:
+            counts[author] = counts.get(author, 0) + 1
+            prior = latest.get(author)
+            if prior is None or timestamp > prior:
+                latest[author] = timestamp
+        cadence = _cadence_days([timestamp for _author, timestamp in path_events])
         result[path] = {
-            author: Contribution(commits=commits_n, last_commit=latest[path][author])
-            for author, commits_n in sorted(authors.items())
+            author: Contribution(
+                commits=commits_n,
+                last_commit=latest[author],
+                later_commits=sum(
+                    1
+                    for other, timestamp in path_events
+                    if other != author and timestamp > latest[author]
+                ),
+                cadence_days=cadence,
+            )
+            for author, commits_n in sorted(counts.items())
         }
     return result
+
+
+def _cadence_days(timestamps: list[datetime]) -> float | None:
+    unique = sorted(set(timestamps))
+    if len(unique) < 2:
+        return None
+    gaps = [(later - earlier).total_seconds() / 86400.0 for earlier, later in pairwise(unique)]
+    return statistics.median(gaps)
 
 
 def _filter_excluded(

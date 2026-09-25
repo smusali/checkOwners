@@ -48,13 +48,13 @@ Team verification: unavailable
 
 Create `.github/checkowners.yml`. Every field is optional; defaults shown. `version: 1` is required. Any other `version`, or a file with no `version`, is refused.
 
-The numbers below are the runtime defaults. Longer-term proposals (adaptive lookback, `max_owners: 5`, different signal weights) are not applied here.
+The numbers below are the runtime defaults. Longer-term proposals (`max_owners: 5`, different signal weights) are not applied here.
 
 ```yaml
 version: 1
 
 analysis:
-  lookback_days: 365          # integer days; adaptive lookback is not accepted
+  lookback_days: 365          # integer days, or adaptive (history until the analysis instant)
   max_owners: 3               # was analysis.top_n_owners
   confidence_threshold: 0.3   # owners below this are dropped from CODEOWNERS
   respect_gitattributes: true # linguist-generated / linguist-vendored exclude paths first
@@ -74,7 +74,10 @@ model:
   signals:
     recency:
       weight: 0.35
-      half_life_days: 90      # was scoring.recency_half_life_days
+      strategy: adaptive      # adaptive | fixed; fixed uses half_life_days for every path
+      half_life_days: 90      # fixed half-life, and the fallback when a path has no interval
+      half_life_floor_days: 14
+      half_life_ceiling_days: 730
       reliability: 1.0
     frequency:
       weight: 0.25
@@ -90,7 +93,7 @@ bots:
   exclude: true               # was analysis.exclude_bots; drop dependabot[bot] and similar
 
 decay:
-  threshold_days: 180         # flag owners idle longer than this
+  threshold_days: 180         # continuity risk when a path has no commit interval
   alert_on_decay: true
 
 bus_factor:
@@ -171,7 +174,7 @@ policy:
 
 `decay`, `bus_factor`, `criticality`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `criticality` is an ordered map of path globs to weights in `(0, 1]`. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
 
-Keys with no implementation yet are refused, including `security`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`. `risk` accepts only `truck_factor_thresholds`.
+Keys with no implementation yet are refused, including `security`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`.
 
 | Also accepted | Same setting |
 | --- | --- |
@@ -183,6 +186,9 @@ Keys with no implementation yet are refused, including `security`, `analysis.loo
 | `scoring.blame_weight` | `model.signals.blame.weight` |
 | `scoring.review_weight` | `model.signals.reviews.weight` |
 | `scoring.recency_half_life_days` | `model.signals.recency.half_life_days` |
+| `scoring.recency_strategy` | `model.signals.recency.strategy` |
+| `scoring.recency_half_life_floor_days` | `model.signals.recency.half_life_floor_days` |
+| `scoring.recency_half_life_ceiling_days` | `model.signals.recency.half_life_ceiling_days` |
 | `scoring.*_reliability` | `model.signals.*.reliability` |
 
 JSON from every command includes `models` with `ownership`, `risk`, and `topology`. Human reports print the applicable ids on stderr. Per-repo analyze state and the graph cache are reused only when all three ids match and the scoring config hash matches; a file without `models` is ignored.
@@ -298,6 +304,18 @@ evidence_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
 ```
 
 `aᵢ` is 1 when that signal was observed for the path (blame ran; a review provider was injected) and 0 otherwise. An author with 0% blame or 0 reviews still has that signal available: that is a measured zero, not a missing signal. `evidence_quality` is a separate quantity. Two owners can share a score and still differ in quality, for example `@alice 0.91/0.93` versus `@bob 0.79/0.31`. Human output and CODEOWNERS annotations (`output.include_confidence`) show `score/quality`.
+
+With `scoring.recency_strategy: adaptive` (the default), the half-life is the path's median gap between commits, clamped to `recency_half_life_floor_days` and `recency_half_life_ceiling_days` (14 and 730). A path with no positive gap keeps `recency_half_life_days`. `scoring.recency_strategy: fixed` uses that configured half-life for every path. `analysis.lookback_days: adaptive` reads history until the analysis instant instead of a fixed `--since`.
+
+Each owner also reports three evidence scores under `freshness`. They are not a measurement of what a person knows:
+
+| Score | Meaning |
+| --- | --- |
+| `active_expertise` | This person's last commit, decayed by the effective half-life. This is the recency term inside `ownership_score`. |
+| `historical_expertise` | This person's commits divided by their commits plus commits by anyone else after them. |
+| `maintenance_recency` | The path's latest commit, decayed by the same half-life. |
+
+Continuity risk is a status, not a day-count boolean: `stable` (no warning), `inactive`, `superseded` (later commits by others outnumber this person's commits), or `departed` (inactive on every path). `decay.threshold_days` still marks `inactive` when the path has no commit interval. `historical_expertise` counts commits. It does not measure which lines survived.
 
 ```mermaid
 flowchart LR

@@ -14,6 +14,9 @@ from checkowners import __version__
 Severity = Literal["low", "medium", "high", "critical"]
 DriftMode = Literal["commit", "repo", "both"]
 QualificationStrategy = Literal["adaptive", "threshold"]
+RecencyStrategy = Literal["fixed", "adaptive"]
+LookbackDays = int | Literal["adaptive"]
+FreshnessStatus = Literal["inactive", "superseded", "stable", "departed"]
 FindingRule = Literal["missing", "stale", "changed", "single-expert"]
 IdentityMode = Literal["handle", "email", "hashed"]
 
@@ -47,7 +50,7 @@ _SIGNAL_NAMES = ("recency", "frequency", "blame", "review")
 
 @dataclass(frozen=True)
 class AnalysisConfig:
-    lookback_days: int = 365
+    lookback_days: LookbackDays = 365
     min_commits: int = 1
     top_n_owners: int = 3
     confidence_threshold: float = 0.3
@@ -76,6 +79,9 @@ class ScoringConfig:
     frequency_reliability: float = 1.0
     blame_reliability: float = 1.0
     review_reliability: float = 1.0
+    recency_strategy: RecencyStrategy = "adaptive"
+    recency_half_life_floor_days: int = 14
+    recency_half_life_ceiling_days: int = 730
 
 
 @dataclass(frozen=True)
@@ -396,6 +402,15 @@ class ConfidenceScore:
 
 
 @dataclass(frozen=True)
+class OwnershipFreshness:
+    active_expertise: float
+    historical_expertise: float
+    maintenance_recency: float
+    status: FreshnessStatus
+    half_life_days: float
+
+
+@dataclass(frozen=True)
 class OwnerEntry:
     """A single owner of a path with score, evidence quality, and provenance."""
 
@@ -405,6 +420,7 @@ class OwnerEntry:
     commits: int
     evidence_quality: float = 1.0
     score_breakdown: ConfidenceScore | None = None
+    freshness: OwnershipFreshness | None = None
 
     @property
     def confidence(self) -> float:
@@ -422,6 +438,7 @@ class DecayWarning:
     last_commit: datetime
     days_since_last_commit: int
     historical_confidence: float
+    status: FreshnessStatus = "inactive"
 
 
 @dataclass(frozen=True)
@@ -512,6 +529,14 @@ class SignalScores(TypedDict, total=False):
     review: float
 
 
+class FreshnessJson(TypedDict):
+    active_expertise: float
+    historical_expertise: float
+    maintenance_recency: float
+    status: FreshnessStatus
+    half_life_days: float
+
+
 class OwnerJson(TypedDict):
     identity: str
     ownership_score: float
@@ -519,6 +544,7 @@ class OwnerJson(TypedDict):
     commits: int
     last_commit: str | None
     signals: NotRequired[SignalScores]
+    freshness: NotRequired[FreshnessJson]
 
 
 @dataclass(frozen=True)
@@ -592,6 +618,7 @@ class DecayWarningJson(TypedDict):
     days_since_last_commit: int
     last_commit: str
     historical_confidence: float
+    status: NotRequired[FreshnessStatus]
 
 
 class PathOwnershipJson(TypedDict):
@@ -833,7 +860,20 @@ def owner_json(owner: OwnerEntry) -> OwnerJson:
     signals = flat_signal_scores(owner)
     if signals:
         payload["signals"] = signals
+    if owner.freshness is not None:
+        payload["freshness"] = _freshness_json(owner.freshness)
     return payload
+
+
+def _freshness_json(freshness: OwnershipFreshness) -> FreshnessJson:
+    """Return the machine-readable freshness object for `freshness`."""
+    return {
+        "active_expertise": round(freshness.active_expertise, 4),
+        "historical_expertise": round(freshness.historical_expertise, 4),
+        "maintenance_recency": round(freshness.maintenance_recency, 4),
+        "status": freshness.status,
+        "half_life_days": round(freshness.half_life_days, 4),
+    }
 
 
 def _coverage_count(shares: tuple[float, ...], threshold: float) -> int:

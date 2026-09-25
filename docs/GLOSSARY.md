@@ -7,7 +7,7 @@ One sentence for each term used in reports. Naming rules are in [Terminology](ME
 - **candidate backup reviewer**: another scored person on a path, listed after the primary owners as someone who could review it.
 - **CODEOWNERS**: the committed file that names who should review each path.
 - **confidence delta**: the clamped gap on one path between the owners declared in CODEOWNERS and the owners inferred from history.
-- **continuity risk**: a warning that a scored owner's last commit on a path is older than the decay threshold.
+- **continuity risk**: a freshness status of `inactive`, `superseded`, or `departed` for a scored owner. `stable` means the gap fits the path and is not a warning.
 - **critical-path risk**: the criticality-weighted mean of top-owner share across the reported paths.
 - **criticality**: a configured weight in `(0, 1]` for a path glob, used when aggregating repository risk.
 - **drift**: a comparison of inferred owners with the committed CODEOWNERS rules, reported with a severity and a maximum score gap.

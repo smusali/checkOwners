@@ -1266,7 +1266,10 @@ def test_decay_reports_ownership_and_risk_models() -> None:
         days_since_last_commit=40,
         historical_confidence=0.8,
     )
-    report = DecayReport(warning=warning, recommended_transfer="@alice", departed=True)
+    report = DecayReport(
+        warning=replace(warning, status="departed"),
+        recommended_transfer="@alice",
+    )
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.detect_decay", return_value=()),
@@ -2575,8 +2578,8 @@ def test_aggregate_text_reports_omit_people(
         historical_confidence=0.8,
     )
     reports = (
-        DecayReport(warning=warning, recommended_transfer="@alice", departed=False),
-        DecayReport(warning=warning, recommended_transfer="", departed=True),
+        DecayReport(warning=warning, recommended_transfer="@alice"),
+        DecayReport(warning=replace(warning, status="departed"), recommended_transfer=""),
     )
     balance = BalanceReport(
         loads=(ReviewLoad(handle="alice@example.com", reviews=9),),

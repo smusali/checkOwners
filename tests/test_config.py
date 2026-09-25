@@ -521,12 +521,38 @@ def test_model_pin_must_match_implementation(tmp_path: Path) -> None:
         load_config(repo_root=root)
 
 
+def test_adaptive_lookback_and_fixed_recency_parse(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        "version: 1\n"
+        "analysis:\n"
+        "  lookback_days: adaptive\n"
+        "model:\n"
+        "  signals:\n"
+        "    recency:\n"
+        "      strategy: fixed\n"
+        "      half_life_floor_days: 21\n"
+        "      half_life_ceiling_days: 400\n",
+    )
+    cfg = load_config(repo_root=root)
+    assert cfg.analysis.lookback_days == "adaptive"
+    assert cfg.scoring.recency_strategy == "fixed"
+    assert cfg.scoring.recency_half_life_floor_days == 21
+    assert cfg.scoring.recency_half_life_ceiling_days == 400
+
+
 @pytest.mark.parametrize(
     ("content", "match"),
     [
         ("version: 3\n", "Unsupported checkowners config version"),
         ("version: '2'\n", "Unsupported checkowners config version"),
-        ("version: 1\nanalysis:\n  lookback_days: adaptive\n", "lookback_days"),
+        ("version: 1\nanalysis:\n  lookback_days: forever\n", "lookback_days"),
+        ("version: 1\nscoring:\n  recency_strategy: rolling\n", "recency_strategy"),
+        (
+            "version: 1\nscoring:\n  recency_half_life_floor_days: 90\n"
+            "  recency_half_life_ceiling_days: 90\n",
+            "below",
+        ),
         (
             "version: 1\nmodel:\n  signals:\n    historical_depth:\n      weight: 0.1\n",
             "historical_depth",

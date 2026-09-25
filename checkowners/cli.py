@@ -124,6 +124,7 @@ from checkowners.models import (
     DecayWarningJson,
     DriftResult,
     ExpertiseRank,
+    FreshnessStatus,
     OwnerEntry,
     OwnerJson,
     OwnershipMap,
@@ -612,14 +613,8 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
     for path, po in ownership.paths.items():
         merged = _merge_identities(po.owners, email_to_handle)
         decay_warnings = tuple(
-            DecayWarning(
-                handle=email_to_handle.get(w.handle, w.handle),
-                path=w.path,
-                last_commit=w.last_commit,
-                days_since_last_commit=w.days_since_last_commit,
-                historical_confidence=w.historical_confidence,
-            )
-            for w in po.decay_warnings
+            replace(warning, handle=email_to_handle.get(warning.handle, warning.handle))
+            for warning in po.decay_warnings
         )
         qualified_owner_count = sum(
             1 for e in merged if e.confidence >= config.analysis.confidence_threshold
@@ -653,13 +648,11 @@ def _merge_identities(
         best = max(entries, key=lambda e: e.confidence)
         last_commits = [e.last_commit for e in entries if e.last_commit is not None]
         merged.append(
-            OwnerEntry(
+            replace(
+                best,
                 handle=identity,
-                ownership_score=best.ownership_score,
                 last_commit=max(last_commits) if last_commits else None,
                 commits=sum(e.commits for e in entries),
-                evidence_quality=best.evidence_quality,
-                score_breakdown=best.score_breakdown,
             )
         )
     merged.sort(key=lambda e: (-e.confidence, e.handle))
@@ -674,6 +667,16 @@ def _confidence_style(confidence: float) -> str:
     return "red"
 
 
+def _freshness_status_cell(status: FreshnessStatus) -> str:
+    if status == "departed":
+        return "[red]departed[/red]"
+    if status == "superseded":
+        return "[yellow]superseded[/yellow]"
+    if status == "stable":
+        return "[green]stable[/green]"
+    return "[yellow]inactive[/yellow]"
+
+
 def _format_last_commit(value: datetime | None) -> str:
     return value.date().isoformat() if value else "-"
 
@@ -684,6 +687,7 @@ def _decay_warning_json(warning: DecayWarning) -> DecayWarningJson:
         "days_since_last_commit": warning.days_since_last_commit,
         "last_commit": warning.last_commit.isoformat(),
         "historical_confidence": round(warning.historical_confidence, 4),
+        "status": warning.status,
     }
 
 
@@ -1625,8 +1629,8 @@ def _decay_report_payload(report: DecayReport) -> dict[str, Any]:
         "days_since_last_commit": report.warning.days_since_last_commit,
         "last_commit": report.warning.last_commit.isoformat(),
         "historical_confidence": round(report.warning.historical_confidence, 4),
+        "status": report.warning.status,
         "recommended_transfer": report.recommended_transfer,
-        "departed": report.departed,
     }
 
 
@@ -1687,7 +1691,7 @@ def graph(
 
 @app.command()
 def decay(json_output: JsonOption = False) -> None:
-    """Report ownership freshness and continuity risk for dormant owners."""
+    """Report ownership freshness and continuity risk."""
     config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     reports = detect_decay(ownership, config)
@@ -1713,7 +1717,7 @@ def decay(json_output: JsonOption = False) -> None:
     table.add_column("Status")
     table.add_column("Recommended transfer")
     for report in reports:
-        status = "[red]departed[/red]" if report.departed else "[yellow]dormant[/yellow]"
+        status = _freshness_status_cell(report.warning.status)
         target = _person(report.recommended_transfer) if report.recommended_transfer else ""
         shown_target = escape(target) if target else "[dim]triage[/dim]"
         table.add_row(

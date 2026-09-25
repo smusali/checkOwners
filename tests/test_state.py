@@ -21,6 +21,7 @@ from checkowners.models import (
     Config,
     DecayWarning,
     OwnerEntry,
+    OwnershipFreshness,
     OwnershipMap,
     PathOwnership,
     ScoringConfig,
@@ -85,6 +86,13 @@ def _make_ownership() -> OwnershipMap:
         commits=12,
         evidence_quality=1.0,
         score_breakdown=breakdown,
+        freshness=OwnershipFreshness(
+            active_expertise=0.9,
+            historical_expertise=1.0,
+            maintenance_recency=0.8,
+            status="stable",
+            half_life_days=400.0,
+        ),
     )
     decay = DecayWarning(
         handle="@bob",
@@ -333,9 +341,14 @@ def test_load_ownership_roundtrip(repo: Path) -> None:
     assert loaded_owner.score_breakdown is not None
     assert loaded_owner.score_breakdown.recency.score == pytest.approx(0.9)
     assert loaded_owner.score_breakdown.recency.available is True
+    assert loaded_owner.freshness is not None
+    assert loaded_owner.freshness.status == "stable"
+    assert loaded_owner.freshness.active_expertise == pytest.approx(0.9)
+    assert loaded_owner.freshness.half_life_days == pytest.approx(400.0)
     decay = loaded.paths["src/auth.py"].decay_warnings[0]
     assert decay.handle == "@bob"
     assert decay.days_since_last_commit == 200
+    assert decay.status == "inactive"
     assert loaded.analysis_ref == "deadbeef"
     assert loaded.analysis_completeness.ignore_revs_applied is False
     assert loaded.analysis_completeness.ignore_revs_file == ""

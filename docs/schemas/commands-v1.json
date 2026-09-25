@@ -115,6 +115,38 @@
         }
       }
     },
+    "freshnessStatus": {
+      "type": "string",
+      "enum": ["inactive", "superseded", "stable", "departed"]
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_expertise",
+        "historical_expertise",
+        "maintenance_recency",
+        "status",
+        "half_life_days"
+      ],
+      "properties": {
+        "active_expertise": {
+          "type": "number"
+        },
+        "historical_expertise": {
+          "type": "number"
+        },
+        "maintenance_recency": {
+          "type": "number"
+        },
+        "status": {
+          "$ref": "#/$defs/freshnessStatus"
+        },
+        "half_life_days": {
+          "type": "number"
+        }
+      }
+    },
     "owner": {
       "type": "object",
       "additionalProperties": false,
@@ -146,6 +178,9 @@
         },
         "signals": {
           "$ref": "#/$defs/signalScores"
+        },
+        "freshness": {
+          "$ref": "#/$defs/freshness"
         }
       }
     },
@@ -287,6 +322,9 @@
         },
         "historical_confidence": {
           "type": "number"
+        },
+        "status": {
+          "$ref": "#/$defs/freshnessStatus"
         }
       }
     },
@@ -1506,7 +1544,7 @@
                   "last_commit",
                   "historical_confidence",
                   "recommended_transfer",
-                  "departed"
+                  "status"
                 ],
                 "properties": {
                   "handle": {
@@ -1530,8 +1568,8 @@
                       "null"
                     ]
                   },
-                  "departed": {
-                    "type": "boolean"
+                  "status": {
+                    "$ref": "#/$defs/freshnessStatus"
                   }
                 }
               }
@@ -2625,7 +2663,7 @@
               "last_commit",
               "historical_confidence",
               "recommended_transfer",
-              "departed"
+              "status"
             ],
             "properties": {
               "handle": {
@@ -2649,8 +2687,8 @@
                   "null"
                 ]
               },
-              "departed": {
-                "type": "boolean"
+              "status": {
+                "$ref": "#/$defs/freshnessStatus"
               }
             }
           }

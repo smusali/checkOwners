@@ -40,8 +40,10 @@ from checkowners.models import (
     ConfidenceScore,
     Config,
     DecayWarning,
+    FreshnessStatus,
     GapCode,
     OwnerEntry,
+    OwnershipFreshness,
     OwnershipMap,
     PathOwnership,
     Severity,
@@ -700,7 +702,19 @@ def _serialize_owner(entry: OwnerEntry) -> dict[str, Any]:
     }
     if entry.score_breakdown is not None:
         payload["signals"] = entry.score_breakdown.signals_payload()
+    if entry.freshness is not None:
+        payload["freshness"] = _serialize_freshness(entry.freshness)
     return payload
+
+
+def _serialize_freshness(freshness: OwnershipFreshness) -> dict[str, float | str]:
+    return {
+        "active_expertise": freshness.active_expertise,
+        "historical_expertise": freshness.historical_expertise,
+        "maintenance_recency": freshness.maintenance_recency,
+        "status": freshness.status,
+        "half_life_days": freshness.half_life_days,
+    }
 
 
 def _serialize_decay(warning: DecayWarning) -> dict[str, Any]:
@@ -710,6 +724,7 @@ def _serialize_decay(warning: DecayWarning) -> dict[str, Any]:
         "last_commit": warning.last_commit.astimezone(UTC).isoformat(),
         "days_since_last_commit": warning.days_since_last_commit,
         "historical_confidence": warning.historical_confidence,
+        "status": warning.status,
     }
 
 
@@ -862,15 +877,22 @@ def _deserialize_owner(raw: dict[str, Any]) -> OwnerEntry | None:
             last_commit = None
     else:
         last_commit = None
-    score_breakdown = _deserialize_signals(raw.get("signals"), float(score_raw))
+    score_breakdown = _deserialize_signals(raw.get("signals"), _number(score_raw))
     return OwnerEntry(
         handle=handle,
-        ownership_score=float(score_raw),
+        ownership_score=_number(score_raw),
         last_commit=last_commit,
         commits=commits,
-        evidence_quality=float(quality_raw),
+        evidence_quality=_number(quality_raw),
         score_breakdown=score_breakdown,
+        freshness=_deserialize_freshness(raw.get("freshness")),
     )
+
+
+def _number(value: int | float) -> float:
+    if isinstance(value, int):
+        return value + 0.0
+    return value
 
 
 def _deserialize_signals(raw: object, total: float) -> ConfidenceScore | None:
@@ -905,14 +927,76 @@ def _read_signal(raw: object) -> SignalScore | None:
     return SignalScore(available=True, score=float(score))
 
 
+_FRESHNESS_STATUSES: tuple[FreshnessStatus, ...] = (
+    "inactive",
+    "superseded",
+    "stable",
+    "departed",
+)
+
+
+def _match_freshness_status(value: object) -> FreshnessStatus | None:
+    if not isinstance(value, str):
+        return None
+    for known in _FRESHNESS_STATUSES:
+        if known == value:
+            return known
+    return None
+
+
+def _read_freshness_status(value: object) -> FreshnessStatus:
+    matched = _match_freshness_status(value)
+    if matched is None:
+        return "inactive"
+    return matched
+
+
+def _read_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if isinstance(value, int):
+        return value + 0.0
+    return value
+
+
+def _deserialize_freshness(raw: object) -> OwnershipFreshness | None:
+    if not isinstance(raw, dict):
+        return None
+    active = _read_number(raw.get("active_expertise"))
+    historical = _read_number(raw.get("historical_expertise"))
+    maintenance = _read_number(raw.get("maintenance_recency"))
+    half_life = _read_number(raw.get("half_life_days"))
+    status = _match_freshness_status(raw.get("status"))
+    if (
+        active is None
+        or historical is None
+        or maintenance is None
+        or half_life is None
+        or status is None
+    ):
+        return None
+    return OwnershipFreshness(
+        active_expertise=active,
+        historical_expertise=historical,
+        maintenance_recency=maintenance,
+        status=status,
+        half_life_days=half_life,
+    )
+
+
 def _deserialize_decay(raw: dict[str, Any]) -> DecayWarning | None:
     try:
+        confidence = _read_number(raw.get("historical_confidence"))
+        days = raw.get("days_since_last_commit")
+        if confidence is None or isinstance(days, bool) or not isinstance(days, int):
+            return None
         return DecayWarning(
             handle=str(raw["handle"]),
             path=str(raw["path"]),
             last_commit=datetime.fromisoformat(str(raw["last_commit"])),
-            days_since_last_commit=int(raw["days_since_last_commit"]),
-            historical_confidence=float(raw["historical_confidence"]),
+            days_since_last_commit=days,
+            historical_confidence=confidence,
+            status=_read_freshness_status(raw.get("status")),
         )
     except (KeyError, TypeError, ValueError):
         return None

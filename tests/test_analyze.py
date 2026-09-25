@@ -563,6 +563,36 @@ def test_linguist_nested_gitattributes_and_negation(tmp_path: Path) -> None:
         assert _linguist_excluded_paths(tmp_path, ("src/foo.pb.go",)) == frozenset()
 
 
+def test_score_owners_empty_qualified_returns_nothing() -> None:
+    assert (
+        score_owners(
+            {},
+            {},
+            {},
+            max_commits=1,
+            scoring=ScoringConfig(),
+            now=_NOW,
+            blame_available=False,
+            review_available=False,
+        )
+        == ()
+    )
+
+
+def test_decay_without_freshness_uses_the_day_threshold() -> None:
+    stale_at = _NOW - timedelta(days=200)
+    recent = OwnerEntry(handle="alice", ownership_score=0.5, last_commit=_NOW, commits=1)
+    stale = OwnerEntry(handle="bob", ownership_score=0.4, last_commit=stale_at, commits=1)
+    missing = OwnerEntry(handle="carol", ownership_score=0.3, last_commit=stale_at, commits=1)
+    qualified = {
+        "alice": Contribution(commits=1, last_commit=_NOW),
+        "bob": Contribution(commits=1, last_commit=stale_at),
+    }
+    warnings = _detect_decay("src/a.py", qualified, (recent, stale, missing), 180, _NOW)
+    assert [warning.handle for warning in warnings] == ["bob"]
+    assert warnings[0].status == "inactive"
+
+
 def test_analyze_score_scale_with_and_without_review_provider() -> None:
     contrib = Contribution(commits=3, last_commit=_NOW)
     qualified = {"alice@example.com": contrib}

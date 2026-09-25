@@ -1287,7 +1287,25 @@ def test_decay_reports_ownership_and_risk_models() -> None:
     assert "risk" in _models_text(quiet)
     assert listed.exit_code == 0
     assert "@dave" in listed.stdout
+    assert "departed" in listed.stdout
     assert "models: ownership" in _models_text(listed)
+    other = tuple(
+        DecayReport(
+            warning=replace(warning, status=status),
+            recommended_transfer=None,
+        )
+        for status in ("superseded", "stable", "inactive")
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_decay", return_value=other),
+        _MOCK_TOKEN,
+    ):
+        styled = runner.invoke(app, ["decay"])
+    assert styled.exit_code == 0
+    assert "superseded" in styled.stdout
+    assert "stable" in styled.stdout
+    assert "inactive" in styled.stdout
 
 
 def test_qualified_owners_reports_risk_model() -> None:

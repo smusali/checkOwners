@@ -66,6 +66,7 @@ from checkowners.models import (
     ExpertiseRank,
     GitConfig,
     GithubConfig,
+    OwnerDistribution,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
@@ -1298,6 +1299,15 @@ def test_qualified_owners_reports_risk_model() -> None:
             ),
         ),
         qualified_owner_count_cap=3,
+        distribution=OwnerDistribution(
+            minimum=1.0,
+            p10=1.0,
+            median=1.0,
+            p90=1.0,
+            critical_path_risk=1.0,
+            knowledge_at_risk=1.0,
+            criticality_incomplete=False,
+        ),
     )
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),

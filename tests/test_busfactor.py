@@ -7,9 +7,15 @@ from datetime import UTC, datetime
 from hypothesis import given
 from hypothesis import strategies as st
 
-from checkowners.busfactor import classify, compute_qualified_owners
+from checkowners.busfactor import (
+    _weighted_percentile,
+    classify,
+    compute_qualified_owners,
+    owner_distribution,
+)
 from checkowners.models import (
     AnalysisConfig,
+    BusFactor,
     BusFactorConfig,
     Config,
     OwnerEntry,
@@ -123,6 +129,21 @@ def test_compute_qualified_owners_empty_returns_zero_average() -> None:
     report = compute_qualified_owners(ownership, _config())
     assert report.entries == ()
     assert report.distribution.minimum == 0.0
+    missing = owner_distribution(
+        (
+            BusFactor(
+                path="gone.py",
+                qualified_owner_count=1,
+                contributors_above_threshold=(),
+                recommended_backups=(),
+            ),
+        ),
+        ownership,
+        _config(),
+    )
+    assert missing.minimum == 0.0
+    assert missing.knowledge_at_risk == 1.0
+    assert _weighted_percentile([(1.0, 0.0)], 1.0, 0.5) == 1.0
     assert report.distribution.critical_path_risk == 0.0
     assert report.distribution.knowledge_at_risk == 0.0
     assert report.distribution.criticality_incomplete is True

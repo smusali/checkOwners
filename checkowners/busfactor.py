@@ -30,6 +30,7 @@ EMPTY_DISTRIBUTION = OwnerDistribution(
     criticality_incomplete=True,
 )
 
+
 @dataclass(frozen=True)
 class BusFactorReport:
     entries: tuple[BusFactor, ...]
@@ -167,15 +168,15 @@ def _weighted_percentile(
     total_weight: float,
     quantile: float,
 ) -> float:
-    if total_weight <= 0:
-        return 0.0
     target = quantile * total_weight
     cumulative = 0.0
-    for share, weight in ordered:
+    share = ordered[-1][0]
+    for item_share, weight in ordered:
         cumulative += weight
+        share = item_share
         if cumulative >= target:
-            return share
-    return ordered[-1][0]
+            break
+    return share
 
 
 def classify(qualified_owner_count: int, config: BusFactorConfig) -> Tier:

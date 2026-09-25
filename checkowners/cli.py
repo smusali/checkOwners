@@ -1497,7 +1497,7 @@ def github_action(
         config = _load_config()
         repo_root = Path.cwd()
         codeowners_path = find_codeowners_path(repo_root)
-        ownership = _run_analyze(config, repo_root)
+        ownership = _load_or_analyze(config, repo_root)
         cap = config.analysis.top_n_owners
         result = _detect_drift(repo_root, ownership, config, codeowners_path)
         if include_bus_factor:

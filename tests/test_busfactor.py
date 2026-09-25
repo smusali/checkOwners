@@ -370,9 +370,7 @@ def test_simulate_keeps_the_stronger_stored_score() -> None:
     )
     report = simulate_removal(ownership, _config(), ("@alice",))
     assert report.files_losing_only_owner == 2
-    assert [(item.path, item.files) for item in report.orphaned_directories] == [
-        ("services/", 2)
-    ]
+    assert [(item.path, item.files) for item in report.orphaned_directories] == [("services/", 2)]
     candidates = report.transfers[0].candidates
     assert [(item.identity, item.confidence) for item in candidates] == [
         ("@bob", 0.8),

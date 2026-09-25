@@ -193,7 +193,7 @@ The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` enviro
 | `GITHUB_OUTPUT` | GitHub runner | `github-action` writes bounded `schema_version: 1` summaries when set | Full `drift.json` / `bus_factor.json` / `decay.json` payloads are the uploaded artifact; summaries stay under the 1 MB per-output cap |
 | `SOURCE_DATE_EPOCH` | User or CI | Integer POSIX seconds used as the analysis instant when `--as-of` is omitted | After `--as-of`; before HEAD committer time |
 
-The composite Action sets `CHECKOWNERS_STATE_DIR` to `${{ runner.temp }}/checkowners-state`. CLI and hand-rolled CI must set it themselves if they want an ephemeral cache.
+With `cache: "true"` (the default), the composite Action sets `CHECKOWNERS_STATE_DIR` to `~/.checkowners` and restores that directory from the Actions cache. `cache: "false"` skips that restore and sets `CHECKOWNERS_STATE_DIR` to `${{ runner.temp }}/checkowners-state`. CLI and hand-rolled CI must set the variable themselves if they want an ephemeral cache.
 
 ## Turning checkOwners on for an existing large repository
 
@@ -553,6 +553,11 @@ Advanced install inputs:
 | `index_url` | (PyPI) | pip `--index-url` for an internal mirror. |
 | `offline` | `"false"` | Install the committed wheel with `--no-index --find-links`. The override must match the pin. A fully air-gapped runner also needs the lockfile wheels on disk (`pip download --require-hashes -r requirements.lock -d <dir>`) or a reachable `index_url`. |
 | `install_spec` | `""` | **Security-sensitive.** Allowed only as a local extras spec for dogfooding this repository: `.`, `.[graph]`, `.[github]`, `.[graph,github]`, `.[github,graph]`, or `.[all]`. Interpolating untrusted workflow data into this input is remote code execution. Downstream callers must omit it. |
+| `cache` | `"true"` | Cache pip downloads and `~/.checkowners`. `"false"` skips both. |
+
+`cache: "false"` turns off the pip cache and the state cache. A warm run reuses the ownership map only when the stored commit is still `HEAD` and the config hash and model versions match. A restored file whose commit is not `HEAD` is re-analyzed, including a commit that is not an ancestor of `HEAD`.
+
+`--diff-only` and incremental analysis are not part of this Action. A near-miss cache restore warms `~/.checkowners`, including `handles.json`. It is not a partial ownership result. The cache key is repository identity, the merge base, the scoring config hash, and the model versions (`ownership`, `risk`, `topology`). Incremental analysis should keep that key and may reuse an ancestor. Until then, the Action re-analyzes whenever the stored commit is not `HEAD`.
 
 ## How checkowners compares
 

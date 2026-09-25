@@ -91,6 +91,16 @@ inputs:
       comment. A supplied token takes precedence over github.token.
     required: false
     default: ${{ github.token }}
+  cache:
+    description: >-
+      Cache pip downloads and ~/.checkowners between runs. Set to false to
+      skip both. A restored state file is reused only when its commit is
+      HEAD and its config hash and model versions match. Any other restored
+      file, including one whose commit is not an ancestor of HEAD, is
+      re-analyzed. This does not implement incremental analysis or
+      --diff-only: a near-miss restore only warms the directory.
+    required: false
+    default: "true"
 
 outputs:
   drift_summary:
@@ -133,10 +143,17 @@ runs:
           exit 1
         fi
 
+    - name: Stage pip lockfile
+      if: inputs.cache == 'true'
+      shell: bash
+      run: cp "${GITHUB_ACTION_PATH}/requirements.lock" "${GITHUB_WORKSPACE}/.checkowners-requirements.lock"
+
     - name: Set up Python
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       with:
         python-version: ${{ inputs.python_version }}
+        cache: ${{ inputs.cache == 'true' && 'pip' || '' }}
+        cache-dependency-path: ${{ inputs.cache == 'true' && '.checkowners-requirements.lock' || '' }}
 
     - name: Install checkowners
       shell: bash
@@ -148,13 +165,36 @@ runs:
         CHECKOWNERS_PINNED_VERSION: "0.6.0"
       run: bash "${GITHUB_ACTION_PATH}/tools/install_checkowners.sh"
 
+    - name: Remove staged pip lockfile
+      if: always() && inputs.cache == 'true'
+      shell: bash
+      run: rm -f "${GITHUB_WORKSPACE}/.checkowners-requirements.lock"
+
+    - name: Compute state cache key
+      id: cache-key
+      if: inputs.cache == 'true'
+      shell: bash
+      env:
+        CHECKOWNERS_CONFIG: ${{ inputs.config }}
+        CHECKOWNERS_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: bash "${GITHUB_ACTION_PATH}/tools/state_cache_key.sh"
+
+    - name: Cache checkowners state
+      if: inputs.cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.checkowners
+        key: ${{ steps.cache-key.outputs.key }}
+        restore-keys: ${{ steps.cache-key.outputs.restore-keys }}
+
     - name: Run checkowners
       id: run
       shell: bash
       env:
         CHECKOWNERS_CONFIG: ${{ inputs.config }}
         CHECKOWNERS_DRIFT_MODE: ${{ inputs.mode }}
-        CHECKOWNERS_STATE_DIR: ${{ runner.temp }}/checkowners-state
+        CHECKOWNERS_USE_CACHE: ${{ inputs.cache }}
+        CHECKOWNERS_EPHEMERAL_STATE: ${{ runner.temp }}/checkowners-state
         GITHUB_TOKEN: ${{ inputs.github_token }}
         CHECKOWNERS_FAIL_ON_DRIFT: ${{ inputs.fail_on_drift }}
         CHECKOWNERS_BASELINE: ${{ inputs.baseline }}
@@ -163,7 +203,13 @@ runs:
         CHECKOWNERS_INCLUDE_BALANCE: ${{ inputs.include_balance }}
         MAX_OUTPUT_ENTRIES: ${{ inputs.max_output_entries }}
         CHECKOWNERS_ARTIFACT_NAME: checkowners-reports
-      run: checkowners github-action
+      run: |
+        if [ "${CHECKOWNERS_USE_CACHE}" = "true" ]; then
+          export CHECKOWNERS_STATE_DIR="${HOME}/.checkowners"
+        else
+          export CHECKOWNERS_STATE_DIR="${CHECKOWNERS_EPHEMERAL_STATE}"
+        fi
+        checkowners github-action
 
     - name: Upload checkowners reports
       if: ${{ always() }}

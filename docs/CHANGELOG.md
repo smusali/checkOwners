@@ -10,6 +10,9 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 
 Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../ROADMAP.md).
 
+### Added
+- The composite Action caches pip and `~/.checkowners`. The `cache` input defaults to `"true"`. A restored state file is reused only when its commit is `HEAD` and the config hash and model versions match.
+
 ## [0.6.0] - 2026-09-24
 
 Correctness and trust: scored ownership, schema 1, privacy controls, and supply-chain checks. Inference stays local git.

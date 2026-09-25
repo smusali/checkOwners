@@ -225,5 +225,13 @@ __marimo__/
 # only relevant if CHECKOWNERS_STATE_DIR is pointed inside the repo.
 .checkowners/
 
+# github-action writes these in the working directory for the artifact upload.
+/drift.json
+/bus_factor.json
+/decay.json
+/balance.json
+/checkowners-report.md
+/.checkowners-requirements.lock
+
 # Claude Code local session settings (never commit or package)
 .claude/

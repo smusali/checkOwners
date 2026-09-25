@@ -46,7 +46,7 @@ A workflow that posts `GITHUB_OUTPUT` to a webhook does that itself. checkOwners
 | `~/.checkowners/graph/<id>.json` | Serialized ownership graph for that analysis. Contributor emails in node ids are the same tokens. |
 | `~/.checkowners/handles.json` | Email token to GitHub `@handle`, including remembered misses (an empty string). A file that still has plaintext addresses is rewritten on the next read. `@handles` are stored as themselves. |
 
-`checkowners cache path` prints the directory. `CHECKOWNERS_STATE_DIR` overrides it. The composite Action sets that variable to `${{ runner.temp }}/checkowners-state`. Files are local. Analysis does not upload them.
+`checkowners cache path` prints the directory. `CHECKOWNERS_STATE_DIR` overrides it. The composite Action sets that variable to `~/.checkowners` when `cache` is `"true"`, and to `${{ runner.temp }}/checkowners-state` when `cache` is `"false"`. Analysis does not upload file contents. With `cache` `"true"`, the Actions cache stores the directory for the next run.
 
 The cache holds hashed emails and `@handles`. It does not hold raw addresses after the next read. Those identities are still personal data.
 

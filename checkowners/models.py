@@ -216,6 +216,7 @@ class Config:
     identity_mode: IdentityMode = "handle"
     contributors_exclude: tuple[str, ...] = ()
     suppressions: tuple[Suppression, ...] = ()
+    criticality: tuple[tuple[str, float], ...] = ()
 
 
 GapCode = Literal[
@@ -545,6 +546,27 @@ class RiskJson(TypedDict):
     minor_contributor_share: float
     major_contributor_count: int
     truck_factor_thresholds: list[float]
+
+
+@dataclass(frozen=True)
+class OwnerDistribution:
+    minimum: float
+    p10: float
+    median: float
+    p90: float
+    critical_path_risk: float
+    knowledge_at_risk: float
+    criticality_incomplete: bool
+
+
+class OwnerDistributionJson(TypedDict):
+    minimum: float
+    p10: float
+    median: float
+    p90: float
+    critical_path_risk: float
+    knowledge_at_risk: float
+    criticality_incomplete: bool
 
 
 class PathAnalysisJson(TypedDict):

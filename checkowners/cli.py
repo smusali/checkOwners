@@ -55,6 +55,7 @@ from checkowners.busfactor import (
     BusFactorReport,
     classify,
     compute_qualified_owners,
+    distribution_json,
     format_qualified_owner_count,
     qualified_owner_count_fields,
 )
@@ -1769,10 +1770,7 @@ def _qualified_owners_impl(
         count = format_qualified_owner_count(entry.qualified_owner_count, cap)
         table.add_row(escape(entry.path), count, tier_str, escape(owners), escape(backups))
     console.print(table)
-    console.print(
-        f"[dim]repo average qualified_owner_count: {report.repo_average:.2f} "
-        f"(capped by top_n_owners={cap})[/dim]"
-    )
+    _print_owner_distribution(report)
     _report_models("risk")
     _finish_analysis(ownership)
 
@@ -1795,10 +1793,25 @@ def qualified_owners(
 app.command(name="qualified-owners")(qualified_owners)
 
 
+def _print_owner_distribution(report: BusFactorReport) -> None:
+    distribution = report.distribution
+    console.print(
+        "[dim]qualified-owner distribution: "
+        f"minimum {distribution.minimum:.2f}, "
+        f"p10 {distribution.p10:.2f}, "
+        f"median {distribution.median:.2f}, "
+        f"p90 {distribution.p90:.2f}, "
+        f"critical-path risk {distribution.critical_path_risk:.2f}, "
+        f"knowledge at risk {distribution.knowledge_at_risk:.0%}[/dim]"
+    )
+    if distribution.criticality_incomplete:
+        console.print("[dim]repository risk is incomplete without criticality[/dim]")
+
+
 def _qualified_owners_payload(report: BusFactorReport, config: Config) -> dict[str, Any]:
     cap = report.qualified_owner_count_cap
     return {
-        "repo_average": report.repo_average,
+        "distribution": distribution_json(report.distribution),
         "qualified_owner_count_cap": cap,
         "entries": [
             {

@@ -1336,14 +1336,14 @@
         {
           "type": "object",
           "required": [
-            "repo_average",
+            "distribution",
             "qualified_owner_count_cap",
             "entries",
             "critical_paths"
           ],
           "properties": {
-            "repo_average": {
-              "type": "number"
+            "distribution": {
+              "$ref": "#/$defs/ownerDistribution"
             },
             "qualified_owner_count_cap": {
               "type": "integer"
@@ -1419,7 +1419,15 @@
           "head_sha": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
-          "repo_average": 1.0,
+          "distribution": {
+            "minimum": 1.0,
+            "p10": 1.0,
+            "median": 1.0,
+            "p90": 1.0,
+            "critical_path_risk": 1.0,
+            "knowledge_at_risk": 1.0,
+            "criticality_incomplete": true
+          },
           "qualified_owner_count_cap": 3,
           "entries": [
             {
@@ -1438,6 +1446,42 @@
           ]
         }
       ]
+    },
+    "ownerDistribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum",
+        "p10",
+        "median",
+        "p90",
+        "critical_path_risk",
+        "knowledge_at_risk",
+        "criticality_incomplete"
+      ],
+      "properties": {
+        "minimum": {
+          "type": "number"
+        },
+        "p10": {
+          "type": "number"
+        },
+        "median": {
+          "type": "number"
+        },
+        "p90": {
+          "type": "number"
+        },
+        "critical_path_risk": {
+          "type": "number"
+        },
+        "knowledge_at_risk": {
+          "type": "number"
+        },
+        "criticality_incomplete": {
+          "type": "boolean"
+        }
+      }
     },
     "decay": {
       "allOf": [
@@ -2193,7 +2237,15 @@
             "head_sha": "abc123",
             "generated_at": "2026-05-28T12:00:00+00:00",
             "analysis_completeness": 0.75,
-            "repo_average": 1.0,
+            "distribution": {
+              "minimum": 1.0,
+              "p10": 1.0,
+              "median": 1.0,
+              "p90": 1.0,
+              "critical_path_risk": 1.0,
+              "knowledge_at_risk": 1.0,
+              "criticality_incomplete": true
+            },
             "qualified_owner_count_cap": 3,
             "entries": [
               {
@@ -2382,7 +2434,7 @@
       "required": [
         "schema_version",
         "models",
-        "repo_average",
+        "distribution",
         "qualified_owner_count_cap",
         "counts",
         "critical_paths",
@@ -2422,8 +2474,8 @@
         "team_snapshot": {
           "type": "string"
         },
-        "repo_average": {
-          "type": "number"
+        "distribution": {
+          "$ref": "#/$defs/ownerDistribution"
         },
         "qualified_owner_count_cap": {
           "type": "integer"
@@ -2479,7 +2531,15 @@
             "risk": "risk-v1",
             "topology": "topology-v1"
           },
-          "repo_average": 1.0,
+          "distribution": {
+            "minimum": 1.0,
+            "p10": 1.0,
+            "median": 1.0,
+            "p90": 1.0,
+            "critical_path_risk": 1.0,
+            "knowledge_at_risk": 1.0,
+            "criticality_incomplete": true
+          },
           "qualified_owner_count_cap": 3,
           "counts": {
             "critical": 1,

@@ -6,16 +6,35 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from checkowners.expertise import common_prefix_depth, path_matches_glob
-from checkowners.models import BusFactor, BusFactorConfig, Config, OwnershipMap
+from checkowners.models import (
+    BusFactor,
+    BusFactorConfig,
+    Config,
+    OwnerDistribution,
+    OwnerDistributionJson,
+    OwnershipMap,
+    PathOwnership,
+    knowledge_concentration,
+)
 
 Tier = Literal["critical", "warning", "ok"]
 
 
+EMPTY_DISTRIBUTION = OwnerDistribution(
+    minimum=0.0,
+    p10=0.0,
+    median=0.0,
+    p90=0.0,
+    critical_path_risk=0.0,
+    knowledge_at_risk=0.0,
+    criticality_incomplete=True,
+)
+
 @dataclass(frozen=True)
 class BusFactorReport:
     entries: tuple[BusFactor, ...]
-    repo_average: float
     qualified_owner_count_cap: int
+    distribution: OwnerDistribution = EMPTY_DISTRIBUTION
     config: BusFactorConfig = field(default_factory=BusFactorConfig)
 
     @property
@@ -64,15 +83,99 @@ def compute_qualified_owners(
             )
         )
     entries.sort(key=lambda e: (e.qualified_owner_count, e.path))
-    repo_average = (
-        round(sum(e.qualified_owner_count for e in entries) / len(entries), 2) if entries else 0.0
-    )
     return BusFactorReport(
         entries=tuple(entries),
-        repo_average=repo_average,
         qualified_owner_count_cap=cap,
+        distribution=owner_distribution(tuple(entries), ownership, config),
         config=config.bus_factor,
     )
+
+
+def distribution_json(distribution: OwnerDistribution) -> OwnerDistributionJson:
+    """Return the JSON object for `distribution`."""
+    return {
+        "minimum": distribution.minimum,
+        "p10": distribution.p10,
+        "median": distribution.median,
+        "p90": distribution.p90,
+        "critical_path_risk": distribution.critical_path_risk,
+        "knowledge_at_risk": distribution.knowledge_at_risk,
+        "criticality_incomplete": distribution.criticality_incomplete,
+    }
+
+
+def owner_distribution(
+    entries: tuple[BusFactor, ...],
+    ownership: OwnershipMap,
+    config: Config,
+) -> OwnerDistribution:
+    """Return the criticality-weighted share distribution of `entries`."""
+    incomplete = not config.criticality
+    if not entries:
+        return OwnerDistribution(
+            minimum=0.0,
+            p10=0.0,
+            median=0.0,
+            p90=0.0,
+            critical_path_risk=0.0,
+            knowledge_at_risk=0.0,
+            criticality_incomplete=incomplete,
+        )
+    weighted: list[tuple[float, float]] = []
+    risk_weight = 0.0
+    total_weight = 0.0
+    weighted_share = 0.0
+    threshold = config.bus_factor.critical_threshold
+    for entry in entries:
+        path_ownership = ownership.paths.get(entry.path)
+        share = _top_owner_share(path_ownership)
+        weight = _criticality_weight(entry.path, config.criticality)
+        weighted.append((share, weight))
+        total_weight += weight
+        weighted_share += weight * share
+        if entry.qualified_owner_count <= threshold:
+            risk_weight += weight
+    ordered = sorted(weighted, key=lambda item: item[0])
+    return OwnerDistribution(
+        minimum=_weighted_percentile(ordered, total_weight, 0.0),
+        p10=_weighted_percentile(ordered, total_weight, 0.10),
+        median=_weighted_percentile(ordered, total_weight, 0.50),
+        p90=_weighted_percentile(ordered, total_weight, 0.90),
+        critical_path_risk=round(weighted_share / total_weight, 4),
+        knowledge_at_risk=round(risk_weight / total_weight, 4),
+        criticality_incomplete=incomplete,
+    )
+
+
+def _top_owner_share(path_ownership: PathOwnership | None) -> float:
+    if path_ownership is None:
+        return 0.0
+    scored = path_ownership.scored_owners or path_ownership.owners
+    scores = tuple(owner.ownership_score for owner in scored)
+    return knowledge_concentration(scores).top_owner_share
+
+
+def _criticality_weight(path: str, rules: tuple[tuple[str, float], ...]) -> float:
+    for pattern, weight in rules:
+        if path_matches_glob(path, pattern):
+            return weight
+    return 1.0
+
+
+def _weighted_percentile(
+    ordered: list[tuple[float, float]],
+    total_weight: float,
+    quantile: float,
+) -> float:
+    if total_weight <= 0:
+        return 0.0
+    target = quantile * total_weight
+    cumulative = 0.0
+    for share, weight in ordered:
+        cumulative += weight
+        if cumulative >= target:
+            return share
+    return ordered[-1][0]
 
 
 def classify(qualified_owner_count: int, config: BusFactorConfig) -> Tier:

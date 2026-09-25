@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- `qualified-owners` reports a criticality-weighted distribution of `top_owner_share` (`minimum`, `p10`, `median`, `p90`, `critical_path_risk`, and `knowledge_at_risk`), with `criticality` mapping path globs to weights in `(0, 1]` and an empty map setting `criticality_incomplete`.
 - Per-path `risk` reports inverse-Herfindahl `effective_owners`, Shannon entropy, HHI, `truck_factor_50`, `truck_factor_75`, `truck_factor_90`, minor-contributor share, and major-contributor count from every `ownership_score` above the confidence threshold, with `risk.truck_factor_thresholds` defaulting to `[0.50, 0.75, 0.90]` and echoed on the risk object, while `top_n_owners` still caps only the displayed owner list and `qualified_owner_count`.
 - The composite Action caches pip and `~/.checkowners`, with the `cache` input defaulting to `"true"` and a restored state file reused only when its commit is `HEAD` and the config hash and model versions match.
 

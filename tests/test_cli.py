@@ -1287,7 +1287,7 @@ def test_decay_reports_ownership_and_risk_models() -> None:
 
 
 def test_qualified_owners_reports_risk_model() -> None:
-    empty = BusFactorReport(entries=(), repo_average=0.0, qualified_owner_count_cap=3)
+    empty = BusFactorReport(entries=(), qualified_owner_count_cap=3)
     filled = BusFactorReport(
         entries=(
             BusFactor(
@@ -1297,7 +1297,6 @@ def test_qualified_owners_reports_risk_model() -> None:
                 recommended_backups=("@bob",),
             ),
         ),
-        repo_average=1.0,
         qualified_owner_count_cap=3,
     )
     with (
@@ -2505,7 +2504,6 @@ def test_aggregate_text_reports_omit_people(
                 recommended_backups=(),
             ),
         ),
-        repo_average=0.5,
         qualified_owner_count_cap=3,
     )
     topology = TopologyReport(

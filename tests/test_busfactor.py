@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 from checkowners.busfactor import classify, compute_qualified_owners
 from checkowners.models import (
     AnalysisConfig,
@@ -57,7 +60,7 @@ def test_compute_qualified_owners_all_paths_sorted() -> None:
     )
     report = compute_qualified_owners(ownership, _config())
     assert [e.path for e in report.entries] == ["src/auth.py", "src/api.py", "src/db.py"]
-    assert report.repo_average > 0
+    assert report.distribution.criticality_incomplete is True
 
 
 def test_compute_qualified_owners_filters_by_target_directory() -> None:
@@ -119,7 +122,10 @@ def test_compute_qualified_owners_empty_returns_zero_average() -> None:
     ownership = OwnershipMap(paths={}, last_analyzed=_NOW)
     report = compute_qualified_owners(ownership, _config())
     assert report.entries == ()
-    assert report.repo_average == 0.0
+    assert report.distribution.minimum == 0.0
+    assert report.distribution.critical_path_risk == 0.0
+    assert report.distribution.knowledge_at_risk == 0.0
+    assert report.distribution.criticality_incomplete is True
 
 
 def test_compute_qualified_owners_glob_target() -> None:
@@ -177,3 +183,60 @@ def test_recommend_backups_repo_wide_excludes_own_owners() -> None:
     entry = report.entries[0]
     # @bob already owns README.md (even below threshold), so only @carol remains.
     assert entry.recommended_backups == ("@carol",)
+
+
+def test_critical_paths_outweigh_a_favorable_mean() -> None:
+    spread = tuple(_entry(f"@doc{index}", 0.9 - index * 0.1) for index in range(5))
+    ownership = _ownership(
+        {
+            "README.md": spread,
+            "docs/guide.md": spread,
+            "docs/api.md": spread,
+            "payments/settlement.py": (_entry("@pay", 0.95),),
+            "auth/crypto.py": (_entry("@auth", 0.95),),
+        }
+    )
+    config = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.3),
+        bus_factor=BusFactorConfig(critical_threshold=1, warn_threshold=2),
+        criticality=(
+            ("payments/**", 1.0),
+            ("auth/**", 1.0),
+            ("docs/**", 0.1),
+            ("README.md", 0.1),
+        ),
+    )
+    report = compute_qualified_owners(ownership, config)
+    distribution = report.distribution
+    unweighted = sum(entry.qualified_owner_count for entry in report.entries) / len(report.entries)
+    assert unweighted > 3
+    assert distribution.critical_path_risk > 0.5
+    assert distribution.knowledge_at_risk > 0.5
+    assert distribution.criticality_incomplete is False
+    assert distribution.minimum <= distribution.p10 <= distribution.median <= distribution.p90
+
+
+@given(
+    counts=st.lists(st.integers(min_value=1, max_value=6), min_size=1, max_size=12),
+    weights=st.lists(
+        st.floats(min_value=0.05, max_value=1.0, allow_nan=False, allow_infinity=False),
+        min_size=1,
+        max_size=12,
+    ),
+)
+def test_distribution_percentile_order(counts: list[int], weights: list[float]) -> None:
+    size = min(len(counts), len(weights))
+    paths: dict[str, tuple[OwnerEntry, ...]] = {}
+    rules: list[tuple[str, float]] = []
+    for index in range(size):
+        path = f"src/p{index}.py"
+        count = counts[index]
+        paths[path] = tuple(_entry(f"@u{index}{owner}", 1.0) for owner in range(count))
+        rules.append((path, weights[index]))
+    config = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.3),
+        criticality=tuple(rules),
+    )
+    report = compute_qualified_owners(_ownership(paths), config)
+    distribution = report.distribution
+    assert distribution.minimum <= distribution.p10 <= distribution.median <= distribution.p90

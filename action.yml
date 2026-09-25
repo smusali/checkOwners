@@ -111,7 +111,7 @@ outputs:
     value: ${{ steps.run.outputs.drift_summary }}
   bus_factor_summary:
     description: >-
-      Bounded JSON qualified-owner summary: repo_average,
+      Bounded JSON qualified-owner summary: distribution,
       qualified_owner_count_cap, counts, critical_paths, and truncated.
       Per-path entries are omitted here and live in the uploaded artifact.
     value: ${{ steps.run.outputs.bus_factor_summary }}

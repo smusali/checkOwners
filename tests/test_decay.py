@@ -96,10 +96,8 @@ def test_detect_decay_marks_dormant_vs_departed() -> None:
     )
     reports = detect_decay(ownership, _zero_threshold())
     by_handle = {r.warning.handle: r for r in reports}
-    # alice is decaying on auth.py but still active on api.py -> dormant
-    assert by_handle["@alice"].departed is False
-    # bob is decaying everywhere -> departed
-    assert by_handle["@bob"].departed is True
+    assert by_handle["@alice"].warning.status == "inactive"
+    assert by_handle["@bob"].warning.status == "departed"
 
 
 def test_detect_decay_recommends_active_owner_on_same_path() -> None:

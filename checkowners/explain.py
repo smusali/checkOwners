@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -14,6 +14,7 @@ from checkowners.analyze import (
     Contribution,
     frequency_prior_for,
     gather_blame_coverage,
+    lookback_start,
     mailmap_flag,
     score_owners,
     signal_weights,
@@ -214,19 +215,19 @@ def commit_shas(
     as_of: datetime,
 ) -> dict[str, tuple[str, ...]]:
     """Return newest path-scoped commit SHAs per author inside the lookback window."""
-    window_start = as_of - timedelta(days=config.analysis.lookback_days)
+    window_start = lookback_start(config.analysis.lookback_days, as_of)
     email_fmt = "%aE" if config.git.use_mailmap else "%ae"
+    argv = [
+        "git",
+        "log",
+        mailmap_flag(config.git.use_mailmap),
+        f"--format=%H%n{email_fmt}%n%cI",
+    ]
+    if window_start is not None:
+        argv.append(f"--since={window_start.isoformat()}")
+    argv.extend([f"--until={as_of.isoformat()}", "--", target])
     result = subprocess.run(  # noqa: S603
-        [  # noqa: S607
-            "git",
-            "log",
-            mailmap_flag(config.git.use_mailmap),
-            f"--format=%H%n{email_fmt}%n%cI",
-            f"--since={window_start.isoformat()}",
-            f"--until={as_of.isoformat()}",
-            "--",
-            target,
-        ],
+        argv,
         capture_output=True,
         text=True,
         cwd=repo_root,
@@ -342,6 +343,7 @@ def path_knobs(
         f"blame {config.scoring.blame_weight:.2f}, "
         f"review {config.scoring.review_weight:.2f}"
     )
+    knobs.append(f"scoring.recency_strategy is {config.scoring.recency_strategy}")
     knobs.append(f"scoring.recency_half_life_days is {config.scoring.recency_half_life_days}")
     return tuple(knobs)
 
@@ -680,6 +682,7 @@ def _why_not_knobs(
     ]
     if kind == "outside_top_n":
         knobs.append(f"analysis.top_n_owners is {config.analysis.top_n_owners}")
+    knobs.append(f"scoring.recency_strategy is {config.scoring.recency_strategy}")
     knobs.append(f"scoring.recency_half_life_days is {config.scoring.recency_half_life_days}")
     knobs.append(f"analysis.lookback_days is {config.analysis.lookback_days}")
     return tuple(knobs)

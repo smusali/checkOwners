@@ -123,7 +123,7 @@ Note that `generate` and `sync` refuse to overwrite a CODEOWNERS that was not ge
 
 A weighted mean over **available** signals, each in `[0.0, 1.0]`:
 
-- **Recency**: `exp(-ln 2 × days_since_last_commit / half_life)`. Default half-life is 90 days.
+- **Recency**: `exp(-ln 2 × days_since_last_commit / half_life)`. The default strategy is `adaptive`: the half-life is the path's median gap between commits, clamped to 14 and 730 days. A path with no gap keeps the 90-day half-life. `scoring.recency_strategy: fixed` uses that 90-day value for every path.
 - **Frequency**: contributor's commits on the path divided by the path's max contributor.
 - **Blame coverage**: fraction of current lines `git blame` attributes to the contributor, after whitespace ignore, optional move/copy detection, and ignore-revs.
 - **Review activity**: PR reviews on the path divided by total reviews. Unavailable unless `github.api_enabled` is true; missing review is skipped, not scored as `0.0`.
@@ -141,11 +141,12 @@ Yes. Common tunings:
 
 ```yaml
 scoring:
+  recency_strategy: fixed
   recency_half_life_days: 45   # shorten ownership freshness
-  recency_weight: 0.5          # weigh "what did you touch last month" higher
+  recency_weight: 0.5          # weigh recent commits higher
 
 decay:
-  threshold_days: 90           # flag dormant owners after 3 months
+  threshold_days: 90           # continuity risk when a path has no commit interval
 
 analysis:
   confidence_threshold: 0.4    # stricter cutoff

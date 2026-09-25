@@ -10,6 +10,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from checkowners.analyze import (
     _BLAME_DEADLINE,
@@ -45,6 +47,7 @@ from checkowners.analyze import (
     analyze_ownership,
     apply_completeness,
     combine_available_signals,
+    effective_half_life,
     gather_blame_coverage,
     head_commit_datetime,
     head_commit_sha,
@@ -56,6 +59,7 @@ from checkowners.analyze import (
     signal_reliabilities,
     signal_weights,
 )
+from checkowners.drift import detect_drift
 from checkowners.explain import signal_tuples
 from checkowners.models import (
     AnalysisCompleteness,
@@ -466,6 +470,7 @@ def test_analyze_decay_warning_flagged() -> None:
     assert len(warnings) == 1
     assert warnings[0].handle == "alice@example.com"
     assert warnings[0].days_since_last_commit > 100
+    assert warnings[0].status == "inactive"
 
 
 def test_analyze_bus_factor_counts_qualified_owners() -> None:
@@ -558,6 +563,36 @@ def test_linguist_nested_gitattributes_and_negation(tmp_path: Path) -> None:
         assert _linguist_excluded_paths(tmp_path, ("src/foo.pb.go",)) == frozenset()
 
 
+def test_score_owners_empty_qualified_returns_nothing() -> None:
+    assert (
+        score_owners(
+            {},
+            {},
+            {},
+            max_commits=1,
+            scoring=ScoringConfig(),
+            now=_NOW,
+            blame_available=False,
+            review_available=False,
+        )
+        == ()
+    )
+
+
+def test_decay_without_freshness_uses_the_day_threshold() -> None:
+    stale_at = _NOW - timedelta(days=200)
+    recent = OwnerEntry(handle="alice", ownership_score=0.5, last_commit=_NOW, commits=1)
+    stale = OwnerEntry(handle="bob", ownership_score=0.4, last_commit=stale_at, commits=1)
+    missing = OwnerEntry(handle="carol", ownership_score=0.3, last_commit=stale_at, commits=1)
+    qualified = {
+        "alice": Contribution(commits=1, last_commit=_NOW),
+        "bob": Contribution(commits=1, last_commit=stale_at),
+    }
+    warnings = _detect_decay("src/a.py", qualified, (recent, stale, missing), 180, _NOW)
+    assert [warning.handle for warning in warnings] == ["bob"]
+    assert warnings[0].status == "inactive"
+
+
 def test_analyze_score_scale_with_and_without_review_provider() -> None:
     contrib = Contribution(commits=3, last_commit=_NOW)
     qualified = {"alice@example.com": contrib}
@@ -624,6 +659,68 @@ def test_recency_score_zero_half_life_returns_one() -> None:
     assert _recency_score(_NOW - timedelta(days=10), _NOW, 0) == 1.0
 
 
+@given(
+    cadence=st.floats(min_value=0.01, max_value=100_000, allow_nan=False, allow_infinity=False),
+    floor=st.integers(min_value=1, max_value=100),
+    ceiling=st.integers(min_value=101, max_value=5_000),
+)
+def test_effective_half_life_is_bounded(cadence: float, floor: int, ceiling: int) -> None:
+    scoring = ScoringConfig(
+        recency_strategy="adaptive",
+        recency_half_life_floor_days=floor,
+        recency_half_life_ceiling_days=ceiling,
+    )
+    half_life = effective_half_life(cadence, scoring)
+    assert floor <= half_life <= ceiling
+
+
+def test_adaptive_freshness_keeps_stable_owner(tmp_path: Path) -> None:
+    stable = [
+        ("alice@example.com", _NOW - timedelta(days=days), ["crypto.py"])
+        for days in (1200, 800, 400)
+    ]
+    churn = [
+        ("alice@example.com", _NOW - timedelta(days=days), ["hot.py"]) for days in (86, 84, 82, 80)
+    ]
+    churn.extend(
+        ("bob@example.com", _NOW - timedelta(days=days), ["hot.py"])
+        for days in (16, 14, 12, 10, 8, 6, 4, 2)
+    )
+    stdout = _make_git_log_output([*stable, *churn])
+    config = Config(
+        analysis=AnalysisConfig(
+            lookback_days="adaptive",
+            min_commits=1,
+            top_n_owners=5,
+            confidence_threshold=0.0,
+        ),
+    )
+    codeowners = tmp_path / "CODEOWNERS"
+    codeowners.write_text("crypto.py alice@example.com\n", encoding="utf-8")
+    with (
+        patch(_MOCK_GIT, return_value=_mock_run(stdout)) as mock,
+        patch(_MOCK_EXIST, side_effect=_passthrough),
+        patch(_MOCK_BLAME, side_effect=_no_blame),
+    ):
+        result = analyze_ownership(tmp_path, config, as_of=_NOW, analysis_ref="deadbeef")
+        drift = detect_drift(tmp_path, result, config, codeowners_path=codeowners)
+    log_args = next(call.args[0] for call in mock.call_args_list if "--name-only" in call.args[0])
+    assert not any(arg.startswith("--since=") for arg in log_args)
+    stable_owner = result.paths["crypto.py"].owners[0]
+    assert stable_owner.handle == "alice@example.com"
+    assert stable_owner.ownership_score >= 0.3
+    assert stable_owner.freshness is not None
+    assert stable_owner.freshness.status == "stable"
+    assert result.paths["crypto.py"].decay_warnings == ()
+    assert all(entry.path != "crypto.py" for entry in drift.missing)
+    previous = next(
+        owner for owner in result.paths["hot.py"].owners if owner.handle.startswith("alice")
+    )
+    assert previous.freshness is not None
+    assert previous.freshness.status == "superseded"
+    assert previous.freshness.active_expertise < 0.25
+
+
 def test_frequency_score_normalizes() -> None:
     assert _frequency_score(5, 10) == 0.5
     assert _frequency_score(10, 10) == 1.0
@@ -674,7 +771,7 @@ def test_get_commit_history_subprocess_error() -> None:
         patch(_MOCK_GIT, side_effect=subprocess.CalledProcessError(128, "git")),
         pytest.raises(subprocess.CalledProcessError),
     ):
-        _get_commit_history(Path("/fake"), 180, _NOW)
+        _get_commit_history(Path("/fake"), _NOW - timedelta(days=180), _NOW)
 
 
 def test_parse_log_output_empty() -> None:

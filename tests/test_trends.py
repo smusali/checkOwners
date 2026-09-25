@@ -111,6 +111,6 @@ def test_analyze_trends_fetches_history_span() -> None:
     config = _config()
     with patch("checkowners.trends._get_commit_history", return_value=[]) as mock_hist:
         report = analyze_trends(Path("/fake"), config, periods=4, period_days=15, as_of=_NOW)
-    assert mock_hist.call_args[0][1] == 60
+    assert mock_hist.call_args[0][1] == _NOW - timedelta(days=60)
     assert mock_hist.call_args[0][2] == _NOW
     assert report.periods == 4

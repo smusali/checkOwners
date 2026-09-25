@@ -458,6 +458,13 @@ def test_commit_shas_parses_and_respects_mailmap() -> None:
     argv = mocked.call_args.args[0]
     assert "--no-use-mailmap" in argv
     assert any("%ae" in part for part in argv)
+    assert any(part.startswith("--since=") for part in argv)
+
+    adaptive = Config(analysis=AnalysisConfig(lookback_days="adaptive"))
+    with patch("checkowners.explain.subprocess.run", return_value=_proc("")) as mocked:
+        assert commit_shas(Path(), "src/a.py", adaptive, _NOW) == {}
+    argv = mocked.call_args.args[0]
+    assert not any(part.startswith("--since=") for part in argv)
 
 
 def test_rename_lineage_keeps_unseen_old_names() -> None:

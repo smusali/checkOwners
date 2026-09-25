@@ -21,6 +21,7 @@ from checkowners.models import (
     Config,
     DecayWarning,
     OwnerEntry,
+    OwnershipFreshness,
     OwnershipMap,
     PathOwnership,
     ScoringConfig,
@@ -85,6 +86,13 @@ def _make_ownership() -> OwnershipMap:
         commits=12,
         evidence_quality=1.0,
         score_breakdown=breakdown,
+        freshness=OwnershipFreshness(
+            active_expertise=0.9,
+            historical_expertise=1.0,
+            maintenance_recency=0.8,
+            status="stable",
+            half_life_days=400.0,
+        ),
     )
     decay = DecayWarning(
         handle="@bob",
@@ -333,9 +341,14 @@ def test_load_ownership_roundtrip(repo: Path) -> None:
     assert loaded_owner.score_breakdown is not None
     assert loaded_owner.score_breakdown.recency.score == pytest.approx(0.9)
     assert loaded_owner.score_breakdown.recency.available is True
+    assert loaded_owner.freshness is not None
+    assert loaded_owner.freshness.status == "stable"
+    assert loaded_owner.freshness.active_expertise == pytest.approx(0.9)
+    assert loaded_owner.freshness.half_life_days == pytest.approx(400.0)
     decay = loaded.paths["src/auth.py"].decay_warnings[0]
     assert decay.handle == "@bob"
     assert decay.days_since_last_commit == 200
+    assert decay.status == "inactive"
     assert loaded.analysis_ref == "deadbeef"
     assert loaded.analysis_completeness.ignore_revs_applied is False
     assert loaded.analysis_completeness.ignore_revs_file == ""
@@ -642,6 +655,95 @@ def test_load_ownership_analysis_ref_and_timestamp_edges(repo: Path) -> None:
     payload["last_analyzed"] = "not-a-date"
     _write_raw_state(repo, _readable_state(payload))
     assert load_ownership(repo) is None
+
+
+def test_load_ownership_freshness_edges(repo: Path) -> None:
+    owner = {
+        "handle": "@alice",
+        "ownership_score": 1,
+        "evidence_quality": 1,
+        "commits": 2,
+        "last_commit": _NOW.isoformat(),
+    }
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "repo": str(repo.resolve()),
+        "inferred": {
+            "src/ints.py": {
+                "owners": [
+                    {
+                        **owner,
+                        "freshness": {
+                            "active_expertise": 1,
+                            "historical_expertise": 1,
+                            "maintenance_recency": 1,
+                            "status": "departed",
+                            "half_life_days": 30,
+                        },
+                    }
+                ],
+                "qualified_owner_count": 1,
+                "decay_warnings": [
+                    {
+                        "handle": "@alice",
+                        "path": "src/ints.py",
+                        "last_commit": _NOW.isoformat(),
+                        "days_since_last_commit": 4,
+                        "historical_confidence": 1,
+                        "status": "superseded",
+                    }
+                ],
+            },
+            "src/bad.py": {
+                "owners": [
+                    {**owner, "freshness": {"active_expertise": True, "status": "stable"}},
+                    {
+                        **owner,
+                        "handle": "@bob",
+                        "freshness": {
+                            "active_expertise": 0.2,
+                            "historical_expertise": 0.2,
+                            "maintenance_recency": 0.2,
+                            "status": "retired",
+                            "half_life_days": 10,
+                        },
+                    },
+                ],
+                "qualified_owner_count": 1,
+                "decay_warnings": [
+                    {
+                        "handle": "@bob",
+                        "path": "src/bad.py",
+                        "last_commit": _NOW.isoformat(),
+                        "days_since_last_commit": True,
+                        "historical_confidence": 0.2,
+                    },
+                    {
+                        "handle": "@bob",
+                        "path": "src/bad.py",
+                        "last_commit": _NOW.isoformat(),
+                        "days_since_last_commit": 3,
+                        "historical_confidence": "high",
+                        "status": "nope",
+                    },
+                ],
+            },
+        },
+        "last_analyzed": _NOW.isoformat(),
+    }
+    _write_raw_state(repo, _readable_state(payload))
+    loaded = load_ownership(repo)
+    assert loaded is not None
+    kept = loaded.paths["src/ints.py"]
+    assert kept.owners[0].ownership_score == pytest.approx(1.0)
+    assert kept.owners[0].freshness is not None
+    assert kept.owners[0].freshness.status == "departed"
+    assert kept.owners[0].freshness.half_life_days == pytest.approx(30.0)
+    assert kept.decay_warnings[0].status == "superseded"
+    assert kept.decay_warnings[0].historical_confidence == pytest.approx(1.0)
+    dropped = loaded.paths["src/bad.py"]
+    assert all(entry.freshness is None for entry in dropped.owners)
+    assert dropped.decay_warnings == ()
 
 
 def test_write_state_creates_parent_dirs(tmp_path: Path, repo: Path) -> None:

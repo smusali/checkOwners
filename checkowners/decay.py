@@ -1,29 +1,24 @@
-"""Expertise decay detector.
-
-Surfaces contributors whose expertise on a path is stale: they committed
-heavily in the past but not within the configured threshold window.
-"""
+"""Continuity-risk reports for ownership freshness."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from checkowners.expertise import common_prefix_depth
-from checkowners.models import Config, DecayWarning, OwnershipMap, PathOwnership
+from checkowners.models import Config, DecayWarning, FreshnessStatus, OwnershipMap, PathOwnership
 
 
 @dataclass(frozen=True)
 class DecayReport:
     warning: DecayWarning
     recommended_transfer: str | None
-    departed: bool
 
 
 def detect_decay(
     ownership: OwnershipMap,
     config: Config,
 ) -> tuple[DecayReport, ...]:
-    """Walk the ownership map and report every decay warning with a recommendation."""
+    """Return continuity-risk reports for `ownership` under `config`."""
     if not config.decay.alert_on_decay:
         return ()
     reports: list[DecayReport] = []
@@ -36,16 +31,21 @@ def detect_decay(
                 decaying_handle=warning.handle,
                 confidence_threshold=config.analysis.confidence_threshold,
             )
-            departed = warning.handle not in active_handles
+            status = _report_status(warning, active_handles)
             reports.append(
                 DecayReport(
-                    warning=warning,
+                    warning=replace(warning, status=status),
                     recommended_transfer=recommended,
-                    departed=departed,
                 )
             )
     reports.sort(key=lambda r: (-r.warning.days_since_last_commit, r.warning.path))
     return tuple(reports)
+
+
+def _report_status(warning: DecayWarning, active_handles: frozenset[str]) -> FreshnessStatus:
+    if warning.status == "inactive" and warning.handle not in active_handles:
+        return "departed"
+    return warning.status
 
 
 def _active_handles(

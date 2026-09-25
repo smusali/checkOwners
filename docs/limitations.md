@@ -1,14 +1,14 @@
 # Limitations
 
 CheckOwners infers a ranking from repository evidence. That ranking can be
-wrong. Observed expertise is evidence, not authority.
+wrong. Observed history is evidence, not authority.
 
 ## Where the tool can be wrong
 
 - Git history is not complete human expertise.
 - Squash merges can hide authorship.
 - Blame can over-credit formatting changes.
-- CODEOWNERS may intentionally differ from expertise.
+- CODEOWNERS may intentionally differ from repository evidence.
 - GitHub team analysis requires API access.
 - Review history availability affects evidence.
 - Historical trend scores use different data.
@@ -23,7 +23,7 @@ wrong. Observed expertise is evidence, not authority.
 - Concentrated activity, as score mass on the truncated owner list.
 - Stale CODEOWNERS rules, when declared owners and inferred owners diverge.
 - Changing patterns across trend periods that share the same two signals.
-- Possible continuity risk, when a scored owner's last commit is older than `decay.threshold_days`.
+- Possible continuity risk, classified as `inactive`, `superseded`, or `departed`. `stable` is not a warning. A path with no commit interval still uses `decay.threshold_days`.
 - Possible reviewer affinity, from commits or from recorded reviews.
 
 ## What repository evidence cannot prove
@@ -106,7 +106,10 @@ not available historically, so `avg_top_confidence` and
 `avg_qualified_owner_count` use recency and frequency. Those numbers are not
 comparable to a present-day `ownership_score` that included blame or review.
 `historical_confidence` on a continuity-risk warning is the present score of
-an owner whose last commit is old. It is not a score from an earlier period.
+an owner whose freshness status is not `stable`. It is not a score from an
+earlier period. `active_expertise`, `historical_expertise`, and
+`maintenance_recency` are evidence scores, not a measurement of what a person
+knows. `historical_expertise` does not measure which lines survived.
 
 ## Identity resolution can be ambiguous
 

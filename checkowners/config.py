@@ -21,6 +21,7 @@ from checkowners.models import (
     GitConfig,
     GithubConfig,
     IdentityMode,
+    LookbackDays,
     ModelVersions,
     OutputConfig,
     PathsConfig,
@@ -28,6 +29,7 @@ from checkowners.models import (
     PrivacyConfig,
     QualificationConfig,
     QualificationStrategy,
+    RecencyStrategy,
     RiskConfig,
     ScoringConfig,
     Suppression,
@@ -59,6 +61,7 @@ _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 _VALID_DRIFT_MODES: frozenset[str] = frozenset(get_args(DriftMode))
 _VALID_QUALIFICATION_STRATEGIES: frozenset[str] = frozenset(get_args(QualificationStrategy))
+_VALID_RECENCY_STRATEGIES: frozenset[str] = frozenset(get_args(RecencyStrategy))
 _VALID_FINDING_RULES: frozenset[str] = frozenset(get_args(FindingRule))
 
 SUPPORTED_CONFIG_VERSIONS: frozenset[int] = frozenset({1})
@@ -106,6 +109,9 @@ _V2_QUALIFICATION: frozenset[str] = frozenset({"strategy", "min_commits", "stron
 _V2_SCORING: frozenset[str] = frozenset(
     {
         "recency_half_life_days",
+        "recency_strategy",
+        "recency_half_life_floor_days",
+        "recency_half_life_ceiling_days",
         "recency_weight",
         "frequency_weight",
         "blame_weight",
@@ -161,6 +167,9 @@ _SIGNAL_FIELDS: dict[str, dict[str, str]] = {
         "weight": "recency_weight",
         "half_life_days": "recency_half_life_days",
         "reliability": "recency_reliability",
+        "strategy": "recency_strategy",
+        "half_life_floor_days": "recency_half_life_floor_days",
+        "half_life_ceiling_days": "recency_half_life_ceiling_days",
     },
     "frequency": {
         "weight": "frequency_weight",
@@ -350,9 +359,8 @@ def _translate_analysis(analysis: object, bots: object) -> dict[str, Any] | None
     section = dict(_require_mapping(analysis, "analysis")) if analysis is not None else {}
     if analysis is not None:
         _reject_unknown_keys(section, _V2_ANALYSIS, "analysis")
-        if "lookback_days" in section and not _is_int(section["lookback_days"]):
-            msg = "analysis.lookback_days must be an integer; adaptive lookback is not supported"
-            raise ValueError(msg)
+        if "lookback_days" in section:
+            _parse_lookback(section["lookback_days"])
         if "max_owners" in section:
             max_owners = section.pop("max_owners")
             if not _is_int(max_owners):
@@ -470,7 +478,7 @@ def _merge_config(raw: dict[str, Any]) -> Config:
 def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
     kwargs: dict[str, Any] = {}
     if "lookback_days" in data:
-        kwargs["lookback_days"] = int(data["lookback_days"])
+        kwargs["lookback_days"] = _parse_lookback(data["lookback_days"])
     if "min_commits" in data:
         kwargs["min_commits"] = int(data["min_commits"])
     if "top_n_owners" in data:
@@ -485,6 +493,29 @@ def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
         if key in data:
             kwargs[key] = _require_positive_int(data[key], f"analysis.{key}")
     return AnalysisConfig(**kwargs)
+
+
+def _parse_lookback(value: object) -> LookbackDays:
+    if value == "adaptive":
+        return "adaptive"
+    if isinstance(value, bool) or not isinstance(value, int):
+        msg = "analysis.lookback_days must be an integer or 'adaptive'"
+        raise ValueError(msg)
+    return value
+
+
+def _is_recency_strategy(value: str) -> TypeGuard[RecencyStrategy]:
+    return value in _VALID_RECENCY_STRATEGIES
+
+
+def _parse_recency_strategy(value: object) -> RecencyStrategy:
+    if isinstance(value, str) and _is_recency_strategy(value):
+        return value
+    msg = (
+        f"Invalid scoring.recency_strategy: {value!r}; "
+        f"expected one of {sorted(_VALID_RECENCY_STRATEGIES)}"
+    )
+    raise ValueError(msg)
 
 
 def _require_positive_int(value: object, key: str) -> int:
@@ -541,8 +572,20 @@ def _build_qualification_config(data: dict[str, Any]) -> QualificationConfig:
 
 def _build_scoring_config(data: dict[str, Any]) -> ScoringConfig:
     kwargs: dict[str, Any] = {}
+    if "recency_strategy" in data:
+        kwargs["recency_strategy"] = _parse_recency_strategy(data["recency_strategy"])
     if "recency_half_life_days" in data:
         kwargs["recency_half_life_days"] = int(data["recency_half_life_days"])
+    if "recency_half_life_floor_days" in data:
+        kwargs["recency_half_life_floor_days"] = _require_positive_int(
+            data["recency_half_life_floor_days"],
+            "scoring.recency_half_life_floor_days",
+        )
+    if "recency_half_life_ceiling_days" in data:
+        kwargs["recency_half_life_ceiling_days"] = _require_positive_int(
+            data["recency_half_life_ceiling_days"],
+            "scoring.recency_half_life_ceiling_days",
+        )
     if "recency_weight" in data:
         kwargs["recency_weight"] = float(data["recency_weight"])
     if "frequency_weight" in data:
@@ -559,7 +602,14 @@ def _build_scoring_config(data: dict[str, Any]) -> ScoringConfig:
         kwargs["blame_reliability"] = float(data["blame_reliability"])
     if "review_reliability" in data:
         kwargs["review_reliability"] = float(data["review_reliability"])
-    return ScoringConfig(**kwargs)
+    scoring = ScoringConfig(**kwargs)
+    if scoring.recency_half_life_floor_days >= scoring.recency_half_life_ceiling_days:
+        msg = (
+            "scoring.recency_half_life_floor_days must be below "
+            "scoring.recency_half_life_ceiling_days"
+        )
+        raise ValueError(msg)
+    return scoring
 
 
 def _build_decay_config(data: dict[str, Any]) -> DecayConfig:

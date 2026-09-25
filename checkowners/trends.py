@@ -24,6 +24,7 @@ from checkowners.analyze import (
     _RawCommit,
     _recency_score,
     combine_available_signals,
+    effective_half_life,
     frequency_prior_for,
     resolve_as_of,
     signal_reliabilities,
@@ -69,7 +70,12 @@ def analyze_trends(
     """
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     span_days = max(1, periods * period_days)
-    commits = _get_commit_history(repo_root, span_days, when, use_mailmap=config.git.use_mailmap)
+    commits = _get_commit_history(
+        repo_root,
+        when - timedelta(days=span_days),
+        when,
+        use_mailmap=config.git.use_mailmap,
+    )
     return build_trends(
         commits,
         config,
@@ -167,7 +173,11 @@ def _two_factor_confidence(
     frequency_prior: float = 0.0,
 ) -> float:
     """Recency + frequency score; blame and review are historically unavailable."""
-    recency = _recency_score(contrib.last_commit, as_of, scoring.recency_half_life_days)
+    recency = _recency_score(
+        contrib.last_commit,
+        as_of,
+        effective_half_life(contrib.cadence_days, scoring),
+    )
     frequency = _frequency_score(contrib.commits, max_commits, frequency_prior)
     score, _quality = combine_available_signals(
         {

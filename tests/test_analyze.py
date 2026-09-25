@@ -331,6 +331,37 @@ def test_analyze_top_n_owners() -> None:
     assert handles == ["alice@example.com", "bob@example.com"]
 
 
+def test_concentration_is_stable_when_top_n_owners_changes() -> None:
+    commits = (
+        [("alice@example.com", _RECENT, ["f.py"])] * 10
+        + [("bob@example.com", _RECENT, ["f.py"])] * 7
+        + [("carol@example.com", _RECENT, ["f.py"])] * 3
+        + [("dan@example.com", _RECENT, ["f.py"])] * 1
+    )
+    stdout = _make_git_log_output(commits)
+
+    def run(cap: int) -> OwnershipMap:
+        config = Config(
+            analysis=AnalysisConfig(min_commits=1, top_n_owners=cap, confidence_threshold=0.0),
+        )
+        with (
+            patch(_MOCK_GIT, return_value=_mock_run(stdout)),
+            patch(_MOCK_EXIST, side_effect=_passthrough),
+            patch(_MOCK_BLAME, side_effect=_no_blame),
+        ):
+            return analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
+
+    narrow = run(1).paths["f.py"]
+    wide = run(4).paths["f.py"]
+    assert len(narrow.owners) < len(wide.owners)
+    assert [owner.handle for owner in narrow.scored_owners] == [
+        owner.handle for owner in wide.scored_owners
+    ]
+    assert [owner.ownership_score for owner in narrow.scored_owners] == [
+        owner.ownership_score for owner in wide.scored_owners
+    ]
+
+
 def test_analyze_path_exclusions() -> None:
     commits = [
         (

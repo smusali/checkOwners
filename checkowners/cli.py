@@ -591,7 +591,9 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
     """
     if not config.github.resolve_handles:
         return ownership
-    emails = {o.handle for po in ownership.paths.values() for o in po.owners}
+    emails = {
+        owner.handle for po in ownership.paths.values() for owner in (*po.owners, *po.scored_owners)
+    }
     for po in ownership.paths.values():
         emails.update(w.handle for w in po.decay_warnings)
         emails.update(c.handle for c in po.candidates)
@@ -622,6 +624,7 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
             qualified_owner_count=qualified_owner_count,
             decay_warnings=decay_warnings,
             candidates=_merge_identities(po.candidates, email_to_handle),
+            scored_owners=_merge_identities(po.scored_owners, email_to_handle),
         )
     return OwnershipMap(
         paths=new_paths,
@@ -683,12 +686,20 @@ def _owner_payload(owner: OwnerEntry) -> OwnerJson:
     return owner_json(owner)
 
 
-def _path_payload(po: PathOwnership, cap: int) -> PathOwnershipJson:
+def _path_payload(
+    po: PathOwnership,
+    cap: int,
+    thresholds: tuple[float, float, float],
+) -> PathOwnershipJson:
     counts = qualified_owner_count_fields(po.qualified_owner_count, cap)
+    scored = po.scored_owners or po.owners
     return {
         "owners": [_owner_payload(owner) for owner in po.owners],
         "analysis": path_analysis_json(po.owners),
-        "risk": risk_from_scores(tuple(owner.ownership_score for owner in po.owners)),
+        "risk": risk_from_scores(
+            tuple(owner.ownership_score for owner in scored),
+            thresholds,
+        ),
         "qualified_owner_count": counts["qualified_owner_count"],
         "qualified_owner_count_cap": counts["qualified_owner_count_cap"],
         "decay_warnings": [_decay_warning_json(warning) for warning in po.decay_warnings],
@@ -888,7 +899,8 @@ def analyze(json_output: JsonOption = False) -> None:
         data = {
             "analysis": _analyze_analysis(ownership),
             "inferred": {
-                path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())
+                path: _path_payload(po, cap, config.risk.truck_factor_thresholds)
+                for path, po in sorted(ownership.paths.items())
             },
             "last_analyzed": ownership.last_analyzed.isoformat(),
         }
@@ -1023,7 +1035,8 @@ def print_cmd(json_output: JsonOption = False) -> None:
         _emit_json(
             {
                 "paths": {
-                    path: _path_payload(po, cap) for path, po in sorted(ownership.paths.items())
+                    path: _path_payload(po, cap, config.risk.truck_factor_thresholds)
+                    for path, po in sorted(ownership.paths.items())
                 },
             },
             ownership,
@@ -2190,7 +2203,10 @@ def _run_owners(path: str, json_output: bool) -> None:
     ownership = _analyze_target(config, repo_root, path)
     owners = ranked_owners(ownership, path, config)
     if json_output:
-        _emit_json(owners_payload(owners, path, ownership), ownership)
+        _emit_json(
+            owners_payload(owners, path, ownership, config.risk.truck_factor_thresholds),
+            ownership,
+        )
         _finish_analysis(ownership)
         return
     _render_owners_list(owners)

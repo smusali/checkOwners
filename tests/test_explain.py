@@ -548,6 +548,30 @@ def test_payloads_include_why_not_and_null_last_commit() -> None:
     assert listed_owner["ownership_score"] == 0.86
     assert listed_owner["last_commit"] is None
     assert "review" not in listed_owner["signals"]
+    low = _entry("@alice", 0.2)
+    high = _entry("@alice", 0.9)
+    bob = _entry("@bob", 0.4)
+    merged = owners_payload(
+        (high,),
+        "src",
+        _map(
+            {
+                "src/a.py": PathOwnership(
+                    owners=(high,),
+                    qualified_owner_count=1,
+                    scored_owners=(high, bob),
+                ),
+                "src/b.py": PathOwnership(
+                    owners=(high,),
+                    qualified_owner_count=1,
+                    scored_owners=(low,),
+                ),
+            }
+        ),
+    )
+    assert merged["risk"]["top_owner_share"] == round(0.9 / 1.3, 4)
+    unmatched = owners_payload((bob,), "missing.py", ownership)
+    assert unmatched["risk"]["top_owner_share"] == 1.0
 
     explanation = PathExplanation(
         target="src/a.py",

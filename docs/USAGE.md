@@ -48,7 +48,7 @@ Team verification: unavailable
 
 Create `.github/checkowners.yml`. Every field is optional; defaults shown. `version: 1` is required. Any other `version`, or a file with no `version`, is refused.
 
-The numbers below are the runtime defaults. Longer-term proposals (adaptive lookback, `max_owners: 5`, different signal weights, truck-factor thresholds) are not applied here.
+The numbers below are the runtime defaults. Longer-term proposals (adaptive lookback, `max_owners: 5`, different signal weights) are not applied here.
 
 ```yaml
 version: 1
@@ -96,6 +96,9 @@ decay:
 bus_factor:
   critical_threshold: 1
   warn_threshold: 2
+
+risk:
+  truck_factor_thresholds: [0.50, 0.75, 0.90]
 
 paths:
   exclude:
@@ -160,9 +163,9 @@ policy:
     fail: false               # same exit as --fail-on-incomplete; other policy keys are refused
 ```
 
-`decay`, `bus_factor`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier (`risk-v1`), not a truck-factor block. Mailmap is `identity.mailmap`.
+`decay`, `bus_factor`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
 
-Keys with no implementation yet are refused, including `criticality`, `security`, `risk`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`.
+Keys with no implementation yet are refused, including `criticality`, `security`, `analysis.lookback_days: adaptive`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`. `risk` accepts only `truck_factor_thresholds`.
 
 | Also accepted | Same setting |
 | --- | --- |
@@ -334,7 +337,7 @@ This is not truck factor, bus factor, or lottery factor. Those metrics are a rem
 
 `qualified_owner_count` stays the capped threshold count. Raising `top_n_owners` raises the maximum reportable count without any code changing hands. It is not a repo-level truck factor. The formulas, the prior-art divergence, and the truncation caveat are in [Knowledge concentration](METHODOLOGY.md#knowledge-concentration).
 
-Per-path JSON also reports score mass under `risk`: `top_owner_share` (largest score divided by the sum of scores), `effective_owners` (the exponential of the Shannon entropy of the normalized scores), and `truck_factor_50` / `truck_factor_75` (the smallest owner count whose cumulative share reaches 0.50 / 0.75). Those numbers describe concentration of the scores already on that path. The `bus_factor:` config section still classifies the capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
+Per-path JSON also reports score mass under `risk`, computed before `top_n_owners` truncation. Expertise is `ownership_score`. `top_owner_share` is the largest share. `effective_owners` is `1 / sum(p_i^2)`. `shannon_entropy` is in nats. `hhi` is `sum(p_i^2)`. `truck_factor_50`, `truck_factor_75`, and `truck_factor_90` are the smallest owner counts whose largest shares reach the three values in `risk.truck_factor_thresholds` (default `0.50`, `0.75`, `0.90`). A major contributor has a share of at least `0.05`; `minor_contributor_share` is the rest. Changing `top_n_owners` does not change these numbers. The `bus_factor:` config section still classifies the capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
 
 `checkowners qualified-owners` is the command for this count.
 

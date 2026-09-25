@@ -28,6 +28,7 @@ from checkowners.models import (
     PrivacyConfig,
     QualificationConfig,
     QualificationStrategy,
+    RiskConfig,
     ScoringConfig,
     Suppression,
     models_payload,
@@ -70,6 +71,7 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
         "scoring",
         "decay",
         "bus_factor",
+        "risk",
         "paths",
         "output",
         "drift",
@@ -115,6 +117,7 @@ _V2_SCORING: frozenset[str] = frozenset(
 )
 _V2_DECAY: frozenset[str] = frozenset({"threshold_days", "alert_on_decay"})
 _V2_BUS_FACTOR: frozenset[str] = frozenset({"critical_threshold", "warn_threshold"})
+_V2_RISK: frozenset[str] = frozenset({"truck_factor_thresholds"})
 _V2_PATHS: frozenset[str] = frozenset({"exclude"})
 _V2_OUTPUT: frozenset[str] = frozenset(
     {
@@ -177,6 +180,7 @@ _V2_SECTIONS: dict[str, frozenset[str]] = {
     "scoring": _V2_SCORING,
     "decay": _V2_DECAY,
     "bus_factor": _V2_BUS_FACTOR,
+    "risk": _V2_RISK,
     "paths": _V2_PATHS,
     "output": _V2_OUTPUT,
     "drift": _V2_DRIFT,
@@ -430,6 +434,7 @@ def _merge_config(raw: dict[str, Any]) -> Config:
         "scoring": ("scoring", _build_scoring_config),
         "decay": ("decay", _build_decay_config),
         "bus_factor": ("bus_factor", _build_bus_factor_config),
+        "risk": ("risk", _build_risk_config),
         "paths": ("paths", _build_paths_config),
         "output": ("output", _build_output_config),
         "drift": ("drift", _build_drift_config),
@@ -561,6 +566,33 @@ def _build_decay_config(data: dict[str, Any]) -> DecayConfig:
     if "alert_on_decay" in data:
         kwargs["alert_on_decay"] = bool(data["alert_on_decay"])
     return DecayConfig(**kwargs)
+
+
+def _build_risk_config(data: dict[str, Any]) -> RiskConfig:
+    raw = data.get("truck_factor_thresholds")
+    if raw is None:
+        return RiskConfig()
+    if not isinstance(raw, list) or len(raw) != 3:
+        msg = "risk.truck_factor_thresholds must be three increasing numbers in (0, 1]"
+        raise ValueError(msg)
+    low = _require_unit_interval(raw[0])
+    mid = _require_unit_interval(raw[1])
+    high = _require_unit_interval(raw[2])
+    if not low < mid < high:
+        msg = "risk.truck_factor_thresholds must be three increasing numbers in (0, 1]"
+        raise ValueError(msg)
+    return RiskConfig(truck_factor_thresholds=(low, mid, high))
+
+
+def _require_unit_interval(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        msg = "risk.truck_factor_thresholds must be three increasing numbers in (0, 1]"
+        raise ValueError(msg)
+    number = float(value)
+    if number <= 0 or number > 1:
+        msg = "risk.truck_factor_thresholds must be three increasing numbers in (0, 1]"
+        raise ValueError(msg)
+    return number
 
 
 def _build_bus_factor_config(data: dict[str, Any]) -> BusFactorConfig:

@@ -115,6 +115,9 @@ def exclude_contributors(
         candidates = tuple(
             owner for owner in path_ownership.candidates if not _matches(owner.handle, keys)
         )
+        scored_owners = tuple(
+            owner for owner in path_ownership.scored_owners if not _matches(owner.handle, keys)
+        )
         warnings = tuple(
             warning
             for warning in path_ownership.decay_warnings
@@ -124,6 +127,7 @@ def exclude_contributors(
             path_ownership,
             owners=owners,
             candidates=candidates,
+            scored_owners=scored_owners,
             decay_warnings=warnings,
             qualified_owner_count=_qualified_count(owners, confidence_threshold),
         )
@@ -142,6 +146,9 @@ def without_emails(
         candidates = tuple(
             owner for owner in path_ownership.candidates if not is_email(owner.handle)
         )
+        scored_owners = tuple(
+            owner for owner in path_ownership.scored_owners if not is_email(owner.handle)
+        )
         warnings = tuple(
             warning for warning in path_ownership.decay_warnings if not is_email(warning.handle)
         )
@@ -149,6 +156,7 @@ def without_emails(
             path_ownership,
             owners=owners,
             candidates=candidates,
+            scored_owners=scored_owners,
             decay_warnings=warnings,
             qualified_owner_count=_qualified_count(owners, confidence_threshold),
         )

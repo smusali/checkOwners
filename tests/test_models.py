@@ -8,8 +8,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
+
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
+    DEFAULT_TRUCK_FACTOR_THRESHOLDS,
     GAP_CATALOG,
     AnalysisCompleteness,
     AnalysisGap,
@@ -22,6 +27,7 @@ from checkowners.models import (
     envelope_completeness,
     flat_signal_scores,
     history_evidence_gaps,
+    knowledge_concentration,
     merge_gaps,
     repository_label,
     risk_from_scores,
@@ -36,7 +42,18 @@ _ZERO_RISK = {
     "effective_owners": 0.0,
     "truck_factor_50": 0,
     "truck_factor_75": 0,
+    "truck_factor_90": 0,
+    "shannon_entropy": 0.0,
+    "hhi": 0.0,
+    "minor_contributor_share": 0.0,
+    "major_contributor_count": 0,
+    "truck_factor_thresholds": list(DEFAULT_TRUCK_FACTOR_THRESHOLDS),
 }
+_POSITIVE_SCORES = st.lists(
+    st.floats(min_value=0.01, max_value=1.0, allow_nan=False, allow_infinity=False),
+    min_size=1,
+    max_size=12,
+)
 
 
 def _signal(available: bool, score: float = 0.0) -> SignalScore:
@@ -135,6 +152,67 @@ def test_signal_completeness_skips_missing_breakdowns() -> None:
 def test_risk_from_scores_without_positive_mass() -> None:
     assert risk_from_scores(()) == _ZERO_RISK
     assert risk_from_scores((0.0, -1.0)) == _ZERO_RISK
+
+
+@pytest.mark.parametrize(
+    ("scores", "effective"),
+    [
+        ((1.0, 0.0, 0.0, 0.0), 1.0),
+        ((0.5, 0.5), 2.0),
+        ((0.25, 0.25, 0.25, 0.25), 4.0),
+    ],
+)
+def test_effective_owners_canonical_distributions(
+    scores: tuple[float, ...],
+    effective: float,
+) -> None:
+    assert risk_from_scores(scores)["effective_owners"] == effective
+
+
+def test_dominant_owner_truck_factor_50() -> None:
+    risk = risk_from_scores((0.82, 0.07, 0.05, 0.03, 0.02, 0.01))
+    assert risk["top_owner_share"] == 0.82
+    assert risk["truck_factor_50"] == 1
+    assert risk["truck_factor_thresholds"] == [0.5, 0.75, 0.9]
+
+
+def test_truck_factor_thresholds_are_positional() -> None:
+    risk = risk_from_scores((0.82, 0.18), (0.4, 0.6, 0.95))
+    assert risk["truck_factor_thresholds"] == [0.4, 0.6, 0.95]
+    assert risk["truck_factor_50"] == 1
+    assert risk["truck_factor_75"] == 1
+    assert risk["truck_factor_90"] == 2
+
+
+@given(scores=_POSITIVE_SCORES)
+def test_concentration_bounds_and_shares(scores: list[float]) -> None:
+    total = sum(scores)
+    shares = tuple(score / total for score in scores)
+    assert abs(sum(shares) - 1.0) < 1e-9
+    concentration = knowledge_concentration(tuple(scores))
+    assert 1.0 <= concentration.effective_owners <= len(scores) + 1e-4
+    assert concentration.top_owner_share == round(max(shares), 4)
+    assert (
+        concentration.truck_factor_50
+        <= concentration.truck_factor_75
+        <= concentration.truck_factor_90
+    )
+
+
+@given(
+    scores=_POSITIVE_SCORES,
+    quantiles=st.lists(
+        st.floats(min_value=0.01, max_value=1.0, allow_nan=False, allow_infinity=False),
+        min_size=2,
+        max_size=6,
+        unique=True,
+    ),
+)
+def test_truck_factor_is_monotonic_in_q(scores: list[float], quantiles: list[float]) -> None:
+    total = sum(scores)
+    shares = tuple(sorted((score / total for score in scores), reverse=True))
+    counts = tuple(_coverage_count(shares, quantile) for quantile in sorted(quantiles))
+    assert counts == tuple(sorted(counts))
 
 
 def test_coverage_count_uses_every_share_below_the_threshold() -> None:

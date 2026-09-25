@@ -20,6 +20,8 @@ IdentityMode = Literal["handle", "email", "hashed"]
 OWNERSHIP_MODEL_VERSION = "ownership-v1"
 RISK_MODEL_VERSION = "risk-v1"
 TOPOLOGY_MODEL_VERSION = "topology-v1"
+DEFAULT_TRUCK_FACTOR_THRESHOLDS: tuple[float, float, float] = (0.5, 0.75, 0.9)
+_MAJOR_CONTRIBUTOR_SHARE = 0.05
 COMMAND_SCHEMA_VERSION = "1"
 
 
@@ -86,6 +88,11 @@ class DecayConfig:
 class BusFactorConfig:
     critical_threshold: int = 1
     warn_threshold: int = 2
+
+
+@dataclass(frozen=True)
+class RiskConfig:
+    truck_factor_thresholds: tuple[float, float, float] = DEFAULT_TRUCK_FACTOR_THRESHOLDS
 
 
 @dataclass(frozen=True)
@@ -197,6 +204,7 @@ class Config:
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     decay: DecayConfig = field(default_factory=DecayConfig)
     bus_factor: BusFactorConfig = field(default_factory=BusFactorConfig)
+    risk: RiskConfig = field(default_factory=RiskConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     drift: DriftConfig = field(default_factory=DriftConfig)
@@ -423,6 +431,7 @@ class PathOwnership:
     qualified_owner_count: int
     decay_warnings: tuple[DecayWarning, ...] = ()
     candidates: tuple[OwnerEntry, ...] = ()
+    scored_owners: tuple[OwnerEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -511,11 +520,31 @@ class OwnerJson(TypedDict):
     signals: NotRequired[SignalScores]
 
 
+@dataclass(frozen=True)
+class KnowledgeConcentration:
+    top_owner_share: float
+    effective_owners: float
+    truck_factor_50: int
+    truck_factor_75: int
+    truck_factor_90: int
+    shannon_entropy: float
+    hhi: float
+    minor_contributor_share: float
+    major_contributor_count: int
+    truck_factor_thresholds: tuple[float, float, float] = DEFAULT_TRUCK_FACTOR_THRESHOLDS
+
+
 class RiskJson(TypedDict):
     top_owner_share: float
     effective_owners: float
     truck_factor_50: int
     truck_factor_75: int
+    truck_factor_90: int
+    shannon_entropy: float
+    hhi: float
+    minor_contributor_share: float
+    major_contributor_count: int
+    truck_factor_thresholds: list[float]
 
 
 class PathAnalysisJson(TypedDict):
@@ -794,23 +823,61 @@ def _coverage_count(shares: tuple[float, ...], threshold: float) -> int:
     return len(shares)
 
 
-def risk_from_scores(scores: tuple[float, ...]) -> RiskJson:
-    """Return score-mass concentration for `scores` (highest first)."""
+def knowledge_concentration(
+    scores: tuple[float, ...],
+    thresholds: tuple[float, float, float] = DEFAULT_TRUCK_FACTOR_THRESHOLDS,
+) -> KnowledgeConcentration:
+    """Return concentration of positive `scores` at the three `thresholds`."""
+    low, mid, high = thresholds
     positive = tuple(score for score in scores if score > 0)
     total = sum(positive)
     if total <= 0:
-        return {
-            "top_owner_share": 0.0,
-            "effective_owners": 0.0,
-            "truck_factor_50": 0,
-            "truck_factor_75": 0,
-        }
-    ordered = tuple(sorted(positive, reverse=True))
-    shares = tuple(score / total for score in ordered)
+        return KnowledgeConcentration(
+            top_owner_share=0.0,
+            effective_owners=0.0,
+            truck_factor_50=0,
+            truck_factor_75=0,
+            truck_factor_90=0,
+            shannon_entropy=0.0,
+            hhi=0.0,
+            minor_contributor_share=0.0,
+            major_contributor_count=0,
+            truck_factor_thresholds=thresholds,
+        )
+    shares = tuple(sorted((score / total for score in positive), reverse=True))
+    hhi = sum(share * share for share in shares)
     entropy = -sum(share * math.log(share) for share in shares)
+    minor = sum(share for share in shares if share < _MAJOR_CONTRIBUTOR_SHARE)
+    major = sum(1 for share in shares if share >= _MAJOR_CONTRIBUTOR_SHARE)
+    return KnowledgeConcentration(
+        top_owner_share=round(shares[0], 4),
+        effective_owners=round(1.0 / hhi, 4),
+        truck_factor_50=_coverage_count(shares, low),
+        truck_factor_75=_coverage_count(shares, mid),
+        truck_factor_90=_coverage_count(shares, high),
+        shannon_entropy=round(entropy, 4),
+        hhi=round(hhi, 4),
+        minor_contributor_share=round(minor, 4),
+        major_contributor_count=major,
+        truck_factor_thresholds=thresholds,
+    )
+
+
+def risk_from_scores(
+    scores: tuple[float, ...],
+    thresholds: tuple[float, float, float] = DEFAULT_TRUCK_FACTOR_THRESHOLDS,
+) -> RiskJson:
+    """Return the JSON concentration of `scores` at `thresholds`."""
+    concentration = knowledge_concentration(scores, thresholds)
     return {
-        "top_owner_share": round(ordered[0] / total, 4),
-        "effective_owners": round(math.exp(entropy), 4),
-        "truck_factor_50": _coverage_count(shares, 0.5),
-        "truck_factor_75": _coverage_count(shares, 0.75),
+        "top_owner_share": concentration.top_owner_share,
+        "effective_owners": concentration.effective_owners,
+        "truck_factor_50": concentration.truck_factor_50,
+        "truck_factor_75": concentration.truck_factor_75,
+        "truck_factor_90": concentration.truck_factor_90,
+        "shannon_entropy": concentration.shannon_entropy,
+        "hhi": concentration.hhi,
+        "minor_contributor_share": concentration.minor_contributor_share,
+        "major_contributor_count": concentration.major_contributor_count,
+        "truck_factor_thresholds": list(concentration.truck_factor_thresholds),
     }

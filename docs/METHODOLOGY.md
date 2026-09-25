@@ -89,7 +89,7 @@ Three model ids are stamped on JSON output and on human reports:
 | Id | Config key | What it names |
 | --- | --- | --- |
 | `ownership-v1` | `model.ownership` | The renormalized score in this page |
-| `risk-v1` | `model.risk` | Qualified-owner count and its critical/warn thresholds |
+| `risk-v1` | `model.risk` | Inverse-Herfindahl concentration and the qualified-owner classifier |
 | `topology-v1` | `model.topology` | Co-occurrence clusters |
 
 A formula change, a classifier change, or a topology-algorithm change bumps the matching id. That bump is a breaking change for anyone gating CI on a threshold, even when the JSON shape is unchanged. A config pin must equal the id this release implements, or be omitted. Cached analyze state and the graph cache are reused only when all three ids match.
@@ -118,32 +118,45 @@ Before that rename, the same count was labeled bus factor. It was a
 qualified-owner count, not a removal simulation. The count is unchanged. The
 `bus_factor` config section classifies the capped count.
 
-Concentration uses the same truncated list. Shares are not a JSON key. For
-each positive `ownership_score` on that list:
+Concentration uses every contributor at or above
+`analysis.confidence_threshold`, before `top_n_owners` truncation. The
+displayed owner list is still truncated. Expertise is `ownership_score`. A
+survival-weighted score is not part of this model. Shares are not a JSON key.
+For each positive score on that untruncated list:
 
 ```text
 p_i = score_i / sum(score)
 top_owner_share = max(p_i)
-effective_owners = exp(-sum(p_i * ln(p_i)))
-truck_factor_50 = smallest k whose cumulative share of the sorted p_i reaches 0.50
-truck_factor_75 = smallest k whose cumulative share of the sorted p_i reaches 0.75
+hhi = sum(p_i^2)
+effective_owners = 1 / hhi
+shannon_entropy = -sum(p_i * ln(p_i))
+truck_factor_50 = smallest k whose largest shares sum to at least q_50
+truck_factor_75 = smallest k whose largest shares sum to at least q_75
+truck_factor_90 = smallest k whose largest shares sum to at least q_90
 ```
 
-`effective_owners` is the exponential of Shannon entropy (perplexity). It is
-not the inverse Herfindahl index `1 / sum(p_i^2)`. A path whose scores are
-equal reports `effective_owners` equal to the number of positive scores on the
-truncated list. An empty or all-zero list reports `top_owner_share` `0.0`,
-`effective_owners` `0.0`, `truck_factor_50` `0`, and `truck_factor_75` `0`.
+`q_50`, `q_75`, and `q_90` are `risk.truck_factor_thresholds`, default
+`[0.50, 0.75, 0.90]`, in that order. The array is repeated on the risk
+object. `shannon_entropy` is in nats. `hhi` is the Herfindahl index on the
+unit interval. `effective_owners` is the inverse Herfindahl index: one owner
+is `1.00`, an even split of two is `2.00`, and four equal shares are `4.00`.
+It is not the exponential of Shannon entropy.
 
-`truck_factor_50` and `truck_factor_75` are coverage counts on one path's
-score mass. They are not a repository truck factor. `truck_factor_90` is not
-emitted. There is no removal simulation and no `simulate` command.
+A contributor is major when `p_i >= 0.05`. `major_contributor_count` is that
+count. `minor_contributor_share` is the sum of the other shares. The 5% line
+is fixed.
 
-Because the list is already capped, fifteen contributors and three
-contributors can produce the same `effective_owners` and the same
-`truck_factor_50`. The `bus_factor` config section still classifies the capped
-count: `critical` at or below `critical_threshold`, `warning` at or below
-`warn_threshold`.
+An empty or all-zero list reports `top_owner_share` `0.0`,
+`effective_owners` `0.0`, `shannon_entropy` `0.0`, `hhi` `0.0`,
+`minor_contributor_share` `0.0`, `major_contributor_count` `0`, and truck
+factors `0`.
+
+These truck factors are coverage counts on one path's score mass. They are
+not a repository truck factor. There is no removal simulation and no
+`simulate` command. Changing `top_n_owners` changes the displayed list and
+`qualified_owner_count`. It does not change concentration. The `bus_factor`
+config section still classifies the capped count: `critical` at or below
+`critical_threshold`, `warning` at or below `warn_threshold`.
 
 ## Prior art
 
@@ -166,12 +179,14 @@ Developer's Knowledge of Code" (TOSEM 2014), adds interaction (reviews,
 navigation) to authorship. CheckOwners does not compute degree of authorship
 or degree of knowledge, and it does not run that removal simulation.
 
-The divergence is deliberate and incomplete. The old headline number was the
-capped `qualified_owner_count`. Calling it bus factor overclaimed the
-literature. The shipped correction is the rename, plus `top_owner_share`,
-`effective_owners`, `truck_factor_50`, and `truck_factor_75` on the truncated
-score list. Those four numbers describe concentration of the scores already
-selected. They are still not the literature's truck factor.
+The divergence is deliberate. The old headline number was the capped
+`qualified_owner_count`. Calling it bus factor overclaimed the literature.
+CheckOwners reports per-path knowledge shares, inverse-Herfindahl
+`effective_owners`, and `truck_factor_50`, `truck_factor_75`, and
+`truck_factor_90` over every score above the confidence threshold. Those
+counts remove the highest-knowledge contributors on one path until a share of
+inferred knowledge is gone. They do not remove people until files lose their
+last author, which is the truck factor in Avelino et al. and Ferreira et al.
 
 ## Terminology
 

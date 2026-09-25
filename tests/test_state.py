@@ -421,6 +421,28 @@ def test_load_ownership_skips_invalid_owner_fields(repo: Path) -> None:
     assert loaded is not None
     assert [o.handle for o in loaded.paths["p.py"].owners] == ["@ok"]
     assert loaded.paths["p.py"].owners[0].last_commit is None
+    assert loaded.paths["p.py"].scored_owners == loaded.paths["p.py"].owners
+    _write_raw_state(
+        repo,
+        _readable_state(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "repo": str(repo.resolve()),
+                "inferred": {
+                    "p.py": {
+                        "owners": owners,
+                        "scored_owners": "nope",
+                        "qualified_owner_count": 1,
+                        "decay_warnings": [],
+                    }
+                },
+                "last_analyzed": _NOW.isoformat(),
+            }
+        ),
+    )
+    reloaded = load_ownership(repo)
+    assert reloaded is not None
+    assert reloaded.paths["p.py"].scored_owners == ()
 
 
 def test_load_ownership_signal_and_timestamp_edges(repo: Path) -> None:

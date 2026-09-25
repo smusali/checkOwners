@@ -255,6 +255,8 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
         "mailmap_file": "",
         "excluded_gitattributes": 0,
         "excluded_static": 0,
+        "merge_strategy": "rebase",
+        "co_author_count": 0,
         "score": None,
         "gaps": [],
     }
@@ -356,6 +358,8 @@ def test_load_ownership_roundtrip(repo: Path) -> None:
     assert loaded.analysis_completeness.mailmap_file == ""
     assert loaded.analysis_completeness.excluded_gitattributes == 0
     assert loaded.analysis_completeness.excluded_static == 0
+    assert loaded.analysis_completeness.merge_strategy == "rebase"
+    assert loaded.analysis_completeness.co_author_count == 0
 
 
 def test_load_ownership_missing_returns_none(repo: Path) -> None:
@@ -543,7 +547,6 @@ def test_load_ownership_skips_malformed_path(repo: Path) -> None:
                     }
                 ],
                 "qualified_owner_count": 1,
-                "bus_factor": 1,
                 "qualified_owner_count_cap": 3,
                 "decay_warnings": [],
             },

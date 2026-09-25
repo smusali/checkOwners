@@ -43,7 +43,9 @@ _GOLDEN: dict[str, dict[str, str]] = {
         ),
         "rename": "The author of the rename commit is the scored owner of the new path.",
         "cadence": "A path last touched 18 months earlier has no scored owner.",
-        "coauthor": "A Co-authored-by trailer does not add a scored owner.",
+        "coauthor": (
+            "A Co-authored-by trailer adds a scored owner. Blame stays with the commit author."
+        ),
     },
 }
 
@@ -456,6 +458,9 @@ def test_golden_cadence(git_repo: GitRepo) -> None:
 @pytest.mark.integration
 def test_golden_coauthor(git_repo: GitRepo) -> None:
     _belief("coauthor")
+    git_repo.write("keep.py", "value = 0\n")
+    git_repo.write("extra.py", "value = 2\n")
+    git_repo.commit("seed", author="Alice", email=_ALICE, date=_stamp(6))
     git_repo.write("pair.py", "value = 1\n")
     git_repo.coauthored_commit(
         "add pair",
@@ -467,4 +472,8 @@ def test_golden_coauthor(git_repo: GitRepo) -> None:
     )
     ownership = _analyze(git_repo, "coauthor", _AS_OF)
     handles = tuple(owner.handle for owner in _ranked(ownership, "pair.py"))
-    _check("coauthor", handles == (_ALICE,))
+    _check("coauthor", _ALICE in handles and _BOB in handles)
+    alice = _person(ownership, "pair.py", _ALICE)
+    bob = _person(ownership, "pair.py", _BOB)
+    _check("coauthor", alice is not None and _blame_share(alice) > 0)
+    _check("coauthor", bob is not None and _blame_share(bob) == 0.0)

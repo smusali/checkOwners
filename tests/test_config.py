@@ -85,6 +85,9 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.git.detect_moves is True
     assert cfg.git.mass_refactor_file_fraction == 0.5
     assert cfg.git.use_mailmap is True
+    assert cfg.git.count_co_authors is True
+    assert cfg.git.co_author_weight == 1.0
+    assert cfg.git.merge_strategy == "auto"
 
 
 def test_drift_mode_default_matches_documented_surfaces() -> None:
@@ -168,6 +171,9 @@ git:
   blame_ignore_revs_file: ignore-revs.txt
   detect_moves: false
   mass_refactor_file_fraction: 0.3
+  count_co_authors: false
+  co_author_weight: 0.5
+  merge_strategy: squash
 identity:
   mailmap: false
 """
@@ -212,6 +218,9 @@ identity:
     assert cfg.git.detect_moves is False
     assert cfg.git.mass_refactor_file_fraction == 0.3
     assert cfg.git.use_mailmap is False
+    assert cfg.git.count_co_authors is False
+    assert cfg.git.co_author_weight == 0.5
+    assert cfg.git.merge_strategy == "squash"
 
 
 def test_load_config_invalid_yaml(tmp_path: Path) -> None:
@@ -393,6 +402,12 @@ def test_git_mass_refactor_fraction_invalid_rejected(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "git:\n  mass_refactor_file_fraction: 1.5\n")
     with pytest.raises(ValueError, match=r"Invalid git\.mass_refactor_file_fraction"):
         load_config(repo_root=root)
+    weight = _write_config(tmp_path, "git:\n  co_author_weight: 1.5\n")
+    with pytest.raises(ValueError, match=r"Invalid git\.co_author_weight"):
+        load_config(repo_root=weight)
+    strategy = _write_config(tmp_path, "git:\n  merge_strategy: fast-forward\n")
+    with pytest.raises(ValueError, match=r"Invalid git\.merge_strategy"):
+        load_config(repo_root=strategy)
 
 
 def test_find_codeowners_path_github_dir(tmp_path: Path) -> None:

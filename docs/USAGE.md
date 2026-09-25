@@ -155,7 +155,9 @@ git:
   blame_ignore_revs_file: .git-blame-ignore-revs
   detect_moves: true          # pass -M and -C to git blame
   mass_refactor_file_fraction: 0.5  # 0 disables; commits that modify this share of tracked files are omitted from blame
-  use_mailmap: true           # alias of identity.mailmap
+  count_co_authors: true      # credit Co-authored-by trailers
+  co_author_weight: 1.0       # credit per trailer, relative to the author's 1
+  merge_strategy: auto        # auto | squash | merge | rebase
 
 identity:
   mailmap: true               # apply .mailmap in git log and git blame (default; cheapest identity fix)
@@ -174,7 +176,7 @@ policy:
 
 `decay`, `bus_factor`, `criticality`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `criticality` is an ordered map of path globs to weights in `(0, 1]`. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
 
-Keys with no implementation yet are refused, including `security`, `model.signals.historical_depth`, `git.count_co_authors`, `git.merge_strategy`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`.
+Keys with no implementation yet are refused, including `security`, `model.signals.historical_depth`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`. `git.count_co_authors` credits `Co-authored-by` trailers. `git.co_author_weight` is that credit relative to the author's `1`, in `[0, 1]`. `git.merge_strategy` is `auto`, `squash`, `merge`, or `rebase`. `auto` reports the dominant style in the lookback window. An explicit value is reported as given. See [Limitations](limitations.md).
 
 | Also accepted | Same setting |
 | --- | --- |
@@ -645,7 +647,7 @@ Shared fields on every command:
 
 `print --json` puts path objects under `paths`, so a file cannot collide with an envelope key. On-disk baselines and `~/.checkowners` state are not stamped with this envelope. `baseline create --json` stdout is.
 
-`analyze` keeps ignore-revs, mailmap, and exclusion counts on `analysis`, next to per-path `completeness` and `signals_available`. Per-path `completeness` is still the fraction of scored `(owner, signal)` pairs. The envelope `analysis_completeness` is the run score, not that fraction and not the flag object.
+`analyze` keeps ignore-revs, mailmap, exclusion counts, `merge_strategy`, and `co_author_count` on `analysis`, next to per-path `completeness` and `signals_available`. `merge_strategy` is `squash`, `merge`, or `rebase`. `co_author_count` is how many trailers added a person. Per-path `completeness` is still the fraction of scored `(owner, signal)` pairs. The envelope `analysis_completeness` is the run score, not that fraction and not the flag object.
 
 Human summaries print `analysis completeness: 73%` and one line per gap. A skipped team rule or an unresolved email comparison stays a note: it does not become a drift finding. Exhausting `max_runtime_seconds`, `max_api_requests`, or the GitHub rate limit records a gap and does not present the truncated run as complete. When the core quota cannot cover a review scan, the gap reason is `Review evidence omitted: GitHub API budget insufficient.`
 

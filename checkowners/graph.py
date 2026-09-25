@@ -48,7 +48,6 @@ def build_graph(
             _path_node(path),
             kind="path",
             qualified_owner_count=po.qualified_owner_count,
-            bus_factor=po.qualified_owner_count,
         )
         for owner in po.owners:
             graph.add_node(_contrib_node(owner.handle), kind="contributor")

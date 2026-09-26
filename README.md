@@ -126,7 +126,7 @@ The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/b
 | `checkowners baseline create` | Write an accepted-findings file so later runs fail only on new findings |
 | `checkowners sync` | Generate CODEOWNERS and commit the result |
 | `checkowners expertise <path>` | Evidence ranking for one path from cached analysis |
-| `checkowners decay` | Report ownership freshness and continuity risk; suggest a transfer |
+| `checkowners risk` | Rank paths by composite knowledge risk. `bus-factor` and `decay` are aliases |
 | `checkowners graph [--export dot]` | Render the ownership graph |
 | `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with candidate backup reviewers |
 | `checkowners simulate --remove @alice` | What breaks if those people leave, from the cached map |

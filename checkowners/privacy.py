@@ -34,6 +34,9 @@ _PERSON_KEYS = frozenset(
         "removed",
         "candidate",
         "reviewer",
+        "dominant_expert",
+        "writer",
+        "declared",
     }
 )
 

@@ -432,6 +432,41 @@ def test_write_state_owner_without_breakdown(repo: Path) -> None:
     assert "signals" not in serialized
 
 
+def test_path_activity_roundtrip_rejects_bools(repo: Path) -> None:
+    owner = OwnerEntry(handle="@x", ownership_score=0.4, last_commit=_NOW, commits=2)
+    write_state(
+        repo,
+        OwnershipMap(
+            paths={
+                "a.py": PathOwnership(
+                    owners=(owner,),
+                    qualified_owner_count=1,
+                    change_events=4,
+                    cadence_days=2.5,
+                    cochange_degree=0.25,
+                )
+            },
+            last_analyzed=_NOW,
+        ),
+    )
+    loaded = load_ownership(repo)
+    assert loaded is not None
+    stored = loaded.paths["a.py"]
+    assert stored.change_events == 4
+    assert stored.cadence_days == pytest.approx(2.5)
+    assert stored.cochange_degree == pytest.approx(0.25)
+    raw = read_state(repo)
+    assert raw is not None
+    path = raw["inferred"]["a.py"]
+    path["change_events"] = True
+    path["cadence_days"] = True
+    _write_raw_state(repo, raw)
+    reloaded = load_ownership(repo)
+    assert reloaded is not None
+    assert reloaded.paths["a.py"].change_events is None
+    assert reloaded.paths["a.py"].cadence_days is None
+
+
 def test_load_ownership_skips_invalid_owner_fields(repo: Path) -> None:
     owners = [
         {"handle": "@bool-score", "ownership_score": True, "commits": 1},

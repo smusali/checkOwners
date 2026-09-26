@@ -13,7 +13,7 @@ flowchart LR
     State --> Generate[generate]
     State --> Drift[drift]
     State --> Owners[qualified-owners]
-    State --> Decay[decay]
+    State --> Risk[risk]
     State --> Topology[topology]
     State --> Balance[balance]
     State --> Onboard[onboard]
@@ -378,6 +378,14 @@ The command refuses a missing cache, `--no-cache`, a stored commit that is not H
 Per-path JSON also reports score mass under `risk`, computed before `top_n_owners` truncation. Expertise is `ownership_score`. `top_owner_share` is the largest share. `effective_owners` is `1 / sum(p_i^2)`. `shannon_entropy` is in nats. `hhi` is `sum(p_i^2)`. `truck_factor_50`, `truck_factor_75`, and `truck_factor_90` are the smallest owner counts whose largest shares reach the three values in `risk.truck_factor_thresholds` (default `0.50`, `0.75`, `0.90`). A major contributor has a share of at least `0.05`; `minor_contributor_share` is the rest. Changing `top_n_owners` does not change these numbers. The `bus_factor:` config section still classifies the capped count (`critical` at or below `critical_threshold`, `warning` at or below `warn_threshold`).
 
 `checkowners qualified-owners` is the command for this count. Repository output is a distribution of `top_owner_share`, weighted by `criticality`. JSON reports `distribution.minimum`, `distribution.p10`, `distribution.median`, `distribution.p90`, `distribution.critical_path_risk` (the weighted mean of `top_owner_share`), and `distribution.knowledge_at_risk` (the share of criticality weight on paths at or below `bus_factor.critical_threshold`). The first matching `criticality` pattern wins. A path with no match weighs `1.0`. An empty `criticality` map uses that same weight and sets `distribution.criticality_incomplete` to true, because repository risk without criticality is incomplete.
+
+## Knowledge risk
+
+`checkowners risk` ranks each analyzed path by the composite score in [Composite risk](METHODOLOGY.md#composite-risk). `checkowners bus-factor` and `checkowners decay` are aliases. Both accept `--json` and `--baseline`. The command exits 0. Findings use the baseline and `suppressions` rules `knowledge-vacuum`, `phantom-ownership`, `shadow-maintainer`, and `ownership-review-divergence`.
+
+`--json` is schema `1` (`#/$defs/risk`). Each entry reports `risk`, `tier`, `reason`, and the five factors `ownership_concentration`, `change_frequency`, `dependency_criticality`, `code_criticality`, and `expertise_decay`. A factor that cannot be computed is `null`. `criticality_unavailable` is true when no criticality source exists, and the text report says repository risk is incomplete without criticality. The summary reports observed ownership coverage, `knowledge_at_risk`, critical components, ownership vacuums, and high CODEOWNERS drift.
+
+`qualified-owners` is unchanged. `github-action` still writes `bus_factor.json` and `decay.json` from the qualified-owner count and the continuity-risk list.
 
 ## Generated CODEOWNERS
 

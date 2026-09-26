@@ -139,21 +139,26 @@ runs:
         # clone (actions/checkout default) would silently produce an empty
         # or wildly wrong ownership map. Fail fast with a fix instead.
         if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-          echo "::error title=checkOwners needs full history::Shallow clone detected. Add 'fetch-depth: 0' to your actions/checkout step so git log and git blame can see the repository history."
+          printf '%s\n' \
+            "::error title=checkOwners needs full history::Shallow clone detected." \
+            "Add fetch-depth: 0 to actions/checkout so git log and git blame see history."
           exit 1
         fi
 
     - name: Stage pip lockfile
       if: inputs.cache == 'true'
       shell: bash
-      run: cp "${GITHUB_ACTION_PATH}/requirements.lock" "${GITHUB_WORKSPACE}/.checkowners-requirements.lock"
+      run: |
+        cp "${GITHUB_ACTION_PATH}/requirements.lock" \
+          "${GITHUB_WORKSPACE}/.checkowners-requirements.lock"
 
     - name: Set up Python
-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
       with:
         python-version: ${{ inputs.python_version }}
         cache: ${{ inputs.cache == 'true' && 'pip' || '' }}
-        cache-dependency-path: ${{ inputs.cache == 'true' && '.checkowners-requirements.lock' || '' }}
+        cache-dependency-path: >-
+          ${{ inputs.cache == 'true' && '.checkowners-requirements.lock' || '' }}
 
     - name: Install checkowners
       shell: bash
@@ -181,7 +186,7 @@ runs:
 
     - name: Cache checkowners state
       if: inputs.cache == 'true'
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: ~/.checkowners
         key: ${{ steps.cache-key.outputs.key }}
@@ -213,7 +218,7 @@ runs:
 
     - name: Upload checkowners reports
       if: ${{ always() }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: ${{ steps.run.outputs.artifact_name }}
         path: |
@@ -225,7 +230,7 @@ runs:
 
     - name: Upload checkowners balance report
       if: ${{ always() && inputs.include_balance == 'true' }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: checkowners-balance
         path: balance.json

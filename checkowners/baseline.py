@@ -26,6 +26,10 @@ _RULES: dict[str, FindingRule] = {
     "missing": "missing",
     "single-expert": "single-expert",
     "stale": "stale",
+    "knowledge-vacuum": "knowledge-vacuum",
+    "phantom-ownership": "phantom-ownership",
+    "shadow-maintainer": "shadow-maintainer",
+    "ownership-review-divergence": "ownership-review-divergence",
 }
 
 
@@ -125,6 +129,24 @@ def active_suppressions(
         else:
             active.append(item)
     return tuple(active), tuple(expired)
+
+
+def visible_findings(
+    findings: tuple[Finding, ...],
+    *,
+    baseline: tuple[Finding, ...],
+    suppressions: tuple[Suppression, ...],
+    as_of: date,
+) -> tuple[tuple[Finding, ...], tuple[Suppression, ...]]:
+    """Return findings that are not baselined or suppressed, plus expired suppressions."""
+    active, expired = active_suppressions(suppressions, as_of)
+    baseline_keys = {item.identity() for item in baseline}
+    kept = tuple(
+        item
+        for item in findings
+        if item.identity() not in baseline_keys and not _is_suppressed(item, active)
+    )
+    return kept, expired
 
 
 def suppression_matches(suppression: Suppression, finding: Finding) -> bool:

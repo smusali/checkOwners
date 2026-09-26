@@ -194,7 +194,7 @@ def _find_changed(
 ) -> tuple[list[DriftEntry], list[str]]:
     """Per-rule owner disagreement, aggregated over the files the rule covers."""
     notes: list[str] = []
-    if _identities_incomparable(rules, inferred):
+    if identities_incomparable(rules, inferred):
         return [], [_IDENTITY_NOTE]
 
     per_rule: dict[CodeownersRule, list[tuple[str, PathOwnership]]] = {}
@@ -247,7 +247,7 @@ def _find_changed(
     return entries, notes
 
 
-def _identities_incomparable(
+def identities_incomparable(
     rules: tuple[CodeownersRule, ...],
     inferred: dict[str, PathOwnership],
 ) -> bool:

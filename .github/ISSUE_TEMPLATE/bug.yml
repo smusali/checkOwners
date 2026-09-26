@@ -30,7 +30,9 @@ body:
     id: json
     attributes:
       label: JSON output
-      description: Paste `--json` output if the command supports it. Redact tokens and emails you do not want public.
+      description: >-
+        Paste `--json` output if the command supports it.
+        Redact tokens and emails you do not want public.
       render: json
     validations:
       required: false
@@ -38,7 +40,9 @@ body:
     id: config
     attributes:
       label: Configuration
-      description: Paste `.github/checkowners.yml`. Never include a token. `github.token` is rejected at load time.
+      description: >-
+        Paste `.github/checkowners.yml`. Never include a token.
+        `github.token` is rejected at load time.
       render: yaml
     validations:
       required: false

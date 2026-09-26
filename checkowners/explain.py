@@ -907,7 +907,7 @@ def _iter_sha_log(stdout: str) -> tuple[_ShaRow, ...]:
         while index < len(lines) and lines[index] != _BODY_END:
             body.append(lines[index])
             index += 1
-        if index >= len(lines) or lines[index] != _BODY_END:
+        if index >= len(lines):
             continue
         index += 1
         rows.append(

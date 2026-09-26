@@ -368,12 +368,16 @@ def test_analyze_table() -> None:
     assert "Mailmap: applied (.mailmap)" in applied_result.stdout
 
     with (
-        patch("checkowners.cli.load_config", return_value=Config(git=GitConfig(use_mailmap=False))),
+        patch(
+            "checkowners.cli.load_config",
+            return_value=Config(git=GitConfig(use_mailmap=False, count_co_authors=False)),
+        ),
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         _MOCK_TOKEN,
     ):
         disabled = runner.invoke(app, ["analyze"])
     assert "Mailmap: disabled" in disabled.stdout
+    assert "Git history: merge strategy rebase, co-authors off" in disabled.stdout
 
 
 def test_analyze_empty() -> None:

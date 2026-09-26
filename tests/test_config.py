@@ -408,6 +408,21 @@ def test_git_mass_refactor_fraction_invalid_rejected(tmp_path: Path) -> None:
     strategy = _write_config(tmp_path, "git:\n  merge_strategy: fast-forward\n")
     with pytest.raises(ValueError, match=r"Invalid git\.merge_strategy"):
         load_config(repo_root=strategy)
+    numbered = _write_config(tmp_path, "git:\n  merge_strategy: 1\n")
+    with pytest.raises(ValueError, match=r"Invalid git\.merge_strategy"):
+        load_config(repo_root=numbered)
+    flag = _write_config(tmp_path, "git:\n  count_co_authors: 1\n")
+    with pytest.raises(ValueError, match=r"Invalid git\.count_co_authors"):
+        load_config(repo_root=flag)
+    boolean_weight = _write_config(tmp_path, "git:\n  co_author_weight: true\n")
+    with pytest.raises(ValueError, match=r"Invalid git\.co_author_weight"):
+        load_config(repo_root=boolean_weight)
+    text_weight = _write_config(tmp_path, "git:\n  co_author_weight: high\n")
+    with pytest.raises(ValueError, match=r"Invalid git\.co_author_weight"):
+        load_config(repo_root=text_weight)
+    negative = _write_config(tmp_path, "git:\n  co_author_weight: -0.1\n")
+    with pytest.raises(ValueError, match=r"Invalid git\.co_author_weight"):
+        load_config(repo_root=negative)
 
 
 def test_find_codeowners_path_github_dir(tmp_path: Path) -> None:

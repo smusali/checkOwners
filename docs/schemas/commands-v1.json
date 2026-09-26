@@ -1689,6 +1689,9 @@
                   "candidate": {
                     "type": "string"
                   },
+                  "confidence": {
+                    "type": "number"
+                  },
                   "proposed_shift": {
                     "type": "integer"
                   }

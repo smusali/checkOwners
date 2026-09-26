@@ -320,6 +320,36 @@ def test_load_ownership_keeps_a_numeric_score_and_known_gaps(repo: Path) -> None
     assert dropped is not None
     assert dropped.analysis_completeness.score is None
 
+    completeness["merge_strategy"] = "fast-forward"
+    completeness["co_author_count"] = True
+    _write_raw_state(repo, data)
+    invalid_history = load_ownership(repo)
+    assert invalid_history is not None
+    assert invalid_history.analysis_completeness.merge_strategy == "rebase"
+    assert invalid_history.analysis_completeness.co_author_count == 0
+
+    completeness["merge_strategy"] = 1
+    completeness["co_author_count"] = -3
+    _write_raw_state(repo, data)
+    negative_count = load_ownership(repo)
+    assert negative_count is not None
+    assert negative_count.analysis_completeness.merge_strategy == "rebase"
+    assert negative_count.analysis_completeness.co_author_count == 0
+
+    completeness["merge_strategy"] = "squash"
+    completeness["co_author_count"] = "4"
+    _write_raw_state(repo, data)
+    text_count = load_ownership(repo)
+    assert text_count is not None
+    assert text_count.analysis_completeness.merge_strategy == "squash"
+    assert text_count.analysis_completeness.co_author_count == 0
+
+    completeness["co_author_count"] = 4
+    _write_raw_state(repo, data)
+    counted = load_ownership(repo)
+    assert counted is not None
+    assert counted.analysis_completeness.co_author_count == 4
+
 
 def test_unknown_gap_code_is_rejected() -> None:
     assert _as_gap_code("shallow_history") == "shallow_history"

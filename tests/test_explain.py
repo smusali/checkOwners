@@ -748,6 +748,41 @@ def test_lookup_and_parse_sha_log() -> None:
     assert parsed["bob"] == ("777777777777",)
     assert _short_sha("abc") == "abc"
     assert _short_sha("abcdefghijklm") == "abcdefghijkl"
+    trailer = "\n".join(
+        (
+            "aaaaaaaaaaaa",
+            "alice@example.com",
+            _ISO,
+            _BODY_START,
+            "Co-authored-by: Bob <bob@example.com>",
+            _BODY_END,
+            "bbbbbbbbbbbb",
+            "carol@example.com",
+            _ISO,
+            "not-a-body",
+            "eeeeeeeeeeee",
+            "erin@example.com",
+            _ISO,
+        )
+    )
+    credited = _parse_sha_log(trailer, Path(), use_mailmap=False, count_co_authors=True)
+    assert credited["alice@example.com"] == ("aaaaaaaaaaaa",)
+    assert credited["bob@example.com"] == ("aaaaaaaaaaaa",)
+    assert "carol@example.com" not in credited
+    assert "erin@example.com" not in credited
+    ignored = _parse_sha_log(trailer, Path(), use_mailmap=False, count_co_authors=False)
+    assert ignored["alice@example.com"] == ("aaaaaaaaaaaa",)
+    assert "bob@example.com" not in ignored
+    truncated = "\n".join(
+        (
+            "cccccccccccc",
+            "dave@example.com",
+            _ISO,
+            _BODY_START,
+            "Co-authored-by: Eve <eve@example.com>",
+        )
+    )
+    assert _parse_sha_log(truncated, Path(), use_mailmap=False, count_co_authors=True) == {}
 
 
 def test_detail_and_day_helpers() -> None:

@@ -16,6 +16,9 @@ from hypothesis import strategies as st
 
 from checkowners.analyze import (
     _BLAME_DEADLINE,
+    _BODY_END,
+    _BODY_START,
+    _COMMIT_SENTINEL,
     MIN_GIT_VERSION,
     SOURCE_DATE_EPOCH_ENV,
     Contribution,
@@ -47,6 +50,8 @@ from checkowners.analyze import (
     analysis_epoch,
     analyze_ownership,
     apply_completeness,
+    assign_coauthors,
+    canonical_emails,
     combine_available_signals,
     effective_half_life,
     gather_blame_coverage,
@@ -1925,3 +1930,96 @@ def test_squash_and_merge_histories_differ(tmp_path: Path) -> None:
         analysis_ref="test",
     )
     assert forced.analysis_completeness.merge_strategy == "rebase"
+
+
+def test_coauthor_mailmap_and_log_edges(tmp_path: Path) -> None:
+    contacts = (("Bob", "bob@example.com"), ("", "carol@example.com"))
+    raw = ("bob@example.com", "carol@example.com")
+    assert canonical_emails(tmp_path, (), enabled=True) == ()
+    assert canonical_emails(tmp_path, contacts, enabled=False) == raw
+    failed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+    with patch("checkowners.analyze.subprocess.run", return_value=failed) as mocked:
+        assert canonical_emails(tmp_path, contacts, enabled=True) == raw
+    argv = mocked.call_args.args[0]
+    assert "Bob <bob@example.com>" in argv
+    assert "<carol@example.com>" in argv
+    short = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="Bob <bob@example.com>\n",
+        stderr="",
+    )
+    with patch("checkowners.analyze.subprocess.run", return_value=short):
+        assert canonical_emails(tmp_path, contacts, enabled=True) == raw
+    unmatched = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="not-an-email\nCarol <carol@example.com>\n",
+        stderr="",
+    )
+    with patch("checkowners.analyze.subprocess.run", return_value=unmatched):
+        assert canonical_emails(tmp_path, contacts, enabled=True) == raw
+    credited = assign_coauthors(
+        tmp_path,
+        ("alice@example.com", "alice@example.com"),
+        (
+            (
+                ("Alice", "alice@example.com"),
+                ("Bob", "bob@example.com"),
+                ("Bob Again", "bob@example.com"),
+            ),
+            (("Bob", "bob@example.com"),),
+        ),
+        use_mailmap=False,
+        enabled=True,
+    )
+    assert credited == (("bob@example.com",), ("bob@example.com",))
+    when = "2026-05-28T12:00:00+00:00"
+    broken = "\n".join(
+        (
+            _COMMIT_SENTINEL,
+            "alice@example.com",
+            when,
+            "",
+            "subject",
+            _BODY_START,
+            "hello",
+            "file.py",
+            _COMMIT_SENTINEL,
+            "alice@example.com",
+            _BODY_START,
+            "",
+            _BODY_END,
+            "file.py",
+            _COMMIT_SENTINEL,
+            "   ",
+            when,
+            "abc",
+            "subject",
+            _BODY_START,
+            "",
+            _BODY_END,
+            "file.py",
+            _COMMIT_SENTINEL,
+            "alice@example.com",
+            "not-a-time",
+            "abc",
+            "subject",
+            _BODY_START,
+            "",
+            _BODY_END,
+            "file.py",
+            _COMMIT_SENTINEL,
+            "bob@example.com",
+            when,
+            "parent",
+            _BODY_START,
+            "",
+            _BODY_END,
+            "ok.py",
+        )
+    )
+    parsed = _parse_log_output(broken)
+    assert len(parsed) == 1
+    assert parsed[0].author == "bob@example.com"
+    assert parsed[0].files == ("ok.py",)

@@ -124,7 +124,7 @@ The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/b
 | `checkowners validate` | Validate existing CODEOWNERS syntax |
 | `checkowners drift` | Compare inferred vs current; severity + max ownership-score delta |
 | `checkowners baseline create` | Write an accepted-findings file so later runs fail only on new findings |
-| `checkowners sync` | Generate CODEOWNERS and commit the result |
+| `checkowners sync` | Open a pull request proposing CODEOWNERS changes (`--commit` commits locally) |
 | `checkowners expertise <path>` | Evidence ranking for one path from cached analysis |
 | `checkowners risk` | Rank paths by composite knowledge risk. `bus-factor` and `decay` are aliases |
 | `checkowners graph [--export dot]` | Render the ownership graph |

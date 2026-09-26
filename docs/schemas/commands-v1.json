@@ -1060,6 +1060,22 @@
             },
             "rules_written": {
               "type": "integer"
+            },
+            "pull_request": {
+              "type": "object",
+              "required": ["number", "url", "updated"],
+              "properties": {
+                "number": {
+                  "type": "integer"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "updated": {
+                  "type": "boolean"
+                }
+              },
+              "unevaluatedProperties": false
             }
           }
         }

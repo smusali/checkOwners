@@ -7,12 +7,16 @@ import json
 import logging
 import os
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import islice
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 from checkowners.models import (
     API_BUDGET_REASON,
@@ -23,7 +27,7 @@ from checkowners.models import (
     GapCode,
 )
 from checkowners.privacy import email_token, is_email
-from checkowners.state import read_handle_cache, write_handle_cache
+from checkowners.state import read_handle_cache, repository_identity, write_handle_cache
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -32,6 +36,15 @@ if TYPE_CHECKING:
     from github.PullRequest import PullRequest
 
 logger = logging.getLogger(__name__)
+
+RECONCILE_BRANCH = "checkowners/reconcile-codeowners"
+RECONCILE_TITLE = "chore: reconcile CODEOWNERS ownership drift"
+RECONCILE_MARKER = "<!-- checkowners-reconcile -->"
+_API_VERSION = "2022-11-28"
+_RECONCILE_DENIED = (
+    "The token cannot open pull requests. Grant contents: write and pull-requests: write."
+)
+_RECONCILE_FAILED = "Could not open a pull request. Grant contents: write and pull-requests: write."
 
 
 @dataclass(frozen=True)
@@ -480,3 +493,279 @@ def _get_org_teams(
         note_api_call()
         logger.warning("Failed to fetch teams for org %s", org)
         return {}
+
+
+class ReconciliationError(Exception):
+    """Raised when a reconciliation pull request cannot be opened or updated."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class ReconciliationResult(TypedDict):
+    number: int
+    url: str
+    updated: bool
+
+
+def github_repository(repo_root: Path) -> str:
+    """Return `owner/name` for `repo_root` from GITHUB_REPOSITORY or origin.
+
+    Raises ReconciliationError when neither source names a GitHub repository.
+    """
+    slug = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if _is_slug(slug):
+        return slug
+    identity = repository_identity(repo_root)
+    prefix = "origin:github.com/"
+    if identity.startswith(prefix) and _is_slug(identity[len(prefix) :]):
+        return identity[len(prefix) :]
+    raise ReconciliationError(_RECONCILE_DENIED)
+
+
+def open_or_update_reconciliation(
+    *,
+    token: str,
+    repository: str,
+    path: str,
+    content: str,
+    body: str,
+) -> ReconciliationResult:
+    """Open or update the reconciliation pull request for `repository`.
+
+    `token` authenticates the GitHub API. `repository` is `owner/name`.
+    `path` is the repo-relative CODEOWNERS path and `content` is its text.
+    `body` is the pull-request text. Returns the pull request number, URL,
+    and whether an existing open pull request was updated.
+    """
+    if offline_enabled() or not token:
+        raise ReconciliationError(_RECONCILE_DENIED)
+    owner, name = _split_repository(repository)
+    base = f"/repos/{_quote(owner)}/{_quote(name)}"
+    try:
+        default_branch = _default_branch(base, token)
+        parent = _branch_tip(base, token, default_branch)
+        commit_sha = _replacement_commit(base, token, parent, path, content)
+        existing = _open_pull(base, token, owner)
+        _point_branch(base, token, commit_sha)
+        if existing is None:
+            opened = _create_pull(base, token, default_branch, body)
+            return {"number": opened[0], "url": opened[1], "updated": False}
+        updated = _update_pull(base, token, existing[0], body)
+        return {"number": updated[0], "url": updated[1], "updated": True}
+    except ReconciliationError:
+        raise
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError) as exc:
+        raise ReconciliationError(f"{_RECONCILE_FAILED} ({exc})") from None
+
+
+def _is_slug(value: str) -> bool:
+    owner, sep, name = value.partition("/")
+    return bool(sep and owner and name and "/" not in name)
+
+
+def _split_repository(repository: str) -> tuple[str, str]:
+    owner, sep, name = repository.partition("/")
+    if not sep or not owner or not name or "/" in name:
+        raise ReconciliationError(_RECONCILE_DENIED)
+    return owner, name
+
+
+def _quote(value: str) -> str:
+    return urllib.parse.quote(value, safe="")
+
+
+def _default_branch(base: str, token: str) -> str:
+    repo = _require_mapping(_github_request("GET", base, token))
+    branch = repo.get("default_branch")
+    if not isinstance(branch, str) or not branch:
+        raise ReconciliationError(_RECONCILE_FAILED)
+    return branch
+
+
+def _branch_tip(base: str, token: str, branch: str) -> tuple[str, str]:
+    ref = _require_mapping(_github_request("GET", f"{base}/git/ref/heads/{_quote(branch)}", token))
+    commit_sha = _require_sha(_require_mapping(ref.get("object")))
+    commit = _require_mapping(
+        _github_request("GET", f"{base}/git/commits/{_quote(commit_sha)}", token)
+    )
+    tree_sha = _require_sha(_require_mapping(commit.get("tree")))
+    return commit_sha, tree_sha
+
+
+def _replacement_commit(
+    base: str,
+    token: str,
+    parent: tuple[str, str],
+    path: str,
+    content: str,
+) -> str:
+    parent_sha, tree_sha = parent
+    blob = _require_mapping(
+        _github_request(
+            "POST",
+            f"{base}/git/blobs",
+            token,
+            {"content": content, "encoding": "utf-8"},
+        )
+    )
+    blob_sha = _require_sha(blob)
+    tree = _require_mapping(
+        _github_request(
+            "POST",
+            f"{base}/git/trees",
+            token,
+            {
+                "base_tree": tree_sha,
+                "tree": [
+                    {"path": path, "mode": "100644", "type": "blob", "sha": blob_sha},
+                ],
+            },
+        )
+    )
+    created = _require_mapping(
+        _github_request(
+            "POST",
+            f"{base}/git/commits",
+            token,
+            {"message": RECONCILE_TITLE, "tree": _require_sha(tree), "parents": [parent_sha]},
+        )
+    )
+    return _require_sha(created)
+
+
+def _open_pull(base: str, token: str, owner: str) -> tuple[int, str] | None:
+    head = _quote(f"{owner}:{RECONCILE_BRANCH}")
+    payload = _github_request("GET", f"{base}/pulls?state=open&head={head}&per_page=20", token)
+    if not isinstance(payload, list):
+        raise ReconciliationError(_RECONCILE_FAILED)
+    for item in payload:
+        mapped = _mapping(item)
+        if mapped is None:
+            continue
+        number = mapped.get("number")
+        url = mapped.get("html_url")
+        if isinstance(number, int) and isinstance(url, str) and url:
+            return number, url
+    return None
+
+
+def _point_branch(base: str, token: str, sha: str) -> None:
+    ref = f"{base}/git/refs/heads/{_quote(RECONCILE_BRANCH)}"
+    try:
+        _github_request("PATCH", ref, token, {"sha": sha, "force": True})
+    except ReconciliationError as exc:
+        if exc.status != 404:
+            raise
+        _github_request(
+            "POST",
+            f"{base}/git/refs",
+            token,
+            {"ref": f"refs/heads/{RECONCILE_BRANCH}", "sha": sha},
+        )
+
+
+def _create_pull(base: str, token: str, default_branch: str, body: str) -> tuple[int, str]:
+    created = _require_mapping(
+        _github_request(
+            "POST",
+            f"{base}/pulls",
+            token,
+            {
+                "title": RECONCILE_TITLE,
+                "body": body,
+                "head": RECONCILE_BRANCH,
+                "base": default_branch,
+            },
+        )
+    )
+    return _pull_ref(created)
+
+
+def _update_pull(base: str, token: str, number: int, body: str) -> tuple[int, str]:
+    updated = _require_mapping(
+        _github_request(
+            "PATCH",
+            f"{base}/pulls/{number}",
+            token,
+            {"title": RECONCILE_TITLE, "body": body},
+        )
+    )
+    return _pull_ref(updated)
+
+
+def _pull_ref(payload: dict[str, object]) -> tuple[int, str]:
+    number = payload.get("number")
+    url = payload.get("html_url")
+    if not isinstance(number, int) or not isinstance(url, str) or not url:
+        raise ReconciliationError(_RECONCILE_FAILED)
+    return number, url
+
+
+def _require_sha(payload: dict[str, object]) -> str:
+    sha = payload.get("sha")
+    if not isinstance(sha, str) or not sha:
+        raise ReconciliationError(_RECONCILE_FAILED)
+    return sha
+
+
+def _require_mapping(value: object) -> dict[str, object]:
+    mapped = _mapping(value)
+    if mapped is None:
+        raise ReconciliationError(_RECONCILE_FAILED)
+    return mapped
+
+
+def _mapping(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    mapped: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            return None
+        mapped[key] = item
+    return mapped
+
+
+def _github_request(
+    method: str,
+    path: str,
+    token: str,
+    payload: Mapping[str, object] | None = None,
+) -> object:
+    root = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    url = f"{root}{path}"
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ReconciliationError(_RECONCILE_FAILED)
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(  # noqa: S310  # scheme restricted to http/https above
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": _API_VERSION,
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310  # scheme restricted to http/https above
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        exc.read()
+        if exc.code in {401, 403, 404}:
+            raise ReconciliationError(_RECONCILE_DENIED, exc.code) from None
+        raise ReconciliationError(
+            f"Could not open a pull request (HTTP {exc.code}). "
+            "Grant contents: write and pull-requests: write.",
+            exc.code,
+        ) from None
+    except urllib.error.URLError as exc:
+        raise ReconciliationError(f"{_RECONCILE_FAILED} ({exc.reason})") from None
+    if not raw:
+        return None
+    loaded: object = json.loads(raw.decode("utf-8"))
+    return loaded

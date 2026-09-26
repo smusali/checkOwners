@@ -18,10 +18,12 @@ from checkowners.drift import (
     detect_drift,
     drift_entry_payload,
     evidence_gaps,
+    reconciliation_body,
     write_github_output,
 )
 from checkowners.models import (
     BusFactorConfig,
+    ConfidenceScore,
     Config,
     DecayWarning,
     DriftConfig,
@@ -31,6 +33,7 @@ from checkowners.models import (
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    SignalScore,
 )
 from tests.conftest import (
     GitRepo,
@@ -446,3 +449,85 @@ def test_scripted_repo_analysis_is_deterministic(tmp_path: Path) -> None:
     assert _canonical_analysis(analyze_regression_repo(first)) == _canonical_analysis(
         analyze_regression_repo(second)
     )
+
+
+def test_reconciliation_body_states_evidence_when_owners_agree() -> None:
+    body = reconciliation_body(
+        DriftResult(stale=(), missing=(), changed=(), drift_detected=False),
+        _ownership({}),
+        Config(),
+    )
+    assert "Inferred ownership is evidence, not accountability." in body
+    assert "Severity: low" in body
+    assert "without an owner-set disagreement" in body
+
+
+def test_reconciliation_body_includes_scores_severity_and_direction() -> None:
+    breakdown = ConfidenceScore(
+        total=0.9,
+        recency=SignalScore(available=True, score=0.8),
+        frequency=SignalScore(available=True, score=0.7),
+        blame=SignalScore(available=False),
+        review=SignalScore(available=True, score=0.2),
+    )
+    ownership = _ownership(
+        {
+            "src/a.py": (
+                _owner("@bob", 0.5),
+                _owner("@alice", 0.4),
+                OwnerEntry(
+                    handle="@alice",
+                    ownership_score=0.9,
+                    last_commit=None,
+                    commits=8,
+                    evidence_quality=0.95,
+                    score_breakdown=breakdown,
+                ),
+                _owner("@alice", 0.2),
+            )
+        }
+    )
+    result = DriftResult(
+        stale=(
+            DriftEntry(
+                path="/old/",
+                confidence_delta=0.1,
+                reason="matches nothing",
+                drift_type="stale_rule",
+            ),
+        ),
+        missing=(
+            DriftEntry(
+                path="src/a.py",
+                confidence_delta=0.9,
+                reason="no declared owner",
+                observed_owners=("@alice", "@ghost"),
+                drift_type="missing_observed_expert",
+            ),
+        ),
+        changed=(
+            DriftEntry(
+                path="/src/",
+                confidence_delta=0.5,
+                reason="owners diverge",
+                owners=("@old",),
+                observed_owners=("@alice",),
+                drift_type="organizational_mismatch",
+            ),
+        ),
+        drift_detected=True,
+    )
+    body = reconciliation_body(result, ownership, Config())
+    assert "stale rule" in body
+    assert "missing observed expert" in body
+    assert "organizational mismatch" in body
+    assert "Declared: @old" in body
+    assert "Observed: @ghost" in body
+    assert "ownership score 0.90" in body
+    assert "evidence quality 0.95" in body
+    assert "commits 8" in body
+    assert "last commit none" in body
+    assert "recency 0.80" in body
+    assert "frequency 0.70" in body
+    assert "review 0.20" in body
+    assert "blame" not in body

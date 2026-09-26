@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import os
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
+from email.message import Message
+from io import BytesIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from checkowners.github import (
+    ReconciliationError,
+    _mapping,
+    _pull_ref,
+    _require_mapping,
+    _require_sha,
     begin_api_budget,
     build_review_coverage,
     clear_api_evidence,
@@ -16,11 +29,14 @@ from checkowners.github import (
     external_evidence_payload,
     get_github_client,
     get_github_token,
+    github_repository,
     note_api_call,
     note_collection_gap,
+    open_or_update_reconciliation,
     resolve_handles,
     resolve_noreply_handle,
     review_was_omitted,
+    set_offline,
     team_snapshot_hash,
 )
 from checkowners.models import (
@@ -504,3 +520,276 @@ def test_resolve_handles_remembers_misses() -> None:
         result = resolve_handles({"ghost@example.com"}, "ghp_test")
     assert result == {}
     mock_client.search_users.assert_not_called()
+
+
+class _Body:
+    def __init__(self, raw: bytes) -> None:
+        self._raw = raw
+
+    def read(self) -> bytes:
+        return self._raw
+
+    def __enter__(self) -> _Body:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
+class _Api:
+    def __init__(self) -> None:
+        self.repo: object = {"default_branch": "main"}
+        self.pulls: object = []
+        self.blob: object = {"sha": "blob1"}
+        self.patch_status: int | None = None
+        self.fail: BaseException | None = None
+        self.raw: bytes | None = None
+
+    def __call__(self, req: urllib.request.Request, timeout: int = 30) -> _Body:
+        assert timeout > 0
+        if self.fail is not None:
+            raise self.fail
+        if self.raw is not None:
+            raw = self.raw
+            self.raw = None
+            return _Body(raw)
+        method = req.get_method()
+        url = req.full_url
+        if url.endswith("/repos/acme/app") and method == "GET":
+            return _Body(json.dumps(self.repo).encode())
+        if "/git/ref/heads/main" in url and method == "GET":
+            return _Body(json.dumps({"object": {"sha": "base"}}).encode())
+        if "/git/commits/base" in url and method == "GET":
+            return _Body(json.dumps({"sha": "base", "tree": {"sha": "tree0"}}).encode())
+        if url.endswith("/git/blobs") and method == "POST":
+            return _Body(json.dumps(self.blob).encode())
+        if url.endswith("/git/trees") and method == "POST":
+            return _Body(json.dumps({"sha": "tree1"}).encode())
+        if url.endswith("/git/commits") and method == "POST":
+            return _Body(json.dumps({"sha": "commit1"}).encode())
+        if "/pulls?" in url and method == "GET":
+            return _Body(json.dumps(self.pulls).encode())
+        if "/git/refs/heads/" in url and method == "PATCH":
+            if self.patch_status is not None:
+                raise urllib.error.HTTPError(
+                    url,
+                    self.patch_status,
+                    "no",
+                    Message(),
+                    BytesIO(b"nope"),
+                )
+            return _Body(json.dumps({"object": {"sha": "commit1"}}).encode())
+        if url.endswith("/git/refs") and method == "POST":
+            return _Body(
+                json.dumps({"ref": "refs/heads/checkowners/reconcile-codeowners"}).encode()
+            )
+        if url.endswith("/pulls") and method == "POST":
+            return _Body(
+                json.dumps({"number": 9, "html_url": "https://github.com/acme/app/pull/9"}).encode()
+            )
+        raise AssertionError(f"{method} {url}")
+
+
+def _open(api: _Api) -> dict[str, object]:
+    with patch("checkowners.github.urllib.request.urlopen", side_effect=api):
+        return open_or_update_reconciliation(
+            token="ghs_test",
+            repository="acme/app",
+            path=".github/CODEOWNERS",
+            content="* @alice\n",
+            body="body\n",
+        )
+
+
+def test_github_repository_uses_origin_when_env_is_absent(tmp_path: Path) -> None:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch(
+            "checkowners.github.repository_identity",
+            return_value="origin:github.com/acme/app",
+        ),
+    ):
+        assert github_repository(tmp_path) == "acme/app"
+
+
+def test_github_repository_falls_through_invalid_env_to_origin(tmp_path: Path) -> None:
+    with (
+        patch.dict(os.environ, {"GITHUB_REPOSITORY": "not a slug"}, clear=True),
+        patch(
+            "checkowners.github.repository_identity",
+            return_value="origin:github.com/acme/app",
+        ),
+    ):
+        assert github_repository(tmp_path) == "acme/app"
+
+
+@pytest.mark.parametrize("slug", ["", "acme", "/app", "acme/", "acme/app/extra"])
+def test_github_repository_rejects_unusable_slug(tmp_path: Path, slug: str) -> None:
+    with (
+        patch.dict(os.environ, {"GITHUB_REPOSITORY": slug}, clear=True),
+        patch("checkowners.github.repository_identity", return_value="path:/repos/app"),
+        pytest.raises(ReconciliationError, match="pull-requests: write"),
+    ):
+        github_repository(tmp_path)
+
+
+def test_github_repository_rejects_origin_that_is_not_a_slug(tmp_path: Path) -> None:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch(
+            "checkowners.github.repository_identity",
+            return_value="origin:github.com/acme/app/extra",
+        ),
+        pytest.raises(ReconciliationError, match="pull-requests: write"),
+    ):
+        github_repository(tmp_path)
+
+
+def test_open_or_update_requires_a_token() -> None:
+    with pytest.raises(ReconciliationError, match="pull-requests: write"):
+        open_or_update_reconciliation(
+            token="",
+            repository="acme/app",
+            path="CODEOWNERS",
+            content="x\n",
+            body="y\n",
+        )
+
+
+def test_open_or_update_refuses_offline_mode() -> None:
+    set_offline(True)
+    try:
+        with pytest.raises(ReconciliationError, match="pull-requests: write"):
+            open_or_update_reconciliation(
+                token="ghs_test",
+                repository="acme/app",
+                path="CODEOWNERS",
+                content="x\n",
+                body="y\n",
+            )
+    finally:
+        set_offline(False)
+
+
+@pytest.mark.parametrize("repository", ["acme", "/app", "acme/", "acme/app/extra"])
+def test_open_or_update_rejects_bad_repository(repository: str) -> None:
+    with pytest.raises(ReconciliationError, match="pull-requests: write"):
+        open_or_update_reconciliation(
+            token="ghs_test",
+            repository=repository,
+            path="CODEOWNERS",
+            content="x\n",
+            body="y\n",
+        )
+
+
+def test_open_or_update_rejects_a_non_http_api_url() -> None:
+    with (
+        patch.dict(os.environ, {"GITHUB_API_URL": "ftp://example.com"}),
+        patch("checkowners.github.urllib.request.urlopen") as urlopen,
+        pytest.raises(ReconciliationError, match="Could not open a pull request"),
+    ):
+        open_or_update_reconciliation(
+            token="ghs_test",
+            repository="acme/app",
+            path="CODEOWNERS",
+            content="x\n",
+            body="y\n",
+        )
+    urlopen.assert_not_called()
+
+
+@pytest.mark.parametrize("repo", [{}, {"default_branch": ""}, {"default_branch": 1}])
+def test_open_or_update_rejects_missing_default_branch(repo: object) -> None:
+    api = _Api()
+    api.repo = repo
+    with pytest.raises(ReconciliationError, match="Could not open a pull request"):
+        _open(api)
+
+
+def test_open_or_update_skips_malformed_pulls_then_creates() -> None:
+    api = _Api()
+    api.pulls = [
+        1,
+        {"number": "bad", "html_url": "https://github.com/acme/app/pull/1"},
+        {"number": 1, "html_url": None},
+        {"number": 1, "html_url": ""},
+    ]
+    opened = _open(api)
+    assert opened == {
+        "number": 9,
+        "url": "https://github.com/acme/app/pull/9",
+        "updated": False,
+    }
+
+
+def test_open_or_update_rejects_a_non_list_pull_payload() -> None:
+    api = _Api()
+    api.pulls = {"items": []}
+    with pytest.raises(ReconciliationError, match="Could not open a pull request"):
+        _open(api)
+
+
+def test_open_or_update_reraises_when_branch_update_is_not_missing() -> None:
+    api = _Api()
+    api.patch_status = 500
+    with pytest.raises(ReconciliationError, match="HTTP 500") as caught:
+        _open(api)
+    assert caught.value.status == 500
+
+
+def test_open_or_update_reports_denied_http_status() -> None:
+    api = _Api()
+    api.fail = urllib.error.HTTPError(
+        "https://api.github.com/repos/acme/app",
+        401,
+        "unauthorized",
+        Message(),
+        BytesIO(b"no"),
+    )
+    with pytest.raises(ReconciliationError, match="pull-requests: write") as caught:
+        _open(api)
+    assert caught.value.status == 401
+
+
+def test_open_or_update_reports_url_and_os_errors() -> None:
+    refused = _Api()
+    refused.fail = urllib.error.URLError("timed out")
+    with pytest.raises(ReconciliationError, match="timed out"):
+        _open(refused)
+    broken = _Api()
+    broken.fail = OSError("boom")
+    with pytest.raises(ReconciliationError, match="boom"):
+        _open(broken)
+
+
+def test_open_or_update_reports_invalid_and_empty_responses() -> None:
+    invalid = _Api()
+    invalid.raw = b"{"
+    with pytest.raises(ReconciliationError, match="Could not open a pull request"):
+        _open(invalid)
+    empty = _Api()
+    empty.raw = b""
+    with pytest.raises(ReconciliationError, match="Could not open a pull request"):
+        _open(empty)
+
+
+def test_reconciliation_parsers_reject_incomplete_payloads() -> None:
+    with pytest.raises(ReconciliationError):
+        _pull_ref({"number": "x", "html_url": "https://github.com/acme/app/pull/1"})
+    with pytest.raises(ReconciliationError):
+        _pull_ref({"number": 1, "html_url": None})
+    with pytest.raises(ReconciliationError):
+        _pull_ref({"number": 1, "html_url": ""})
+    with pytest.raises(ReconciliationError):
+        _require_sha({})
+    with pytest.raises(ReconciliationError):
+        _require_sha({"sha": ""})
+    with pytest.raises(ReconciliationError):
+        _require_sha({"sha": 1})
+    with pytest.raises(ReconciliationError):
+        _require_mapping(None)
+    with pytest.raises(ReconciliationError):
+        _require_mapping([])
+    assert _mapping("no") is None
+    assert _mapping({1: "a"}) is None

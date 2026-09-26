@@ -25,7 +25,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from checkowners.busfactor import qualified_owner_count_fields
-from checkowners.github import external_evidence_payload
+from checkowners.github import RECONCILE_MARKER, external_evidence_payload
 from checkowners.models import (
     IDENTITY_COMPARISON_REASON,
     TEAM_MEMBERSHIP_REASON,
@@ -48,6 +48,17 @@ from checkowners.models import (
 from checkowners.patterns import CodeownersRule, match_path, parse_rules, pattern_matches
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
+
+_EVIDENCE_STATEMENT = "Inferred ownership is evidence, not accountability."
+_NO_OWNER_DISAGREEMENT = "The generated file changed without an owner-set disagreement."
+_DIRECTION_LABEL: dict[DriftKind, str] = {
+    "missing_observed_expert": "missing observed expert",
+    "stale_rule": "stale rule",
+    "complete_ownership_replacement": "complete ownership replacement",
+    "stale_declared_owner": "stale declared owner",
+    "owner_mismatch": "owner mismatch",
+    "organizational_mismatch": "organizational mismatch",
+}
 
 _IDENTITY_NOTE = (
     "inferred owners are commit emails but CODEOWNERS uses @handles; "
@@ -448,3 +459,94 @@ def drift_entry_payload(
     if entry.decay:
         payload["decay"] = True
     return payload
+
+
+def reconciliation_body(result: DriftResult, ownership: OwnershipMap, config: Config) -> str:
+    """Return Markdown for `result` using owner scores from `ownership`.
+
+    `config` selects severity. The text states that inferred ownership is evidence,
+    not accountability, and describes each stale, missing, and changed entry.
+    """
+    lines = [
+        RECONCILE_MARKER,
+        "",
+        _EVIDENCE_STATEMENT,
+        "",
+        f"Severity: {compute_severity(result, config)}",
+        "",
+    ]
+    entries = (*result.stale, *result.missing, *result.changed)
+    if not entries:
+        lines.append(_NO_OWNER_DISAGREEMENT)
+        lines.append("")
+    else:
+        for entry in entries:
+            lines.extend(_reconciliation_entry(entry, ownership, config))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _reconciliation_entry(
+    entry: DriftEntry,
+    ownership: OwnershipMap,
+    config: Config,
+) -> list[str]:
+    lone = DriftResult(stale=(), missing=(), changed=(entry,), drift_detected=True)
+    lines = [
+        f"## {entry.path}",
+        "",
+        f"Direction: {_DIRECTION_LABEL[entry.drift_type]}",
+        f"Severity: {compute_severity(lone, config)}",
+        f"Why: {entry.reason}",
+    ]
+    if entry.owners:
+        lines.append(f"Declared: {' '.join(entry.owners)}")
+    lines.extend(_observed_owner_lines(entry, ownership))
+    lines.append("")
+    return lines
+
+
+def _observed_owner_lines(entry: DriftEntry, ownership: OwnershipMap) -> list[str]:
+    lines: list[str] = []
+    for handle in entry.observed_owners:
+        owner = _best_owner(ownership, handle)
+        if owner is None:
+            lines.append(f"Observed: {handle}")
+            continue
+        last = owner.last_commit.isoformat() if owner.last_commit is not None else "none"
+        lines.append(
+            f"Observed: {handle} ownership score {owner.ownership_score:.2f}, "
+            f"evidence quality {owner.evidence_quality:.2f}, "
+            f"commits {owner.commits}, last commit {last}"
+        )
+        evidence = _signal_evidence(owner)
+        if evidence:
+            lines.append(f"Evidence: {evidence}")
+    return lines
+
+
+def _best_owner(ownership: OwnershipMap, handle: str) -> OwnerEntry | None:
+    folded = handle.casefold()
+    best: OwnerEntry | None = None
+    for path_ownership in ownership.paths.values():
+        for owner in path_ownership.owners:
+            if owner.handle.casefold() != folded:
+                continue
+            if best is None or owner.ownership_score > best.ownership_score:
+                best = owner
+    return best
+
+
+def _signal_evidence(owner: OwnerEntry) -> str:
+    breakdown = owner.score_breakdown
+    if breakdown is None:
+        return ""
+    parts: list[str] = []
+    for name, signal in (
+        ("recency", breakdown.recency),
+        ("frequency", breakdown.frequency),
+        ("blame", breakdown.blame),
+        ("review", breakdown.review),
+    ):
+        if signal.available:
+            parts.append(f"{name} {signal.score:.2f}")
+    return ", ".join(parts)

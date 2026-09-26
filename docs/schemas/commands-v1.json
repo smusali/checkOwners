@@ -184,7 +184,7 @@
         }
       }
     },
-    "risk": {
+    "concentration": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -358,7 +358,7 @@
           "$ref": "#/$defs/pathAnalysis"
         },
         "risk": {
-          "$ref": "#/$defs/risk"
+          "$ref": "#/$defs/concentration"
         },
         "qualified_owner_count": {
           "type": "integer"
@@ -1531,7 +1531,320 @@
         }
       }
     },
+    "riskReport": {
+      "type": "object",
+      "required": [
+        "criticality_unavailable",
+        "entries",
+        "pathologies",
+        "summary"
+      ],
+      "properties": {
+        "criticality_unavailable": {
+          "type": "boolean"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/riskEntry"
+          }
+        },
+        "pathologies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/riskPathology"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/riskSummary"
+        }
+      }
+    },
+    "riskEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "risk",
+        "tier",
+        "reason",
+        "factors",
+        "truck_factor_50",
+        "effective_owners",
+        "dominant_expert",
+        "dominant_share",
+        "change_frequency_label"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "risk": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "tier": {
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "factors": {
+          "$ref": "#/$defs/riskFactors"
+        },
+        "truck_factor_50": {
+          "type": "integer"
+        },
+        "effective_owners": {
+          "type": "number"
+        },
+        "dominant_expert": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dominant_share": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "change_frequency_label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "very high",
+            "high",
+            "medium",
+            "low",
+            "very low",
+            null
+          ]
+        }
+      }
+    },
+    "riskFactors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ownership_concentration",
+        "change_frequency",
+        "dependency_criticality",
+        "code_criticality",
+        "expertise_decay"
+      ],
+      "properties": {
+        "ownership_concentration": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "change_frequency": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dependency_criticality": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "code_criticality": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "expertise_decay": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "riskPathology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "knowledge-vacuum",
+            "phantom-ownership",
+            "shadow-maintainer",
+            "ownership-review-divergence"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "writer": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "declared": {
+          "type": "string"
+        }
+      }
+    },
+    "riskSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_ownership_coverage",
+        "knowledge_at_risk",
+        "critical_components",
+        "ownership_vacuums",
+        "high_codeowners_drift"
+      ],
+      "properties": {
+        "observed_ownership_coverage": {
+          "type": "number"
+        },
+        "knowledge_at_risk": {
+          "type": "number"
+        },
+        "critical_components": {
+          "type": "integer"
+        },
+        "ownership_vacuums": {
+          "type": "integer"
+        },
+        "high_codeowners_drift": {
+          "type": "integer"
+        }
+      }
+    },
+    "risk": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "$ref": "#/$defs/riskReport"
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.5.1",
+          "models": {
+            "ownership": "ownership-v1",
+            "risk": "risk-v1",
+            "topology": "topology-v1"
+          },
+          "repository": "acme/payments",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": 0.75,
+          "criticality_unavailable": true,
+          "entries": [],
+          "pathologies": [],
+          "summary": {
+            "observed_ownership_coverage": 0.0,
+            "knowledge_at_risk": 0.0,
+            "critical_components": 0,
+            "ownership_vacuums": 0,
+            "high_codeowners_drift": 0
+          }
+        }
+      ]
+    },
+    "bus-factor": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "$ref": "#/$defs/riskReport"
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.5.1",
+          "models": {
+            "ownership": "ownership-v1",
+            "risk": "risk-v1",
+            "topology": "topology-v1"
+          },
+          "repository": "acme/payments",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": 0.75,
+          "criticality_unavailable": true,
+          "entries": [],
+          "pathologies": [],
+          "summary": {
+            "observed_ownership_coverage": 0.0,
+            "knowledge_at_risk": 0.0,
+            "critical_components": 0,
+            "ownership_vacuums": 0,
+            "high_codeowners_drift": 0
+          }
+        }
+      ]
+    },
     "decay": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "$ref": "#/$defs/riskReport"
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.5.1",
+          "models": {
+            "ownership": "ownership-v1",
+            "risk": "risk-v1",
+            "topology": "topology-v1"
+          },
+          "repository": "acme/payments",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": 0.75,
+          "criticality_unavailable": true,
+          "entries": [],
+          "pathologies": [],
+          "summary": {
+            "observed_ownership_coverage": 0.0,
+            "knowledge_at_risk": 0.0,
+            "critical_components": 0,
+            "ownership_vacuums": 0,
+            "high_codeowners_drift": 0
+          }
+        }
+      ]
+    },
+    "decay-report": {
       "allOf": [
         {
           "$ref": "#/$defs/envelope"
@@ -2002,7 +2315,7 @@
               }
             },
             "risk": {
-              "$ref": "#/$defs/risk"
+              "$ref": "#/$defs/concentration"
             }
           }
         }
@@ -2209,7 +2522,7 @@
               "$ref": "#/$defs/qualified-owners"
             },
             "decay_summary": {
-              "$ref": "#/$defs/decay"
+              "$ref": "#/$defs/decay-report"
             }
           }
         }
@@ -2834,10 +3147,10 @@
                     "$ref": "#/$defs/stringList"
                   },
                   "risk_before": {
-                    "$ref": "#/$defs/risk"
+                    "$ref": "#/$defs/concentration"
                   },
                   "risk_after": {
-                    "$ref": "#/$defs/risk"
+                    "$ref": "#/$defs/concentration"
                   }
                 }
               }

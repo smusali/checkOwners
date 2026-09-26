@@ -1039,12 +1039,18 @@ def test_trends_git_error() -> None:
 
 
 def test_decay_json_includes_stamp() -> None:
-    with patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP), _MOCK_TOKEN:
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
+        _MOCK_TOKEN,
+    ):
         result = runner.invoke(app, ["decay", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["head_sha"] == "deadbeef"
-    assert "reports" in data
+    assert data["schema_version"] == "1"
+    assert "summary" in data
+    assert "entries" in data
 
 
 def test_qualified_owners_json_includes_stamp() -> None:
@@ -1266,53 +1272,16 @@ def test_graph_reports_topology_model() -> None:
 
 
 def test_decay_reports_ownership_and_risk_models() -> None:
-    warning = DecayWarning(
-        handle="@dave",
-        path="src/auth.py",
-        last_commit=_NOW,
-        days_since_last_commit=40,
-        historical_confidence=0.8,
-    )
-    report = DecayReport(
-        warning=replace(warning, status="departed"),
-        recommended_transfer="@alice",
-    )
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_decay", return_value=()),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
         _MOCK_TOKEN,
     ):
-        quiet = runner.invoke(app, ["decay"])
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_decay", return_value=(report,)),
-        _MOCK_TOKEN,
-    ):
-        listed = runner.invoke(app, ["decay"])
-    assert quiet.exit_code == 0
-    assert "models: ownership" in _models_text(quiet)
-    assert "risk" in _models_text(quiet)
-    assert listed.exit_code == 0
-    assert "@dave" in listed.stdout
-    assert "departed" in listed.stdout
-    assert "models: ownership" in _models_text(listed)
-    other = tuple(
-        DecayReport(
-            warning=replace(warning, status=status),
-            recommended_transfer=None,
-        )
-        for status in ("superseded", "stable", "inactive")
-    )
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_decay", return_value=other),
-        _MOCK_TOKEN,
-    ):
-        styled = runner.invoke(app, ["decay"])
-    assert styled.exit_code == 0
-    assert "superseded" in styled.stdout
-    assert "stable" in styled.stdout
-    assert "inactive" in styled.stdout
+        result = runner.invoke(app, ["decay"])
+    assert result.exit_code == 0
+    assert "Repository knowledge risk" in result.stdout
+    assert "models: ownership" in _models_text(result)
+    assert "risk" in _models_text(result)
 
 
 def test_qualified_owners_reports_risk_model() -> None:
@@ -1944,6 +1913,8 @@ def test_render_explained_owner_without_optional_signals() -> None:
         ["drift", "--json"],
         ["sync", "--json"],
         ["decay", "--json"],
+        ["risk", "--json"],
+        ["bus-factor", "--json"],
         ["qualified-owners", "--all", "--json"],
         ["balance", "--json"],
         ["topology", "--json"],
@@ -2025,6 +1996,8 @@ _EXIT_OK: tuple[tuple[str, list[str]], ...] = (
     ("drift", ["drift"]),
     ("sync", ["sync"]),
     ("decay", ["decay"]),
+    ("risk", ["risk"]),
+    ("bus-factor", ["bus-factor"]),
     ("graph", ["graph"]),
     ("qualified-owners", ["qualified-owners", "--all"]),
     ("balance", ["balance"]),
@@ -2643,6 +2616,7 @@ def test_aggregate_text_reports_omit_people(
     )
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
         patch("checkowners.cli.detect_decay", return_value=reports),
         patch("checkowners.cli.analyze_balance", return_value=balance),
         patch("checkowners.cli.compute_qualified_owners", return_value=owners),
@@ -2666,6 +2640,7 @@ def test_aggregate_text_reports_omit_people(
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.analyze_balance", return_value=balance),
         patch("checkowners.cli.compute_qualified_owners", return_value=owners),
+        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
         patch("checkowners.cli.detect_decay", return_value=reports),
         patch("checkowners.cli.infer_topology", return_value=topology),
         patch("checkowners.cli.declared_teams_from_github", return_value={}),
@@ -2681,7 +2656,7 @@ def test_aggregate_text_reports_omit_people(
     assert named_owners.exit_code == 0, named_owners.output
     assert "src/empty.py" in named_owners.stdout
     assert named_decay.exit_code == 0, named_decay.output
-    assert "triage" in named_decay.stdout
+    assert "Repository knowledge risk" in named_decay.stdout
     assert named_topology.exit_code == 0, named_topology.output
     assert "bob@example.com" in named_topology.stdout
 

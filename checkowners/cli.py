@@ -49,6 +49,7 @@ from checkowners.baseline import (
     apply_ratchet,
     finding_payload,
     load_baseline,
+    visible_findings,
     write_baseline,
 )
 from checkowners.busfactor import (
@@ -124,7 +125,7 @@ from checkowners.models import (
     DecayWarningJson,
     DriftResult,
     ExpertiseRank,
-    FreshnessStatus,
+    Finding,
     OwnerEntry,
     OwnerJson,
     OwnershipMap,
@@ -158,6 +159,14 @@ from checkowners.privacy import (
     sanitize,
     scrub_text,
     without_emails,
+)
+from checkowners.risk import (
+    Pathology,
+    RiskEntry,
+    RiskReport,
+    assess_risk,
+    risk_payload,
+    select_pathologies,
 )
 from checkowners.state import (
     CacheInfo,
@@ -625,6 +634,9 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
             decay_warnings=decay_warnings,
             candidates=_merge_identities(po.candidates, email_to_handle),
             scored_owners=_merge_identities(po.scored_owners, email_to_handle),
+            change_events=po.change_events,
+            cadence_days=po.cadence_days,
+            cochange_degree=po.cochange_degree,
         )
     return OwnershipMap(
         paths=new_paths,
@@ -665,16 +677,6 @@ def _confidence_style(confidence: float) -> str:
     if confidence >= 0.4:
         return "yellow"
     return "red"
-
-
-def _freshness_status_cell(status: FreshnessStatus) -> str:
-    if status == "departed":
-        return "[red]departed[/red]"
-    if status == "superseded":
-        return "[yellow]superseded[/yellow]"
-    if status == "stable":
-        return "[green]stable[/green]"
-    return "[yellow]inactive[/yellow]"
 
 
 def _format_last_commit(value: datetime | None) -> str:
@@ -1707,48 +1709,155 @@ def graph(
     _finish_analysis(ownership)
 
 
-@app.command()
-def decay(json_output: JsonOption = False) -> None:
-    """Report ownership freshness and continuity risk."""
+def _risk_impl(json_output: bool, baseline: str | None) -> None:
     config = _load_config()
-    ownership = _load_or_analyze(config, Path.cwd())
-    reports = detect_decay(ownership, config)
+    repo_root = Path.cwd()
+    ownership = _load_or_analyze(config, repo_root)
+    codeowners_path = find_codeowners_path(repo_root)
+    rules = (
+        ()
+        if not codeowners_path.exists()
+        else parse_rules(codeowners_path.read_text(encoding="utf-8"))
+    )
+    drift = _detect_drift(repo_root, ownership, config, codeowners_path)
+    report = assess_risk(ownership, config, rules, drift)
+    accepted = _accepted_findings(_resolve_baseline(baseline, config))
+    findings = tuple(item.finding() for item in report.pathologies)
+    visible, expired = visible_findings(
+        findings,
+        baseline=accepted,
+        suppressions=config.suppressions,
+        as_of=ownership.last_analyzed.date(),
+    )
+    report = select_pathologies(report, frozenset(item.identity() for item in visible))
+    _print_expired_suppressions(expired)
     if json_output:
-        _emit_json(
-            {
-                "reports": [_decay_report_payload(r) for r in reports],
-            },
-            ownership,
-        )
-        _finish_analysis(ownership)
-        return
-    if not reports:
-        console.print("[green]No continuity-risk warnings.[/green]")
+        _emit_json(risk_payload(report), ownership)
+    else:
+        _render_risk(report)
         _report_models("ownership", "risk")
-        _finish_analysis(ownership)
-        return
-    table = Table(title="Ownership freshness")
-    table.add_column("Path", style="cyan")
-    table.add_column("Handle")
-    table.add_column("Days", justify="right")
-    table.add_column("Historical activity", justify="right")
-    table.add_column("Status")
-    table.add_column("Recommended transfer")
-    for report in reports:
-        status = _freshness_status_cell(report.warning.status)
-        target = _person(report.recommended_transfer) if report.recommended_transfer else ""
-        shown_target = escape(target) if target else "[dim]triage[/dim]"
-        table.add_row(
-            escape(report.warning.path),
-            escape(_person(report.warning.handle)),
-            str(report.warning.days_since_last_commit),
-            f"{report.warning.historical_confidence:.2f}",
-            status,
-            shown_target,
-        )
-    console.print(table)
-    _report_models("ownership", "risk")
     _finish_analysis(ownership)
+
+
+def risk(
+    json_output: JsonOption = False,
+    baseline: BaselineOption = None,
+) -> None:
+    """Report composite knowledge risk for the repository."""
+    _risk_impl(json_output, baseline)
+
+
+def bus_factor(
+    json_output: JsonOption = False,
+    baseline: BaselineOption = None,
+) -> None:
+    """Alias of risk."""
+    _risk_impl(json_output, baseline)
+
+
+def decay(
+    json_output: JsonOption = False,
+    baseline: BaselineOption = None,
+) -> None:
+    """Alias of risk."""
+    _risk_impl(json_output, baseline)
+
+
+app.command(name="risk")(risk)
+app.command(name="bus-factor")(bus_factor)
+app.command(name="decay")(decay)
+
+
+def _accepted_findings(baseline: Path | None) -> tuple[Finding, ...]:
+    if baseline is None:
+        return ()
+    try:
+        return load_baseline(baseline)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.CONFIG)
+
+
+def _render_risk(report: RiskReport) -> None:
+    console.print("Repository knowledge risk")
+    console.print("─" * 60)
+    if not report.entries:
+        console.print("[green]No analyzed paths.[/green]")
+    for entry in report.entries:
+        _render_risk_entry(entry)
+    if report.pathologies:
+        console.print("")
+        for item in report.pathologies:
+            _render_pathology(item)
+    console.print("")
+    console.print("Repository")
+    console.print("─" * 60)
+    summary = report.summary
+    _leader("Observed ownership coverage", f"{summary.observed_ownership_coverage:.1%}")
+    _leader("Knowledge-at-risk", f"{summary.knowledge_at_risk:.1%}")
+    _leader("Critical components", str(summary.critical_components))
+    _leader("Ownership vacuums", str(summary.ownership_vacuums))
+    _leader("High CODEOWNERS drift", str(summary.high_codeowners_drift))
+    if report.criticality_unavailable:
+        console.print("[dim]repository risk is incomplete without criticality[/dim]")
+
+
+def _render_risk_entry(entry: RiskEntry) -> None:
+    tier = {
+        "critical": "[red]CRITICAL[/red]",
+        "high": "[yellow]HIGH[/yellow]",
+        "medium": "[yellow]MEDIUM[/yellow]",
+        "low": "[green]LOW[/green]",
+    }[entry.tier]
+    console.print(f"{tier}  {escape(entry.path)}")
+    owners = f"TF50: {entry.truck_factor_50} · effective owners {entry.effective_owners:.2f}"
+    console.print(f"          {owners}")
+    detail = _risk_detail(entry)
+    if detail:
+        console.print(f"          {detail}")
+    if entry.reason:
+        console.print(f"          {escape(entry.reason)}")
+
+
+def _risk_detail(entry: RiskEntry) -> str:
+    parts: list[str] = []
+    if entry.dominant_expert is not None and entry.dominant_share is not None:
+        share = f"{entry.dominant_share:.0%}"
+        parts.append(f"dominant expert: {_person(entry.dominant_expert)} ({share})")
+    label = entry.change_frequency_label
+    if label is not None:
+        parts.append(f"change frequency: {label}")
+    return " · ".join(parts)
+
+
+_PATHOLOGY_LABELS = {
+    "knowledge-vacuum": "Knowledge vacuum",
+    "phantom-ownership": "Phantom ownership",
+    "shadow-maintainer": "Shadow maintainer",
+    "ownership-review-divergence": "Ownership/review divergence",
+}
+
+
+def _render_pathology(item: Pathology) -> None:
+    console.print(f"{_PATHOLOGY_LABELS[item.kind]}  {escape(item.path)}")
+    console.print(f"          {escape(_pathology_detail(item))}")
+
+
+def _pathology_detail(item: Pathology) -> str:
+    if item.kind == "shadow-maintainer" and item.owners:
+        declared = ", ".join(_person(name) for name in item.declared_owners)
+        return f"declared {declared}, dominant observed expert {_person(item.owners[0])}"
+    if (
+        item.kind == "ownership-review-divergence"
+        and item.writer
+        and item.reviewer
+        and item.declared
+    ):
+        writer = _person(item.writer)
+        reviewer = _person(item.reviewer)
+        declared = _person(item.declared)
+        return f"writer {writer}, reviewer {reviewer}, declared {declared}"
+    return item.detail
 
 
 def _qualified_owners_impl(

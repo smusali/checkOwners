@@ -10,7 +10,9 @@
 
 - id: checkowners-drift
   name: Detect CODEOWNERS drift
-  description: Compare CODEOWNERS to inferred ownership, failing only on findings outside the baseline.
+  description: >-
+    Compare CODEOWNERS to inferred ownership, failing only on findings
+    outside the baseline.
   entry: checkowners drift --baseline .checkowners-baseline.json
   language: python
   additional_dependencies: [".[github]"]

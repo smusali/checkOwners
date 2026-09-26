@@ -17,7 +17,16 @@ QualificationStrategy = Literal["adaptive", "threshold"]
 RecencyStrategy = Literal["fixed", "adaptive"]
 LookbackDays = int | Literal["adaptive"]
 FreshnessStatus = Literal["inactive", "superseded", "stable", "departed"]
-FindingRule = Literal["missing", "stale", "changed", "single-expert"]
+FindingRule = Literal[
+    "missing",
+    "stale",
+    "changed",
+    "single-expert",
+    "knowledge-vacuum",
+    "phantom-ownership",
+    "shadow-maintainer",
+    "ownership-review-divergence",
+]
 IdentityMode = Literal["handle", "email", "hashed"]
 ConfiguredMergeStrategy = Literal["auto", "squash", "merge", "rebase"]
 ReportedMergeStrategy = Literal["squash", "merge", "rebase"]
@@ -457,6 +466,9 @@ class PathOwnership:
     decay_warnings: tuple[DecayWarning, ...] = ()
     candidates: tuple[OwnerEntry, ...] = ()
     scored_owners: tuple[OwnerEntry, ...] = ()
+    change_events: int | None = None
+    cadence_days: float | None = None
+    cochange_degree: float | None = None
 
 
 @dataclass(frozen=True)

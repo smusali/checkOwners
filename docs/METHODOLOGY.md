@@ -171,6 +171,39 @@ reaches the quantile. `critical_path_risk` is `sum(weight * top_owner_share) / s
 `knowledge_at_risk` is the share of total weight on paths whose
 `qualified_owner_count` is at or below `critical_threshold`.
 
+## Composite risk
+
+`checkowners risk` ranks paths by a 0-100 score. `bus-factor` and `decay` are aliases of that command. `qualified-owners` still reports the capped count. The score is the geometric mean of the factors that are present:
+
+```text
+risk = round(100 * exp(mean(ln(factor))))
+```
+
+Each factor is in `(0, 1]`. A missing factor is left out of the mean. It is not replaced with `1`.
+
+| Factor | Meaning |
+|---|---|
+| `ownership_concentration` | `top_owner_share` on the untruncated scored owners. No positive score is `1.0`. |
+| `change_frequency` | `1 / (1 + cadence_days / 7)`. One recorded change is `0.05`. Missing `change_events` leaves the factor out. |
+| `dependency_criticality` | Co-change degree divided by the repository maximum. Commits that touch more than 20 files are ignored. No partner leaves the factor out. |
+| `code_criticality` | The first matching `criticality` glob. Otherwise `0.8` for a deploy or manifest path (`Dockerfile`, `docker-compose*.yml`, `compose*.yml`, `Chart.yaml`, a `k8s` or `deploy` directory, `*.tf`, `Procfile`, `fly.toml`, `serverless.yml`). Otherwise left out. |
+| `expertise_decay` | `1 -` the dominant owner's `active_expertise`, and at least `0.05`. No freshness leaves the factor out. |
+
+`criticality_unavailable` is true when the repository has no `criticality` map, no manifest or deploy path, and no co-change degree. The report says repository risk is incomplete without criticality. The qualified-owner distribution still uses weight `1.0` and `criticality_incomplete` in that case.
+
+Tiers on the 0-100 score are critical at or above 75, high at or above 50, medium at or above 25, and low otherwise. `reason` names the strong factors: `single expert`, `high churn`, `dependency criticality`, `stale expertise`, `low criticality`.
+
+Four pathologies are findings, suppressible by baseline rule and path:
+
+| Rule | When |
+|---|---|
+| `knowledge-vacuum` | The best score is below `analysis.confidence_threshold`, or every owner at that threshold is `inactive`, `superseded`, or `departed`. |
+| `phantom-ownership` | A CODEOWNERS owner has no commits and no review signal on the path. The detail is `declared ownership without observed expertise`. Skipped when handles and emails cannot be compared. |
+| `shadow-maintainer` | A declared owner exists and the dominant observed expert is a different identity. |
+| `ownership-review-divergence` | The writer, the reviewer, and the declared owner are three different identities. Omitted when review evidence is unavailable. |
+
+Observed ownership coverage is the share of analyzed paths with `qualified_owner_count >= 1`. Critical components are paths in the critical tier. High CODEOWNERS drift counts drift entries with `confidence_delta >= 0.7`, or with `qualified_owner_count` at or below `bus_factor.critical_threshold`, or with decay set.
+
 ## Prior art
 
 Published truck factor, also called bus factor or lottery factor, is the

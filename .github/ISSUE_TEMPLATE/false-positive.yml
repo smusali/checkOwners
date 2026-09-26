@@ -59,7 +59,9 @@ body:
     id: json
     attributes:
       label: JSON output
-      description: Paste `--json` output if available. Redact tokens and emails you do not want public.
+      description: >-
+        Paste `--json` output if available.
+        Redact tokens and emails you do not want public.
       render: json
     validations:
       required: false

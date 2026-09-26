@@ -17,7 +17,7 @@ jobs:
   identity-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
@@ -56,11 +56,11 @@ jobs:
   pypi-readme:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
 
@@ -84,12 +84,12 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0     # required so git log / git blame have history
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -111,12 +111,14 @@ jobs:
           HYPOTHESIS_PROFILE: ci
         run: |
           pytest
-          coverage report --include=checkowners/patterns.py,checkowners/analyze.py,checkowners/drift.py,checkowners/generate.py --show-missing
+          include=checkowners/patterns.py,checkowners/analyze.py
+          include=$include,checkowners/drift.py,checkowners/generate.py
+          coverage report --show-missing --include="$include"
           coverage report --include=checkowners/patterns.py --fail-under=100
 
       - name: Upload coverage
         if: matrix.python-version == '3.14'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         with:
           files: coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -126,12 +128,12 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
 
@@ -176,7 +178,12 @@ jobs:
           checkowners topology --json > topology.json
           checkowners balance --json > balance.json
           # Confirm the artifacts have the expected top-level keys.
-          python -c "import json; d=json.load(open('drift.json')); assert 'drift_detected' in d and 'severity' in d, d"
+          python - <<'PY'
+          import json
+          data = json.load(open("drift.json"))
+          assert "drift_detected" in data
+          assert "severity" in data
+          PY
           python -c "import json; d=json.load(open('bus.json')); assert 'entries' in d, d"
           python -m pip install --require-hashes -r requirements-dev.lock
           python tools/check_json_contract.py \
@@ -190,12 +197,12 @@ jobs:
   token-missing-warning:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
 
@@ -226,7 +233,8 @@ jobs:
             cat /tmp/analyze.err
             exit 1
           fi
-          if ! grep -q "github.api_enabled is true but GITHUB_TOKEN is not set" /tmp/analyze.err; then
+          if ! grep -q "github.api_enabled is true but GITHUB_TOKEN is not set" \
+            /tmp/analyze.err; then
             echo "expected missing-token warning on stderr"
             cat /tmp/analyze.err
             exit 1
@@ -235,11 +243,11 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.14"
 

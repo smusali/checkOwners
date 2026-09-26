@@ -313,12 +313,14 @@ def _analyze_ownership(
         )
     review_coverage = _gather_review_coverage(contributions, review_provider)
     review_omitted = review_was_omitted()
+    activity = _path_activity(commits, frozenset(contributions))
     paths = _build_path_ownerships(
         contributions,
         blame_pass.coverage,
         review_coverage,
         config,
         when,
+        activity=activity,
         review_available=review_provider is not None and not review_omitted,
         retain_all=retain_all,
     )
@@ -506,6 +508,7 @@ def _build_path_ownerships(
     config: Config,
     now: datetime,
     *,
+    activity: dict[str, tuple[int, float | None, float | None]],
     review_available: bool,
     retain_all: bool = False,
 ) -> dict[str, PathOwnership]:
@@ -543,12 +546,16 @@ def _build_path_ownerships(
         top = filtered[: config.analysis.top_n_owners]
         decay = _detect_decay(path, qualified, top, config.decay.threshold_days, now)
         qualified_owner_count = _count_qualified_owners(top, config.analysis.confidence_threshold)
+        events, cadence, coupling = activity.get(path, (None, None, None))
         result[path] = PathOwnership(
             owners=top,
             qualified_owner_count=qualified_owner_count,
             decay_warnings=decay,
             candidates=entries if retain_all else (),
             scored_owners=filtered,
+            change_events=events,
+            cadence_days=cadence,
+            cochange_degree=coupling,
         )
     return dict(sorted(result.items()))
 
@@ -1145,6 +1152,41 @@ def _aggregate_contributions(
             for author, commits_n in sorted(counts.items())
         }
     return result
+
+
+_COCHANGE_COMMIT_CAP = 20
+
+
+def _path_activity(
+    commits: list[_RawCommit],
+    kept: frozenset[str],
+) -> dict[str, tuple[int, float | None, float | None]]:
+    """Return `(change_events, cadence_days, cochange_degree)` for each path in `kept`."""
+    counts = dict.fromkeys(kept, 0)
+    timestamps: dict[str, list[datetime]] = {path: [] for path in kept}
+    partners: dict[str, set[str]] = {path: set() for path in kept}
+    for commit in commits:
+        seen: list[str] = []
+        seen_set: set[str] = set()
+        for file_path in commit.files:
+            if file_path in kept and file_path not in seen_set:
+                seen.append(file_path)
+                seen_set.add(file_path)
+        for file_path in seen:
+            counts[file_path] += 1
+            timestamps[file_path].append(commit.timestamp)
+        if len(set(commit.files)) > _COCHANGE_COMMIT_CAP or len(seen) < 2:
+            continue
+        for file_path in seen:
+            partners[file_path].update(other for other in seen if other != file_path)
+    degrees = {path: len(partners[path]) for path in kept}
+    max_degree = max(degrees.values(), default=0)
+    activity: dict[str, tuple[int, float | None, float | None]] = {}
+    for path in kept:
+        degree = degrees[path]
+        coupling = degree / max_degree if max_degree > 0 and degree > 0 else None
+        activity[path] = (counts[path], _cadence_days(timestamps[path]), coupling)
+    return activity
 
 
 def _cadence_days(timestamps: list[datetime]) -> float | None:

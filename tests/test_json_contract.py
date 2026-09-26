@@ -41,6 +41,8 @@ _COMMANDS: tuple[tuple[list[str], str], ...] = (
     (["sync", "--json"], "sync"),
     (["github-action", "--json", "--no-fail-on-drift"], "github-action"),
     (["decay", "--json"], "decay"),
+    (["risk", "--json"], "risk"),
+    (["bus-factor", "--json"], "bus-factor"),
     (["qualified-owners", "--all", "--json"], "qualified-owners"),
     (["balance", "--json"], "balance"),
     (["topology", "--json"], "topology"),

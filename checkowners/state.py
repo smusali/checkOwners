@@ -687,12 +687,19 @@ def _stored_graph(graph_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _serialize_path(po: PathOwnership, cap: int) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "owners": [_serialize_owner(o) for o in po.owners],
         "scored_owners": [_serialize_owner(o) for o in po.scored_owners],
         **qualified_owner_count_fields(po.qualified_owner_count, cap),
         "decay_warnings": [_serialize_decay(w) for w in po.decay_warnings],
     }
+    if po.change_events is not None:
+        payload["change_events"] = po.change_events
+    if po.cadence_days is not None:
+        payload["cadence_days"] = po.cadence_days
+    if po.cochange_degree is not None:
+        payload["cochange_degree"] = po.cochange_degree
+    return payload
 
 
 def _serialize_owner(entry: OwnerEntry) -> dict[str, Any]:
@@ -866,6 +873,9 @@ def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:
         qualified_owner_count=qualified_owner_count,
         decay_warnings=tuple(decay_warnings),
         scored_owners=scored_owners,
+        change_events=_read_optional_int(raw.get("change_events")),
+        cadence_days=_read_number(raw.get("cadence_days")),
+        cochange_degree=_read_number(raw.get("cochange_degree")),
     )
 
 
@@ -970,6 +980,12 @@ def _read_freshness_status(value: object) -> FreshnessStatus:
     if matched is None:
         return "inactive"
     return matched
+
+
+def _read_optional_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 def _read_number(value: object) -> float | None:

@@ -26,6 +26,7 @@ from checkowners.models import (
     AnalysisCompleteness,
     ConfidenceScore,
     Config,
+    ConfiguredMergeStrategy,
     DecayWarning,
     FreshnessStatus,
     GitConfig,
@@ -35,6 +36,7 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
     QualificationStrategy,
+    ReportedMergeStrategy,
     ScoringConfig,
     SignalScore,
     history_evidence_gaps,
@@ -43,6 +45,13 @@ from checkowners.models import (
 )
 
 _COMMIT_SENTINEL = "COMMIT_START"
+_BODY_START = "BODY_START"
+_BODY_END = "BODY_END"
+_MERGE_COMMIT_MIN_PERCENT = 5
+_SQUASH_SUBJECT_MIN_PERCENT = 50
+_COAUTHOR_LINE = re.compile(r"(?i)^co-authored-by:\s*(.*?)\s*<([^<>\s]+@[^<>\s]+)>\s*$")
+_CONTACT_EMAIL = re.compile(r"<([^<>\s]+@[^<>\s]+)>\s*$")
+_SQUASH_SUBJECT = re.compile(r"\(#\d+\)\s*$")
 FREQUENCY_SHRINKAGE_PRIOR = 3.0
 SOURCE_DATE_EPOCH_ENV = "SOURCE_DATE_EPOCH"
 MIN_GIT_VERSION = (2, 23, 0)
@@ -72,6 +81,7 @@ class Contribution:
 
     commits: int
     last_commit: datetime
+    credit: float
     later_commits: int = 0
     cadence_days: float | None = None
 
@@ -83,6 +93,24 @@ class _RawCommit:
     author: str
     timestamp: datetime
     files: tuple[str, ...]
+    coauthors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _ParsedCommit:
+    author: str
+    timestamp: datetime
+    files: tuple[str, ...]
+    contacts: tuple[tuple[str, str], ...]
+    parent_count: int
+    squash_subject: bool
+
+
+@dataclass(frozen=True)
+class _CommitHistory:
+    commits: list[_RawCommit]
+    merge_strategy: ReportedMergeStrategy
+    co_author_count: int
 
 
 @dataclass(frozen=True)
@@ -240,14 +268,20 @@ def _analyze_ownership(
     deadline: float,
 ) -> OwnershipMap:
     mailmap_path = _resolve_mailmap_file(repo_root)
-    commits = _get_commit_history(
+    history = _get_commit_history(
         repo_root,
         lookback_start(config.analysis.lookback_days, when),
         when,
         use_mailmap=config.git.use_mailmap,
         pathspec=pathspec,
+        count_co_authors=config.git.count_co_authors,
+        merge_strategy=config.git.merge_strategy,
     )
-    contributions = _aggregate_contributions(commits)
+    commits = history.commits
+    contributions = _aggregate_contributions(
+        commits,
+        co_author_weight=config.git.co_author_weight,
+    )
     if pathspec:
         contributions = _filter_to_pathspec(contributions, pathspec)
     linguist = (
@@ -300,6 +334,8 @@ def _analyze_ownership(
         review_missing=config.scoring.review_weight > 0
         and review_provider is None
         and not review_omitted,
+        merge_strategy=history.merge_strategy,
+        co_author_count=history.co_author_count,
     )
     return apply_completeness(
         OwnershipMap(
@@ -324,6 +360,8 @@ def _run_completeness(
     gitattributes_n: int,
     static_n: int,
     review_missing: bool,
+    merge_strategy: ReportedMergeStrategy,
+    co_author_count: int,
 ) -> AnalysisCompleteness:
     since = lookback_start(config.analysis.lookback_days, when)
     gaps = history_evidence_gaps(
@@ -345,6 +383,8 @@ def _run_completeness(
         mailmap_file=(_display_ignore_revs_path(repo_root, mailmap_path) if mailmap_path else ""),
         excluded_gitattributes=gitattributes_n,
         excluded_static=static_n,
+        merge_strategy=merge_strategy,
+        co_author_count=co_author_count,
     )
     return with_gaps(base, merge_gaps(gaps, collection_gaps()))
 
@@ -483,13 +523,13 @@ def _build_path_ownerships(
         )
         if not qualified:
             continue
-        max_commits = max(c.commits for c in qualified.values())
+        max_credit = max(frequency_credit(c) for c in qualified.values())
         path_review = review_coverage.get(path, {})
         entries = score_owners(
             qualified,
             path_blame,
             path_review,
-            max_commits=max_commits,
+            max_commits=max_credit,
             scoring=config.scoring,
             now=now,
             blame_available=path in blame_coverage,
@@ -587,7 +627,7 @@ def score_owners(
     path_blame: dict[str, float],
     path_review: dict[str, float],
     *,
-    max_commits: int,
+    max_commits: float,
     scoring: ScoringConfig,
     now: datetime,
     blame_available: bool,
@@ -605,7 +645,7 @@ def score_owners(
     for author, contrib in qualified.items():
         half_life = effective_half_life(contrib.cadence_days, scoring)
         recency = _recency_score(contrib.last_commit, now, half_life)
-        frequency = _frequency_score(contrib.commits, max_commits, frequency_prior)
+        frequency = _frequency_score(frequency_credit(contrib), max_commits, frequency_prior)
         blame = path_blame.get(author, 0.0) if blame_available else 0.0
         review = _clamp(path_review.get(author, 0.0)) if review_available else 0.0
         signals = {
@@ -728,7 +768,12 @@ def _elapsed_days(last_commit: datetime, now: datetime) -> int:
     return int(seconds // 86400)
 
 
-def _frequency_score(commits: int, max_commits: int, prior: float = 0.0) -> float:
+def frequency_credit(contrib: Contribution) -> float:
+    """Return the frequency numerator for `contrib`."""
+    return contrib.credit
+
+
+def _frequency_score(commits: float, max_commits: float, prior: float = 0.0) -> float:
     if max_commits <= 0:
         return 0.0
     return _clamp(commits / (max_commits + prior))
@@ -818,6 +863,97 @@ def _filter_to_pathspec(
     }
 
 
+def coauthor_contacts(body: str) -> tuple[tuple[str, str], ...]:
+    """Return unique `(name, email)` pairs from valid Co-authored-by lines in `body`."""
+    found: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for line in body.splitlines():
+        match = _COAUTHOR_LINE.match(line.strip())
+        if match is None:
+            continue
+        email = match.group(2)
+        key = email.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append((match.group(1).strip(), email))
+    return tuple(found)
+
+
+def canonical_emails(
+    repo_root: Path,
+    contacts: tuple[tuple[str, str], ...],
+    *,
+    enabled: bool,
+) -> tuple[str, ...]:
+    """Return one email per contact in `contacts`. `enabled` applies `.mailmap`."""
+    raw = tuple(email for _name, email in contacts)
+    if not enabled or not contacts:
+        return raw
+    argv = ["git", "check-mailmap"]
+    for name, email in contacts:
+        argv.append(f"{name} <{email}>" if name else f"<{email}>")
+    result = subprocess.run(  # noqa: S603
+        argv,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        check=False,
+    )
+    if result.returncode != 0:
+        return raw
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(lines) != len(contacts):
+        return raw
+    parsed: list[str] = []
+    for line, email in zip(lines, raw, strict=True):
+        match = _CONTACT_EMAIL.search(line)
+        parsed.append(match.group(1) if match is not None else email)
+    return tuple(parsed)
+
+
+def assign_coauthors(
+    repo_root: Path,
+    authors: tuple[str, ...],
+    contact_lists: tuple[tuple[tuple[str, str], ...], ...],
+    *,
+    use_mailmap: bool,
+    enabled: bool,
+) -> tuple[tuple[str, ...], ...]:
+    """Return credited co-author emails for each author, excluding that author."""
+    empty = tuple(() for _author in authors)
+    if not enabled:
+        return empty
+    unique: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for contacts in contact_lists:
+        for name, email in contacts:
+            key = email.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append((name, email))
+    canonical = canonical_emails(repo_root, tuple(unique), enabled=use_mailmap)
+    mapped = {
+        email.casefold(): canonical_email
+        for (_name, email), canonical_email in zip(unique, canonical, strict=True)
+    }
+    credited: list[tuple[str, ...]] = []
+    for author, contacts in zip(authors, contact_lists, strict=True):
+        author_key = author.casefold()
+        people: list[str] = []
+        used: set[str] = set()
+        for _name, email in contacts:
+            person = mapped.get(email.casefold(), email)
+            key = person.casefold()
+            if key == author_key or key in used:
+                continue
+            used.add(key)
+            people.append(person)
+        credited.append(tuple(people))
+    return tuple(credited)
+
+
 def _get_commit_history(
     repo_root: Path,
     since: datetime | None,
@@ -825,14 +961,19 @@ def _get_commit_history(
     *,
     use_mailmap: bool = True,
     pathspec: tuple[str, ...] | None = None,
-) -> list[_RawCommit]:
+    count_co_authors: bool = True,
+    merge_strategy: ConfiguredMergeStrategy = "auto",
+) -> _CommitHistory:
     """Return parsed commits from `since` until `as_of`. `since` None omits the lower bound."""
     email_fmt = "%aE" if use_mailmap else "%ae"
+    log_format = (
+        f"--format={_COMMIT_SENTINEL}%n{email_fmt}%n%cI%n%P%n%s%n{_BODY_START}%n%b%n{_BODY_END}"
+    )
     argv = [  # git from PATH; not user-supplied
         "git",
         "log",
         mailmap_flag(use_mailmap),
-        f"--format={_COMMIT_SENTINEL}%n{email_fmt}%n%cI",
+        log_format,
         "--name-only",
     ]
     if since is not None:
@@ -848,26 +989,109 @@ def _get_commit_history(
         cwd=repo_root,
         check=True,
     )
-    return _parse_log_output(result.stdout)
+    records = _parse_log(result.stdout)
+    file_records = [record for record in records if record.files]
+    credited = assign_coauthors(
+        repo_root,
+        tuple(record.author for record in file_records),
+        tuple(record.contacts for record in file_records),
+        use_mailmap=use_mailmap,
+        enabled=count_co_authors,
+    )
+    commits = [
+        _RawCommit(
+            author=record.author,
+            timestamp=record.timestamp,
+            files=record.files,
+            coauthors=coauthors,
+        )
+        for record, coauthors in zip(file_records, credited, strict=True)
+    ]
+    return _CommitHistory(
+        commits=commits,
+        merge_strategy=_applied_strategy(merge_strategy, _detect_strategy(records)),
+        co_author_count=sum(len(coauthors) for coauthors in credited),
+    )
 
 
 def _parse_log_output(stdout: str) -> list[_RawCommit]:
+    return [
+        _RawCommit(author=record.author, timestamp=record.timestamp, files=record.files)
+        for record in _parse_log(stdout)
+        if record.files
+    ]
+
+
+def _parse_log(stdout: str) -> list[_ParsedCommit]:
     if not stdout.strip():
         return []
-    chunks = stdout.split(_COMMIT_SENTINEL)
-    commits: list[_RawCommit] = []
-    for chunk in chunks:
-        lines = [line for line in chunk.splitlines() if line.strip()]
-        if len(lines) < 2:
-            continue
-        author = lines[0].strip()
-        timestamp = _parse_timestamp(lines[1].strip())
-        if timestamp is None:
-            continue
-        files = tuple(line for line in lines[2:] if line)
-        if files:
-            commits.append(_RawCommit(author=author, timestamp=timestamp, files=files))
-    return commits
+    records: list[_ParsedCommit] = []
+    for chunk in stdout.split(_COMMIT_SENTINEL):
+        parsed = _parse_commit_chunk(chunk)
+        if parsed is not None:
+            records.append(parsed)
+    return records
+
+
+def _parse_commit_chunk(chunk: str) -> _ParsedCommit | None:
+    marker = f"\n{_BODY_START}\n"
+    end_marker = f"\n{_BODY_END}"
+    start = chunk.find(marker)
+    if start < 0:
+        return None
+    header = chunk[:start].lstrip("\n")
+    rest = chunk[start + len(marker) :]
+    end = rest.rfind(end_marker)
+    if end < 0:
+        return None
+    body = rest[:end]
+    files_blob = rest[end + len(end_marker) :]
+    lines = header.splitlines()
+    if len(lines) < 3:
+        return None
+    author = lines[0].strip()
+    timestamp = _parse_timestamp(lines[1].strip())
+    if timestamp is None or not author:
+        return None
+    subject = lines[3] if len(lines) > 3 else ""
+    files = tuple(line.strip() for line in files_blob.splitlines() if line.strip())
+    return _ParsedCommit(
+        author=author,
+        timestamp=timestamp,
+        files=files,
+        contacts=coauthor_contacts(body),
+        parent_count=len(lines[2].split()),
+        squash_subject=_SQUASH_SUBJECT.search(subject) is not None,
+    )
+
+
+def _detect_strategy(records: list[_ParsedCommit]) -> ReportedMergeStrategy:
+    observed = len(records)
+    if observed == 0:
+        return "rebase"
+    merges = sum(1 for record in records if record.parent_count >= 2)
+    if _share_at_least(merges, observed, _MERGE_COMMIT_MIN_PERCENT):
+        return "merge"
+    rest = observed - merges
+    squash_subjects = sum(
+        1 for record in records if record.parent_count < 2 and record.squash_subject
+    )
+    if _share_at_least(squash_subjects, rest, _SQUASH_SUBJECT_MIN_PERCENT):
+        return "squash"
+    return "rebase"
+
+
+def _share_at_least(part: int, whole: int, percent: int) -> bool:
+    return whole > 0 and part * 100 >= whole * percent
+
+
+def _applied_strategy(
+    configured: ConfiguredMergeStrategy,
+    detected: ReportedMergeStrategy,
+) -> ReportedMergeStrategy:
+    if configured == "auto":
+        return detected
+    return configured
 
 
 def _parse_timestamp(raw: str) -> datetime | None:
@@ -879,33 +1103,44 @@ def _parse_timestamp(raw: str) -> datetime | None:
 
 def _aggregate_contributions(
     commits: list[_RawCommit],
+    *,
+    co_author_weight: float = 1.0,
 ) -> dict[str, dict[str, Contribution]]:
-    """Aggregate per-(path, author) counts, cadence, and commits that followed each author."""
-    events: dict[str, list[tuple[str, datetime]]] = {}
+    """Aggregate per-(path, author) counts, credit, cadence, and later commits."""
+    events: dict[str, list[tuple[str, datetime, float]]] = {}
     for commit in commits:
+        people = [
+            (commit.author, 1.0),
+            *((email, co_author_weight) for email in commit.coauthors),
+        ]
         for file_path in commit.files:
-            events.setdefault(file_path, []).append((commit.author, commit.timestamp))
+            bucket = events.setdefault(file_path, [])
+            for author, weight in people:
+                bucket.append((author, commit.timestamp, weight))
     result: dict[str, dict[str, Contribution]] = {}
     for path in sorted(events):
         path_events = events[path]
         counts: dict[str, int] = {}
+        credits_by_author: dict[str, float] = {}
         latest: dict[str, datetime] = {}
-        for author, timestamp in path_events:
+        for author, timestamp, weight in path_events:
             counts[author] = counts.get(author, 0) + 1
+            credits_by_author[author] = credits_by_author.get(author, 0.0) + weight
             prior = latest.get(author)
             if prior is None or timestamp > prior:
                 latest[author] = timestamp
-        cadence = _cadence_days([timestamp for _author, timestamp in path_events])
+        cadence = _cadence_days([timestamp for _author, timestamp, _weight in path_events])
         result[path] = {
             author: Contribution(
                 commits=commits_n,
                 last_commit=latest[author],
                 later_commits=sum(
                     1
-                    for other, timestamp in path_events
+                    for other, timestamp, _weight in path_events
                     if other != author and timestamp > latest[author]
                 ),
                 cadence_days=cadence,
+                credit=credits_by_author[author],
             )
             for author, commits_n in sorted(counts.items())
         }

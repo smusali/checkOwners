@@ -287,6 +287,8 @@ def test_analyze_json() -> None:
     assert data["analysis"]["mailmap_file"] == ""
     assert data["analysis"]["excluded_gitattributes"] == 0
     assert data["analysis"]["excluded_static"] == 0
+    assert data["analysis"]["merge_strategy"] == "rebase"
+    assert data["analysis"]["co_author_count"] == 0
 
 
 def test_analyze_invalid_as_of_exits() -> None:
@@ -351,6 +353,7 @@ def test_analyze_table() -> None:
     assert "Blame ignore-revs: not found" in result.stdout
     assert "Mailmap: not found" in result.stdout
     assert "Exclusions: 0 gitattributes, 0 static" in result.stdout
+    assert "Git history: merge strategy rebase, 0 co-authors" in result.stdout
     assert "analysis completeness: 75%" in result.stdout
 
     applied = replace(
@@ -365,12 +368,16 @@ def test_analyze_table() -> None:
     assert "Mailmap: applied (.mailmap)" in applied_result.stdout
 
     with (
-        patch("checkowners.cli.load_config", return_value=Config(git=GitConfig(use_mailmap=False))),
+        patch(
+            "checkowners.cli.load_config",
+            return_value=Config(git=GitConfig(use_mailmap=False, count_co_authors=False)),
+        ),
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         _MOCK_TOKEN,
     ):
         disabled = runner.invoke(app, ["analyze"])
     assert "Mailmap: disabled" in disabled.stdout
+    assert "Git history: merge strategy rebase, co-authors off" in disabled.stdout
 
 
 def test_analyze_empty() -> None:

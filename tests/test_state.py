@@ -255,6 +255,8 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
         "mailmap_file": "",
         "excluded_gitattributes": 0,
         "excluded_static": 0,
+        "merge_strategy": "rebase",
+        "co_author_count": 0,
         "score": None,
         "gaps": [],
     }
@@ -318,6 +320,36 @@ def test_load_ownership_keeps_a_numeric_score_and_known_gaps(repo: Path) -> None
     assert dropped is not None
     assert dropped.analysis_completeness.score is None
 
+    completeness["merge_strategy"] = "fast-forward"
+    completeness["co_author_count"] = True
+    _write_raw_state(repo, data)
+    invalid_history = load_ownership(repo)
+    assert invalid_history is not None
+    assert invalid_history.analysis_completeness.merge_strategy == "rebase"
+    assert invalid_history.analysis_completeness.co_author_count == 0
+
+    completeness["merge_strategy"] = 1
+    completeness["co_author_count"] = -3
+    _write_raw_state(repo, data)
+    negative_count = load_ownership(repo)
+    assert negative_count is not None
+    assert negative_count.analysis_completeness.merge_strategy == "rebase"
+    assert negative_count.analysis_completeness.co_author_count == 0
+
+    completeness["merge_strategy"] = "squash"
+    completeness["co_author_count"] = "4"
+    _write_raw_state(repo, data)
+    text_count = load_ownership(repo)
+    assert text_count is not None
+    assert text_count.analysis_completeness.merge_strategy == "squash"
+    assert text_count.analysis_completeness.co_author_count == 0
+
+    completeness["co_author_count"] = 4
+    _write_raw_state(repo, data)
+    counted = load_ownership(repo)
+    assert counted is not None
+    assert counted.analysis_completeness.co_author_count == 4
+
 
 def test_unknown_gap_code_is_rejected() -> None:
     assert _as_gap_code("shallow_history") == "shallow_history"
@@ -356,6 +388,8 @@ def test_load_ownership_roundtrip(repo: Path) -> None:
     assert loaded.analysis_completeness.mailmap_file == ""
     assert loaded.analysis_completeness.excluded_gitattributes == 0
     assert loaded.analysis_completeness.excluded_static == 0
+    assert loaded.analysis_completeness.merge_strategy == "rebase"
+    assert loaded.analysis_completeness.co_author_count == 0
 
 
 def test_load_ownership_missing_returns_none(repo: Path) -> None:
@@ -543,7 +577,6 @@ def test_load_ownership_skips_malformed_path(repo: Path) -> None:
                     }
                 ],
                 "qualified_owner_count": 1,
-                "bus_factor": 1,
                 "qualified_owner_count_cap": 3,
                 "decay_warnings": [],
             },

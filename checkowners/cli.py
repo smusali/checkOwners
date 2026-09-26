@@ -772,6 +772,20 @@ def _render_mailmap_line(completeness: AnalysisCompleteness, *, enabled: bool) -
     console.print("Mailmap: not found")
 
 
+def _render_git_history_line(
+    completeness: AnalysisCompleteness,
+    *,
+    count_co_authors: bool,
+) -> None:
+    if count_co_authors:
+        console.print(
+            f"Git history: merge strategy {completeness.merge_strategy}, "
+            f"{completeness.co_author_count} co-authors"
+        )
+        return
+    console.print(f"Git history: merge strategy {completeness.merge_strategy}, co-authors off")
+
+
 def _render_exclusions_line(completeness: AnalysisCompleteness) -> None:
     console.print(
         f"Exclusions: {completeness.excluded_gitattributes} gitattributes, "
@@ -919,6 +933,10 @@ def analyze(json_output: JsonOption = False) -> None:
         _render_ignore_revs_line(ownership.analysis_completeness)
         _render_mailmap_line(ownership.analysis_completeness, enabled=config.git.use_mailmap)
         _render_exclusions_line(ownership.analysis_completeness)
+        _render_git_history_line(
+            ownership.analysis_completeness,
+            count_co_authors=config.git.count_co_authors,
+        )
         _render_completeness(ownership)
         _report_models("ownership")
     _finish_analysis(ownership)

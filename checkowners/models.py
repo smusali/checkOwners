@@ -19,6 +19,8 @@ LookbackDays = int | Literal["adaptive"]
 FreshnessStatus = Literal["inactive", "superseded", "stable", "departed"]
 FindingRule = Literal["missing", "stale", "changed", "single-expert"]
 IdentityMode = Literal["handle", "email", "hashed"]
+ConfiguredMergeStrategy = Literal["auto", "squash", "merge", "rebase"]
+ReportedMergeStrategy = Literal["squash", "merge", "rebase"]
 
 OWNERSHIP_MODEL_VERSION = "ownership-v1"
 RISK_MODEL_VERSION = "risk-v1"
@@ -184,6 +186,9 @@ class GitConfig:
     detect_moves: bool = True
     mass_refactor_file_fraction: float = 0.5
     use_mailmap: bool = True
+    count_co_authors: bool = True
+    co_author_weight: float = 1.0
+    merge_strategy: ConfiguredMergeStrategy = "auto"
 
 
 @dataclass(frozen=True)
@@ -358,6 +363,8 @@ class AnalysisCompleteness:
     mailmap_file: str = ""
     excluded_gitattributes: int = 0
     excluded_static: int = 0
+    merge_strategy: ReportedMergeStrategy = "rebase"
+    co_author_count: int = 0
     score: float | None = None
     gaps: tuple[AnalysisGap, ...] = ()
 
@@ -607,6 +614,8 @@ class AnalysisFlagsJson(TypedDict):
     mailmap_file: str
     excluded_gitattributes: int
     excluded_static: int
+    merge_strategy: ReportedMergeStrategy
+    co_author_count: int
 
 
 class AnalyzeAnalysisJson(PathAnalysisJson, AnalysisFlagsJson):
@@ -837,7 +846,7 @@ def path_analysis_json(owners: tuple[OwnerEntry, ...]) -> PathAnalysisJson:
 
 
 def analysis_flags_json(completeness: AnalysisCompleteness) -> AnalysisFlagsJson:
-    """Return ignore-revs, mailmap, and exclusion counts from `completeness`."""
+    """Return ignore-revs, mailmap, exclusion, and git-history fields from `completeness`."""
     return {
         "ignore_revs_applied": completeness.ignore_revs_applied,
         "ignore_revs_file": completeness.ignore_revs_file,
@@ -845,6 +854,8 @@ def analysis_flags_json(completeness: AnalysisCompleteness) -> AnalysisFlagsJson
         "mailmap_file": completeness.mailmap_file,
         "excluded_gitattributes": completeness.excluded_gitattributes,
         "excluded_static": completeness.excluded_static,
+        "merge_strategy": completeness.merge_strategy,
+        "co_author_count": completeness.co_author_count,
     }
 
 

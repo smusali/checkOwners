@@ -48,4 +48,4 @@ Trimmed `analyze --json` and `drift --json`. Handles are shown as GitHub usernam
 }
 ```
 
-`docs/CODEOWNERS` is a generated `* @smusali` rule, so coverage is complete. Without a token the owner *sets* are not compared (email vs `@handle`). The Action's dogfood comment on a clean PR is the resolved form: "CheckOwners: no drift detected."
+`docs/CODEOWNERS` is a generated `* @smusali` rule, so coverage is complete. Without a token the owner sets are not compared (email vs `@handle`). The Action's dogfood comment on a clean PR is the resolved form: "CheckOwners: no drift detected."

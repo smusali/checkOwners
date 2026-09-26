@@ -50,3 +50,9 @@ github:
   api_enabled: false
   # Do NOT add `token:` here: checkowners.yml is committed to git.
   # Set the GITHUB_TOKEN environment variable instead.
+
+contributors:
+  exclude:
+    - "@cursoragent"
+    - cursoragent@cursor.com
+    - noreply@anthropic.com

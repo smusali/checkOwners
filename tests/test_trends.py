@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from checkowners.analyze import Contribution, _RawCommit, score_owners
+from checkowners.analyze import Contribution, _CommitHistory, _RawCommit, score_owners
 from checkowners.models import AnalysisConfig, Config, ScoringConfig
 from checkowners.trends import _two_factor_confidence, analyze_trends, build_trends
 
@@ -90,7 +90,7 @@ def test_build_trends_confidence_in_unit_range() -> None:
 
 
 def test_analyze_and_trends_match_on_same_available_signals() -> None:
-    contrib = Contribution(commits=4, last_commit=_NOW)
+    contrib = Contribution(commits=4, last_commit=_NOW, credit=4.0)
     scoring = ScoringConfig()
     trend = _two_factor_confidence(contrib, 4, scoring, _NOW, 0.0)
     owners = score_owners(
@@ -109,7 +109,10 @@ def test_analyze_and_trends_match_on_same_available_signals() -> None:
 
 def test_analyze_trends_fetches_history_span() -> None:
     config = _config()
-    with patch("checkowners.trends._get_commit_history", return_value=[]) as mock_hist:
+    with patch(
+        "checkowners.trends._get_commit_history",
+        return_value=_CommitHistory(commits=[], merge_strategy="rebase", co_author_count=0),
+    ) as mock_hist:
         report = analyze_trends(Path("/fake"), config, periods=4, period_days=15, as_of=_NOW)
     assert mock_hist.call_args[0][1] == _NOW - timedelta(days=60)
     assert mock_hist.call_args[0][2] == _NOW

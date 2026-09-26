@@ -25,6 +25,7 @@ from checkowners.analyze import (
     _recency_score,
     combine_available_signals,
     effective_half_life,
+    frequency_credit,
     frequency_prior_for,
     resolve_as_of,
     signal_reliabilities,
@@ -70,14 +71,16 @@ def analyze_trends(
     """
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     span_days = max(1, periods * period_days)
-    commits = _get_commit_history(
+    history = _get_commit_history(
         repo_root,
         when - timedelta(days=span_days),
         when,
         use_mailmap=config.git.use_mailmap,
+        count_co_authors=config.git.count_co_authors,
+        merge_strategy=config.git.merge_strategy,
     )
     return build_trends(
-        commits,
+        history.commits,
         config,
         periods=periods,
         period_days=period_days,
@@ -105,7 +108,10 @@ def build_trends(
 
 
 def _summarize(window: list[_RawCommit], config: Config, as_of: datetime) -> TrendPoint:
-    contributions = _aggregate_contributions(window)
+    contributions = _aggregate_contributions(
+        window,
+        co_author_weight=config.git.co_author_weight,
+    )
     contributions = {
         path: authors
         for path, authors in contributions.items()
@@ -154,10 +160,10 @@ def _score_path(
     )
     if not qualified:
         return []
-    max_commits = max(contrib.commits for contrib in qualified.values())
+    max_credit = max(frequency_credit(contrib) for contrib in qualified.values())
     prior = frequency_prior_for(config.qualification.strategy)
     scored = [
-        _two_factor_confidence(contrib, max_commits, config.scoring, as_of, prior)
+        _two_factor_confidence(contrib, max_credit, config.scoring, as_of, prior)
         for contrib in qualified.values()
     ]
     scored = [c for c in scored if c >= config.analysis.confidence_threshold]
@@ -167,7 +173,7 @@ def _score_path(
 
 def _two_factor_confidence(
     contrib: Contribution,
-    max_commits: int,
+    max_commits: float,
     scoring: ScoringConfig,
     as_of: datetime,
     frequency_prior: float = 0.0,
@@ -178,7 +184,7 @@ def _two_factor_confidence(
         as_of,
         effective_half_life(contrib.cadence_days, scoring),
     )
-    frequency = _frequency_score(contrib.commits, max_commits, frequency_prior)
+    frequency = _frequency_score(frequency_credit(contrib), max_commits, frequency_prior)
     score, _quality = combine_available_signals(
         {
             "recency": (recency, True),

@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- `Co-authored-by` trailers credit co-authors when `git.count_co_authors` is true, with `git.co_author_weight` relative to the commit author, and analyze reports the detected or configured `merge_strategy` plus `co_author_count`.
 - Recency uses each path's median commit gap as its half-life, clamped to a floor and ceiling, with `scoring.recency_strategy: fixed` keeping one half-life for every path, `analysis.lookback_days: adaptive` reading history until the analysis instant, and each owner reporting `active_expertise`, `historical_expertise`, `maintenance_recency`, and a continuity-risk status of `stable`, `inactive`, `superseded`, or `departed`.
 - `checkowners simulate --remove` reports files that lose their only author, files left with one author, fully orphaned directories, the repository truck factor before and after, and candidate backup reviewers, using the cached map only.
 - `qualified-owners` reports a criticality-weighted distribution of `top_owner_share` (`minimum`, `p10`, `median`, `p90`, `critical_path_risk`, and `knowledge_at_risk`), with `criticality` mapping path globs to weights in `(0, 1]` and an empty map setting `criticality_incomplete`.

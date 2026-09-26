@@ -35,8 +35,9 @@ Otherwise a token can be used for the calls below. Each one runs only when its g
 | `github.api_enabled` is true and `GITHUB_REPOSITORY` is set. Review collection also resolves handles, so the search row above can run first | `GET /rate_limit`, `GET /repos/{owner}/{repo}`, `GET /repos/{owner}/{repo}/pulls` (closed, newest update first, at most 200), then `GET /repos/{owner}/{repo}/pulls/{n}/reviews` and `GET /repos/{owner}/{repo}/pulls/{n}/files` | Repository name. Responses are reviewer logins and changed paths |
 | `generate` or `sync` with `github.resolve_teams` and `github.org`, or topology and explain when `github.api_enabled` and `github.org` are set | `GET /orgs/{org}`, `GET /orgs/{org}/teams`, `GET /orgs/{org}/teams/{slug}/members` | Organization name. Responses are team slugs and member logins |
 | Composite Action, `comment_on_pr` true, same-repo pull request | `GET /repos/{owner}/{repo}/issues/{n}/comments`, then `POST` a new comment or `PATCH` the existing one | The report markdown |
+| `checkowners sync` without `--commit` or `--dry-run`, when the generated file differs | `GET /repos/{owner}/{repo}`, Git Data reads and writes for one commit on `checkowners/reconcile-codeowners`, then `GET`, `POST`, or `PATCH` `/repos/{owner}/{repo}/pulls` | Repository name, the CODEOWNERS text, and the pull-request body. This call does not use the github extra. |
 
-A workflow that posts `GITHUB_OUTPUT` to a webhook does that itself. checkOwners does not open that connection. See [Data flow](#data-flow).
+A workflow that posts `GITHUB_OUTPUT` to a webhook does that itself. checkOwners does not open that connection. See [Data flow](#data-flow). The sync row above is the exception to the github extra: it uses the standard library.
 
 ## What is stored
 

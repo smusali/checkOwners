@@ -90,8 +90,11 @@ If you invoke the CLI yourself in a `run:` step, export the token:
 | Team / subteam resolution | Not available: the default `GITHUB_TOKEN` is repo-scoped and cannot list org teams. Pass a PAT or App token via `github_token` | `read:org` | Organization members: Read |
 | Review coverage and review-load balance (`github.api_enabled`) | `pull-requests: read` | `repo` (private) or `public_repo` | Pull requests: Read |
 | PR comment (Action `comment_on_pr`) | `pull-requests: write` | `repo` | Pull requests: Write |
+| Reconciliation pull request (`checkowners sync`) | `contents: write` and `pull-requests: write` | `repo` | Contents: Read and write, and Pull requests: Read and write |
 
 Fork `pull_request` runs cannot comment with the job token: GitHub makes that token read-only regardless of the `permissions:` block. The action skips the comment, writes the report to the job summary, and does not fail the job. The same warning-not-failure path applies when the workflow itself is read-only; set `comment_on_pr: false` to skip the attempt.
+
+`checkowners sync` uses the same token to open a pull request. The repository `GITHUB_TOKEN` can do that, but GitHub will not run `push` workflows from it, and the `pull_request` workflows it creates stay waiting for approval. Use a personal access token or a GitHub App token when those checks should start on their own. `--commit` commits on the current branch instead. `--dry-run` only prints the diff.
 
 A fine-grained PAT scoped to the target org with the minimums above is the recommended setup when the job token cannot reach org teams.
 

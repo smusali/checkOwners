@@ -100,6 +100,15 @@ def _invoke(tmp_path: Path, args: list[str]) -> dict[str, object]:
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
         patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
+        patch("checkowners.cli.github_repository", return_value="acme/app"),
+        patch(
+            "checkowners.cli.open_or_update_reconciliation",
+            return_value={
+                "number": 1,
+                "url": "https://github.com/acme/app/pull/1",
+                "updated": False,
+            },
+        ),
         patch("checkowners.cli.validate_codeowners", return_value=[]),
         patch("checkowners.cli.analyze_trends", return_value=_TREND_REPORT),
         patch("checkowners.cli.analyze_balance", return_value=empty_balance),

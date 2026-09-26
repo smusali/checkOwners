@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import subprocess
@@ -72,6 +73,7 @@ from checkowners.drift import (
     detect_drift,
     drift_entry_payload,
     evidence_gaps,
+    reconciliation_body,
     write_github_output,
 )
 from checkowners.expertise import rank_expertise
@@ -97,12 +99,16 @@ from checkowners.generate import (
     generate_codeowners,
 )
 from checkowners.github import (
+    ReconciliationError,
+    ReconciliationResult,
     begin_api_budget,
     build_review_coverage,
     clear_api_evidence,
     collection_gaps,
     external_evidence_payload,
     get_github_token,
+    github_repository,
+    open_or_update_reconciliation,
     resolve_handles,
     set_offline,
 )
@@ -999,6 +1005,7 @@ def _generate_or_exit(
     codeowners_path: Path,
     *,
     force: bool,
+    write: bool = True,
 ) -> GenerateResult:
     token = get_github_token()
     try:
@@ -1010,6 +1017,7 @@ def _generate_or_exit(
             token=token,
             org=config.github.org,
             force=force,
+            write=write,
         )
     except CodeownersVerificationError as exc:
         console.print(f"[red]{exc}[/red]")
@@ -1385,8 +1393,30 @@ def sync(
     json_output: JsonOption = False,
     force: ForceOption = False,
     allow_broad_patterns: AllowBroadOption = False,
+    commit: Annotated[
+        bool,
+        typer.Option(
+            "--commit",
+            help="Commit CODEOWNERS on the current branch instead of opening a pull request.",
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print the CODEOWNERS diff. Write nothing and open nothing.",
+        ),
+    ] = False,
+    pull_request: Annotated[
+        bool,
+        typer.Option(
+            "--pr",
+            "--pull-request",
+            help="Open or update a reconciliation pull request. This is the default.",
+        ),
+    ] = False,
 ) -> None:
-    """Sync CODEOWNERS with inferred ownership (generate + commit)."""
+    """Open or update a pull request that proposes CODEOWNERS changes."""
     config = _load_config()
     if allow_broad_patterns:
         config = replace(config, output=replace(config.output, allow_broad_patterns=True))
@@ -1395,23 +1425,167 @@ def sync(
     _check_overwrite_or_exit(codeowners_path, config, force)
     ownership = _run_analyze(config, repo_root)
     ownership = _codeowners_ownership(ownership, config)
-    result = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
+    direct_commit = commit and not pull_request and not dry_run
     rel_path = codeowners_path.relative_to(repo_root)
+    if dry_run:
+        result = _generate_or_exit(
+            repo_root, ownership, config, codeowners_path, force=force, write=False
+        )
+        _finish_sync_preview(rel_path, codeowners_path, result, ownership, json_output=json_output)
+        return
+    if direct_commit:
+        result = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
+        _commit_synced(repo_root, rel_path, result, ownership, json_output=json_output)
+        return
+    drift_result = _detect_drift(repo_root, ownership, config, codeowners_path)
+    result = _generate_or_exit(
+        repo_root, ownership, config, codeowners_path, force=force, write=False
+    )
+    current = _read_codeowners(codeowners_path)
+    if current == result.content:
+        _emit_sync(
+            rel_path,
+            result,
+            ownership,
+            json_output=json_output,
+            committed=False,
+            message=f"{rel_path} is already in sync; nothing to open.",
+        )
+        return
+    try:
+        opened = open_or_update_reconciliation(
+            token=get_github_token(),
+            repository=github_repository(repo_root),
+            path=rel_path.as_posix(),
+            content=result.content,
+            body=reconciliation_body(drift_result, ownership, config),
+        )
+    except ReconciliationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.INTEGRATION)
+    verb = "Updated" if opened["updated"] else "Opened"
+    _emit_sync(
+        rel_path,
+        result,
+        ownership,
+        json_output=json_output,
+        committed=False,
+        message=f"{verb} {opened['url']}",
+        pull_request=opened,
+    )
+
+
+def _read_codeowners(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        console.print(f"[red]Could not read {path}:[/red] {exc}")
+        exit_with(ExitCode.INTEGRATION)
+
+
+def _sync_payload(
+    rel_path: Path,
+    result: GenerateResult,
+    *,
+    committed: bool,
+    pull_request: ReconciliationResult | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "path": str(rel_path),
+        "committed": committed,
+        "content": result.content,
+        "broad_patterns": [record.as_json() for record in result.broad_patterns],
+        **codeowners_write_metrics(result.content),
+    }
+    if pull_request is not None:
+        payload["pull_request"] = {
+            "number": pull_request["number"],
+            "url": pull_request["url"],
+            "updated": pull_request["updated"],
+        }
+    return payload
+
+
+def _emit_sync(
+    rel_path: Path,
+    result: GenerateResult,
+    ownership: OwnershipMap,
+    *,
+    json_output: bool,
+    committed: bool,
+    message: str,
+    pull_request: ReconciliationResult | None = None,
+) -> None:
+    if json_output:
+        _emit_json(
+            _sync_payload(rel_path, result, committed=committed, pull_request=pull_request),
+            ownership,
+        )
+    else:
+        console.print(f"[green]{message}[/green]")
+    _finish_analysis(ownership)
+
+
+def _finish_sync_preview(
+    rel_path: Path,
+    codeowners_path: Path,
+    result: GenerateResult,
+    ownership: OwnershipMap,
+    *,
+    json_output: bool,
+) -> None:
+    current = _read_codeowners(codeowners_path)
+    if json_output:
+        _emit_sync(
+            rel_path,
+            result,
+            ownership,
+            json_output=True,
+            committed=False,
+            message="",
+        )
+        return
+    if current == result.content:
+        _emit_sync(
+            rel_path,
+            result,
+            ownership,
+            json_output=False,
+            committed=False,
+            message=f"{rel_path} is already in sync; nothing to open.",
+        )
+        return
+    diff = "".join(
+        difflib.unified_diff(
+            current.splitlines(keepends=True),
+            result.content.splitlines(keepends=True),
+            fromfile=str(rel_path),
+            tofile=str(rel_path),
+        )
+    )
+    console.print(diff, markup=False, highlight=False)
+    _finish_analysis(ownership)
+
+
+def _commit_synced(
+    repo_root: Path,
+    rel_path: Path,
+    result: GenerateResult,
+    ownership: OwnershipMap,
+    *,
+    json_output: bool,
+) -> None:
     if not _has_uncommitted_changes(repo_root, rel_path):
-        if json_output:
-            _emit_json(
-                {
-                    "path": str(rel_path),
-                    "committed": False,
-                    "content": result.content,
-                    "broad_patterns": [record.as_json() for record in result.broad_patterns],
-                    **codeowners_write_metrics(result.content),
-                },
-                ownership,
-            )
-        else:
-            console.print(f"[green]{rel_path} is already in sync; nothing to commit.[/green]")
-        _finish_analysis(ownership)
+        _emit_sync(
+            rel_path,
+            result,
+            ownership,
+            json_output=json_output,
+            committed=False,
+            message=f"{rel_path} is already in sync; nothing to commit.",
+        )
         return
     try:
         subprocess.run(  # noqa: S603  # literal git argv, no shell
@@ -1435,20 +1609,14 @@ def sync(
     except OSError as exc:
         console.print(f"[red]Git commit failed:[/red] {exc}")
         exit_with(ExitCode.INTEGRATION)
-    if json_output:
-        _emit_json(
-            {
-                "path": str(rel_path),
-                "committed": True,
-                "content": result.content,
-                "broad_patterns": [record.as_json() for record in result.broad_patterns],
-                **codeowners_write_metrics(result.content),
-            },
-            ownership,
-        )
-    else:
-        console.print(f"[green]Generated and committed {rel_path}[/green]")
-    _finish_analysis(ownership)
+    _emit_sync(
+        rel_path,
+        result,
+        ownership,
+        json_output=json_output,
+        committed=True,
+        message=f"Generated and committed {rel_path}",
+    )
 
 
 def _has_uncommitted_changes(repo_root: Path, rel_path: Path) -> bool:

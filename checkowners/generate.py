@@ -22,6 +22,8 @@ from checkowners.patterns import CodeownersRule, parse_rules, pattern_matches
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 SIZE_WARN_BYTES = 2 * 1024 * 1024
+_MANUAL_START = "# checkowners:manual:start"
+_MANUAL_END = "# checkowners:manual:end"
 
 _OwnerKey = frozenset[str]
 _FileRow = tuple[str, tuple[OwnerEntry, ...]]
@@ -108,20 +110,24 @@ def generate_codeowners(
     token: str = "",
     org: str = "",
     force: bool = False,
+    write: bool = True,
 ) -> GenerateResult:
-    """Generate CODEOWNERS file content and write it to disk.
+    """Return generated CODEOWNERS content, and write it when `write` is true.
 
-    Refuses to overwrite a hand-written CODEOWNERS (one that lacks the
-    machine-generated header) unless ``force`` is set. ``force`` also writes
-    past ``output.max_bytes``. Round-trip verification is not skipped.
+    `ownership` and `config` supply the rules. `force` overwrites a file that
+    lacks the machine-generated header and allows output past
+    `output.max_bytes`. Round-trip verification still runs. A manual region
+    between the start and end markers is kept above the generated rules.
     """
+    target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     content, expected, records = _render_codeowners(ownership, config, token=token, org=org)
+    content = _with_manual_region(content, config.output.header, _read_manual_region(target))
     if config.output.verify_round_trip:
         verify_round_trip(content, expected)
     _ensure_size_ok(content, config.output.max_bytes, force=force)
-    target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     ensure_overwrite_safe(target, config.output.header, force=force)
-    _write_codeowners(target, content)
+    if write:
+        _write_codeowners(target, content)
     return GenerateResult(content=content, broad_patterns=records)
 
 
@@ -134,6 +140,44 @@ def broad_pattern_warning(record: BroadPatternRecord) -> str:
         f"This also matches: {also}\n"
         f"Affected owners differ. Refusing automatic consolidation."
     )
+
+
+def _read_manual_region(target: Path) -> str:
+    if not target.exists():
+        return ""
+    try:
+        existing = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        msg = f"Could not read {target}: {exc}"
+        raise CodeownersGenerateError(msg) from None
+    return _manual_region(existing)
+
+
+def _manual_region(text: str) -> str:
+    start = text.find(_MANUAL_START)
+    if start == -1:
+        return ""
+    end = text.find(_MANUAL_END, start + len(_MANUAL_START))
+    if end == -1:
+        msg = (
+            "CODEOWNERS has # checkowners:manual:start and no # checkowners:manual:end. "
+            "The manual region was not written."
+        )
+        raise CodeownersGenerateError(msg)
+    line_end = text.find("\n", end)
+    if line_end == -1:
+        return text[start:]
+    return text[start:line_end]
+
+
+def _with_manual_region(content: str, header: str, manual: str) -> str:
+    if not manual:
+        return content
+    prefix = f"{header}\n\n"
+    block = f"{manual}\n\n"
+    if content.startswith(prefix):
+        return prefix + block + content[len(prefix) :]
+    return f"{prefix}{block}{content}"
 
 
 def ensure_overwrite_safe(target: Path, header: str, *, force: bool) -> None:

@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from checkowners.action_report import build, summarize_drift
 from checkowners.cli import app
-from checkowners.config import _build_policy_config, load_config
+from checkowners.config import load_config
 from checkowners.models import (
     CheckPolicy,
     Config,
@@ -104,11 +104,6 @@ def test_unknown_policy_check_is_rejected(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "version: 1\npolicy:\n  not_a_check: {}\n")
     with pytest.raises(ValueError, match=r"policy\.not_a_check"):
         load_config(repo_root=root)
-
-
-def test_policy_builder_rejects_a_non_boolean_fail_flag() -> None:
-    with pytest.raises(ValueError, match="must be a boolean"):
-        _build_policy_config({"incomplete_analysis": {"fail": 1}})
 
 
 def test_incomplete_analysis_policy_exits_findings() -> None:

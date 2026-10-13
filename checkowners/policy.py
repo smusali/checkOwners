@@ -49,7 +49,6 @@ class EffectivePolicyJson(TypedDict):
 
 
 def check_of(rule: FindingRule) -> PolicyCheck | None:
-    """Return the policy check for `rule`, or None when that rule is not gated."""
     if rule in {"stale", "changed"}:
         return "drift"
     if rule == "missing":
@@ -62,7 +61,6 @@ def check_of(rule: FindingRule) -> PolicyCheck | None:
 
 
 def effective_policy(config: Config) -> EffectivePolicyJson:
-    """Return the resolved policy and security block for `config`."""
     policy = config.policy
     security = config.security
     return {
@@ -87,7 +85,7 @@ def invalid_owner_findings(
     *,
     include_missing: bool,
 ) -> tuple[Finding, ...]:
-    """Return `invalid-owner` findings for `errors` on `codeowners_path`.
+    """Return invalid-owner findings for `errors`.
 
     `include_missing` keeps a missing-file error. Line errors always count.
     """
@@ -112,7 +110,6 @@ def security_findings(
     config: Config,
     rules: tuple[CodeownersRule, ...],
 ) -> tuple[Finding, ...]:
-    """Return stricter findings for analyzed paths under `config.security`."""
     security = config.security
     if not security.paths:
         return ()
@@ -121,12 +118,9 @@ def security_findings(
         if not _matches_security(path, security):
             continue
         handles = tuple(owner.handle for owner in _owners(path_ownership))
-        if _below_minimum(path_ownership, config):
-            findings.append(Finding(rule="single-expert", path=path, owners=handles))
-        if security.require_declared_owner and not _has_declared_owner(rules, path):
-            findings.append(Finding(rule="missing", path=path, owners=()))
-        if security.require_active_expert and _lacks_active_expert(path_ownership):
-            findings.append(Finding(rule="single-expert", path=path, owners=handles))
+        for rule in _security_rules(path, path_ownership, config, rules):
+            owners = handles if rule == "single-expert" else ()
+            findings.append(Finding(rule=rule, path=path, owners=owners))
     return tuple(findings)
 
 
@@ -136,7 +130,6 @@ def blocks(
     ownership: OwnershipMap | None,
     rules: tuple[CodeownersRule, ...],
 ) -> bool:
-    """Return whether novel `finding` fails the run under `config`."""
     check = check_of(finding.rule)
     if check is None:
         return False
@@ -151,7 +144,6 @@ def blocking_findings(
     ownership: OwnershipMap | None,
     rules: tuple[CodeownersRule, ...],
 ) -> tuple[Finding, ...]:
-    """Return the novel `findings` that fail the run."""
     return tuple(item for item in findings if blocks(item, config, ownership, rules))
 
 
@@ -214,13 +206,28 @@ def _lacks_active_expert(path_ownership: PathOwnership) -> bool:
     owners = _owners(path_ownership)
     if not owners:
         return False
-    statuses: list[str] = []
     for owner in owners:
         freshness = owner.freshness
-        if freshness is None:
+        if freshness is None or freshness.status == "stable":
             return False
-        statuses.append(freshness.status)
-    return all(status != "stable" for status in statuses)
+    return True
+
+
+def _security_rules(
+    path: str,
+    path_ownership: PathOwnership,
+    config: Config,
+    rules: tuple[CodeownersRule, ...],
+) -> tuple[FindingRule, ...]:
+    security = config.security
+    matched: list[FindingRule] = []
+    low = _below_minimum(path_ownership, config)
+    inactive = security.require_active_expert and _lacks_active_expert(path_ownership)
+    if low or inactive:
+        matched.append("single-expert")
+    if security.require_declared_owner and not _has_declared_owner(rules, path):
+        matched.append("missing")
+    return tuple(matched)
 
 
 def _security_blocks(
@@ -234,14 +241,7 @@ def _security_blocks(
     path_ownership = _path_ownership(finding.path, ownership)
     if path_ownership is None or not _matches_security(finding.path, config.security):
         return False
-    if finding.rule == "missing":
-        undeclared = not _has_declared_owner(rules, finding.path)
-        return config.security.require_declared_owner and undeclared
-    if finding.rule != "single-expert":
-        return False
-    low = _below_minimum(path_ownership, config)
-    inactive = config.security.require_active_expert and _lacks_active_expert(path_ownership)
-    return low or inactive
+    return finding.rule in _security_rules(finding.path, path_ownership, config, rules)
 
 
 def _path_ownership(path: str, ownership: OwnershipMap) -> PathOwnership | None:

@@ -6,6 +6,8 @@ checkOwners reads git history on the machine where it runs and writes an ownersh
 
 `output.anonymize`, `output.aggregate_only`, `privacy.redact_emails` (`--redact-emails`), `identity.mode`, and `contributors.exclude` control what reports may show. See [Privacy controls](USAGE.md#privacy-controls).
 
+`suggest` (alias `balance`) is the report most likely to be misused for individual evaluation. It names people only to recommend a reviewer. `output.anonymize` replaces those names with `person-` tokens. `output.aggregate_only` drops names, the recommendation, and per-person load fields, and keeps `load_signal` plus path-level `review_concentration` and divergence. Do not use either form in a performance review.
+
 ## What is read
 
 All of this stays on the machine that runs the command:
@@ -32,7 +34,7 @@ Otherwise a token can be used for the calls below. Each one runs only when its g
 | When | Call | Sent |
 | --- | --- | --- |
 | `github.resolve_handles` is true (the default), and an address is not a noreply email, not in `contributors.exclude`, and not already in `handles.json` (including a remembered miss) | `GET /rate_limit`, then `GET /search/users` with query `{email} in:email` | The address is the search query |
-| `github.api_enabled` is true and `GITHUB_REPOSITORY` is set. Review collection also resolves handles, so the search row above can run first | `GET /rate_limit`, `GET /repos/{owner}/{repo}`, `GET /repos/{owner}/{repo}/pulls` (closed, newest update first, at most 200), then `GET /repos/{owner}/{repo}/pulls/{n}/reviews` and `GET /repos/{owner}/{repo}/pulls/{n}/files` | Repository name. Responses are reviewer logins and changed paths |
+| `github.api_enabled` is true and `GITHUB_REPOSITORY` is set. Review collection also resolves handles, so the search row above can run first | `GET /rate_limit`, `GET /repos/{owner}/{repo}`, `GET /repos/{owner}/{repo}/pulls` (closed, newest update first, at most 200), then `GET /repos/{owner}/{repo}/pulls/{n}/reviews` and `GET /repos/{owner}/{repo}/pulls/{n}/files`. `suggest` also reads open pulls, newest update first, at most 200 | Repository name. Responses are reviewer logins, requested reviewers, and changed paths |
 | `generate` or `sync` with `github.resolve_teams` and `github.org`, or topology and explain when `github.api_enabled` and `github.org` are set | `GET /orgs/{org}`, `GET /orgs/{org}/teams`, `GET /orgs/{org}/teams/{slug}/members` | Organization name. Responses are team slugs and member logins |
 | Composite Action, `comment_on_pr` true, same-repo pull request | `GET /repos/{owner}/{repo}/issues/{n}/comments`, then `POST` a new comment or `PATCH` the existing one | The report markdown |
 | `checkowners sync` without `--commit` or `--dry-run`, when the generated file differs | `GET /repos/{owner}/{repo}`, Git Data reads and writes for one commit on `checkowners/reconcile-codeowners`, then `GET`, `POST`, or `PATCH` `/repos/{owner}/{repo}/pulls` | Repository name, the CODEOWNERS text, and the pull-request body. This call does not use the github extra. |

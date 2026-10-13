@@ -342,7 +342,14 @@ def test_summarize_balance_trims_each_list() -> None:
         1,
     )
     assert all_trimmed["truncated"] is True
-    assert all_trimmed["counts"] == {"loads": 2, "overloaded": 1, "suggestions": 1}
+    assert all_trimmed["counts"] == {
+        "loads": 2,
+        "overloaded": 1,
+        "suggestions": 1,
+        "review_concentration": 0,
+        "divergence": 0,
+    }
+    assert "load_signal" in all_trimmed
     suggestions_only = summarize_balance({"suggestions": suggestions}, 0)
     assert suggestions_only["truncated"] is True
     assert suggestions_only["loads"] == []
@@ -353,6 +360,21 @@ def test_summarize_balance_trims_each_list() -> None:
         1,
     )
     assert overloaded_only["truncated"] is True
+    concentration = [{"path": "a.py", "share": 0.8}, {"path": "b.py", "share": 0.9}]
+    divergence = [{"path": "a.py", "writer": "@a"}, {"path": "b.py", "writer": "@b"}]
+    trimmed = summarize_balance(
+        {
+            "load_signal": "github_completed_reviews",
+            "review_concentration": concentration,
+            "divergence": divergence,
+        },
+        1,
+    )
+    assert trimmed["truncated"] is True
+    assert trimmed["review_concentration"] == concentration[:1]
+    assert trimmed["divergence"] == divergence[:1]
+    assert trimmed["counts"]["review_concentration"] == 2
+    assert trimmed["counts"]["divergence"] == 2
 
 
 def test_publish_outputs_writes_balance_summary(

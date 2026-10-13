@@ -43,7 +43,7 @@ from checkowners.analyze import (
     head_commit_sha,
     resolve_as_of,
 )
-from checkowners.balance import BalanceReport, analyze_balance
+from checkowners.balance import RECOMMENDATION_REASON, BalanceReport, ReviewLoad, analyze_balance
 from checkowners.baseline import (
     DEFAULT_BASELINE_PATH,
     RatchetOutcome,
@@ -1817,7 +1817,11 @@ def github_action(
             }
             decay_count = len(decay_reports)
         if include_balance:
-            balance_report = analyze_balance(ownership, config)
+            balance_report = analyze_balance(
+                ownership,
+                config,
+                rules=_codeowners_rules(codeowners_path),
+            )
             balance_payload = _balance_payload(balance_report)
     except typer.Exit:
         _publish_action_failure()
@@ -2349,15 +2353,14 @@ def _topology_payload(report: TopologyReport) -> dict[str, Any]:
     }
 
 
-def _balance_payload(report: BalanceReport) -> dict[str, Any]:
-    return {
+def _balance_payload(report: BalanceReport) -> dict[str, object]:
+    payload: dict[str, object] = {
         "source": report.source,
+        "load_signal": report.load_signal,
         "fallback_reason": report.fallback_reason,
         "average": report.average,
-        "loads": [{"handle": load.handle, "reviews": load.reviews} for load in report.loads],
-        "overloaded": [
-            {"handle": load.handle, "reviews": load.reviews} for load in report.overloaded
-        ],
+        "loads": [_load_payload(load) for load in report.loads],
+        "overloaded": [_load_payload(load) for load in report.overloaded],
         "suggestions": [
             {
                 "overloaded": suggestion.overloaded,
@@ -2368,68 +2371,137 @@ def _balance_payload(report: BalanceReport) -> dict[str, Any]:
             for suggestion in report.suggestions
         ],
     }
+    if report.review_concentration:
+        payload["review_concentration"] = [
+            {
+                "path": item.path,
+                "share": item.share,
+                "reviewer": item.reviewer,
+                "knowledgeable_owners": item.knowledgeable_owners,
+            }
+            for item in report.review_concentration
+        ]
+    if report.divergence:
+        payload["divergence"] = [
+            {
+                "path": item.path,
+                "writer": item.writer,
+                "reviewer": item.reviewer,
+                "declared": item.declared,
+            }
+            for item in report.divergence
+        ]
+    return payload
 
 
-@app.command()
-def balance(json_output: JsonOption = False) -> None:
-    """Compare completed reviews, or a git authorship proxy when reviews are unavailable."""
+def _load_payload(load: ReviewLoad) -> dict[str, object]:
+    item: dict[str, object] = {"handle": load.handle, "reviews": load.reviews}
+    optional: tuple[tuple[str, object | None], ...] = (
+        ("reviews_requested", load.reviews_requested),
+        ("reviews_completed", load.reviews_completed),
+        ("prs_waiting", load.prs_waiting),
+        ("median_response_time_hours", load.median_response_time_hours),
+        ("reviewed_lines", load.reviewed_lines),
+        ("pr_complexity", load.pr_complexity),
+        ("ownership_criticality", load.ownership_criticality),
+    )
+    for key, value in optional:
+        if value is not None:
+            item[key] = value
+    if load.load_band is not None:
+        item["expertise"] = load.expertise
+        item["load_band"] = load.load_band
+    return item
+
+
+def _suggest_impl(json_output: bool) -> None:
     config = _load_config()
-    ownership = _load_or_analyze(config, Path.cwd())
-    report = analyze_balance(ownership, config)
+    repo_root = Path.cwd()
+    ownership = _load_or_analyze(config, repo_root)
+    report = analyze_balance(
+        ownership,
+        config,
+        rules=_codeowners_rules(find_codeowners_path(repo_root)),
+    )
     if json_output:
         _emit_json(_balance_payload(report), ownership)
-        _finish_analysis(ownership)
-        return
-    if not report.loads:
-        console.print("[yellow]No git authorship or completed-review counts available.[/yellow]")
-        _report_notice()
-        _finish_analysis(ownership)
-        return
-    console.print(f"[dim]source: {report.source}; average: {report.average:.1f}[/dim]")
-    if _aggregate():
-        _report_notice()
-        _finish_analysis(ownership)
-        return
-    if report.fallback_reason:
-        console.print(
-            f"[dim]GitHub API unavailable ({report.fallback_reason}); "
-            "counts below are a git authorship proxy, not completed reviews.[/dim]"
-        )
-    if report.source == "github_api":
-        title = "Completed reviews"
-        load_label = "Completed reviews"
-        unit = "reviews"
-    elif report.source == "git_authorship":
-        title = "Git authorship proxy"
-        load_label = "Git authorship proxy"
-        unit = "commits"
     else:
-        title = "Review activity"
-        load_label = "Count"
-        unit = "items"
-    table = Table(title=title)
-    table.add_column("Handle", style="cyan")
-    table.add_column(load_label, justify="right")
-    table.add_column("Status")
-    overloaded_handles = {load.handle for load in report.overloaded}
-    for load in report.loads:
-        status = (
-            "[red]overloaded[/red]" if load.handle in overloaded_handles else "[green]ok[/green]"
-        )
-        table.add_row(escape(_person(load.handle)), str(load.reviews), status)
-    console.print(table)
-    if report.suggestions:
-        console.print()
-        console.print("[bold]Rebalance suggestions:[/bold]")
-        for suggestion in report.suggestions:
-            console.print(
-                f"  - shift ~{suggestion.proposed_shift} {unit} from "
-                f"{_person(suggestion.overloaded)}"
-                f" to {_person(suggestion.candidate)} "
-                f"(ownership score {suggestion.confidence:.2f})"
-            )
-    _report_notice()
+        _render_balance(report)
     _finish_analysis(ownership)
+
+
+def suggest(json_output: JsonOption = False) -> None:
+    """Recommend a reviewer from expertise and current load."""
+    _suggest_impl(json_output)
+
+
+def balance(json_output: JsonOption = False) -> None:
+    """Alias of suggest."""
+    _suggest_impl(json_output)
+
+
+app.command(name="suggest")(suggest)
+app.command(name="balance")(balance)
+
+
+def _render_balance(report: BalanceReport) -> None:
+    console.print(f"[dim]load_signal: {report.load_signal}[/dim]")
+    if report.load_signal == "git_authorship_proxy":
+        if report.fallback_reason:
+            console.print(f"[dim]GitHub API unavailable ({escape(report.fallback_reason)}).[/dim]")
+        console.print("Recorded reviews are unavailable. Commit activity is not review load.")
+        console.print("No reviewer is recommended.")
+        _report_notice()
+        return
+    if not _aggregate():
+        _render_recommendations(report)
+    _render_balance_facts(report)
+    _report_notice()
+
+
+def _render_recommendations(report: BalanceReport) -> None:
+    loads = {load.handle: load for load in report.loads}
+    if not report.suggestions:
+        console.print("No reviewer recommendation.")
+        return
+    for index, suggestion in enumerate(report.suggestions):
+        if index:
+            console.print()
+        _print_load_line(suggestion.overloaded, loads.get(suggestion.overloaded))
+        _print_load_line(suggestion.candidate, loads.get(suggestion.candidate))
+        console.print(f"Recommended: {escape(_person(suggestion.candidate))}")
+        console.print(RECOMMENDATION_REASON)
+
+
+def _print_load_line(handle: str, load: ReviewLoad | None) -> None:
+    expertise = 0.0 if load is None else load.expertise
+    band = "typical" if load is None or load.load_band is None else load.load_band
+    console.print(f"{escape(_person(handle))}  expertise {expertise:.2f}  current load {band}")
+
+
+def _render_balance_facts(report: BalanceReport) -> None:
+    named = not _aggregate()
+    for item in report.review_concentration:
+        share = f"{item.share:.4f}".rstrip("0").rstrip(".")
+        if named:
+            console.print(
+                "review_concentration: "
+                f"{escape(item.path)} {share} {escape(_person(item.reviewer))} "
+                f"{item.knowledgeable_owners}"
+            )
+        else:
+            console.print(
+                f"review_concentration: {escape(item.path)} {share} {item.knowledgeable_owners}"
+            )
+    for split in report.divergence:
+        if named:
+            console.print(
+                f"{escape(split.path)}  writer {escape(_person(split.writer))}  "
+                f"reviewer {escape(_person(split.reviewer))}  "
+                f"declared {escape(_person(split.declared))}"
+            )
+        else:
+            console.print(f"{escape(split.path)}  ownership/review divergence")
 
 
 @app.command()

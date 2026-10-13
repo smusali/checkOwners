@@ -14,7 +14,9 @@ One sentence for each term used in reports. Naming rules are in [Terminology](ME
 - **effective owners**: the inverse Herfindahl index of ownership-score shares on a path, `1 / sum(p_i^2)`, computed before `top_n_owners` truncation.
 - **evidence quality**: a separate measure of how much configured signal weight was observed, multiplied by analysis completeness, and never folded into the ownership score.
 - **exploratory repository topology**: a clustering of contributors from commit co-occurrence, not an org chart.
-- **git authorship proxy**: a review-load stand-in computed from commits when recorded reviews are unavailable.
+- **git authorship proxy**: commit totals reported when recorded reviews are unavailable. They are not review load and they do not recommend a person.
+- **load signal**: the label on a balance report: `github_completed_reviews`, `git_authorship_proxy`, or `external`.
+- **review concentration**: one person's share of reviews on a single path, reported when that share is at least 0.72 and at least two owners meet the confidence threshold.
 - **HHI**: the Herfindahl index of ownership-score shares on a path, the sum of the squared shares.
 - **historical activity confidence**: the present ownership score stored on a continuity-risk warning, not a score reconstructed at an earlier date.
 - **knowledge at risk**: the share of criticality weight on paths whose qualified owner count is at or below the critical threshold.

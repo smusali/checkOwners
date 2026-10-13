@@ -2048,6 +2048,13 @@
                 "external"
               ]
             },
+            "load_signal": {
+              "enum": [
+                "github_completed_reviews",
+                "git_authorship_proxy",
+                "external"
+              ]
+            },
             "fallback_reason": {
               "type": "string"
             },
@@ -2069,6 +2076,37 @@
                   },
                   "reviews": {
                     "type": "integer"
+                  },
+                  "reviews_requested": {
+                    "type": "integer"
+                  },
+                  "reviews_completed": {
+                    "type": "integer"
+                  },
+                  "prs_waiting": {
+                    "type": "integer"
+                  },
+                  "median_response_time_hours": {
+                    "type": "number"
+                  },
+                  "reviewed_lines": {
+                    "type": "integer"
+                  },
+                  "pr_complexity": {
+                    "type": "number"
+                  },
+                  "ownership_criticality": {
+                    "type": "number"
+                  },
+                  "expertise": {
+                    "type": "number"
+                  },
+                  "load_band": {
+                    "enum": [
+                      "high",
+                      "low",
+                      "typical"
+                    ]
                   }
                 }
               }
@@ -2088,6 +2126,37 @@
                   },
                   "reviews": {
                     "type": "integer"
+                  },
+                  "reviews_requested": {
+                    "type": "integer"
+                  },
+                  "reviews_completed": {
+                    "type": "integer"
+                  },
+                  "prs_waiting": {
+                    "type": "integer"
+                  },
+                  "median_response_time_hours": {
+                    "type": "number"
+                  },
+                  "reviewed_lines": {
+                    "type": "integer"
+                  },
+                  "pr_complexity": {
+                    "type": "number"
+                  },
+                  "ownership_criticality": {
+                    "type": "number"
+                  },
+                  "expertise": {
+                    "type": "number"
+                  },
+                  "load_band": {
+                    "enum": [
+                      "high",
+                      "low",
+                      "typical"
+                    ]
                   }
                 }
               }
@@ -2117,6 +2186,61 @@
                   }
                 }
               }
+            },
+            "review_concentration": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "share",
+                  "reviewer",
+                  "knowledgeable_owners"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "share": {
+                    "type": "number"
+                  },
+                  "reviewer": {
+                    "type": "string"
+                  },
+                  "knowledgeable_owners": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "divergence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "writer",
+                  "reviewer",
+                  "declared"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "writer": {
+                    "type": "string"
+                  },
+                  "reviewer": {
+                    "type": "string"
+                  },
+                  "declared": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         }
@@ -2136,6 +2260,7 @@
           "generated_at": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "source": "git_authorship",
+          "load_signal": "git_authorship_proxy",
           "fallback_reason": "",
           "average": 0.0,
           "loads": [],

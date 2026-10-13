@@ -292,6 +292,14 @@ is the mean capped count for those same paths. Trend periods use recency and
 frequency only. Blame and review are unavailable, so a trend score is not the
 same number `analyze` would have produced on that day.
 
+`load_signal` says what a balance count is. `github_completed_reviews` means the GitHub sample returned submitted reviews. `git_authorship_proxy` means it did not, and `reviews` in that payload is a commit total. `external` means the caller supplied completed-review counts. The proxy never sets `reviews_completed`, `load_band`, `review_concentration`, or `divergence`, and it never recommends a person. Commit volume is not review load.
+
+When the signal is real reviews, `reviews_completed` counts submitted review objects in the existing closed-pull sample (at most 200, most recently updated). `reviews_requested` counts one fulfilled request per pull a person reviewed, plus each open request that has no submitted review from them. `prs_waiting` counts those open requests. The open scan uses the same cap. It is not a new lookback window. `median_response_time_hours` is the median, in hours, from pull creation to that person's earliest submitted review on the pull. It is not request-to-review time. `reviewed_lines` sums `additions + deletions` once per reviewed pull. `pr_complexity` is the median of those per-pull totals. `ownership_criticality` is the highest configured criticality weight on a path the person owns at or above the confidence threshold, or unset when none match. Per-path review counts increment once per pull that touched the path, not once per review comment.
+
+`load_band` is `high` when completed reviews are at least twice the average, or `prs_waiting` is at least twice its average. It is `low` when the person is not high and both numbers are at or below their averages (waiting is ignored when it was not collected). Otherwise it is `typical`. The recommendation names one co-owner who is not high: low before typical, then higher `ownership_score` (`expertise`), then fewer completed reviews, then handle. `ownership_score` here is the same uncalibrated ranking signal as everywhere else.
+
+`review_concentration` is the top reviewer's share of per-path reviews. It is reported when that share is at least 0.72 and at least two owners on the path meet the confidence threshold. It is not ownership concentration. `divergence` keeps three identities: the writer (most commits; ties break by higher score, then handle), the reviewer (most reviews on that path), and a declared CODEOWNERS owner who is neither. Missing any one of the three omits the path.
+
 `confidence_delta` is the drift gap between declared CODEOWNERS owners and
 inferred owners on one path: the sum of inferred scores for people who are
 inferred but not declared, plus `1.0` for each declared owner who is not

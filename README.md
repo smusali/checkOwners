@@ -131,7 +131,7 @@ The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/b
 | `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with candidate backup reviewers |
 | `checkowners simulate --remove @alice` | What breaks if those people leave, from the cached map |
 | `checkowners topology` | Exploratory repository topology from commit co-occurrence |
-| `checkowners balance` | Compare a git authorship proxy, or completed reviews when the API is available |
+| `checkowners suggest` | Recommend a reviewer from expertise and current load. `balance` is an alias |
 | `checkowners onboard <path>` | Learning path from broadly shared paths to concentrated qualified ownership |
 | `checkowners trends [--periods N] [--period-days D]` | Historical activity and qualified owner count over time |
 | `checkowners github-action` | Run the full CI flow and write `GITHUB_OUTPUT`; used by the composite Action |

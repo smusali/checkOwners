@@ -10,9 +10,30 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+from checkowners.action_report import build, summarize_drift
 from checkowners.cli import app
 from checkowners.config import _build_policy_config, load_config
-from checkowners.models import CheckPolicy, Config, OwnershipMap, PathOwnership, PolicyConfig
+from checkowners.models import (
+    CheckPolicy,
+    Config,
+    Finding,
+    FreshnessStatus,
+    OwnerEntry,
+    OwnershipFreshness,
+    OwnershipMap,
+    PathOwnership,
+    PolicyConfig,
+    SecurityPolicy,
+)
+from checkowners.patterns import CodeownersRule
+from checkowners.policy import (
+    blocking_findings,
+    blocks,
+    check_of,
+    invalid_owner_findings,
+    security_findings,
+)
+from checkowners.validate import ValidationFinding
 from tests.conftest import git_commit, init_git_repo
 from tests.test_cli import (
     _DRIFT_DETECTED,
@@ -298,3 +319,206 @@ def test_solo_maintainer_repository_does_not_fail(
     with _MOCK_TOKEN:
         result = runner.invoke(app, ["github-action", "--json"])
     assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        ("version: 1\npolicy:\n  drift:\n    severity: critical\n", "severity"),
+        ("version: 1\npolicy:\n  drift:\n    severity: 1\n", "severity"),
+        ("version: 1\nsecurity:\n  paths: auth/**\n", "security.paths"),
+        ("version: 1\nsecurity:\n  paths:\n    - ''\n", "security.paths"),
+        ("version: 1\nsecurity:\n  paths:\n    - '  '\n", "security.paths"),
+    ],
+)
+def test_policy_and_security_config_reject_bad_values(
+    tmp_path: Path,
+    content: str,
+    match: str,
+) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)
+
+
+def test_null_security_paths_are_empty(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "version: 1\nsecurity:\n  paths:\n")
+    assert load_config(repo_root=root).security.paths == ()
+
+
+def test_security_paths_only_keep_the_strict_defaults(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "version: 1\nsecurity:\n  paths:\n    - ' auth/** '\n")
+    security = load_config(repo_root=root).security
+    assert security.paths == ("auth/**",)
+    assert security.minimum_effective_owners == 2
+    assert security.require_declared_owner is True
+    assert security.require_active_expert is True
+
+
+def test_invalid_owner_findings_cover_missing_files_and_tokens(tmp_path: Path) -> None:
+    external = tmp_path.parent / "outside-codeowners"
+    missing = ValidationFinding(line_number=0, line="", message="CODEOWNERS file not found")
+    blank = ValidationFinding(line_number=2, line="* ", message="Invalid owner format:   ")
+    syntax = ValidationFinding(line_number=4, line="!x", message="negation is rejected")
+    skipped = invalid_owner_findings(tmp_path, external, [missing], include_missing=False)
+    assert skipped == ()
+    kept = invalid_owner_findings(
+        tmp_path,
+        external,
+        [missing, blank, syntax],
+        include_missing=True,
+    )
+    assert kept[0].path == external.as_posix()
+    assert kept[0].owners == ()
+    assert kept[1].owners == ()
+    assert kept[1].path.endswith(":2")
+    assert kept[2].owners == ("negation is rejected",)
+
+
+def _fresh(handle: str, status: FreshnessStatus | None) -> OwnerEntry:
+    freshness = None
+    if status is not None:
+        freshness = OwnershipFreshness(
+            active_expertise=0.2,
+            historical_expertise=0.8,
+            maintenance_recency=0.2,
+            status=status,
+            half_life_days=90.0,
+        )
+    return OwnerEntry(
+        handle=handle,
+        ownership_score=1.0,
+        last_commit=_NOW,
+        commits=4,
+        freshness=freshness,
+    )
+
+
+def test_security_rules_raise_only_matching_paths() -> None:
+    inactive = _fresh("@old", "inactive")
+    stable_a = _fresh("@ann", "stable")
+    stable_b = _fresh("@bob", "stable")
+    unscored = _fresh("@new", None)
+    ownership = OwnershipMap(
+        paths={
+            "auth/solo.py": PathOwnership(
+                owners=(_fresh("@shown", "stable"),),
+                qualified_owner_count=1,
+                scored_owners=(inactive,),
+            ),
+            "auth/pair.py": PathOwnership(
+                owners=(stable_a, stable_b),
+                qualified_owner_count=2,
+            ),
+            "auth/plain.py": PathOwnership(
+                owners=(unscored, _fresh("@new2", None)),
+                qualified_owner_count=2,
+            ),
+            "auth/empty.py": PathOwnership(owners=(), qualified_owner_count=0),
+            "docs/readme.md": PathOwnership(
+                owners=(_fresh("@doc", "inactive"),),
+                qualified_owner_count=1,
+            ),
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    config = Config(
+        security=SecurityPolicy(
+            paths=("auth/**",),
+            minimum_effective_owners=2,
+            require_declared_owner=True,
+            require_active_expert=True,
+        )
+    )
+    declared = (CodeownersRule(pattern="auth/pair.py", owners=("@ann",), line_number=1),)
+    assert security_findings(ownership, Config(), declared) == ()
+    found = security_findings(ownership, config, declared)
+    by_path: dict[str, set[str]] = {}
+    for item in found:
+        by_path.setdefault(item.path, set()).add(item.rule)
+    assert by_path["auth/solo.py"] == {"single-expert", "missing"}
+    assert found[0].owners == ("@old",)
+    assert "auth/pair.py" not in by_path
+    assert by_path["auth/plain.py"] == {"missing"}
+    assert by_path["auth/empty.py"] == {"single-expert", "missing"}
+    assert "docs/readme.md" not in by_path
+    solo = Finding(rule="single-expert", path="/auth/solo.py", owners=("@old",))
+    missing_solo = Finding(rule="missing", path="auth/solo.py")
+    missing_pair = Finding(rule="missing", path="auth/pair.py")
+    stale = Finding(rule="stale", path="auth/solo.py")
+    unknown = Finding(rule="single-expert", path="missing.py")
+    vacuum = Finding(rule="knowledge-vacuum", path="auth/solo.py")
+    assert blocks(solo, config, ownership, declared) is True
+    assert blocks(missing_solo, config, ownership, ()) is True
+    assert blocks(missing_pair, config, ownership, declared) is False
+    ownerless = (CodeownersRule(pattern="auth/solo.py", owners=(), line_number=2),)
+    assert blocks(missing_solo, config, ownership, ownerless) is True
+    assert blocks(stale, config, ownership, declared) is False
+    assert blocks(unknown, config, ownership, declared) is False
+    assert blocks(solo, config, None, declared) is False
+    assert check_of("knowledge-vacuum") is None
+    assert blocks(vacuum, config, ownership, ()) is False
+    kept = blocking_findings((solo, stale), config, ownership, declared)
+    assert kept == (solo,)
+
+
+def test_job_summary_names_blocking_findings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "drift.json").write_text(
+        json.dumps(
+            {
+                "drift_detected": False,
+                "missing": [],
+                "stale": [],
+                "changed": [],
+                "notes": [],
+                "blocking": ["skip", {"rule": 1, "path": "nope"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert "Blocking: none" in build(limit=5)
+    (tmp_path / "drift.json").write_text(
+        json.dumps(
+            {
+                "drift_detected": True,
+                "missing": [{"path": "a.py", "reason": "missing"}],
+                "stale": [],
+                "changed": [],
+                "notes": [],
+                "blocking": [{"rule": "invalid-owner", "path": ".github/CODEOWNERS:1"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert "Blocking: invalid-owner .github/CODEOWNERS:1" in build(limit=5)
+    skipped = summarize_drift(
+        {
+            "policy": "nope",
+            "blocking": "nope",
+            "missing": [],
+            "stale": [],
+            "changed": [],
+            "notes": [],
+        },
+        5,
+    )
+    assert "policy" not in skipped
+    assert "blocking" not in skipped
+    copied = summarize_drift(
+        {
+            "policy": {"drift": {"fail": False, "severity": "warning"}},
+            "blocking": [],
+            "missing": [],
+            "stale": [],
+            "changed": [],
+            "notes": [],
+        },
+        5,
+    )
+    assert copied["blocking"] == []
+    assert copied["policy"]["drift"]["fail"] is False

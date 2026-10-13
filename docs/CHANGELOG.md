@@ -11,7 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../ROADMAP.md).
 
 ### Added
-- `policy` chooses which finding classes block. `drift`, `single_expert`, `incomplete_analysis`, and `unowned` are warnings that do not fail a run. `invalid_owner` fails. `security.paths` applies a stricter owner count, a declared owner, and an active expert under those globs. Drift, validate, and Action JSON report the effective `policy` and the `blocking` findings.
+- `policy` chooses which finding classes block, warning by default for drift, a single expert, unowned paths, and incomplete analysis, failing for invalid owners, applying stricter rules under `security.paths`, and reporting the effective policy and blocking findings in drift, validate, and Action JSON.
 - `checkowners sync` opens or updates one reconciliation pull request by default. `--commit` commits on the current branch, and `--dry-run` prints the diff without writing or calling the GitHub API.
 - `Co-authored-by` trailers credit co-authors when `git.count_co_authors` is true, with `git.co_author_weight` relative to the commit author, and analyze reports the detected or configured `merge_strategy` plus `co_author_count`.
 - Recency uses each path's median commit gap as its half-life, clamped to a floor and ceiling, with `scoring.recency_strategy: fixed` keeping one half-life for every path, `analysis.lookback_days: adaptive` reading history until the analysis instant, and each owner reporting `active_expertise`, `historical_expertise`, `maintenance_recency`, and a continuity-risk status of `stable`, `inactive`, `superseded`, or `departed`.
@@ -22,6 +22,9 @@ Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../RO
 
 ### Changed
 - The Action `fail_on_drift` input defaults to empty, so a run follows `policy.drift.fail` unless the workflow sets `true` or `false`. `checkowners drift` exits 3 only when policy marks a novel finding as blocking.
+
+### Fixed
+- `requirements.lock` and `requirements-dev.lock` pin `PyJWT` 2.15.1 and `urllib3` 2.8.0 so `pip-audit` no longer fails on the advisories in the previous pins.
 
 ## [0.6.0] - 2026-09-24
 

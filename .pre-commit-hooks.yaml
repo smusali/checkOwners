@@ -11,8 +11,8 @@
 - id: checkowners-drift
   name: Detect CODEOWNERS drift
   description: >-
-    Compare CODEOWNERS to inferred ownership, failing only on findings
-    outside the baseline.
+    Compare CODEOWNERS to inferred ownership. Novel findings block only
+    when policy says they fail. The default does not block drift.
   entry: checkowners drift --baseline .checkowners-baseline.json
   language: python
   additional_dependencies: [".[github]"]

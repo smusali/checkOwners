@@ -76,7 +76,6 @@ from checkowners.models import (
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
-    PolicyConfig,
     SignalScore,
     TeamCluster,
     models_payload,
@@ -451,19 +450,6 @@ def test_api_gaps_name_absent_token_and_unresolved_emails() -> None:
     )
 
 
-def test_policy_incomplete_analysis_exits_findings() -> None:
-    policy = Config(policy=PolicyConfig(incomplete_analysis_fail=True))
-    with (
-        patch("checkowners.cli.load_config", return_value=policy),
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        _MOCK_TOKEN,
-    ):
-        failed = runner.invoke(app, ["analyze"])
-        cleared = runner.invoke(app, ["--exit-zero", "analyze"])
-    assert failed.exit_code == 3
-    assert cleared.exit_code == 0
-
-
 def test_fail_on_incomplete_stays_zero_when_signals_are_complete() -> None:
     complete = _entry("alice@example.com")
     breakdown = complete.score_breakdown
@@ -763,7 +749,7 @@ def test_github_action_fails_on_drift_and_writes_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     exit_code, _stdout, output_file, summary_file = _run_github_action(
-        tmp_path, monkeypatch, ["github-action"], drift=_DRIFT_DETECTED
+        tmp_path, monkeypatch, ["github-action", "--fail-on-drift"], drift=_DRIFT_DETECTED
     )
     assert exit_code == 3
     written = output_file.read_text(encoding="utf-8")
@@ -838,7 +824,9 @@ def test_github_action_input_combinations(
     include_decay: bool,
 ) -> None:
     args = ["github-action"]
-    if not fail_on_drift:
+    if fail_on_drift:
+        args.append("--fail-on-drift")
+    else:
         args.append("--no-fail-on-drift")
     if not include_bus_factor:
         args.append("--no-include-bus-factor")
@@ -2475,7 +2463,7 @@ def _exit_cases() -> list[object]:
     ]
     cases.extend(
         [
-            pytest.param("findings", "drift", ["drift"], 3, id="drift-findings"),
+            pytest.param("findings", "drift", ["drift"], 0, id="drift-findings"),
             pytest.param("findings", "drift", ["--exit-zero", "drift"], 0, id="drift-exit-zero"),
             pytest.param("findings", "validate", ["validate"], 3, id="validate-findings"),
             pytest.param(
@@ -2493,7 +2481,7 @@ def _exit_cases() -> list[object]:
                 0,
                 id="generate-exit-zero",
             ),
-            pytest.param("findings", "github-action", ["github-action"], 3, id="action-findings"),
+            pytest.param("findings", "github-action", ["github-action"], 0, id="action-findings"),
             pytest.param(
                 "findings",
                 "github-action",

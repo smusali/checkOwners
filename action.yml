@@ -36,9 +36,11 @@ inputs:
     required: false
     default: "50"
   fail_on_drift:
-    description: Fail the action with exit code 3 when drift is detected.
+    description: >-
+      Override policy.drift.fail for this run. true exits 3 when novel
+      drift remains. false does not block on drift. Empty uses policy.
     required: false
-    default: "true"
+    default: ""
   baseline:
     description: >-
       Path to an accepted-findings baseline file. When set, the Action
@@ -201,7 +203,7 @@ runs:
         CHECKOWNERS_USE_CACHE: ${{ inputs.cache }}
         CHECKOWNERS_EPHEMERAL_STATE: ${{ runner.temp }}/checkowners-state
         GITHUB_TOKEN: ${{ inputs.github_token }}
-        CHECKOWNERS_FAIL_ON_DRIFT: ${{ inputs.fail_on_drift }}
+        CHECKOWNERS_FAIL_ON_DRIFT_INPUT: ${{ inputs.fail_on_drift }}
         CHECKOWNERS_BASELINE: ${{ inputs.baseline }}
         CHECKOWNERS_INCLUDE_BUS_FACTOR: ${{ inputs.include_bus_factor }}
         CHECKOWNERS_INCLUDE_DECAY: ${{ inputs.include_decay }}
@@ -209,6 +211,9 @@ runs:
         MAX_OUTPUT_ENTRIES: ${{ inputs.max_output_entries }}
         CHECKOWNERS_ARTIFACT_NAME: checkowners-reports
       run: |
+        if [ -n "${CHECKOWNERS_FAIL_ON_DRIFT_INPUT}" ]; then
+          export CHECKOWNERS_FAIL_ON_DRIFT="${CHECKOWNERS_FAIL_ON_DRIFT_INPUT}"
+        fi
         if [ "${CHECKOWNERS_USE_CACHE}" = "true" ]; then
           export CHECKOWNERS_STATE_DIR="${HOME}/.checkowners"
         else

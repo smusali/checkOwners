@@ -258,6 +258,34 @@ def _ratchet_counts(data: dict[str, object]) -> dict[str, int]:
     }
 
 
+def _policy_fields(data: dict[str, object]) -> dict[str, object]:
+    extra: dict[str, object] = {}
+    policy = data.get("policy")
+    if isinstance(policy, dict):
+        extra["policy"] = policy
+    blocking = data.get("blocking")
+    if isinstance(blocking, list):
+        extra["blocking"] = blocking
+    return extra
+
+
+def _blocking_line(drift: dict[str, object]) -> str:
+    raw = drift.get("blocking")
+    if not isinstance(raw, list) or not raw:
+        return "Blocking: none"
+    parts: list[str] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        rule = item.get("rule")
+        path = item.get("path")
+        if isinstance(rule, str) and isinstance(path, str):
+            parts.append(f"{rule} {md_cell(path)}")
+    if not parts:
+        return "Blocking: none"
+    return "Blocking: " + ", ".join(parts)
+
+
 def _ratchet_line(data: dict[str, object]) -> str:
     counts = _ratchet_counts(data)
     return (
@@ -295,6 +323,7 @@ def summarize_drift(data: dict[str, object], limit: int) -> dict[str, object]:
         "changed": trimmed_changed,
         "truncated": missing_cut or stale_cut or changed_cut or notes_cut,
         "models": models_payload(),
+        **_policy_fields(data),
     }
 
 
@@ -576,6 +605,7 @@ def build(*, limit: int | None = None) -> str:
     else:
         parts.append("No drift detected.")
     parts.append(_ratchet_line(drift))
+    parts.append(_blocking_line(drift))
 
     need_artifact = extra > 0 or path_cut
     if need_artifact:

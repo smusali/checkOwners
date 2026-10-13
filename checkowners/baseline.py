@@ -30,6 +30,7 @@ _RULES: dict[str, FindingRule] = {
     "phantom-ownership": "phantom-ownership",
     "shadow-maintainer": "shadow-maintainer",
     "ownership-review-divergence": "ownership-review-divergence",
+    "invalid-owner": "invalid-owner",
 }
 
 
@@ -164,16 +165,26 @@ def apply_ratchet(
     suppressions: tuple[Suppression, ...],
     as_of: date,
     bus: BusFactorReport | None = None,
+    structural: tuple[Finding, ...] | None = None,
 ) -> RatchetOutcome:
     """Drop suppressed and baselined findings; report stale baseline entries.
 
     `as_of` is the analysis calendar date. `bus` is omitted when qualified-owner
     findings were not evaluated; single-expert baseline rows are then ignored
-    for staleness.
+    for staleness. `structural` is omitted when invalid-owner findings were not
+    evaluated.
     """
     current = findings_from_drift(result)
+    evaluated_rules = {"missing", "stale", "changed"}
     if bus is not None:
         current = (*current, *findings_from_bus(bus))
+        evaluated_rules.add("single-expert")
+    if structural is not None:
+        current = (*current, *structural)
+        evaluated_rules.add("invalid-owner")
+        for item in structural:
+            evaluated_rules.add(item.rule)
+    current = _dedupe(current)
     active, expired = active_suppressions(suppressions, as_of)
     suppressed = tuple(item for item in current if _is_suppressed(item, active))
     remaining = tuple(item for item in current if item not in suppressed)
@@ -181,9 +192,6 @@ def apply_ratchet(
     current_keys = {item.identity() for item in current}
     baselined = tuple(item for item in remaining if item.identity() in baseline_keys)
     new = tuple(item for item in remaining if item.identity() not in baseline_keys)
-    evaluated_rules = {"missing", "stale", "changed"}
-    if bus is not None:
-        evaluated_rules.add("single-expert")
     stale = tuple(
         item
         for item in baseline
@@ -215,6 +223,18 @@ def _entry_finding(rule: FindingRule, entry: DriftEntry) -> Finding:
 
 def _is_suppressed(finding: Finding, active: tuple[Suppression, ...]) -> bool:
     return any(suppression_matches(item, finding) for item in active)
+
+
+def _dedupe(findings: tuple[Finding, ...]) -> tuple[Finding, ...]:
+    seen: set[tuple[str, str, tuple[str, ...]]] = set()
+    kept: list[Finding] = []
+    for item in findings:
+        identity = item.identity()
+        if identity in seen:
+            continue
+        seen.add(identity)
+        kept.append(item)
+    return tuple(kept)
 
 
 def _rebuild_drift(

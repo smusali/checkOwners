@@ -198,7 +198,7 @@ The leftover baseline row is reported as stale (`stale_baseline`). That does not
 
 ### How do I fail a PR only on critical drift?
 
-The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.drift_summary).severity == 'critical'`. The composite action also accepts `fail_on_drift: "false"` if you want the job summary and optional PR comment without blocking.
+The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.drift_summary).severity == 'critical'`. The default policy does not fail a pull request for ownership drift or a single expert. Set `policy.drift.fail: true`, or the Action input `fail_on_drift: "true"`, when that drift should block. `fail_on_drift: "false"` forces the informational path even when the file says to fail.
 
 ### Why is analysis completeness below 100% on a normal repository?
 
@@ -216,7 +216,11 @@ The run score counts every missing evidence source, not only the four scoring si
 | 3 | Findings (`validate`, `drift`, expired suppressions, incomplete analysis) |
 | 4 | Git or GitHub integration failure |
 
-Any non-zero status fails the step. The Action fails from that process status when `fail_on_drift` is true (the default): drift left after the baseline ratchet exits 3. `--exit-zero` and `fail_on_drift: "false"` hide findings only. The full table is in [Exit codes](USAGE.md#exit-codes).
+Any non-zero status fails the step. The Action exits 3 when a novel finding's policy check fails. The default policy blocks invalid owners and does not block drift, a single expert, or unowned paths, so a one-person repository with a valid CODEOWNERS file stays green. `fail_on_drift: "true"` blocks novel drift for that run. `--exit-zero` and `fail_on_drift: "false"` hide findings only. The full table is in [Exit codes](USAGE.md#exit-codes).
+
+### Why is the first run on a small repository not a red X?
+
+Knowledge risk takes time to fix. The default policy reports single-expert paths, ownership drift, and missing coverage, and it does not fail the job for them. A broken owner token or a CODEOWNERS syntax error still exits 3. Set `policy.drift.fail: true` when the repository is ready to block on new drift. A baseline still decides which findings are new, and policy decides which of those new findings block. Both show up in the summary.
 
 ## Positioning
 

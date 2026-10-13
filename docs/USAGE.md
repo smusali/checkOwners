@@ -170,13 +170,34 @@ contributors:
   exclude: []                 # omit these people from every command and output
 
 policy:
+  drift:
+    fail: false               # stale and changed; set true to block novel ownership drift
+    severity: warning         # error | warning; error blocks when fail is omitted
+  single_expert:
+    fail: false               # qualified-owner critical paths
+    severity: warning
   incomplete_analysis:
-    fail: false               # same exit as --fail-on-incomplete; other policy keys are refused
+    fail: false               # same exit as --fail-on-incomplete
+    severity: warning
+  unowned:
+    fail: false               # missing CODEOWNERS coverage
+    severity: warning
+  invalid_owner:
+    fail: true                # syntax and invalid owner tokens
+    severity: error
+
+security:
+  paths: []                   # empty applies the stricter rules to nothing
+  minimum_effective_owners: 2
+  require_declared_owner: true
+  require_active_expert: true
 ```
 
 `decay`, `bus_factor`, `criticality`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `criticality` is an ordered map of path globs to weights in `(0, 1]`. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
 
-Keys with no implementation yet are refused, including `security`, `model.signals.historical_depth`, and `git.use_mailmap`. `policy` accepts only `incomplete_analysis.fail`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`. `git.count_co_authors` credits `Co-authored-by` trailers. `git.co_author_weight` is that credit relative to the author's `1`, in `[0, 1]`. `git.merge_strategy` is `auto`, `squash`, `merge`, or `rebase`. `auto` reports the dominant style in the lookback window. An explicit value is reported as given. See [Limitations](limitations.md).
+Keys with no implementation yet are refused, including `model.signals.historical_depth` and `git.use_mailmap`. `policy` accepts `drift`, `single_expert`, `incomplete_analysis`, `unowned`, and `invalid_owner`, each with `fail` and `severity` (`error` or `warning`). `security` accepts `paths`, `minimum_effective_owners`, `require_declared_owner`, and `require_active_expert`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`. `git.count_co_authors` credits `Co-authored-by` trailers. `git.co_author_weight` is that credit relative to the author's `1`, in `[0, 1]`. `git.merge_strategy` is `auto`, `squash`, `merge`, or `rebase`. `auto` reports the dominant style in the lookback window. An explicit value is reported as given. See [Limitations](limitations.md).
+
+`drift` covers `stale` and `changed`. `unowned` covers `missing`. `single_expert` covers `single-expert`. `invalid_owner` covers `invalid-owner`. `severity: error` blocks when `fail` is omitted. `severity: warning` does not. When both are set, `fail` decides the exit and `severity` is what the report shows. `drift` and `github-action` JSON include `policy` (the resolved checks plus `security`) and `blocking` (the novel findings that failed). A path under `security.paths` blocks when its effective owner count is below `minimum_effective_owners`, when `require_declared_owner` is true and the path has no owner, or when `require_active_expert` is true and every owner with freshness is other than `stable`. Paths outside that list, including `docs/**`, keep the global check. The Action `fail_on_drift` input overrides `policy.drift.fail` for that run. An empty input uses the file. The reported `policy.drift.fail` is the value the run used.
 
 | Also accepted | Same setting |
 | --- | --- |
@@ -232,7 +253,7 @@ Or set `drift.baseline_file: .checkowners-baseline.json` in `.github/checkowners
 
 The file is JSON (`schema_version: "1"`) with a sorted `findings` list. Each finding is identified by `rule` plus `path` plus `owners`. Line numbers and CODEOWNERS order are not part of the identity, so reordering the file does not invalidate the baseline.
 
-Rules that can appear: `missing`, `stale`, `changed`, and `single-expert` (qualified-owner critical paths). Decay is not snapshotted.
+Rules that can appear: `missing`, `stale`, `changed`, `single-expert` (qualified-owner critical paths), and `invalid-owner`. Decay is not snapshotted.
 
 When a finding is genuinely fixed, the matching baseline row is reported as stale (`stale_baseline` in JSON and "Stale baseline" in the summary). That does not fail the run. Re-run `checkowners baseline create` to shrink the file.
 
@@ -246,7 +267,7 @@ suppressions:
     reason: "Scheduled for retirement in Q4"
 ```
 
-`path` uses CODEOWNERS pattern matching. `rule` must be one of `missing`, `stale`, `changed`, or `single-expert`. `drift` and `github-action` apply suppressions first, then the baseline. Both commands print `baselined`, `suppressed`, and `stale_baseline` counts so the remaining debt stays visible.
+`path` uses CODEOWNERS pattern matching. `rule` must be one of `missing`, `stale`, `changed`, `single-expert`, or `invalid-owner`. `drift` and `github-action` apply suppressions first, then the baseline. Both commands print `baselined`, `suppressed`, and `stale_baseline` counts so the remaining debt stays visible. Policy then decides which novel findings block. A baselined or suppressed row is reported and does not fail the run. A novel row fails only when its check has `fail: true`, or when it sits under `security.paths` and breaks that block's stricter rule.
 
 A suppression without a reason, with an unknown rule, or with a date that is not `YYYY-MM-DD` is a configuration error at load.
 
@@ -495,7 +516,7 @@ checkowners --exit-zero drift --json
 
 `--fail-on-incomplete`, also before the command name, exits 3 when the run completeness score is below 1. `policy.incomplete_analysis.fail: true` does the same thing. Review evidence, a missing `.mailmap`, and a missing ignore-revs file are common gaps, so the flag is off by default and a normal run stays 0. `--exit-zero` still turns that 3 into 0. An analysis with no owners and no stored score has completeness 0, so the flag fails that run. A stored score below 1 fails even when every scored signal happened to be present.
 
-`drift` and `validate` exit 3 when they find violations. `github-action` exits 3 when drift remains after the baseline ratchet, unless `--no-fail-on-drift` or `--exit-zero` is set. `--no-fail-on-drift` does not hide config errors, git failures, internal errors, or `--fail-on-incomplete`.
+`drift` and `github-action` exit 3 when a novel finding's policy check fails. `validate` exits 3 when a novel `invalid-owner` finding fails. `--fail-on-drift` forces `policy.drift.fail` on for that run, and `--no-fail-on-drift` forces it off. Omitting the flag uses the configured policy. The default policy does not block drift, single-expert paths, unowned paths, or incomplete analysis. It does block invalid owners. `--exit-zero` still turns only code 3 into 0. `--no-fail-on-drift` does not hide config errors, git failures, internal errors, or `--fail-on-incomplete`.
 
 A git failure is not a clean result. `drift` no longer treats a failed `git ls-files` as "no stale rules."
 
@@ -604,7 +625,7 @@ Set `max_output_entries` (default `50`) to cap each list in those summaries and 
 
 The composite action exports `GITHUB_TOKEN` on the `github-action` step from the `github_token` input, which defaults to `${{ github.token }}`, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over `github.token`. Minimum permissions for each capability are listed in [docs/FAQ.md](FAQ.md#what-token-scopes-are-needed).
 
-The composite action also accepts `fail_on_drift: "false"` if you want to report without blocking. The default fails the step because `github-action` exits 3 when drift remains. It also accepts `baseline` for an accepted-findings file (fail only on new findings), `include_bus_factor` / `include_decay` toggles for the secondary outputs, `include_balance` (default `"false"`) for the review-load summary, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
+The composite action accepts `fail_on_drift`. An empty value uses `policy.drift.fail`. `"true"` blocks novel drift. `"false"` reports it without blocking. The default policy does not fail the step for drift. It also accepts `baseline` for an accepted-findings file (fail only on new findings), `include_bus_factor` / `include_decay` toggles for the secondary outputs, `include_balance` (default `"false"`) for the review-load summary, `max_output_entries` for summary size, and `comment_on_pr` (default `"true"`) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains `bus_factor_summary` for compatibility.
 
 The action fails fast with a clear error when it detects a shallow clone: `git log` and `git blame` need history, so the `actions/checkout` step must set `fetch-depth: 0`.
 

@@ -28,7 +28,14 @@ from checkowners.action_report import (
     summarize_drift,
 )
 from checkowners.analyze import GitRequirementError, resolve_as_of
-from checkowners.balance import BalanceReport, LoadSource, RebalanceSuggestion, ReviewLoad
+from checkowners.balance import (
+    BalanceReport,
+    LoadSource,
+    RebalanceSuggestion,
+    ReviewConcentration,
+    ReviewLoad,
+    RoleDivergence,
+)
 from checkowners.busfactor import BusFactorReport
 from checkowners.cli import (
     _api_gaps,
@@ -1133,6 +1140,96 @@ def test_balance_json_includes_stamp() -> None:
     assert data["head_sha"] == "deadbeef"
     assert data["source"] == "git_authorship"
     assert data["load_signal"] == "git_authorship_proxy"
+
+    assert data["load_signal"] == "git_authorship_proxy"
+
+
+def test_balance_renders_facts_and_json_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    high = ReviewLoad(
+        handle="@alice",
+        reviews=10,
+        reviews_requested=11,
+        reviews_completed=10,
+        prs_waiting=1,
+        median_response_time_hours=5.0,
+        reviewed_lines=20,
+        pr_complexity=10.0,
+        ownership_criticality=1.0,
+        expertise=0.94,
+        load_band="high",
+    )
+    low = ReviewLoad(handle="@bob", reviews=2, expertise=0.81, load_band="low")
+    report = BalanceReport(
+        loads=(high, low),
+        average=6.0,
+        overloaded=(high,),
+        suggestions=(
+            RebalanceSuggestion("@alice", "@bob", 0.81, 2),
+            RebalanceSuggestion("@alice", "@carol", 0.4, 1),
+        ),
+        source="github_api",
+        review_concentration=(
+            ReviewConcentration(
+                path="src/api.py",
+                share=0.72,
+                reviewer="@bob",
+                knowledgeable_owners=3,
+            ),
+        ),
+        divergence=(
+            RoleDivergence(
+                path="src/api.py",
+                writer="@alice",
+                reviewer="@bob",
+                declared="@carol",
+            ),
+        ),
+    )
+    quiet = BalanceReport(
+        loads=(high,),
+        average=10.0,
+        overloaded=(),
+        suggestions=(),
+        source="external",
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.analyze_balance", side_effect=[report, report, quiet]),
+        _MOCK_TOKEN,
+    ):
+        text = runner.invoke(app, ["suggest"])
+        payload = runner.invoke(app, ["balance", "--json"])
+        empty = runner.invoke(app, ["suggest"])
+    assert text.exit_code == 0, text.output
+    assert "review_concentration: src/api.py 0.72 @bob 3" in text.stdout
+    assert "writer @alice" in text.stdout
+    assert "reviewer @bob" in text.stdout
+    assert "declared @carol" in text.stdout
+    assert text.stdout.count("Recommended:") == 2
+    assert empty.exit_code == 0, empty.output
+    assert "No reviewer recommendation." in empty.stdout
+    data = json.loads(payload.stdout)
+    alice = next(item for item in data["loads"] if item["handle"] == "@alice")
+    assert alice["reviews_completed"] == 10
+    assert alice["ownership_criticality"] == 1.0
+    assert alice["load_band"] == "high"
+    assert data["review_concentration"][0]["reviewer"] == "@bob"
+    assert data["divergence"][0]["declared"] == "@carol"
+    _set_privacy_config(tmp_path, monkeypatch, "version: 1\noutput:\n  aggregate_only: true\n")
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.analyze_balance", return_value=report),
+        _MOCK_TOKEN,
+    ):
+        hidden = runner.invoke(app, ["balance"])
+    assert hidden.exit_code == 0, hidden.output
+    assert "Recommended:" not in hidden.stdout
+    assert "@alice" not in hidden.stdout
+    assert "review_concentration: src/api.py 0.72 3" in hidden.stdout
+    assert "src/api.py  ownership/review divergence" in hidden.stdout
 
 
 def test_topology_json_includes_stamp() -> None:

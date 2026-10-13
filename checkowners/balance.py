@@ -1,5 +1,3 @@
-"""Review load and one reviewer recommendation per high-load co-owner."""
-
 from __future__ import annotations
 
 import os
@@ -29,7 +27,6 @@ _REVIEW_MONOPOLY_SHARE: float = 0.72
 
 
 def signal_for(source: LoadSource) -> LoadSignal:
-    """Return the human-facing label for `source`."""
     if source == "github_api":
         return "github_completed_reviews"
     if source == "external":
@@ -89,7 +86,6 @@ class BalanceReport:
 
     @property
     def load_signal(self) -> LoadSignal:
-        """Return the label that says what `reviews` counts."""
         return signal_for(self.source)
 
 
@@ -120,7 +116,7 @@ class _Activity:
     waiting_known: bool = False
     hours: dict[str, list[float]] = field(default_factory=dict)
     lines: dict[str, int] = field(default_factory=dict)
-    sizes: dict[str, list[float]] = field(default_factory=dict)
+    sizes: dict[str, list[int]] = field(default_factory=dict)
     by_path: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
@@ -132,12 +128,6 @@ def analyze_balance(
     path_reviews: dict[str, dict[str, int]] | None = None,
     rules: tuple[CodeownersRule, ...] = (),
 ) -> BalanceReport:
-    """Return load for `ownership` under `config`.
-
-    `review_counts` are completed reviews and select the external signal.
-    `path_reviews` maps a path to handle review counts. `rules` are declared
-    owners. The authorship proxy records commit totals and recommends nobody.
-    """
     if review_counts is None:
         gathered = _gather(ownership, config)
     else:
@@ -370,8 +360,6 @@ def _best_candidate(
         if candidate in high:
             continue
         load = by_handle.get(candidate)
-        if load is not None and load.load_band == "high":
-            continue
         rank = 0 if load is None or load.load_band == "low" else 1
         expertise = _expertise(ownership, candidate) if load is None else load.expertise
         reviews = 0 if load is None else load.reviews
@@ -386,7 +374,6 @@ def _qualified_pairs(
     ownership: OwnershipMap,
     confidence_threshold: float,
 ) -> dict[str, list[tuple[str, float]]]:
-    """Return co-owners at or above `confidence_threshold`, highest score first."""
     pairs: dict[str, dict[str, float]] = {}
     for po in ownership.paths.values():
         qualified = [
@@ -522,14 +509,13 @@ def _criticality(
     return round(best, 4)
 
 
-def _median(values: list[float]) -> float | None:
+def _median(values: list[int] | list[float]) -> float | None:
     if not values:
         return None
     return round(statistics.median(values), 2)
 
 
 def _gather_from_github() -> tuple[_Activity | None, str]:
-    """Return review activity for the current repo, or `(None, reason)`."""
     try:
         from checkowners.github import (  # noqa: PLC0415
             get_github_client,
@@ -550,7 +536,6 @@ def _gather_from_github() -> tuple[_Activity | None, str]:
 
 
 def _fetch_review_activity(client: Github, repo_full_name: str) -> tuple[_Activity | None, str]:
-    """Return activity over the closed sample and the open queue, or `(None, reason)`."""
     from checkowners.github import (  # noqa: PLC0415
         iter_recent_closed_pulls,
         take_api_request,
@@ -635,7 +620,7 @@ def _record_closed(activity: _Activity, pull: object, reviews: Iterable[object])
     if changed is not None:
         for handle in reviewers:
             activity.lines[handle] = activity.lines.get(handle, 0) + changed
-            activity.sizes.setdefault(handle, []).append(float(changed))
+            activity.sizes.setdefault(handle, []).append(changed)
     created = getattr(pull, "created_at", None)
     if not isinstance(created, datetime):
         return

@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
-from checkowners.balance import _MAX_CLOSED_PRS, _qualified_pairs, analyze_balance
+from checkowners.balance import (
+    _MAX_CLOSED_PRS,
+    BalanceReport,
+    _qualified_pairs,
+    analyze_balance,
+)
 from checkowners.models import (
     AnalysisConfig,
     Config,
@@ -383,6 +390,283 @@ def test_divergence_reports_three_roles() -> None:
     assert split.declared == "@carol"
     proxy = analyze_balance(ownership, _config())
     assert proxy.divergence == ()
+
+
+def test_recommendation_prefers_low_load_and_skips_incomplete_roles() -> None:
+    ownership = _ownership(
+        {
+            "src/api.py": (
+                _entry("@alice", 0.9, commits=40),
+                _entry("@frank", 0.99, commits=4),
+                _entry("@dave", 0.85, commits=6),
+                _entry("@bob", 0.8, commits=3),
+                _entry("@gina", 0.2, commits=2),
+            ),
+            "src/again.py": (_entry("@alice", 0.4, commits=1), _entry("@dave", 0.1, commits=1)),
+            "src/same.py": (_entry("@alice", 0.5, commits=10), _entry("@erin", 0.4, commits=2)),
+            "src/zero.py": (_entry("@carol", 0.9, commits=0),),
+            "src/solo.py": (_entry("@alice", 0.6, commits=8), _entry("@bob", 0.4, commits=1)),
+            "src/norule.py": (_entry("@alice", 0.7, commits=4),),
+            "src/flat.py": (_entry("@alice", 0.5, commits=2), _entry("@bob", 0.5, commits=2)),
+        }
+    )
+    report = analyze_balance(
+        ownership,
+        _config(),
+        review_counts={"@alice": 40, "@frank": 20, "@dave": 8, "@eve": 2},
+        path_reviews={
+            "missing.py": {"@alice": 10},
+            "src/flat.py": {"@alice": 0},
+            "src/api.py": {"@bob": 80, "@alice": 10},
+            "src/same.py": {"@alice": 9},
+            "src/zero.py": {"@bob": 5},
+            "src/solo.py": {"@bob": 9, "@alice": 1},
+            "src/norule.py": {"@bob": 3, "@alice": 1},
+        },
+        rules=(
+            CodeownersRule(pattern="src/api.py", owners=("@erin",), line_number=1),
+            CodeownersRule(pattern="src/same.py", owners=("@erin",), line_number=2),
+            CodeownersRule(pattern="src/solo.py", owners=("@alice",), line_number=3),
+        ),
+    )
+    bands = {load.handle: load.load_band for load in report.loads}
+    assert bands["@alice"] == "high"
+    assert bands["@frank"] == "typical"
+    assert bands["@dave"] == "low"
+    assert report.suggestions[0].candidate == "@dave"
+    assert "@gina" not in {load.handle for load in report.loads}
+    assert {item.path for item in report.review_concentration} == {
+        "src/api.py",
+        "src/same.py",
+        "src/solo.py",
+    }
+    assert [item.path for item in report.divergence] == ["src/api.py"]
+    assert report.divergence[0].declared == "@erin"
+
+
+def _github_client(
+    closed: list[object],
+    opened: list[object] | None = None,
+    *,
+    open_error: Exception | None = None,
+) -> MagicMock:
+    repo = MagicMock()
+
+    def get_pulls(*_args: object, **kwargs: object) -> list[object]:
+        if kwargs.get("state") == "open":
+            if open_error is not None:
+                raise open_error
+            return [] if opened is None else opened
+        return closed
+
+    repo.get_pulls.side_effect = get_pulls
+    client = MagicMock()
+    client.get_repo.return_value = repo
+    return client
+
+
+def _run_github(
+    client: MagicMock,
+    ownership: OwnershipMap,
+    config: Config | None = None,
+) -> BalanceReport:
+    with (
+        patch.dict(
+            "os.environ",
+            {"GITHUB_TOKEN": "ghp_test", "GITHUB_REPOSITORY": "myorg/myrepo"},
+        ),
+        patch("checkowners.github.get_github_client", return_value=client),
+    ):
+        return analyze_balance(ownership, config or _github_config())
+
+
+def test_github_fallbacks_keep_the_authorship_proxy() -> None:
+    ownership = _ownership({"src/api.py": (_entry("@alice", 0.9, commits=3),)})
+    config = _github_config()
+    with patch.dict(sys.modules, {"checkowners.github": None}):
+        missing = analyze_balance(ownership, config)
+    assert missing.fallback_reason == "PyGithub is not installed"
+    assert missing.load_signal == "git_authorship_proxy"
+    with (
+        patch.dict(
+            "os.environ",
+            {"GITHUB_TOKEN": "ghp_test", "GITHUB_REPOSITORY": "myorg/myrepo"},
+        ),
+        patch("checkowners.github.get_github_client", return_value=None),
+    ):
+        offline = analyze_balance(ownership, config)
+    assert offline.fallback_reason == "GitHub client could not be created"
+    blank = MagicMock()
+    blank.user = None
+    empty = MagicMock()
+    empty.get_reviews.return_value = [blank]
+    empty.get_files.return_value = []
+    none_found = _run_github(_github_client([empty]), ownership, config)
+    assert none_found.fallback_reason.startswith("no PR reviews found")
+    with patch("checkowners.github.take_api_request", return_value=False):
+        budget = _run_github(_github_client([_mock_pull(("alice",))]), ownership, config)
+    assert budget.fallback_reason == "GitHub API budget insufficient"
+    first = _mock_pull(("alice",))
+    second = _mock_pull(("bob",))
+    second.get_reviews.side_effect = RuntimeError("reviews down")
+    partial = _run_github(_github_client([first, second]), ownership, config)
+    assert partial.source == "github_api"
+    assert {load.handle: load.reviews for load in partial.loads} == {"@alice": 1}
+    failed = _mock_pull(("alice",))
+    failed.get_reviews.side_effect = RuntimeError("reviews down")
+    broken = _run_github(_github_client([failed]), ownership, config)
+    assert broken.fallback_reason == "GitHub API error: reviews down"
+    opened = _run_github(
+        _github_client([_mock_pull(("alice",))], open_error=RuntimeError("open down")),
+        ownership,
+        config,
+    )
+    assert opened.source == "github_api"
+    assert opened.loads[0].prs_waiting is None
+
+
+def test_github_sample_records_waiting_criticality_and_skips_bad_fields() -> None:
+    created = datetime(2026, 5, 1, tzinfo=UTC)
+    later = datetime(2026, 5, 1, 8, tzinfo=UTC)
+    earlier = datetime(2026, 5, 1, 2, tzinfo=UTC)
+    before = datetime(2026, 4, 30, tzinfo=UTC)
+    naive = datetime(2026, 5, 1, 3)
+    ownership = _ownership(
+        {
+            "src/api.py": (_entry("@alice", 0.9, commits=10), _entry("@bob", 0.1, commits=1)),
+            "src/other.py": (_entry("@alice", 0.4, commits=1),),
+        }
+    )
+    config = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.5),
+        github=GithubConfig(api_enabled=True, org="myorg"),
+        criticality=(("docs/**", 0.2), ("src/api.py", 0.4), ("src/**", 1.0)),
+    )
+    lines = MagicMock()
+    lines.created_at = created
+    lines.additions = 3
+    lines.deletions = 2
+    alice = MagicMock()
+    alice.user.login = "alice"
+    alice.submitted_at = later
+    bob_late = MagicMock()
+    bob_late.user.login = "bob"
+    bob_late.submitted_at = later
+    bob_early = MagicMock()
+    bob_early.user.login = "bob"
+    bob_early.submitted_at = earlier
+    blank = MagicMock()
+    blank.user = None
+    empty_login = MagicMock()
+    empty_login.user.login = ""
+    bad_login = MagicMock()
+    bad_login.user.login = 5
+    lines.get_reviews.return_value = [
+        blank,
+        empty_login,
+        bad_login,
+        bob_late,
+        bob_early,
+        bob_late,
+        alice,
+    ]
+    lines.get_files.return_value = (
+        SimpleNamespace(filename="src/api.py"),
+        SimpleNamespace(filename=None),
+    )
+    flagged = _mock_pull(("alice",))
+    flagged.additions = True
+    flagged.deletions = 4
+    flagged.get_files = None
+    negative = _mock_pull(("erin",))
+    negative.created_at = created
+    negative.additions = 1
+    negative.deletions = 1
+    negative.get_files.return_value = []
+    for review in negative.get_reviews.return_value:
+        review.submitted_at = before
+    mismatch = _mock_pull(("zoe",))
+    mismatch.created_at = naive
+    mismatch.additions = 8
+    mismatch.deletions = "nope"
+    mismatch.get_files.side_effect = RuntimeError("files down")
+    for review in mismatch.get_reviews.return_value:
+        review.submitted_at = created
+
+    class HiddenRequests:
+        def get_reviews(self) -> list[object]:
+            return [SimpleNamespace(user=SimpleNamespace(login="alice"), submitted_at=None)]
+
+        @property
+        def requested_reviewers(self) -> list[object]:
+            raise RuntimeError("hidden")
+
+        def get_review_requests(self) -> tuple[list[object], list[object]]:
+            return ([SimpleNamespace(login="dave"), SimpleNamespace(login="")], [])
+
+    class RequestBoom:
+        requested_reviewers = None
+
+        def get_reviews(self) -> list[object]:
+            return []
+
+        def get_review_requests(self) -> list[object]:
+            raise RuntimeError("requests")
+
+    class ReviewsBoom:
+        def get_reviews(self) -> list[object]:
+            raise RuntimeError("reviews")
+
+    waiting = SimpleNamespace(
+        get_reviews=lambda: [
+            SimpleNamespace(user=None, submitted_at=None),
+            SimpleNamespace(user=SimpleNamespace(login="alice"), submitted_at=None),
+        ],
+        requested_reviewers=[
+            SimpleNamespace(login="alice"),
+            SimpleNamespace(login="carol"),
+        ],
+    )
+    text_request = SimpleNamespace(get_reviews=lambda: [], requested_reviewers="carol")
+    opened: list[object] = [
+        waiting,
+        HiddenRequests(),
+        RequestBoom(),
+        ReviewsBoom(),
+        text_request,
+        SimpleNamespace(),
+    ]
+    report = _run_github(
+        _github_client([lines, flagged, negative, mismatch], opened),
+        ownership,
+        config,
+    )
+    by_handle = {load.handle: load for load in report.loads}
+    assert report.source == "github_api"
+    assert by_handle["@alice"].ownership_criticality == 1.0
+    assert by_handle["@alice"].reviewed_lines == 5
+    assert by_handle["@bob"].ownership_criticality is None
+    assert by_handle["@bob"].median_response_time_hours == round(
+        (earlier - created).total_seconds() / 3600,
+        2,
+    )
+    assert by_handle["@erin"].median_response_time_hours is None
+    assert by_handle["@carol"].reviews == 0
+    assert by_handle["@carol"].prs_waiting == 1
+    assert by_handle["@carol"].load_band == "high"
+    assert by_handle["@dave"].prs_waiting == 1
+
+
+def test_github_budget_stops_after_a_recorded_review() -> None:
+    ownership = _ownership({"src/api.py": (_entry("@alice", 0.9, commits=3),)})
+    with patch("checkowners.github.take_api_request", side_effect=[True, False, False]):
+        report = _run_github(
+            _github_client([_mock_pull(("alice",))], opened=[MagicMock()]),
+            ownership,
+        )
+    assert report.source == "github_api"
+    assert report.loads[0].reviews == 1
+    assert report.loads[0].prs_waiting == 0
 
 
 def test_fallback_reason_empty_on_normal_paths() -> None:

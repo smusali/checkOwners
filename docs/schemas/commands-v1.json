@@ -394,6 +394,79 @@
         }
       }
     },
+    "checkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fail",
+        "severity"
+      ],
+      "properties": {
+        "fail": {
+          "type": "boolean"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning"
+          ]
+        }
+      }
+    },
+    "effectivePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "drift",
+        "single_expert",
+        "incomplete_analysis",
+        "unowned",
+        "invalid_owner",
+        "security"
+      ],
+      "properties": {
+        "drift": {
+          "$ref": "#/$defs/checkPolicy"
+        },
+        "single_expert": {
+          "$ref": "#/$defs/checkPolicy"
+        },
+        "incomplete_analysis": {
+          "$ref": "#/$defs/checkPolicy"
+        },
+        "unowned": {
+          "$ref": "#/$defs/checkPolicy"
+        },
+        "invalid_owner": {
+          "$ref": "#/$defs/checkPolicy"
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "paths",
+            "minimum_effective_owners",
+            "require_declared_owner",
+            "require_active_expert"
+          ],
+          "properties": {
+            "paths": {
+              "$ref": "#/$defs/stringList"
+            },
+            "minimum_effective_owners": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "require_declared_owner": {
+              "type": "boolean"
+            },
+            "require_active_expert": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
     "driftEntry": {
       "type": "object",
       "additionalProperties": false,
@@ -910,6 +983,15 @@
             },
             "suppressed": {
               "type": "integer"
+            },
+            "policy": {
+              "$ref": "#/$defs/effectivePolicy"
+            },
+            "blocking": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/finding"
+              }
             }
           }
         }
@@ -1213,6 +1295,15 @@
                     "type": "string"
                   }
                 }
+              }
+            },
+            "policy": {
+              "$ref": "#/$defs/effectivePolicy"
+            },
+            "blocking": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/finding"
               }
             }
           }
@@ -2779,6 +2870,15 @@
         },
         "truncated": {
           "type": "boolean"
+        },
+        "policy": {
+          "$ref": "#/$defs/effectivePolicy"
+        },
+        "blocking": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
         }
       },
       "examples": [

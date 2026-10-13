@@ -26,6 +26,15 @@ FindingRule = Literal[
     "phantom-ownership",
     "shadow-maintainer",
     "ownership-review-divergence",
+    "invalid-owner",
+]
+PolicyLevel = Literal["error", "warning"]
+PolicyCheck = Literal[
+    "drift",
+    "single_expert",
+    "incomplete_analysis",
+    "unowned",
+    "invalid_owner",
 ]
 IdentityMode = Literal["handle", "email", "hashed"]
 ConfiguredMergeStrategy = Literal["auto", "squash", "merge", "rebase"]
@@ -208,8 +217,26 @@ class ModelVersions:
 
 
 @dataclass(frozen=True)
+class CheckPolicy:
+    fail: bool
+    severity: PolicyLevel
+
+
+@dataclass(frozen=True)
 class PolicyConfig:
-    incomplete_analysis_fail: bool = False
+    drift: CheckPolicy = CheckPolicy(fail=False, severity="warning")
+    single_expert: CheckPolicy = CheckPolicy(fail=False, severity="warning")
+    incomplete_analysis: CheckPolicy = CheckPolicy(fail=False, severity="warning")
+    unowned: CheckPolicy = CheckPolicy(fail=False, severity="warning")
+    invalid_owner: CheckPolicy = CheckPolicy(fail=True, severity="error")
+
+
+@dataclass(frozen=True)
+class SecurityPolicy:
+    paths: tuple[str, ...] = ()
+    minimum_effective_owners: int = 2
+    require_declared_owner: bool = True
+    require_active_expert: bool = True
 
 
 @dataclass(frozen=True)
@@ -232,6 +259,7 @@ class Config:
     git: GitConfig = field(default_factory=GitConfig)
     models: ModelVersions = field(default_factory=ModelVersions)
     policy: PolicyConfig = field(default_factory=PolicyConfig)
+    security: SecurityPolicy = field(default_factory=SecurityPolicy)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
     identity_mode: IdentityMode = "handle"
     contributors_exclude: tuple[str, ...] = ()

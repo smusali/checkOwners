@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- `policy` chooses which finding classes block, warning by default for drift, a single expert, unowned paths, and incomplete analysis, failing for invalid owners, applying stricter rules under `security.paths`, and reporting the effective policy and blocking findings in drift, validate, and Action JSON.
 - `checkowners sync` opens or updates one reconciliation pull request by default. `--commit` commits on the current branch, and `--dry-run` prints the diff without writing or calling the GitHub API.
 - `Co-authored-by` trailers credit co-authors when `git.count_co_authors` is true, with `git.co_author_weight` relative to the commit author, and analyze reports the detected or configured `merge_strategy` plus `co_author_count`.
 - Recency uses each path's median commit gap as its half-life, clamped to a floor and ceiling, with `scoring.recency_strategy: fixed` keeping one half-life for every path, `analysis.lookback_days: adaptive` reading history until the analysis instant, and each owner reporting `active_expertise`, `historical_expertise`, `maintenance_recency`, and a continuity-risk status of `stable`, `inactive`, `superseded`, or `departed`.
@@ -18,6 +19,12 @@ Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../RO
 - `qualified-owners` reports a criticality-weighted distribution of `top_owner_share` (`minimum`, `p10`, `median`, `p90`, `critical_path_risk`, and `knowledge_at_risk`), with `criticality` mapping path globs to weights in `(0, 1]` and an empty map setting `criticality_incomplete`.
 - Per-path `risk` reports inverse-Herfindahl `effective_owners`, Shannon entropy, HHI, `truck_factor_50`, `truck_factor_75`, `truck_factor_90`, minor-contributor share, and major-contributor count from every `ownership_score` above the confidence threshold, with `risk.truck_factor_thresholds` defaulting to `[0.50, 0.75, 0.90]` and echoed on the risk object, while `top_n_owners` still caps only the displayed owner list and `qualified_owner_count`.
 - The composite Action caches pip and `~/.checkowners`, with the `cache` input defaulting to `"true"` and a restored state file reused only when its commit is `HEAD` and the config hash and model versions match.
+
+### Changed
+- The Action `fail_on_drift` input defaults to empty, so a run follows `policy.drift.fail` unless the workflow sets `true` or `false`. `checkowners drift` exits 3 only when policy marks a novel finding as blocking.
+
+### Fixed
+- `requirements.lock` and `requirements-dev.lock` pin `PyJWT` 2.15.1 and `urllib3` 2.8.0 so `pip-audit` no longer fails on the advisories in the previous pins.
 
 ## [0.6.0] - 2026-09-24
 

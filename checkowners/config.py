@@ -13,6 +13,7 @@ import yaml
 from checkowners.models import (
     AnalysisConfig,
     BusFactorConfig,
+    CheckPolicy,
     Config,
     ConfiguredMergeStrategy,
     DecayConfig,
@@ -27,12 +28,14 @@ from checkowners.models import (
     OutputConfig,
     PathsConfig,
     PolicyConfig,
+    PolicyLevel,
     PrivacyConfig,
     QualificationConfig,
     QualificationStrategy,
     RecencyStrategy,
     RiskConfig,
     ScoringConfig,
+    SecurityPolicy,
     Suppression,
     models_payload,
 )
@@ -87,6 +90,7 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
         "bots",
         "policy",
         "privacy",
+        "security",
         "contributors",
         "criticality",
     }
@@ -160,8 +164,25 @@ _V2_IDENTITY: frozenset[str] = frozenset({"mailmap", "mode"})
 _V2_PRIVACY: frozenset[str] = frozenset({"redact_emails"})
 _V2_CONTRIBUTORS: frozenset[str] = frozenset({"exclude"})
 _IDENTITY_MODES: frozenset[str] = frozenset(get_args(IdentityMode))
-_V2_POLICY: frozenset[str] = frozenset({"incomplete_analysis"})
-_V2_INCOMPLETE: frozenset[str] = frozenset({"fail"})
+_V2_POLICY: frozenset[str] = frozenset(
+    {
+        "drift",
+        "single_expert",
+        "incomplete_analysis",
+        "unowned",
+        "invalid_owner",
+    }
+)
+_V2_CHECK: frozenset[str] = frozenset({"fail", "severity"})
+_POLICY_LEVELS: frozenset[str] = frozenset({"error", "warning"})
+_V2_SECURITY: frozenset[str] = frozenset(
+    {
+        "paths",
+        "minimum_effective_owners",
+        "require_declared_owner",
+        "require_active_expert",
+    }
+)
 _V2_BOTS: frozenset[str] = frozenset({"exclude"})
 _V2_MODEL: frozenset[str] = frozenset({"ownership", "risk", "topology", "signals"})
 _V2_SIGNALS: frozenset[str] = frozenset({"recency", "frequency", "blame", "reviews"})
@@ -203,6 +224,7 @@ _V2_SECTIONS: dict[str, frozenset[str]] = {
     "identity": _V2_IDENTITY,
     "policy": _V2_POLICY,
     "privacy": _V2_PRIVACY,
+    "security": _V2_SECURITY,
     "contributors": _V2_CONTRIBUTORS,
 }
 
@@ -225,6 +247,10 @@ def _is_identity_mode(value: str) -> TypeGuard[IdentityMode]:
 
 def _is_merge_strategy(value: str) -> TypeGuard[ConfiguredMergeStrategy]:
     return value in {"auto", "squash", "merge", "rebase"}
+
+
+def _is_policy_level(value: str) -> TypeGuard[PolicyLevel]:
+    return value in _POLICY_LEVELS
 
 
 def find_codeowners_path(repo_root: Path) -> Path:
@@ -350,15 +376,7 @@ def _translate_v2(raw: dict[str, Any]) -> dict[str, Any]:
 def _validate_policy(policy: object) -> None:
     if policy is None:
         return
-    section = _require_mapping(policy, "policy")
-    incomplete = section.get("incomplete_analysis")
-    if incomplete is None:
-        return
-    block = _require_mapping(incomplete, "policy.incomplete_analysis")
-    _reject_unknown_keys(block, _V2_INCOMPLETE, "policy.incomplete_analysis")
-    if "fail" in block and not isinstance(block["fail"], bool):
-        msg = "policy.incomplete_analysis.fail must be a boolean"
-        raise ValueError(msg)
+    _build_policy_config(_require_mapping(policy, "policy"))
 
 
 def _translate_analysis(analysis: object, bots: object) -> dict[str, Any] | None:
@@ -458,6 +476,7 @@ def _merge_config(raw: dict[str, Any]) -> Config:
         "github": ("github", _build_github_config),
         "git": ("git", _build_git_config),
         "policy": ("policy", _build_policy_config),
+        "security": ("security", _build_security_config),
     }
     kwargs: dict[str, Any] = {}
     for key, (field_name, builder) in builders.items():
@@ -534,14 +553,85 @@ def _require_positive_int(value: object, key: str) -> int:
 
 
 def _build_policy_config(data: dict[str, Any]) -> PolicyConfig:
-    incomplete = data.get("incomplete_analysis")
-    if not isinstance(incomplete, dict) or "fail" not in incomplete:
-        return PolicyConfig()
-    fail = incomplete["fail"]
-    if not isinstance(fail, bool):
-        msg = "policy.incomplete_analysis.fail must be a boolean"
+    defaults = PolicyConfig()
+    return PolicyConfig(
+        drift=_read_check("drift", data.get("drift"), defaults.drift),
+        single_expert=_read_check(
+            "single_expert",
+            data.get("single_expert"),
+            defaults.single_expert,
+        ),
+        incomplete_analysis=_read_check(
+            "incomplete_analysis",
+            data.get("incomplete_analysis"),
+            defaults.incomplete_analysis,
+        ),
+        unowned=_read_check("unowned", data.get("unowned"), defaults.unowned),
+        invalid_owner=_read_check(
+            "invalid_owner",
+            data.get("invalid_owner"),
+            defaults.invalid_owner,
+        ),
+    )
+
+
+def _read_check(name: str, block: object, default: CheckPolicy) -> CheckPolicy:
+    if block is None:
+        return default
+    section = _require_mapping(block, f"policy.{name}")
+    _reject_unknown_keys(section, _V2_CHECK, f"policy.{name}")
+    fail = default.fail
+    severity = default.severity
+    if "severity" in section:
+        raw_severity = section["severity"]
+        if not isinstance(raw_severity, str) or not _is_policy_level(raw_severity):
+            msg = f"policy.{name}.severity must be 'error' or 'warning'"
+            raise ValueError(msg)
+        severity = raw_severity
+        if "fail" not in section:
+            fail = severity == "error"
+    if "fail" in section:
+        fail = _require_bool(section["fail"], f"policy.{name}.fail")
+    return CheckPolicy(fail=fail, severity=severity)
+
+
+def _build_security_config(data: dict[str, Any]) -> SecurityPolicy:
+    raw_paths = data.get("paths", [])
+    if raw_paths is None:
+        raw_paths = []
+    if not isinstance(raw_paths, list):
+        msg = "security.paths must be a list of non-empty strings"
         raise ValueError(msg)
-    return PolicyConfig(incomplete_analysis_fail=fail)
+    cleaned: list[str] = []
+    for item in raw_paths:
+        if not isinstance(item, str) or not item.strip():
+            msg = "security.paths must be a list of non-empty strings"
+            raise ValueError(msg)
+        cleaned.append(item.strip())
+    minimum = SecurityPolicy().minimum_effective_owners
+    if "minimum_effective_owners" in data:
+        minimum = _require_positive_int(
+            data["minimum_effective_owners"],
+            "security.minimum_effective_owners",
+        )
+    require_declared = SecurityPolicy().require_declared_owner
+    if "require_declared_owner" in data:
+        require_declared = _require_bool(
+            data["require_declared_owner"],
+            "security.require_declared_owner",
+        )
+    require_active = SecurityPolicy().require_active_expert
+    if "require_active_expert" in data:
+        require_active = _require_bool(
+            data["require_active_expert"],
+            "security.require_active_expert",
+        )
+    return SecurityPolicy(
+        paths=tuple(cleaned),
+        minimum_effective_owners=minimum,
+        require_declared_owner=require_declared,
+        require_active_expert=require_active,
+    )
 
 
 def _mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:

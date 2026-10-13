@@ -9,7 +9,7 @@ import subprocess
 from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, NoReturn
@@ -155,7 +155,13 @@ from checkowners.models import (
     with_gaps,
 )
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
-from checkowners.patterns import matching_rules, parse_rules
+from checkowners.patterns import CodeownersRule, matching_rules, parse_rules
+from checkowners.policy import (
+    blocking_findings,
+    effective_policy,
+    invalid_owner_findings,
+    security_findings,
+)
 from checkowners.privacy import (
     KNOWLEDGE_RISK_NOTICE,
     exclude_contributors,
@@ -260,7 +266,7 @@ def _load_config() -> Config:
         exit_with(ExitCode.CONFIG)
     if _REDACT_EMAILS.get():
         config = replace(config, privacy=replace(config.privacy, redact_emails=True))
-    if config.policy.incomplete_analysis_fail:
+    if config.policy.incomplete_analysis.fail:
         _FAIL_ON_INCOMPLETE.set(True)
     begin_api_budget(config.analysis.max_api_requests)
     _ACTIVE_CONFIG.set(config)
@@ -1095,25 +1101,40 @@ def print_cmd(json_output: JsonOption = False) -> None:
 @app.command()
 def validate(json_output: JsonOption = False) -> None:
     """Validate CODEOWNERS file syntax."""
+    config = _load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
     errors = validate_codeowners(repo_root, codeowners_path=codeowners_path)
+    findings = invalid_owner_findings(
+        repo_root,
+        codeowners_path,
+        errors,
+        include_missing=True,
+    )
+    outcome = _ratchet_or_exit(
+        DriftResult(stale=(), missing=(), changed=(), drift_detected=False),
+        config,
+        as_of=_policy_as_of(repo_root),
+        baseline=_resolve_baseline(None, config),
+        structural=findings,
+    )
+    blocking = blocking_findings(outcome.new, config, None, ())
+    payload = {
+        "valid": len(errors) == 0,
+        "errors": [{"line": e.line_number, "message": e.message} for e in errors],
+        **_policy_payload(config, blocking),
+    }
     if json_output:
-        _emit_json(
-            {
-                "valid": len(errors) == 0,
-                "errors": [{"line": e.line_number, "message": e.message} for e in errors],
-            }
-        )
-        if errors:
-            exit_with(ExitCode.FINDINGS)
-        return
-    if not errors:
+        _emit_json(payload)
+    elif not errors:
         console.print("[green]CODEOWNERS is valid.[/green]")
-        return
-    for err in errors:
-        console.print(f"[red]Line {err.line_number}:[/red] {escape(err.message)}")
-    exit_with(ExitCode.FINDINGS)
+        _render_blocking(blocking)
+    else:
+        for err in errors:
+            console.print(f"[red]Line {err.line_number}:[/red] {escape(err.message)}")
+        _render_blocking(blocking)
+    if blocking:
+        exit_with(ExitCode.FINDINGS)
 
 
 @app.command()
@@ -1189,6 +1210,7 @@ def _ratchet_or_exit(
     as_of: datetime,
     baseline: Path | None,
     bus: BusFactorReport | None = None,
+    structural: tuple[Finding, ...] | None = None,
 ) -> RatchetOutcome:
     try:
         accepted = load_baseline(baseline) if baseline is not None else ()
@@ -1201,6 +1223,7 @@ def _ratchet_or_exit(
         suppressions=config.suppressions,
         as_of=as_of.date(),
         bus=bus,
+        structural=structural,
     )
     if outcome.expired:
         _print_expired_suppressions(outcome.expired)
@@ -1214,6 +1237,75 @@ def _ratchet_json(outcome: RatchetOutcome) -> dict[str, object]:
         "stale_baseline": [finding_payload(item) for item in outcome.stale_baseline],
         "suppressed": outcome.counts.suppressed,
     }
+
+
+def _policy_as_of(repo_root: Path) -> datetime:
+    try:
+        return resolve_as_of(_CLI_AS_OF.get(), repo_root)
+    except (ValueError, OSError, subprocess.CalledProcessError):
+        return datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _drift_override(config: Config, fail_on_drift: bool | None) -> Config:
+    if fail_on_drift is None:
+        return config
+    updated = replace(config.policy.drift, fail=fail_on_drift)
+    config = replace(config, policy=replace(config.policy, drift=updated))
+    _ACTIVE_CONFIG.set(config)
+    return config
+
+
+def _codeowners_rules(codeowners_path: Path) -> tuple[CodeownersRule, ...]:
+    if not codeowners_path.exists():
+        return ()
+    return parse_rules(codeowners_path.read_text(encoding="utf-8"))
+
+
+def _policy_payload(config: Config, blocking: tuple[Finding, ...]) -> dict[str, object]:
+    return {
+        "policy": effective_policy(config),
+        "blocking": [finding_payload(item) for item in blocking],
+    }
+
+
+def _render_blocking(blocking: tuple[Finding, ...]) -> None:
+    if not blocking:
+        console.print("Blocking: none")
+        return
+    shown = ", ".join(f"{item.rule} {escape(item.path)}" for item in blocking)
+    console.print(f"[red]Blocking:[/red] {shown}")
+
+
+def _enforcement(
+    repo_root: Path,
+    codeowners_path: Path,
+    ownership: OwnershipMap,
+    config: Config,
+    result: DriftResult,
+    *,
+    baseline: Path | None,
+    bus: BusFactorReport | None,
+) -> tuple[RatchetOutcome, tuple[Finding, ...]]:
+    rules = _codeowners_rules(codeowners_path)
+    errors = validate_codeowners(repo_root, codeowners_path=codeowners_path)
+    structural = (
+        *invalid_owner_findings(
+            repo_root,
+            codeowners_path,
+            errors,
+            include_missing=False,
+        ),
+        *security_findings(ownership, config, rules),
+    )
+    outcome = _ratchet_or_exit(
+        result,
+        config,
+        as_of=ownership.last_analyzed,
+        baseline=baseline,
+        bus=bus,
+        structural=structural,
+    )
+    return outcome, blocking_findings(outcome.new, config, ownership, rules)
 
 
 def _render_ratchet_summary(outcome: RatchetOutcome) -> None:
@@ -1295,10 +1387,12 @@ def baseline_create(
     ownership = _run_analyze(config, repo_root)
     result = _detect_drift(repo_root, ownership, config, codeowners_path)
     bus = compute_qualified_owners(ownership, config, target=None)
-    outcome = _ratchet_or_exit(
-        result,
+    outcome, _blocking = _enforcement(
+        repo_root,
+        codeowners_path,
+        ownership,
         config,
-        as_of=ownership.last_analyzed,
+        result,
         baseline=None,
         bus=bus,
     )
@@ -1331,10 +1425,12 @@ def drift(
     ownership = _run_analyze(config, repo_root)
     result = _detect_drift(repo_root, ownership, config, codeowners_path)
     bus = compute_qualified_owners(ownership, config, target=None)
-    outcome = _ratchet_or_exit(
-        result,
+    outcome, blocking = _enforcement(
+        repo_root,
+        codeowners_path,
+        ownership,
         config,
-        as_of=ownership.last_analyzed,
+        result,
         baseline=_resolve_baseline(baseline, config),
         bus=bus,
     )
@@ -1363,6 +1459,7 @@ def drift(
             "max_confidence_delta": round(result.max_confidence_delta, 4),
             "notes": list(result.notes),
             **_ratchet_json(outcome),
+            **_policy_payload(config, blocking),
         }
         _emit_json(data, ownership)
     else:
@@ -1377,9 +1474,10 @@ def drift(
                 f"(Δmax={result.max_confidence_delta:.2f})"
             )
             _render_drift_table(result)
+        _render_blocking(blocking)
         _render_completeness(ownership)
         _report_models("ownership", "risk")
-    if result.drift_detected:
+    if blocking:
         exit_with(ExitCode.FINDINGS)
     _finish_analysis(ownership)
 
@@ -1655,13 +1753,13 @@ def _publish_action_failure() -> None:
 @app.command(name="github-action")
 def github_action(
     fail_on_drift: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--fail-on-drift/--no-fail-on-drift",
             envvar="CHECKOWNERS_FAIL_ON_DRIFT",
-            help="Exit 3 when drift is detected.",
+            help="Override policy.drift.fail. Omit to use the configured policy.",
         ),
-    ] = True,
+    ] = None,
     include_bus_factor: Annotated[
         bool,
         typer.Option(
@@ -1704,7 +1802,7 @@ def github_action(
     balance_payload: dict[str, object] | None = None
     decay_count = 0
     try:
-        config = _load_config()
+        config = _drift_override(_load_config(), fail_on_drift)
         repo_root = Path.cwd()
         codeowners_path = find_codeowners_path(repo_root)
         ownership = _load_or_analyze(config, repo_root)
@@ -1736,10 +1834,12 @@ def github_action(
         _publish_action_failure()
         exit_with(ExitCode.INTERNAL)
 
-    outcome = _ratchet_or_exit(
-        result,
+    outcome, blocking = _enforcement(
+        repo_root,
+        codeowners_path,
+        ownership,
         config,
-        as_of=ownership.last_analyzed,
+        result,
         baseline=_resolve_baseline(baseline, config),
         bus=owners_report,
     )
@@ -1756,6 +1856,7 @@ def github_action(
         "changed": [drift_entry_payload(e, cap, config) for e in result.changed],
         "notes": list(result.notes),
         **ratchet,
+        **_policy_payload(config, blocking),
     }
     bus_payload: dict[str, object] | None = None
     critical_paths = 0
@@ -1803,9 +1904,10 @@ def github_action(
             f"· critical paths: {critical_paths} "
             f"· continuity-risk warnings: {decay_count}"
         )
+        _render_blocking(blocking)
         _render_completeness(ownership)
 
-    if fail_on_drift and result.drift_detected:
+    if blocking:
         exit_with(ExitCode.FINDINGS)
     _finish_analysis(ownership)
 

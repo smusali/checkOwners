@@ -87,6 +87,19 @@ def _cli_run(args: list[str], *, drift: DriftResult = _DRIFT_DETECTED) -> tuple[
 
 def test_baseline_create_then_new_finding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
+    _write_config(
+        tmp_path,
+        "\n".join(
+            [
+                "policy:",
+                "  drift:",
+                "    fail: true",
+                "  unowned:",
+                "    fail: true",
+                "",
+            ]
+        ),
+    )
     baseline = tmp_path / ".checkowners-baseline.json"
     exit_code, _stdout = _cli_run(["baseline", "create", "--output", str(baseline)])
     assert exit_code == 0

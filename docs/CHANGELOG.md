@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../ROADMAP.md).
 
 ### Added
+- `checkowners suggest` recommends one reviewer from expertise and current load, with `balance` as an alias, always showing `load_signal`, treating commit totals as a git authorship proxy that recommends nobody, and, when the GitHub sample exists, adding requested and completed reviews, open requests, median response time, reviewed lines, pull complexity, ownership criticality, `review_concentration`, and writer, reviewer, and declared-owner divergence.
 - `policy` chooses which finding classes block, warning by default for drift, a single expert, unowned paths, and incomplete analysis, failing for invalid owners, applying stricter rules under `security.paths`, and reporting the effective policy and blocking findings in drift, validate, and Action JSON.
 - `checkowners sync` opens or updates one reconciliation pull request by default. `--commit` commits on the current branch, and `--dry-run` prints the diff without writing or calling the GitHub API.
 - `Co-authored-by` trailers credit co-authors when `git.count_co_authors` is true, with `git.co_author_weight` relative to the commit author, and analyze reports the detected or configured `merge_strategy` plus `co_author_count`.

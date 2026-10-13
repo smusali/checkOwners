@@ -342,7 +342,14 @@ def test_summarize_balance_trims_each_list() -> None:
         1,
     )
     assert all_trimmed["truncated"] is True
-    assert all_trimmed["counts"] == {"loads": 2, "overloaded": 1, "suggestions": 1}
+    assert all_trimmed["counts"] == {
+        "loads": 2,
+        "overloaded": 1,
+        "suggestions": 1,
+        "review_concentration": 0,
+        "divergence": 0,
+    }
+    assert "load_signal" in all_trimmed
     suggestions_only = summarize_balance({"suggestions": suggestions}, 0)
     assert suggestions_only["truncated"] is True
     assert suggestions_only["loads"] == []

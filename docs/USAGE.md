@@ -15,7 +15,7 @@ flowchart LR
     State --> Owners[qualified-owners]
     State --> Risk[risk]
     State --> Topology[topology]
-    State --> Balance[balance]
+    State --> Suggest[suggest]
     State --> Onboard[onboard]
     Generate --> CO[CODEOWNERS]
     Drift --> CI[CI output]
@@ -149,7 +149,7 @@ github:
   org: ""
   resolve_handles: true       # noreply emails parse locally; others via search API
   resolve_teams: true         # collapse owner sets to a @org/team when possible
-  api_enabled: false          # gate review_weight + topology/balance API features
+  api_enabled: false          # gate review_weight + topology/suggest API features
 
 git:
   blame_ignore_revs_file: .git-blame-ignore-revs
@@ -227,7 +227,7 @@ The GitHub token is **never** read from this file. Set the `GITHUB_TOKEN` enviro
 | `CHECKOWNERS_BASELINE` | Action `baseline` input, or the user | Accepted-findings file path | Applied after YAML load; wins over `drift.baseline_file` |
 | `CHECKOWNERS_STATE_DIR` | Action, or the user | State / handle / graph cache root | Wins over `~/.checkowners` |
 | `GITHUB_TOKEN` | Action `github_token` input, or the user | Only supported token source | Never read from YAML (`github.token` is rejected) |
-| `GITHUB_REPOSITORY` | GitHub runner | `owner/repo` for review coverage, topology, balance | Required for those API features; ignored otherwise |
+| `GITHUB_REPOSITORY` | GitHub runner | `owner/repo` for review coverage, topology, suggest | Required for those API features; ignored otherwise |
 | `GITHUB_OUTPUT` | GitHub runner | `github-action` writes bounded `schema_version: 1` summaries when set | Full `drift.json` / `bus_factor.json` / `decay.json` payloads are the uploaded artifact; summaries stay under the 1 MB per-output cap |
 | `SOURCE_DATE_EPOCH` | User or CI | Integer POSIX seconds used as the analysis instant when `--as-of` is omitted | After `--as-of`; before HEAD committer time |
 
@@ -303,7 +303,7 @@ Five settings change what a report may say about a person. They apply to termina
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `output.anonymize` | `false` | Replace each person with a `person-` token. The token is stable for that person in that repository and different in another repository. |
-| `output.aggregate_only` | `false` | Omit per-person fields. Path and repository metrics stay, including `qualified_owner_count` and review-load averages. |
+| `output.aggregate_only` | `false` | Omit per-person fields. Path and repository metrics stay, including `qualified_owner_count`, `load_signal`, and review-load averages. |
 | `privacy.redact_emails` and `--redact-emails` | `false` | Replace email addresses in output with `email:` tokens. `--redact-emails` forces this on for one process. With redaction, `generate` skips owners that are still raw addresses. |
 | `identity.mode` | `handle` | `handle` shows a GitHub login when one was resolved. `email` shows the address when the process still has it. `hashed` shows the `email:` token for addresses. |
 | `contributors.exclude` | `[]` | Drop those people from analysis, reports, and graph export. Match a commit email, a `@handle`, or the stored `email:` token. Their address is not sent to the user-search API. |
@@ -407,6 +407,36 @@ Per-path JSON also reports score mass under `risk`, computed before `top_n_owner
 `--json` is schema `1` (`#/$defs/risk`). Each entry reports `risk`, `tier`, `reason`, and the five factors `ownership_concentration`, `change_frequency`, `dependency_criticality`, `code_criticality`, and `expertise_decay`. A factor that cannot be computed is `null`. `criticality_unavailable` is true when no criticality source exists, and the text report says repository risk is incomplete without criticality. The summary reports observed ownership coverage, `knowledge_at_risk`, critical components, ownership vacuums, and high CODEOWNERS drift.
 
 `qualified-owners` is unchanged. `github-action` still writes `bus_factor.json` and `decay.json` from the qualified-owner count and the continuity-risk list.
+
+## Reviewer recommendation
+
+`checkowners suggest` recommends a reviewer from expertise and current load. `checkowners balance` is an alias and prints the same report. This is a routing suggestion, not a ranking of people, and it is not for individual evaluation.
+
+Human output always starts with `load_signal`:
+
+- `github_completed_reviews` when the GitHub sample returned reviews
+- `git_authorship_proxy` when it did not. Commit totals stay in JSON under `reviews` so older readers still see a number, and they are not review load. The text says so and recommends nobody.
+- `external` when the caller supplied completed-review counts
+
+When the signal is real reviews, each high-load person is paired with one co-owner who is not high: prefer low load, then higher `ownership_score`, then fewer completed reviews, then handle. The text looks like this:
+
+```text
+load_signal: github_completed_reviews
+@alice  expertise 0.94  current load high
+@bob    expertise 0.81  current load low
+Recommended: @bob
+qualified co-owner with lower current load
+```
+
+`expertise` is that person's highest `ownership_score`. `current load` is `high` when completed reviews, or open requests still waiting, are at least twice the average; `low` when both are at or below the average; otherwise `typical`. JSON keeps `loads`, `overloaded`, and `suggestions`, including `proposed_shift`, and adds `load_signal`. The text does not print the shift and does not list everyone.
+
+With review history, each person can also carry `reviews_requested`, `reviews_completed`, `prs_waiting`, `median_response_time_hours`, `reviewed_lines`, `pr_complexity`, and `ownership_criticality`. Those fields are omitted on the authorship proxy. The sample is still the 200 most recently updated closed pull requests. Open pull requests, capped at the same number, supply the waiting queue. `median_response_time_hours` is hours from pull open to that person's first submitted review. `pr_complexity` is the median of `additions + deletions` on pulls they reviewed. `ownership_criticality` is the highest configured `criticality` weight on a path they own at or above the confidence threshold. It is unset when no rule matches.
+
+`review_concentration` is per analyzed path. It is reported when one person's share of reviews on that path is at least 0.72 and at least two owners meet the confidence threshold. A path with one knowledgeable owner is not a review monopoly. Commit share is not review concentration.
+
+`divergence` names three roles on one path: `writer` (most commits), `reviewer` (most reviews in the sample), and `declared` (a CODEOWNERS owner who is neither). A path is omitted when any role is missing. The three are not folded into one score.
+
+`output.aggregate_only` keeps `load_signal` and the path-level concentration and divergence lines, and drops the names and the `Recommended` line. `output.anonymize` replaces names with `person-` tokens. `--json` is schema `1` (`#/$defs/balance`) for both commands.
 
 ## Generated CODEOWNERS
 

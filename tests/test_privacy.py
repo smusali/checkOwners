@@ -65,6 +65,7 @@ _PRIVACY_COMMANDS = (
     ["--offline", "--as-of", _AS_OF, "qualified-owners", "--all", "--json"],
     ["--offline", "--as-of", _AS_OF, "topology", "--json"],
     ["--offline", "--as-of", _AS_OF, "balance", "--json"],
+    ["--offline", "--as-of", _AS_OF, "suggest", "--json"],
     ["--offline", "--as-of", _AS_OF, "expertise", "foo.py", "--json"],
     ["--offline", "--as-of", _AS_OF, "graph"],
     ["--offline", "--as-of", _AS_OF, "graph", "--export", "dot"],

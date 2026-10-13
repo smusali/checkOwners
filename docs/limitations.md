@@ -132,6 +132,18 @@ review signal is unavailable: it is omitted from `ownership_score` and it
 lowers `evidence_quality`. A missing review history is not a score of zero
 and it is not evidence that nobody reviewed the path.
 
+`suggest` labels that gap as `load_signal: git_authorship_proxy`. The JSON
+field `reviews` then holds commit totals. Those totals are not review load,
+and the command does not recommend a person from them. When the API sample
+exists, the label is `github_completed_reviews`. That sample is still the
+most recently updated closed pull requests, at most 200. On a fast repository
+it can cover less time than `analysis.lookback_days`. Open pull requests,
+also capped at 200, are only the current waiting queue. `median_response_time_hours`
+is pull open to first submitted review, not the time from the review request.
+`pr_complexity` is the median number of changed lines, not a calibrated
+complexity score. `review_concentration` is per analyzed path, and only when
+recorded reviews exist.
+
 ## Historical trend scores use different data
 
 `trends` reconstructs each period from `git log` only. Blame and review are

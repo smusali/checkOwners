@@ -410,10 +410,15 @@ def iter_recent_closed_pulls(
     client: Github,
     repo_full_name: str,
     limit: int = REVIEW_SCAN_PR_LIMIT,
+    *,
+    state: str = "closed",
 ) -> Iterator[PullRequest]:
-    """Yield the most recently updated closed PRs of a repo, bounded by limit."""
+    """Yield at most `limit` recently updated pull requests for `repo_full_name`.
+
+    `state` selects which pulls are read. It defaults to closed.
+    """
     repo = client.get_repo(repo_full_name)
-    pulls = repo.get_pulls(state="closed", sort="updated", direction="desc")
+    pulls = repo.get_pulls(state=state, sort="updated", direction="desc")
     return islice(pulls, limit)
 
 

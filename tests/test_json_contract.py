@@ -45,6 +45,7 @@ _COMMANDS: tuple[tuple[list[str], str], ...] = (
     (["bus-factor", "--json"], "bus-factor"),
     (["qualified-owners", "--all", "--json"], "qualified-owners"),
     (["balance", "--json"], "balance"),
+    (["suggest", "--json"], "balance"),
     (["topology", "--json"], "topology"),
     (["onboard", "src/", "--json"], "onboard"),
     (["explain", "src/main.py", "--json"], "explain"),

@@ -361,26 +361,40 @@ def summarize_balance(data: dict[str, object], limit: int) -> dict[str, object]:
     loads = _as_list(data.get("loads"))
     overloaded = _as_list(data.get("overloaded"))
     suggestions = _as_list(data.get("suggestions"))
+    concentration = _as_list(data.get("review_concentration"))
+    divergence = _as_list(data.get("divergence"))
     trimmed_loads, loads_cut = _trim(loads, limit)
     trimmed_overloaded, overloaded_cut = _trim(overloaded, limit)
     trimmed_suggestions, suggestions_cut = _trim(suggestions, limit)
-    return {
+    trimmed_concentration, concentration_cut = _trim(concentration, limit)
+    trimmed_divergence, divergence_cut = _trim(divergence, limit)
+    summary: dict[str, object] = {
         **_copied_provenance(data),
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "source": data.get("source"),
+        "load_signal": data.get("load_signal"),
         "average": data.get("average"),
         "fallback_reason": data.get("fallback_reason"),
         "counts": {
             "loads": len(loads),
             "overloaded": len(overloaded),
             "suggestions": len(suggestions),
+            "review_concentration": len(concentration),
+            "divergence": len(divergence),
         },
         "loads": trimmed_loads,
         "overloaded": trimmed_overloaded,
         "suggestions": trimmed_suggestions,
-        "truncated": loads_cut or overloaded_cut or suggestions_cut,
+        "truncated": (
+            loads_cut or overloaded_cut or suggestions_cut or concentration_cut or divergence_cut
+        ),
         "models": models_payload(),
     }
+    if trimmed_concentration:
+        summary["review_concentration"] = trimmed_concentration
+    if trimmed_divergence:
+        summary["divergence"] = trimmed_divergence
+    return summary
 
 
 def summarize_decay(data: dict[str, object], limit: int) -> dict[str, object]:

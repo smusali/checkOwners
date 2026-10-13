@@ -28,7 +28,7 @@ from checkowners.action_report import (
     summarize_drift,
 )
 from checkowners.analyze import GitRequirementError, resolve_as_of
-from checkowners.balance import BalanceReport, RebalanceSuggestion, ReviewLoad
+from checkowners.balance import BalanceReport, LoadSource, RebalanceSuggestion, ReviewLoad
 from checkowners.busfactor import BusFactorReport
 from checkowners.cli import (
     _api_gaps,
@@ -1058,7 +1058,7 @@ def test_qualified_owners_json_includes_stamp() -> None:
     assert "entries" in data
 
 
-def _balance_report(source: str) -> BalanceReport:
+def _balance_report(source: LoadSource) -> BalanceReport:
     return BalanceReport(
         loads=(ReviewLoad(handle="@alice", reviews=10),),
         average=10.0,
@@ -1096,20 +1096,22 @@ def test_balance_prints_loads_and_suggestions() -> None:
         reviews = runner.invoke(app, ["balance"])
         other = runner.invoke(app, ["balance"])
     assert listed.exit_code == 0
-    assert "@alice" in listed.stdout
-    assert "@bob" in listed.stdout
-    assert "Git authorship proxy" in listed.stdout
-    assert "commits from" in listed.stdout
+    assert "load_signal: git_authorship_proxy" in listed.stdout
+    assert "No reviewer is recommended." in listed.stdout
+    assert "@alice" not in listed.stdout
+    assert "@bob" not in listed.stdout
+    assert "review load:" not in listed.stdout
     assert KNOWLEDGE_RISK_NOTICE in listed.stderr
     assert plain.exit_code == 0
-    assert "Rebalance suggestions" not in plain.stdout
+    assert "Recommended:" not in plain.stdout
     assert KNOWLEDGE_RISK_NOTICE in plain.stderr
     assert reviews.exit_code == 0
-    assert "Completed reviews" in reviews.stdout
-    assert "reviews from" in reviews.stdout
+    assert "load_signal: github_completed_reviews" in reviews.stdout
+    assert "Recommended: @bob" in reviews.stdout
+    assert "current load" in reviews.stdout
     assert other.exit_code == 0
-    assert "Review activity" in other.stdout
-    assert "items from" in other.stdout
+    assert "load_signal: external" in other.stdout
+    assert "Recommended: @bob" in other.stdout
 
 
 def test_balance_json_includes_stamp() -> None:
@@ -1130,6 +1132,7 @@ def test_balance_json_includes_stamp() -> None:
     data = json.loads(result.stdout)
     assert data["head_sha"] == "deadbeef"
     assert data["source"] == "git_authorship"
+    assert data["load_signal"] == "git_authorship_proxy"
 
 
 def test_topology_json_includes_stamp() -> None:
@@ -2355,6 +2358,7 @@ def test_render_explained_owner_without_optional_signals() -> None:
         ["bus-factor", "--json"],
         ["qualified-owners", "--all", "--json"],
         ["balance", "--json"],
+        ["suggest", "--json"],
         ["topology", "--json"],
         ["onboard", "src/", "--json"],
         ["expertise", "src/main.py", "--json"],
@@ -2448,6 +2452,7 @@ _EXIT_OK: tuple[tuple[str, list[str]], ...] = (
     ("graph", ["graph"]),
     ("qualified-owners", ["qualified-owners", "--all"]),
     ("balance", ["balance"]),
+    ("suggest", ["suggest"]),
     ("topology", ["topology"]),
     ("onboard", ["onboard", "src"]),
     ("expertise", ["expertise", "src/main.py"]),
@@ -3091,6 +3096,19 @@ def test_aggregate_text_reports_omit_people(
         combined = result.stdout + result.stderr
         assert "alice@example.com" not in combined
         assert "@alice" not in combined
+    review = _balance_report("github_api")
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.analyze_balance", return_value=review),
+        _MOCK_TOKEN,
+    ):
+        hidden = runner.invoke(app, ["suggest"])
+    assert hidden.exit_code == 0, hidden.output
+    hidden_text = hidden.stdout + hidden.stderr
+    assert "@alice" not in hidden_text
+    assert "@bob" not in hidden_text
+    assert "Recommended:" not in hidden.stdout
+    assert "load_signal: github_completed_reviews" in hidden.stdout
     _set_privacy_config(tmp_path, monkeypatch, "version: 1\n")
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
@@ -3108,7 +3126,9 @@ def test_aggregate_text_reports_omit_people(
         named_topology = runner.invoke(app, ["topology"])
     assert named_balance.exit_code == 0, named_balance.output
     assert "GITHUB_TOKEN is not set" in named_balance.stdout
-    assert "@bob" in named_balance.stdout
+    assert "load_signal: git_authorship_proxy" in named_balance.stdout
+    assert "No reviewer is recommended." in named_balance.stdout
+    assert "@bob" not in named_balance.stdout
     assert named_owners.exit_code == 0, named_owners.output
     assert "src/empty.py" in named_owners.stdout
     assert named_decay.exit_code == 0, named_decay.output

@@ -199,7 +199,15 @@ from checkowners.topology import (
     declared_teams_from_github,
     infer_topology,
 )
-from checkowners.trends import TrendPoint, analyze_trends
+from checkowners.trends import (
+    HISTORICAL_LIMITATION,
+    SHARED_AXIS_REFUSAL,
+    TrendReport,
+    analyze_trends,
+    compared_axis_line,
+    historical_model_line,
+    trend_report_payload,
+)
 from checkowners.validate import validate_codeowners
 
 if TYPE_CHECKING:
@@ -2865,16 +2873,32 @@ def expertise(
     _finish_analysis(ownership)
 
 
-def _trend_point_payload(point: TrendPoint, cap: int) -> dict[str, Any]:
-    return {
-        "period_end": point.period_end.date().isoformat(),
-        "commits": point.commits,
-        "active_contributors": point.active_contributors,
-        "tracked_paths": point.tracked_paths,
-        "avg_top_confidence": point.avg_top_confidence,
-        "avg_qualified_owner_count": point.avg_qualified_owner_count,
-        "qualified_owner_count_cap": cap,
-    }
+def _render_trends(report: TrendReport, cap: int, *, compared: bool) -> None:
+    console.print(HISTORICAL_LIMITATION, soft_wrap=True)
+    if compared:
+        console.print(compared_axis_line(), soft_wrap=True)
+    if not report.points or all(point.commits == 0 for point in report.points):
+        console.print("[yellow]No history available for the requested range.[/yellow]")
+    else:
+        table = Table(title=f"Historical activity ({report.periods}x{report.period_days}d)")
+        table.add_column("Period end", style="cyan")
+        table.add_column("Commits", justify="right")
+        table.add_column("Contributors", justify="right")
+        table.add_column("Tracked paths", justify="right")
+        table.add_column("Hist. activity", justify="right")
+        table.add_column("Avg qualified owners", justify="right")
+        for point in report.points:
+            score = point.historical_activity_confidence
+            table.add_row(
+                point.period_end.date().isoformat(),
+                str(point.commits),
+                str(point.active_contributors),
+                str(point.tracked_paths),
+                f"[{_confidence_style(score)}]{score:.2f}[/]",
+                f"{point.avg_qualified_owner_count:.2f} (capped by top_n_owners={cap})",
+            )
+        console.print(table)
+    err_console.print(f"[dim]{historical_model_line()}[/dim]")
 
 
 @app.command()
@@ -2887,9 +2911,26 @@ def trends(
         int,
         typer.Option("--period-days", min=1, help="Length of each period in days."),
     ] = 30,
+    compare_ownership: Annotated[
+        bool,
+        typer.Option(
+            "--compare-ownership",
+            help="Name ownership_score beside this report. Requires acknowledgement.",
+        ),
+    ] = False,
+    acknowledge_different_metrics: Annotated[
+        bool,
+        typer.Option(
+            "--acknowledge-different-metrics",
+            help="Allow naming ownership_score next to historical_activity_confidence.",
+        ),
+    ] = False,
     json_output: JsonOption = False,
 ) -> None:
-    """Show how ownership confidence and qualified owner count have evolved."""
+    """Show historical activity confidence and qualified owner count over time."""
+    if compare_ownership and not acknowledge_different_metrics:
+        console.print(f"[red]{SHARED_AXIS_REFUSAL}[/red]")
+        exit_with(ExitCode.CONFIG)
     config = _load_config()
     cap = config.analysis.top_n_owners
     repo_root = Path.cwd()
@@ -2903,36 +2944,10 @@ def trends(
         exit_with(ExitCode.INTEGRATION)
     if json_output:
         generated = analysis_epoch(as_of)
-        data = {
-            "periods": report.periods,
-            "period_days": report.period_days,
-            "qualified_owner_count_cap": cap,
-            "points": [_trend_point_payload(p, cap) for p in report.points],
-        }
+        data = trend_report_payload(report, cap, compared=compare_ownership)
         _emit_json(data, head_sha=analysis_ref, generated_at=generated)
         return
-    if not report.points or all(p.commits == 0 for p in report.points):
-        console.print("[yellow]No history available for the requested range.[/yellow]")
-        _report_models("ownership")
-        return
-    table = Table(title=f"Ownership Trends ({report.periods}x{report.period_days}d)")
-    table.add_column("Period end", style="cyan")
-    table.add_column("Commits", justify="right")
-    table.add_column("Contributors", justify="right")
-    table.add_column("Tracked paths", justify="right")
-    table.add_column("Avg top conf.", justify="right")
-    table.add_column("Avg qualified owners", justify="right")
-    for point in report.points:
-        table.add_row(
-            point.period_end.date().isoformat(),
-            str(point.commits),
-            str(point.active_contributors),
-            str(point.tracked_paths),
-            f"[{_confidence_style(point.avg_top_confidence)}]{point.avg_top_confidence:.2f}[/]",
-            f"{point.avg_qualified_owner_count:.2f} (capped by top_n_owners={cap})",
-        )
-    console.print(table)
-    _report_models("ownership")
+    _render_trends(report, cap, compared=compare_ownership)
 
 
 def _print_cache_info(info: CacheInfo) -> None:

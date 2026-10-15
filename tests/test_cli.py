@@ -18,6 +18,7 @@ from typing import Protocol
 from unittest.mock import MagicMock, patch
 
 import pytest
+from check_json_contract import validate_instance
 from typer.testing import CliRunner
 
 from checkowners import __version__
@@ -281,6 +282,7 @@ def test_analyze_json() -> None:
     owners = data["inferred"]["src/main.py"]["owners"]
     assert owners[0]["identity"] == "alice@example.com"
     assert owners[0]["ownership_score"] == 0.92
+    assert "historical_activity_confidence" not in json.dumps(data)
     assert owners[0]["evidence_quality"] == 1.0
     assert owners[0]["signals"]["recency"] == 1.0
     assert "review" not in owners[0]["signals"]
@@ -993,7 +995,7 @@ _TREND_REPORT = TrendReport(
             commits=10,
             active_contributors=2,
             tracked_paths=3,
-            avg_top_confidence=0.6,
+            historical_activity_confidence=0.6,
             avg_qualified_owner_count=1.5,
         ),
         TrendPoint(
@@ -1001,7 +1003,7 @@ _TREND_REPORT = TrendReport(
             commits=18,
             active_contributors=3,
             tracked_paths=4,
-            avg_top_confidence=0.72,
+            historical_activity_confidence=0.72,
             avg_qualified_owner_count=1.8,
         ),
     ),
@@ -1013,22 +1015,59 @@ _TREND_REPORT = TrendReport(
 def test_trends_table() -> None:
     with patch("checkowners.cli.analyze_trends", return_value=_TREND_REPORT):
         result = runner.invoke(app, ["trends", "--periods", "2", "--period-days", "30"])
+        refused = runner.invoke(app, ["trends", "--compare-ownership"])
+        named = runner.invoke(
+            app,
+            ["trends", "--compare-ownership", "--acknowledge-different-metrics"],
+        )
     assert result.exit_code == 0
     assert "2026-04-01" in result.stdout
     assert "0.72" in result.stdout
+    assert "historical-v1" in result.stdout
+    assert "models: ownership" not in _models_text(result)
+    assert "model: historical-v1 (recency, frequency)" in _models_text(result)
+    assert refused.exit_code == 2
+    assert "acknowledge-different-metrics" in refused.stdout
+    assert "0.72" not in refused.stdout
+    assert named.exit_code == 0
+    assert "not on the same axis" in named.stdout
+    assert "0.72" in named.stdout
 
 
 def test_trends_json() -> None:
     with patch("checkowners.cli.analyze_trends", return_value=_TREND_REPORT):
         result = runner.invoke(app, ["trends", "--json"])
+        refused = runner.invoke(app, ["trends", "--json", "--compare-ownership"])
+        named = runner.invoke(
+            app,
+            ["trends", "--json", "--compare-ownership", "--acknowledge-different-metrics"],
+        )
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["periods"] == 2
-    assert data["points"][1]["avg_top_confidence"] == 0.72
+    assert data["model_version"] == "historical-v1"
+    assert data["metric"] == "historical_activity_confidence"
+    assert data["signals"] == ["recency", "frequency"]
+    assert "historical-v1" in data["limitation"]
+    assert "ownership_score" in data["limitation"]
+    assert "compared_to" not in data
+    point = data["points"][1]
+    assert point["historical_activity_confidence"] == 0.72
+    assert "avg_top_confidence" not in point
+    assert "ownership_score" not in point
     assert data["points"][0]["active_contributors"] == 2
-    assert data["points"][1]["avg_qualified_owner_count"] == 1.8
+    assert point["avg_qualified_owner_count"] == 1.8
     assert data["qualified_owner_count_cap"] == 3
     assert data["head_sha"] == "deadbeef"
+    assert refused.exit_code == 2
+    assert named.exit_code == 0
+    named_data = json.loads(named.stdout)
+    assert named_data["compared_to"]["metric"] == "ownership_score"
+    assert named_data["compared_to"]["model_version"] == "ownership-v1"
+    assert named_data["compared_to"]["signals"] == ["recency", "frequency", "blame", "review"]
+    assert "ownership_score" not in named_data["points"][1]
+    assert "historical_activity_confidence" not in named_data["compared_to"]
+    validate_instance("trends", named_data)
 
 
 def test_trends_git_error() -> None:
@@ -1596,13 +1635,15 @@ def test_expertise_reports_ownership_model() -> None:
     assert "models: ownership" in _models_text(listed)
 
 
-def test_trends_without_history_reports_ownership_model() -> None:
+def test_trends_without_history_reports_historical_model() -> None:
     empty = TrendReport(points=(), periods=6, period_days=30)
     with patch("checkowners.cli.analyze_trends", return_value=empty):
         result = runner.invoke(app, ["trends"])
     assert result.exit_code == 0
     assert "No history" in result.stdout
-    assert "models: ownership" in _models_text(result)
+    assert "historical-v1" in result.stdout
+    assert "models: ownership" not in _models_text(result)
+    assert "model: historical-v1 (recency, frequency)" in _models_text(result)
 
 
 def test_expertise_json_null_last_commit() -> None:

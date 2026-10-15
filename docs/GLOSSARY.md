@@ -18,7 +18,8 @@ One sentence for each term used in reports. Naming rules are in [Terminology](ME
 - **load signal**: the label on a balance report: `github_completed_reviews`, `git_authorship_proxy`, or `external`.
 - **review concentration**: one person's share of reviews on a single path, reported when that share is at least 0.72 and at least two owners meet the confidence threshold.
 - **HHI**: the Herfindahl index of ownership-score shares on a path, the sum of the squared shares.
-- **historical activity confidence**: the present ownership score stored on a continuity-risk warning, not a score reconstructed at an earlier date.
+- **historical activity confidence**: the trends series `historical_activity_confidence`, the mean top score at a period end from recency and frequency only (`historical-v1`). It is not `ownership_score`.
+- **historical confidence**: the present `ownership_score` stored on a continuity-risk warning (`historical_confidence`). It is not the trends series.
 - **knowledge at risk**: the share of criticality weight on paths whose qualified owner count is at or below the critical threshold.
 - **last match wins**: the CODEOWNERS rule that the last matching pattern in file order assigns the owners.
 - **major contributor**: a contributor whose ownership-score share on a path is at least 0.05.

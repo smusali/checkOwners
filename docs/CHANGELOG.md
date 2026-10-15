@@ -22,6 +22,7 @@ Next cycle is `0.7.0` (ownership risk and scale). See the [public roadmap](../RO
 - The composite Action caches pip and `~/.checkowners`, with the `cache` input defaulting to `"true"` and a restored state file reused only when its commit is `HEAD` and the config hash and model versions match.
 
 ### Changed
+- `checkowners trends` reports `historical_activity_confidence` (`historical-v1`, recency and frequency) instead of `avg_top_confidence`, listing `model_version`, `metric`, `signals`, and `limitation` while envelope `schema_version` stays `"1"`, and `--compare-ownership` names `ownership_score` only together with `--acknowledge-different-metrics` without plotting that score on the historical series.
 - The Action `fail_on_drift` input defaults to empty, so a run follows `policy.drift.fail` unless the workflow sets `true` or `false`. `checkowners drift` exits 3 only when policy marks a novel finding as blocking.
 
 ### Fixed

@@ -46,11 +46,12 @@ ownership_score = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
 per-signal score. If no signal is available the score is `0.0`. Default weights
 are `0.35 / 0.25 / 0.25 / 0.15` for recency, frequency, blame, and review.
 
-`analyze` and `trends` share one helper. Trends cannot reconstruct historical
-blame or review, so those two signals are unavailable and the same formula
-renormalizes over recency and frequency.
+`analyze` and `trends` share one helper. `trends` emits `historical-v1` with
+signals recency and frequency. Blame and review stay unavailable, so the
+formula renormalizes over those two signals. That score is
+`historical_activity_confidence`, not `ownership_score`.
 
-JSON emits `ownership_score`. `analysis.confidence_threshold` still gates this number.
+JSON from `analyze` emits `ownership_score`. `analysis.confidence_threshold` still gates this number.
 
 ## Evidence quality
 
@@ -253,7 +254,7 @@ shipped. Definitions are in [docs/GLOSSARY.md](GLOSSARY.md).
 | knowledge graph (as modeled) | ownership graph |
 | org chart | exploratory repository topology |
 | review load (from commits) | git authorship proxy |
-| historical confidence | historical activity confidence |
+| trend score | historical activity confidence |
 
 ## Never collapse these
 
@@ -267,8 +268,8 @@ shipped. Definitions are in [docs/GLOSSARY.md](GLOSSARY.md).
 ## Other reported numbers
 
 `historical_confidence` is the present `ownership_score` stored on a
-continuity-risk warning. It is not a score reconstructed at an earlier date.
-Human output calls this historical activity.
+continuity-risk warning. It is not `historical_activity_confidence` and it is
+not a score reconstructed at an earlier date.
 
 `active_expertise`, `historical_expertise`, and `maintenance_recency` are
 separate evidence scores on each owner. `active_expertise` is the recency
@@ -286,11 +287,12 @@ others outnumber this person's commits. `inactive` means the gap is past that
 bound, or the path has no commit interval and the gap exceeds
 `decay.threshold_days`. `departed` means `inactive` on every path. `analysis.lookback_days: adaptive` keeps stable paths inside the history window.
 
-`avg_top_confidence` is the mean, across paths that still have a scored owner,
-of the top score at the end of one trend period. `avg_qualified_owner_count`
-is the mean capped count for those same paths. Trend periods use recency and
-frequency only. Blame and review are unavailable, so a trend score is not the
-same number `analyze` would have produced on that day.
+`historical_activity_confidence` is the mean, across paths that still have a
+scored owner, of the top score at the end of one trend period. The model is
+`historical-v1` and the signals are recency and frequency.
+`avg_qualified_owner_count` is the mean capped count for those same paths.
+Blame and review are unavailable, so this number is not `ownership_score`
+(`ownership-v1`).
 
 `load_signal` says what a balance count is. `github_completed_reviews` means the GitHub sample returned submitted reviews. `git_authorship_proxy` means it did not, and `reviews` in that payload is a commit total. `external` means the caller supplied completed-review counts. The proxy never sets `reviews_completed`, `load_band`, `review_concentration`, or `divergence`, and it never recommends a person. Commit volume is not review load.
 

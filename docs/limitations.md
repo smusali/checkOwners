@@ -146,15 +146,24 @@ recorded reviews exist.
 
 ## Historical trend scores use different data
 
-`trends` reconstructs each period from `git log` only. Blame and review are
-not available historically, so `avg_top_confidence` and
-`avg_qualified_owner_count` use recency and frequency. Those numbers are not
-comparable to a present-day `ownership_score` that included blame or review.
-`historical_confidence` on a continuity-risk warning is the present score of
-an owner whose freshness status is not `stable`. It is not a score from an
-earlier period. `active_expertise`, `historical_expertise`, and
-`maintenance_recency` are evidence scores, not a measurement of what a person
-knows. `historical_expertise` does not measure which lines survived.
+`trends` reconstructs each period from `git log` only. The series is
+`historical_activity_confidence` (`model_version` `historical-v1`, signals
+recency and frequency). `avg_qualified_owner_count` uses those same scores.
+`ownership_score` is `ownership-v1` and can include blame and review. The two
+numbers are not the same metric. The command prints that limitation. Naming
+`ownership_score` in the same report requires `--compare-ownership` and
+`--acknowledge-different-metrics`, and still does not plot `ownership_score`
+values on the historical series.
+
+Historical blame is not reconstructed. It stays unavailable until a published
+benchmark shows the cost is acceptable.
+
+`historical_confidence` on a continuity-risk warning is the present
+`ownership_score` of an owner whose freshness status is not `stable`. It is
+not `historical_activity_confidence` and it is not a score from an earlier
+period. `active_expertise`, `historical_expertise`, and `maintenance_recency`
+are evidence scores, not a measurement of what a person knows.
+`historical_expertise` does not measure which lines survived.
 
 ## Identity resolution can be ambiguous
 

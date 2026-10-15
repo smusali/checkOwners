@@ -79,14 +79,14 @@ def test_build_trends_empty_history() -> None:
     report = build_trends([], _config(), periods=2, period_days=30, now=_NOW)
     assert len(report.points) == 2
     assert all(p.tracked_paths == 0 for p in report.points)
-    assert all(p.avg_top_confidence == 0.0 for p in report.points)
+    assert all(p.historical_activity_confidence == 0.0 for p in report.points)
 
 
 def test_build_trends_confidence_in_unit_range() -> None:
     commits = [_commit("alice@example.com", 2, ("src/main.py",)) for _ in range(5)]
     report = build_trends(commits, _config(), periods=2, period_days=30, now=_NOW)
     for point in report.points:
-        assert 0.0 <= point.avg_top_confidence <= 1.0
+        assert 0.0 <= point.historical_activity_confidence <= 1.0
 
 
 def test_analyze_and_trends_match_on_same_available_signals() -> None:

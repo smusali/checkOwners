@@ -2661,6 +2661,10 @@
             "periods",
             "period_days",
             "qualified_owner_count_cap",
+            "model_version",
+            "metric",
+            "signals",
+            "limitation",
             "points"
           ],
           "properties": {
@@ -2673,6 +2677,66 @@
             "qualified_owner_count_cap": {
               "type": "integer"
             },
+            "model_version": {
+              "const": "historical-v1"
+            },
+            "metric": {
+              "const": "historical_activity_confidence"
+            },
+            "signals": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "const": "recency"
+                },
+                {
+                  "const": "frequency"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2,
+              "items": false
+            },
+            "limitation": {
+              "const": "historical_activity_confidence and avg_qualified_owner_count use recency and frequency only (historical-v1). They are not ownership_score (ownership-v1)."
+            },
+            "compared_to": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "metric",
+                "model_version",
+                "signals"
+              ],
+              "properties": {
+                "metric": {
+                  "const": "ownership_score"
+                },
+                "model_version": {
+                  "const": "ownership-v1"
+                },
+                "signals": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "const": "recency"
+                    },
+                    {
+                      "const": "frequency"
+                    },
+                    {
+                      "const": "blame"
+                    },
+                    {
+                      "const": "review"
+                    }
+                  ],
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": false
+                }
+              }
+            },
             "points": {
               "type": "array",
               "items": {
@@ -2683,7 +2747,7 @@
                   "commits",
                   "active_contributors",
                   "tracked_paths",
-                  "avg_top_confidence",
+                  "historical_activity_confidence",
                   "avg_qualified_owner_count",
                   "qualified_owner_count_cap"
                 ],
@@ -2700,7 +2764,7 @@
                   "tracked_paths": {
                     "type": "integer"
                   },
-                  "avg_top_confidence": {
+                  "historical_activity_confidence": {
                     "type": "number"
                   },
                   "avg_qualified_owner_count": {
@@ -2732,7 +2796,24 @@
           "periods": 1,
           "period_days": 30,
           "qualified_owner_count_cap": 3,
-          "points": []
+          "model_version": "historical-v1",
+          "metric": "historical_activity_confidence",
+          "signals": [
+            "recency",
+            "frequency"
+          ],
+          "limitation": "historical_activity_confidence and avg_qualified_owner_count use recency and frequency only (historical-v1). They are not ownership_score (ownership-v1).",
+          "points": [
+            {
+              "period_end": "2026-05-28",
+              "commits": 4,
+              "active_contributors": 1,
+              "tracked_paths": 1,
+              "historical_activity_confidence": 0.72,
+              "avg_qualified_owner_count": 1.0,
+              "qualified_owner_count_cap": 3
+            }
+          ]
         }
       ]
     },

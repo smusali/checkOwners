@@ -34,7 +34,7 @@ _METRIC_KEYS = (
     "active_expertise",
     "historical_expertise",
     "maintenance_recency",
-    "avg_top_confidence",
+    "historical_activity_confidence",
     "avg_qualified_owner_count",
     "analysis_completeness",
     "confidence_delta",

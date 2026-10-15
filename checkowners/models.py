@@ -65,7 +65,9 @@ DriftKind = Literal[
     "organizational_mismatch",
 ]
 RecommendationAction = Literal["review_codeowners_rule", "remove_stale_rule"]
-_SIGNAL_NAMES = ("recency", "frequency", "blame", "review")
+OwnershipSignal = Literal["recency", "frequency", "blame", "review"]
+OWNERSHIP_SIGNALS: tuple[OwnershipSignal, ...] = ("recency", "frequency", "blame", "review")
+_SIGNAL_NAMES = OWNERSHIP_SIGNALS
 
 
 @dataclass(frozen=True)

@@ -23,7 +23,7 @@ flowchart LR
 
 State is cached per repo at `~/.checkowners/state/<repo-hash>.json` (override the base directory with `CHECKOWNERS_STATE_DIR`). The hash is the normalized `origin` URL when the repo has one, so two checkouts of the same remote share a file. A repo with no `origin` is keyed by its absolute path.
 
-`trends` is independent of the cached state. It runs its own `git log` pass to reconstruct per-period snapshots. `explain` and `owners` (`who`) also skip the cache. They analyze only the requested file or directory and do not write state.
+`trends` is independent of the cached state. It runs its own `git log` pass and reports `historical_activity_confidence` (`historical-v1`), not `ownership_score`. See [Trends](#trends). `explain` and `owners` (`who`) also skip the cache. They analyze only the requested file or directory and do not write state.
 
 Downstream commands reuse that file only when its commit is `HEAD`, its scoring config hash matches, and its model ids match. Otherwise they re-analyze. Place these flags before the command name:
 
@@ -375,6 +375,16 @@ analysis:
 A bare `analysis.min_commits: 3` without `strategy: threshold` stays adaptive: authors below the bar still qualify when blame is at least `strong_blame_override`.
 
 The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it covers every path that still has a human author after gitattributes, exclude, missing-file, and bot filters. Under `threshold` it still skips paths where no author reaches `min_commits`. Adaptive may therefore blame several times more paths than threshold; it does not blame excluded, deleted, or bot-only paths. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness. See [METHODOLOGY.md](METHODOLOGY.md) for availability rules and the full formula.
+
+## Trends
+
+`checkowners trends` reconstructs one snapshot per period from `git log`. Each point's `historical_activity_confidence` is the mean top score across paths that still have a scored owner. `avg_qualified_owner_count` is the mean capped count for those paths. Both use recency and frequency only.
+
+The JSON payload sets `metric` to `historical_activity_confidence`, `model_version` to `historical-v1`, and `signals` to `recency` and `frequency`. `limitation` states that this is not `ownership_score` (`ownership-v1`, which can include blame and review). Human output prints the same sentence. Envelope `schema_version` stays `"1"`. The point field replaces `avg_top_confidence`.
+
+`--compare-ownership` asks to name `ownership_score` in the same report. Without `--acknowledge-different-metrics` the command exits 2 and does not print the pair. With both flags, JSON adds `compared_to` (`metric`, `model_version`, `signals`) and human output says the two metrics are not on one axis. The historical column still does not contain `ownership_score` values. Historical blame is not reconstructed.
+
+`--periods` defaults to 6 (maximum 36). `--period-days` defaults to 30.
 
 ## Qualified owner count
 

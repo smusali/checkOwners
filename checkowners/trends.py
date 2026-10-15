@@ -1,18 +1,11 @@
-"""Historical ownership-confidence trends.
-
-Reconstructs the ownership snapshot at the end of each of the last N periods
-from a single ``git log`` pass and reports how concentration, confidence, and
-qualified owner count have evolved. The snapshot at each period end is cumulative: it uses
-every fetched commit up to that point, with recency measured relative to that
-period's end. Blame and review factors are not reconstructed historically, so
-the trend confidence uses the recency and frequency factors (renormalized).
-"""
+"""Historical activity confidence reconstructed from git log."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal, NotRequired, TypedDict
 
 from checkowners.analyze import (
     Contribution,
@@ -31,21 +24,67 @@ from checkowners.analyze import (
     signal_reliabilities,
     signal_weights,
 )
-from checkowners.models import Config, ScoringConfig
+from checkowners.models import (
+    OWNERSHIP_MODEL_VERSION,
+    OWNERSHIP_SIGNALS,
+    Config,
+    OwnershipSignal,
+    ScoringConfig,
+)
 
 _DEFAULT_PERIODS = 6
 _DEFAULT_PERIOD_DAYS = 30
 
+HistoricalSignal = Literal["recency", "frequency"]
+HISTORICAL_MODEL_VERSION: Literal["historical-v1"] = "historical-v1"
+HISTORICAL_METRIC: Literal["historical_activity_confidence"] = "historical_activity_confidence"
+OWNERSHIP_METRIC: Literal["ownership_score"] = "ownership_score"
+HISTORICAL_SIGNALS: tuple[HistoricalSignal, ...] = ("recency", "frequency")
+HISTORICAL_LIMITATION = (
+    "historical_activity_confidence and avg_qualified_owner_count use recency and "
+    "frequency only (historical-v1). They are not ownership_score (ownership-v1)."
+)
+SHARED_AXIS_REFUSAL = (
+    "Pass --acknowledge-different-metrics to name ownership_score next to "
+    "historical_activity_confidence. They are different metrics."
+)
+
+
+class ComparedModelJson(TypedDict):
+    metric: Literal["ownership_score"]
+    model_version: str
+    signals: list[OwnershipSignal]
+
+
+class TrendPointJson(TypedDict):
+    period_end: str
+    commits: int
+    active_contributors: int
+    tracked_paths: int
+    historical_activity_confidence: float
+    avg_qualified_owner_count: float
+    qualified_owner_count_cap: int
+
+
+class TrendReportJson(TypedDict):
+    periods: int
+    period_days: int
+    qualified_owner_count_cap: int
+    model_version: Literal["historical-v1"]
+    metric: Literal["historical_activity_confidence"]
+    signals: list[HistoricalSignal]
+    limitation: str
+    points: list[TrendPointJson]
+    compared_to: NotRequired[ComparedModelJson]
+
 
 @dataclass(frozen=True)
 class TrendPoint:
-    """Ownership metrics reconstructed at the end of one period."""
-
     period_end: datetime
     commits: int
     active_contributors: int
     tracked_paths: int
-    avg_top_confidence: float
+    historical_activity_confidence: float
     avg_qualified_owner_count: float
 
 
@@ -56,6 +95,51 @@ class TrendReport:
     period_days: int
 
 
+def historical_model_line() -> str:
+    signals = ", ".join(HISTORICAL_SIGNALS)
+    return f"model: {HISTORICAL_MODEL_VERSION} ({signals})"
+
+
+def compared_axis_line() -> str:
+    signals = ", ".join(OWNERSHIP_SIGNALS)
+    return (
+        f"{OWNERSHIP_METRIC} ({OWNERSHIP_MODEL_VERSION}: {signals}) "
+        f"is not on the same axis as {HISTORICAL_METRIC}."
+    )
+
+
+def trend_point_payload(point: TrendPoint, cap: int) -> TrendPointJson:
+    return {
+        "period_end": point.period_end.date().isoformat(),
+        "commits": point.commits,
+        "active_contributors": point.active_contributors,
+        "tracked_paths": point.tracked_paths,
+        "historical_activity_confidence": point.historical_activity_confidence,
+        "avg_qualified_owner_count": point.avg_qualified_owner_count,
+        "qualified_owner_count_cap": cap,
+    }
+
+
+def trend_report_payload(report: TrendReport, cap: int, *, compared: bool) -> TrendReportJson:
+    payload: TrendReportJson = {
+        "periods": report.periods,
+        "period_days": report.period_days,
+        "qualified_owner_count_cap": cap,
+        "model_version": HISTORICAL_MODEL_VERSION,
+        "metric": HISTORICAL_METRIC,
+        "signals": list(HISTORICAL_SIGNALS),
+        "limitation": HISTORICAL_LIMITATION,
+        "points": [trend_point_payload(point, cap) for point in report.points],
+    }
+    if compared:
+        payload["compared_to"] = {
+            "metric": OWNERSHIP_METRIC,
+            "model_version": OWNERSHIP_MODEL_VERSION,
+            "signals": list(OWNERSHIP_SIGNALS),
+        }
+    return payload
+
+
 def analyze_trends(
     repo_root: Path,
     config: Config,
@@ -64,11 +148,6 @@ def analyze_trends(
     period_days: int = _DEFAULT_PERIOD_DAYS,
     as_of: datetime | None = None,
 ) -> TrendReport:
-    """Fetch history and build the trend report for `repo_root`.
-
-    ``as_of`` is the newest period end. When omitted, ``resolve_as_of``
-    supplies it (SOURCE_DATE_EPOCH or HEAD, never the wall clock).
-    """
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     span_days = max(1, periods * period_days)
     history = _get_commit_history(
@@ -96,7 +175,6 @@ def build_trends(
     period_days: int,
     now: datetime,
 ) -> TrendReport:
-    """Compute per-period ownership metrics from a commit list (pure function)."""
     periods = max(1, periods)
     period_days = max(1, period_days)
     points: list[TrendPoint] = []
@@ -118,29 +196,28 @@ def _summarize(window: list[_RawCommit], config: Config, as_of: datetime) -> Tre
         if not _is_excluded(path, config.paths.exclude)
     }
     contributors = {author for authors in contributions.values() for author in authors}
-    # Distinct commits in the window: one commit touching many files counts once.
     total_commits = len(window)
 
-    top_confidences: list[float] = []
+    top_scores: list[float] = []
     qualified_owner_counts: list[int] = []
     for authors in contributions.values():
         owners = _score_path(authors, config, as_of)
         if not owners:
             continue
-        top_confidences.append(owners[0])
+        top_scores.append(owners[0])
         qualified_owner_counts.append(
-            sum(1 for c in owners if c >= config.analysis.confidence_threshold)
+            sum(1 for score in owners if score >= config.analysis.confidence_threshold)
         )
 
-    tracked = len(top_confidences)
-    avg_conf = round(sum(top_confidences) / tracked, 4) if tracked else 0.0
+    tracked = len(top_scores)
+    avg_score = round(sum(top_scores) / tracked, 4) if tracked else 0.0
     avg_count = round(sum(qualified_owner_counts) / tracked, 2) if tracked else 0.0
     return TrendPoint(
         period_end=as_of,
         commits=total_commits,
         active_contributors=len(contributors),
         tracked_paths=tracked,
-        avg_top_confidence=avg_conf,
+        historical_activity_confidence=avg_score,
         avg_qualified_owner_count=avg_count,
     )
 
@@ -150,7 +227,6 @@ def _score_path(
     config: Config,
     as_of: datetime,
 ) -> list[float]:
-    """Confidence scores (descending) for the qualified owners of one path."""
     qualified = _qualify_authors(
         authors,
         min_commits=config.analysis.min_commits,
@@ -166,7 +242,7 @@ def _score_path(
         _two_factor_confidence(contrib, max_credit, config.scoring, as_of, prior)
         for contrib in qualified.values()
     ]
-    scored = [c for c in scored if c >= config.analysis.confidence_threshold]
+    scored = [score for score in scored if score >= config.analysis.confidence_threshold]
     scored.sort(reverse=True)
     return scored[: config.analysis.top_n_owners]
 
@@ -178,7 +254,6 @@ def _two_factor_confidence(
     as_of: datetime,
     frequency_prior: float = 0.0,
 ) -> float:
-    """Recency + frequency score; blame and review are historically unavailable."""
     recency = _recency_score(
         contrib.last_commit,
         as_of,

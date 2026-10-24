@@ -42,6 +42,7 @@ from checkowners.analyze import (
     apply_completeness,
     head_commit_sha,
     resolve_as_of,
+    review_window_start,
 )
 from checkowners.balance import RECOMMENDATION_REASON, BalanceReport, ReviewLoad, analyze_balance
 from checkowners.baseline import (
@@ -544,7 +545,7 @@ def _stamp_output(
             else _try_generated_at(repo_root)
         )
     completeness, gaps = envelope_completeness(ownership)
-    return stamp_json(
+    stamped = stamp_json(
         dict(data),
         repository=repository_label(repo_root),
         head_sha=resolved_head,
@@ -553,6 +554,9 @@ def _stamp_output(
         analysis_gaps=gaps,
         evidence=external_evidence_payload(resolved_head),
     )
+    stamped["reviews_sampled"] = 0 if ownership is None else ownership.reviews_sampled
+    stamped["reviews_window_days"] = 0 if ownership is None else ownership.reviews_window_days
+    return stamped
 
 
 def _emit_json(
@@ -658,12 +662,7 @@ def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> Ownership
             cadence_days=po.cadence_days,
             cochange_degree=po.cochange_degree,
         )
-    return OwnershipMap(
-        paths=new_paths,
-        last_analyzed=ownership.last_analyzed,
-        analysis_ref=ownership.analysis_ref,
-        analysis_completeness=ownership.analysis_completeness,
-    )
+    return replace(ownership, paths=new_paths)
 
 
 def _merge_identities(
@@ -824,13 +823,8 @@ def _warn_missing_api_token(config: Config) -> None:
         )
 
 
-def _review_provider(config: Config) -> ReviewProvider | None:
-    """Build a GitHub-backed review provider when the API is enabled.
-
-    Requires github.api_enabled, a resolvable token, and the GITHUB_REPOSITORY
-    slug (set in GitHub Actions). Returns None otherwise, leaving review
-    unavailable so remaining weights are renormalized.
-    """
+def _review_provider(config: Config, as_of: datetime) -> ReviewProvider | None:
+    """Return the review provider for `config` at `as_of`, or None when collection is off."""
     if not config.github.api_enabled:
         return None
     repo_full_name = os.environ.get("GITHUB_REPOSITORY", "")
@@ -839,10 +833,17 @@ def _review_provider(config: Config) -> ReviewProvider | None:
     token = get_github_token()
     if not token:
         return None
+    since = review_window_start(config, as_of)
 
     def provider(emails: set[str]) -> dict[str, dict[str, float]]:
         allowed = {email for email in emails if not is_excluded(email, config.contributors_exclude)}
-        return build_review_coverage(token, repo_full_name, allowed)
+        return build_review_coverage(
+            token,
+            repo_full_name,
+            allowed,
+            as_of=as_of,
+            since=since,
+        )
 
     return provider
 
@@ -870,7 +871,7 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
             ownership = analyze_ownership(
                 repo_root,
                 config,
-                review_provider=_review_provider(config),
+                review_provider=_review_provider(config, as_of),
                 on_progress=on_progress,
                 as_of=as_of,
                 analysis_ref=analysis_ref,
@@ -2621,7 +2622,7 @@ def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMa
         ownership = analyze_ownership(
             repo_root,
             config,
-            review_provider=_review_provider(config),
+            review_provider=_review_provider(config, as_of),
             as_of=as_of,
             analysis_ref=analysis_ref,
             pathspec=(target,),

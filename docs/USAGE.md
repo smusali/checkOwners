@@ -55,6 +55,7 @@ version: 1
 
 analysis:
   lookback_days: 365          # integer days, or adaptive (history until the analysis instant)
+  review_lookback_days: 365   # positive integer; omit to follow lookback_days, including adaptive
   max_owners: 3               # was analysis.top_n_owners
   confidence_threshold: 0.3   # owners below this are dropped from CODEOWNERS
   respect_gitattributes: true # linguist-generated / linguist-vendored exclude paths first
@@ -195,7 +196,7 @@ security:
 
 `decay`, `bus_factor`, `criticality`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `criticality` is an ordered map of path globs to weights in `(0, 1]`. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
 
-Keys with no implementation yet are refused, including `model.signals.historical_depth` and `git.use_mailmap`. `policy` accepts `drift`, `single_expert`, `incomplete_analysis`, `unowned`, and `invalid_owner`, each with `fail` and `severity` (`error` or `warning`). `security` accepts `paths`, `minimum_effective_owners`, `require_declared_owner`, and `require_active_expert`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`. `git.count_co_authors` credits `Co-authored-by` trailers. `git.co_author_weight` is that credit relative to the author's `1`, in `[0, 1]`. `git.merge_strategy` is `auto`, `squash`, `merge`, or `rebase`. `auto` reports the dominant style in the lookback window. An explicit value is reported as given. See [Limitations](limitations.md).
+Keys with no implementation yet are refused, including `model.signals.historical_depth` and `git.use_mailmap`. `policy` accepts `drift`, `single_expert`, `incomplete_analysis`, `unowned`, and `invalid_owner`, each with `fail` and `severity` (`error` or `warning`). `security` accepts `paths`, `minimum_effective_owners`, `require_declared_owner`, and `require_active_expert`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`. `analysis.review_lookback_days` accepts a positive integer and, when omitted, uses `analysis.lookback_days`. `git.count_co_authors` credits `Co-authored-by` trailers. `git.co_author_weight` is that credit relative to the author's `1`, in `[0, 1]`. `git.merge_strategy` is `auto`, `squash`, `merge`, or `rebase`. `auto` reports the dominant style in the lookback window. An explicit value is reported as given. See [Limitations](limitations.md).
 
 `drift` covers `stale` and `changed`. `unowned` covers `missing`. `single_expert` covers `single-expert`. `invalid_owner` covers `invalid-owner`. `severity: error` blocks when `fail` is omitted. `severity: warning` does not. When both are set, `fail` decides the exit and `severity` is what the report shows. `drift` and `github-action` JSON include `policy` (the resolved checks plus `security`) and `blocking` (the novel findings that failed). A path under `security.paths` blocks when its effective owner count is below `minimum_effective_owners`, when `require_declared_owner` is true and the path has no owner, or when `require_active_expert` is true and every owner with freshness is other than `stable`. Paths outside that list, including `docs/**`, keep the global check. The Action `fail_on_drift` input overrides `policy.drift.fail` for that run. An empty input uses the file. The reported `policy.drift.fail` is the value the run used.
 
@@ -319,7 +320,7 @@ Each path-owner pair gets an `ownership_score` in `[0.0, 1.0]` from the availabl
 | Recency | `exp(-ln 2 × days_since_last_commit / half_life)` | 0.35 | 1.0 |
 | Frequency | `commits / (max_commits_for_path + prior)` (`prior` is 3 under `adaptive`, 0 under `threshold`) | 0.25 | 1.0 |
 | Blame coverage | `git blame` porcelain lines / total lines, after `-w`, optional `-M`/`-C`, ignore-revs, and `.mailmap` when enabled | 0.25 | 1.0 |
-| Review activity | PR reviews on the path (requires `github.api_enabled`) | 0.15 | 1.0 |
+| Review activity | PR reviews on pulls closed inside `analysis.review_lookback_days` (requires `github.api_enabled`) | 0.15 | 1.0 |
 
 ```text
 ownership_score  = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
@@ -440,7 +441,7 @@ qualified co-owner with lower current load
 
 `expertise` is that person's highest `ownership_score`. `current load` is `high` when completed reviews, or open requests still waiting, are at least twice the average; `low` when both are at or below the average; otherwise `typical`. JSON keeps `loads`, `overloaded`, and `suggestions`, including `proposed_shift`, and adds `load_signal`. The text does not print the shift and does not list everyone.
 
-With review history, each person can also carry `reviews_requested`, `reviews_completed`, `prs_waiting`, `median_response_time_hours`, `reviewed_lines`, `pr_complexity`, and `ownership_criticality`. Those fields are omitted on the authorship proxy. The sample is still the 200 most recently updated closed pull requests. Open pull requests, capped at the same number, supply the waiting queue. `median_response_time_hours` is hours from pull open to that person's first submitted review. `pr_complexity` is the median of `additions + deletions` on pulls they reviewed. `ownership_criticality` is the highest configured `criticality` weight on a path they own at or above the confidence threshold. It is unset when no rule matches.
+With review history, each person can also carry `reviews_requested`, `reviews_completed`, `prs_waiting`, `median_response_time_hours`, `reviewed_lines`, `pr_complexity`, and `ownership_criticality`. Those fields are omitted on the authorship proxy. That suggest sample is still the 200 most recently updated closed pull requests. It is not the ownership review window. Open pull requests, capped at the same number, supply the waiting queue. `median_response_time_hours` is hours from pull open to that person's first submitted review. `pr_complexity` is the median of `additions + deletions` on pulls they reviewed. `ownership_criticality` is the highest configured `criticality` weight on a path they own at or above the confidence threshold. It is unset when no rule matches.
 
 `review_concentration` is per analyzed path. It is reported when one person's share of reviews on that path is at least 0.72 and at least two owners meet the confidence threshold. A path with one knowledgeable owner is not a review monopoly. Commit share is not review concentration.
 
@@ -729,12 +730,14 @@ Shared fields on every command:
 | `generated_at` | The analysis instant (`--as-of`, `SOURCE_DATE_EPOCH`, or HEAD committer time), not the wall clock |
 | `analysis_completeness` | Fraction of the evidence catalog that was collected, rounded to 4 decimals. `null` when the command did not score owners (`validate`, `explain-path`, `trends`). A cached analysis written before this score existed falls back to the signal fraction |
 | `analysis_gaps` | Present when the score was computed. Each item is `{code, reason}` for one missing-evidence source |
+| `reviews_sampled` | Closed pull requests included in the ownership review sample. `0` when that sample was not collected |
+| `reviews_window_days` | Whole days from the analysis instant back to the oldest included pull. `0` when no pull was included. A young repository can report fewer days than the configured window with no gap |
 
 `print --json` puts path objects under `paths`, so a file cannot collide with an envelope key. On-disk baselines and `~/.checkowners` state are not stamped with this envelope. `baseline create --json` stdout is.
 
 `analyze` keeps ignore-revs, mailmap, exclusion counts, `merge_strategy`, and `co_author_count` on `analysis`, next to per-path `completeness` and `signals_available`. `merge_strategy` is `squash`, `merge`, or `rebase`. `co_author_count` is how many trailers added a person. Per-path `completeness` is still the fraction of scored `(owner, signal)` pairs. The envelope `analysis_completeness` is the run score, not that fraction and not the flag object.
 
-Human summaries print `analysis completeness: 73%` and one line per gap. A skipped team rule or an unresolved email comparison stays a note: it does not become a drift finding. Exhausting `max_runtime_seconds`, `max_api_requests`, or the GitHub rate limit records a gap and does not present the truncated run as complete. When the core quota cannot cover a review scan, the gap reason is `Review evidence omitted: GitHub API budget insufficient.`
+Human summaries print `analysis completeness: 73%` and one line per gap. A skipped team rule or an unresolved email comparison stays a note: it does not become a drift finding. Exhausting `max_runtime_seconds`, `max_api_requests`, or the GitHub rate limit records a gap and does not present the truncated run as complete. When review collection is rate limited before any pull is read, the gap reason is `Review evidence omitted: GitHub API budget insufficient.` When the request budget stops the review window after at least one pull, the reason starts with `Review window truncated:`.
 
 When a GitHub API call ran in the process, the envelope also includes `github_evidence_collected_at` and `repository_head`. `team_snapshot` is present only when org teams were fetched. Cache-only and noreply-only resolution do not add these fields.
 

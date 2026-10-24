@@ -73,6 +73,7 @@ _SIGNAL_NAMES = OWNERSHIP_SIGNALS
 @dataclass(frozen=True)
 class AnalysisConfig:
     lookback_days: LookbackDays = 365
+    review_lookback_days: int | None = None
     min_commits: int = 1
     top_n_owners: int = 3
     confidence_threshold: float = 0.3
@@ -306,10 +307,18 @@ INSUFFICIENT_HISTORY_REASON = "Insufficient history: no commits in the lookback 
 ABSENT_TOKEN_REASON = "Absent token: GitHub API evidence was not collected."  # noqa: S105
 REVIEW_HISTORY_REASON = "Review history unavailable."
 API_RATE_LIMIT_REASON = "Review evidence omitted: GitHub API budget insufficient."
-API_RATE_LIMIT_TRUNCATED_REASON = "Review evidence truncated: GitHub API budget insufficient."
 SEARCH_RATE_LIMIT_REASON = "Identity lookup omitted: GitHub API budget insufficient."
 API_BUDGET_REASON = "Analysis incomplete: API request budget exhausted."
 RUNTIME_BUDGET_REASON = "Analysis incomplete: runtime budget exhausted."
+
+
+def review_window_truncated_reason(days: int, configured: int | None) -> str:
+    """Return the review-window gap reason for `days` covered of `configured`."""
+    if configured is None:
+        return f"Review window truncated: sample covers {days} days."
+    return f"Review window truncated: sample covers {days} of {configured} days."
+
+
 TEAM_MEMBERSHIP_REASON = "Team membership unavailable: team rules were not compared."
 UNRESOLVED_RENAMES_REASON = "Unresolved renames: path history is not followed across renames."
 MISSING_MAILMAP_REASON = "Missing .mailmap."
@@ -509,6 +518,8 @@ class OwnershipMap:
     last_analyzed: datetime
     analysis_ref: str = ""
     analysis_completeness: AnalysisCompleteness = field(default_factory=AnalysisCompleteness)
+    reviews_sampled: int = 0
+    reviews_window_days: int = 0
 
 
 @dataclass(frozen=True)

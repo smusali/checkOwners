@@ -94,6 +94,16 @@
         },
         "team_snapshot": {
           "type": "string"
+        },
+        "reviews_sampled": {
+          "description": "Closed pull requests included in the ownership review sample. 0 when that sample was not collected.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "reviews_window_days": {
+          "description": "Whole days from the analysis instant back to the oldest included pull. 0 when no pull was included.",
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

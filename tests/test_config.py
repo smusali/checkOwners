@@ -111,9 +111,13 @@ def test_load_config_empty_file(tmp_path: Path) -> None:
 
 
 def test_load_config_partial_override(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "analysis:\n  lookback_days: 180\ngit:\n  detect_moves: true\n")
+    root = _write_config(
+        tmp_path,
+        "analysis:\n  lookback_days: 180\n  review_lookback_days: 90\ngit:\n  detect_moves: true\n",
+    )
     cfg = load_config(repo_root=root)
     assert cfg.analysis.lookback_days == 180
+    assert cfg.analysis.review_lookback_days == 90
     assert cfg.analysis.min_commits == 1
     assert cfg.qualification.min_commits == 1
     assert cfg.analysis.top_n_owners == 3

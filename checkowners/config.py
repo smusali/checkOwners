@@ -99,6 +99,7 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
 _V2_ANALYSIS: frozenset[str] = frozenset(
     {
         "lookback_days",
+        "review_lookback_days",
         "min_commits",
         "top_n_owners",
         "max_owners",
@@ -506,6 +507,11 @@ def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
     kwargs: dict[str, Any] = {}
     if "lookback_days" in data:
         kwargs["lookback_days"] = _parse_lookback(data["lookback_days"])
+    if "review_lookback_days" in data:
+        kwargs["review_lookback_days"] = _require_positive_int(
+            data["review_lookback_days"],
+            "analysis.review_lookback_days",
+        )
     if "min_commits" in data:
         kwargs["min_commits"] = int(data["min_commits"])
     if "top_n_owners" in data:

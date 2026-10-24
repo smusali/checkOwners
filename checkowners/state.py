@@ -436,6 +436,8 @@ def write_state(
             "qualified_owner_count_cap": qualified_owner_count_cap,
             "last_analyzed": ownership.last_analyzed.astimezone(UTC).isoformat(),
             "analysis_ref": ownership.analysis_ref,
+            "reviews_sampled": ownership.reviews_sampled,
+            "reviews_window_days": ownership.reviews_window_days,
             "analysis_completeness": {
                 "ignore_revs_applied": ownership.analysis_completeness.ignore_revs_applied,
                 "ignore_revs_file": ownership.analysis_completeness.ignore_revs_file,
@@ -523,6 +525,8 @@ def load_ownership(repo_root: Path) -> OwnershipMap | None:
         last_analyzed=last_analyzed,
         analysis_ref=analysis_ref,
         analysis_completeness=_deserialize_completeness(data.get("analysis_completeness")),
+        reviews_sampled=_nonnegative_int(data.get("reviews_sampled")),
+        reviews_window_days=_nonnegative_int(data.get("reviews_window_days")),
     )
 
 

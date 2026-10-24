@@ -21,7 +21,12 @@ from itertools import pairwise
 from pathlib import Path
 
 from checkowners.expertise import path_matches_glob
-from checkowners.github import collection_gaps, review_was_omitted
+from checkowners.github import (
+    collection_gaps,
+    reset_review_window,
+    review_was_omitted,
+    review_window,
+)
 from checkowners.models import (
     AnalysisCompleteness,
     ConfidenceScore,
@@ -235,6 +240,7 @@ def analyze_ownership(
     """
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     ref = analysis_ref if analysis_ref is not None else head_commit_sha(repo_root)
+    reset_review_window()
     deadline = time.monotonic() + config.analysis.max_runtime_seconds
     deadline_token = _BLAME_DEADLINE.set(deadline)
     try:
@@ -339,12 +345,15 @@ def _analyze_ownership(
         merge_strategy=history.merge_strategy,
         co_author_count=history.co_author_count,
     )
+    sample = review_window()
     return apply_completeness(
         OwnershipMap(
             paths=dict(sorted(paths.items())),
             last_analyzed=when,
             analysis_ref=ref,
             analysis_completeness=completeness,
+            reviews_sampled=sample.sampled,
+            reviews_window_days=sample.window_days,
         ),
         completeness,
         config.scoring,
@@ -705,6 +714,14 @@ def lookback_start(lookback: LookbackDays, when: datetime) -> datetime | None:
     if lookback == "adaptive":
         return None
     return when - timedelta(days=lookback)
+
+
+def review_window_start(config: Config, when: datetime) -> datetime | None:
+    """Return the review window start for `config` at `when`, or None when it is open-ended."""
+    days = config.analysis.review_lookback_days
+    if days is None:
+        return lookback_start(config.analysis.lookback_days, when)
+    return when - timedelta(days=days)
 
 
 def effective_half_life(cadence_days: float | None, scoring: ScoringConfig) -> float:

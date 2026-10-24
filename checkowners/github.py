@@ -532,8 +532,6 @@ def _coverage_fractions(
     coverage: dict[str, dict[str, float]] = {}
     for path, counts in raw.items():
         total = sum(counts.values())
-        if total == 0:
-            continue
         mapped = {
             login_to_email[login]: count / total
             for login, count in counts.items()
@@ -584,10 +582,11 @@ def _scan_review_pulls(
             break
         if nested_truncated or result.rate_limited or nested_limited:
             break
-        if parsed.cursor is None or parsed.cursor in seen:
+        next_cursor = parsed.cursor
+        if next_cursor is None or next_cursor in seen:
             break
-        seen.add(parsed.cursor)
-        cursor = parsed.cursor
+        seen.add(next_cursor)
+        cursor = next_cursor
     return _ReviewScan(tuple(pulls), finished, rate_limited, budget_stopped)
 
 
@@ -703,8 +702,6 @@ def _parse_pull_page(
     has_next = page is not None and page.get("hasNextPage") is True
     end = page.get("endCursor") if page is not None else None
     cursor = end if isinstance(end, str) and end else None
-    if cursor is None:
-        has_next = False
     included: list[_PullBuild] = []
     stop = False
     for node in _object_list(connection.get("nodes")):

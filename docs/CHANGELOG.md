@@ -30,6 +30,7 @@ Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0]
 
 ### Fixed
 - `requirements.lock` and `requirements-dev.lock` pin `PyJWT` 2.15.1 and `urllib3` 2.8.0 so `pip-audit` no longer fails on the advisories in the previous pins.
+- All three lock files pin `certifi` 2026.10.19, which drops the `emSign ECC Root CA - G3` root after its intermediates were compromised (PYSEC-2026-4320, GHSA-6q48-6c7w-9gw2).
 
 ## [0.6.0] - 2026-09-24
 

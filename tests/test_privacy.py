@@ -448,17 +448,19 @@ def test_review_provider_skips_excluded_emails(monkeypatch: pytest.MonkeyPatch) 
         github=GithubConfig(api_enabled=True),
         contributors_exclude=("skip@example.com",),
     )
+    as_of = datetime(2026, 10, 24, tzinfo=UTC)
     with patch("checkowners.cli.build_review_coverage", return_value={}) as coverage:
-        provider = _review_provider(config)
+        provider = _review_provider(config, as_of)
         assert provider is not None
         assert provider({"skip@example.com", "keep@example.com"}) == {}
     assert coverage.call_args is not None
     assert coverage.call_args.args[2] == {"keep@example.com"}
+    assert coverage.call_args.kwargs["as_of"] == as_of
     monkeypatch.delenv("GITHUB_REPOSITORY")
-    assert _review_provider(config) is None
+    assert _review_provider(config, as_of) is None
     monkeypatch.setenv("GITHUB_REPOSITORY", "acme/app")
     monkeypatch.delenv("GITHUB_TOKEN")
-    assert _review_provider(config) is None
+    assert _review_provider(config, as_of) is None
 
 
 def test_aggregate_person_is_blank() -> None:

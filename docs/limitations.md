@@ -135,10 +135,20 @@ and it is not evidence that nobody reviewed the path.
 `suggest` labels that gap as `load_signal: git_authorship_proxy`. The JSON
 field `reviews` then holds commit totals. Those totals are not review load,
 and the command does not recommend a person from them. When the API sample
-exists, the label is `github_completed_reviews`. That sample is still the
-most recently updated closed pull requests, at most 200. On a fast repository
-it can cover less time than `analysis.lookback_days`. Open pull requests,
-also capped at 200, are only the current waiting queue. `median_response_time_hours`
+exists, the label is `github_completed_reviews`. The ownership review factor
+uses pulls closed inside `analysis.review_lookback_days`, which follows
+`analysis.lookback_days` when omitted. Two repositories with the same
+in-window reviewers and paths get the same review shares even when one ships
+faster. `reviews_sampled` is how many closed pulls were included.
+`reviews_window_days` is the span back to the oldest of those pulls. A young
+repository can show a shorter span with no warning, because the pull list
+ended. A recently updated pull that closed before the window is not part of
+the signal, but walking those updates can spend `analysis.max_api_requests`
+before the window is filled. That stop is a gap whose reason starts with
+`Review window truncated:`, and it lowers `analysis_completeness`. It is not
+a silent short window. Suggest still reads the 200 most recently updated
+closed pull requests, and open pull requests, also capped at 200, are only
+the current waiting queue. `median_response_time_hours`
 is pull open to first submitted review, not the time from the review request.
 `pr_complexity` is the median number of changed lines, not a calibrated
 complexity score. `review_concentration` is per analyzed path, and only when

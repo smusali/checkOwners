@@ -6,7 +6,8 @@ import json
 import os
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime, timedelta
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
@@ -14,12 +15,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from checkowners.analyze import Contribution, review_window_start, score_owners
 from checkowners.github import (
+    _REVIEW_PAGE_SIZE,
     ReconciliationError,
+    _graphql,
+    _GraphqlResult,
     _mapping,
     _pull_ref,
     _require_mapping,
     _require_sha,
+    _span_days,
     begin_api_budget,
     build_review_coverage,
     clear_api_evidence,
@@ -36,15 +42,19 @@ from checkowners.github import (
     resolve_handles,
     resolve_noreply_handle,
     review_was_omitted,
+    review_window,
     set_offline,
     team_snapshot_hash,
 )
 from checkowners.models import (
     API_BUDGET_REASON,
     API_RATE_LIMIT_REASON,
-    API_RATE_LIMIT_TRUNCATED_REASON,
     SEARCH_RATE_LIMIT_REASON,
+    AnalysisConfig,
     AnalysisGap,
+    Config,
+    ScoringConfig,
+    completeness_score,
 )
 from checkowners.privacy import email_token
 from checkowners.state import read_handle_cache, write_handle_cache
@@ -60,78 +70,186 @@ def test_get_github_token_missing() -> None:
         assert get_github_token() == ""
 
 
-def _fake_pull(reviewer_logins: list[str], filenames: list[str]) -> MagicMock:
-    pull = MagicMock()
-    reviews = []
-    for login in reviewer_logins:
-        review = MagicMock()
-        review.user.login = login
-        reviews.append(review)
-    pull.get_reviews.return_value = reviews
-    files = []
-    for name in filenames:
-        changed = MagicMock()
-        changed.filename = name
-        files.append(changed)
-    pull.get_files.return_value = files
-    return pull
+_AS_OF = datetime(2026, 10, 24, tzinfo=UTC)
+_SINCE = _AS_OF - timedelta(days=365)
+_HANDLES = {"alice@example.com": "@alice", "bob@example.com": "@bob"}
+
+
+def _stamp(days_ago: int) -> str:
+    return (_AS_OF - timedelta(days=days_ago)).isoformat().replace("+00:00", "Z")
+
+
+def _pull_node(
+    number: int,
+    updated_days: int,
+    closed_days: int,
+    reviewers: list[str],
+    paths: list[str],
+    *,
+    files_cursor: str | None = None,
+    reviews_cursor: str | None = None,
+) -> dict[str, object]:
+    return {
+        "number": number,
+        "updatedAt": _stamp(updated_days),
+        "closedAt": _stamp(closed_days),
+        "reviews": {
+            "pageInfo": {
+                "hasNextPage": reviews_cursor is not None,
+                "endCursor": reviews_cursor,
+            },
+            "nodes": [{"author": {"login": login}} for login in reviewers],
+        },
+        "files": {
+            "pageInfo": {"hasNextPage": files_cursor is not None, "endCursor": files_cursor},
+            "nodes": [{"path": path} for path in paths],
+        },
+    }
+
+
+def _page(nodes: list[dict[str, object]], *, has_next: bool, cursor: str | None) -> _GraphqlResult:
+    return _GraphqlResult(
+        {
+            "repository": {
+                "pullRequests": {
+                    "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+                    "nodes": nodes,
+                }
+            }
+        },
+        False,
+    )
+
+
+def _paged(
+    nodes: list[dict[str, object]],
+    calls: list[str],
+) -> Callable[[str, str, Mapping[str, object]], _GraphqlResult]:
+    def respond(_token: str, query: str, variables: Mapping[str, object]) -> _GraphqlResult:
+        calls.append(query)
+        raw_cursor = variables.get("cursor")
+        index = int(raw_cursor) if isinstance(raw_cursor, str) and raw_cursor.isdigit() else 0
+        start = index * _REVIEW_PAGE_SIZE
+        chunk = nodes[start : start + _REVIEW_PAGE_SIZE]
+        has_next = start + _REVIEW_PAGE_SIZE < len(nodes)
+        return _page(chunk, has_next=has_next, cursor=str(index + 1) if has_next else None)
+
+    return respond
+
+
+def _collect(
+    emails: set[str],
+    query: Callable[[str, str, Mapping[str, object]], _GraphqlResult],
+    *,
+    handles: dict[str, str] | None = None,
+    since: datetime | None = _SINCE,
+) -> dict[str, dict[str, float]]:
+    with (
+        patch("checkowners.github.get_github_client", return_value=MagicMock()),
+        patch("checkowners.github.resolve_handles", return_value=handles or {}),
+        patch("checkowners.github._graphql", side_effect=query),
+    ):
+        return build_review_coverage("tok", "org/repo", emails, as_of=_AS_OF, since=since)
+
+
+def _review_scores(coverage: dict[str, dict[str, float]]) -> dict[str, float]:
+    owners = score_owners(
+        {
+            "alice@example.com": Contribution(commits=1, last_commit=_AS_OF, credit=1.0),
+            "bob@example.com": Contribution(commits=1, last_commit=_AS_OF, credit=1.0),
+        },
+        {},
+        coverage["a.py"],
+        max_commits=1.0,
+        scoring=ScoringConfig(),
+        now=_AS_OF,
+        blame_available=False,
+        review_available=True,
+    )
+    scores: dict[str, float] = {}
+    for owner in owners:
+        breakdown = owner.score_breakdown
+        if breakdown is not None:
+            scores[owner.handle] = breakdown.review.score
+    return scores
+
+
+def _window_pulls() -> list[dict[str, object]]:
+    return [
+        _pull_node(1, 100, 100, ["alice"], ["a.py"]),
+        _pull_node(2, 200, 200, ["alice"], ["a.py"]),
+        _pull_node(3, 300, 300, ["bob"], ["a.py"]),
+    ]
 
 
 def test_build_review_coverage_maps_logins_to_emails() -> None:
-    client = MagicMock()
-    repo = MagicMock()
-    repo.get_pulls.return_value = [
-        _fake_pull(["alice", "bob"], ["src/main.py"]),
-        _fake_pull(["alice"], ["src/main.py", "src/util.py"]),
-    ]
-    client.get_repo.return_value = repo
-    email_to_handle = {"alice@example.com": "@alice", "bob@example.com": "@bob"}
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value=email_to_handle),
-    ):
-        coverage = build_review_coverage(
-            "tok", "org/repo", {"alice@example.com", "bob@example.com"}
+    calls: list[str] = []
+
+    def respond(_token: str, query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        calls.append(query)
+        if "pullRequests(" in query:
+            return _page(
+                [
+                    _pull_node(1, 10, 10, ["alice", "bob"], ["src/main.py"]),
+                    _pull_node(2, 20, 20, ["alice"], ["src/main.py"], files_cursor="more"),
+                ],
+                has_next=False,
+                cursor=None,
+            )
+        return _GraphqlResult(
+            {
+                "repository": {
+                    "p0": {
+                        "files": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [{"path": "src/util.py"}],
+                        }
+                    }
+                }
+            },
+            False,
         )
-    # src/main.py: alice reviewed in 2 pulls, bob in 1 -> total 3.
+
+    coverage = _collect(
+        {"alice@example.com", "bob@example.com"},
+        respond,
+        handles=_HANDLES,
+    )
     assert coverage["src/main.py"]["alice@example.com"] == 2 / 3
     assert coverage["src/main.py"]["bob@example.com"] == 1 / 3
-    # src/util.py: only alice, single review -> full coverage.
     assert coverage["src/util.py"]["alice@example.com"] == 1.0
+    assert len(calls) == 2
 
 
-def test_build_review_coverage_omits_when_core_budget_is_exhausted() -> None:
+def test_build_review_coverage_omits_when_the_review_query_is_rate_limited() -> None:
     clear_api_evidence()
-    client = MagicMock()
-    client.get_rate_limit.return_value.core.remaining = 1
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
-    ):
-        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
+
+    def respond(_token: str, _query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        return _GraphqlResult(None, True)
+
+    coverage = _collect({"a@example.com"}, respond, handles={"a@example.com": "@a"})
     assert coverage == {}
-    assert client.get_repo.called is False
     assert review_was_omitted()
     assert any(gap.reason == API_RATE_LIMIT_REASON for gap in collection_gaps())
+    assert review_window().sampled == 0
     clear_api_evidence()
 
 
-def test_build_review_coverage_shrinks_when_core_budget_is_short() -> None:
+def test_review_window_truncation_warns_and_lowers_completeness() -> None:
     clear_api_evidence()
-    client = MagicMock()
-    client.get_rate_limit.return_value.core.remaining = 4
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
-        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter(())) as pulls,
-    ):
-        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
-    assert coverage == {}
-    assert pulls.call_args.args[2] == 2
+    begin_api_budget(1)
+
+    def respond(_token: str, _query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        return _page([_pull_node(1, 1, 1, ["a"], ["a.py"])], has_next=True, cursor="next")
+
+    coverage = _collect({"a@example.com"}, respond, handles={"a@example.com": "@a"})
+    assert coverage["a.py"]["a@example.com"] == 1.0
+    sample = review_window()
+    assert sample.sampled == 1
+    assert sample.window_days < 365
+    assert any(gap.reason.startswith("Review window truncated:") for gap in collection_gaps())
+    assert completeness_score(collection_gaps()) < completeness_score(())
     assert review_was_omitted() is False
-    reasons = [gap.reason for gap in collection_gaps()]
-    assert API_RATE_LIMIT_TRUNCATED_REASON in reasons
-    assert API_RATE_LIMIT_REASON not in reasons
     clear_api_evidence()
 
 
@@ -207,119 +325,458 @@ def test_search_rate_limit_failure_still_looks_up_handles() -> None:
     clear_api_evidence()
 
 
-def test_review_rate_limit_failure_keeps_the_planned_scan() -> None:
+def test_identical_review_behavior_matches_across_velocity() -> None:
     clear_api_evidence()
-    client = MagicMock()
-    client.get_rate_limit.side_effect = RuntimeError("down")
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
-        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter(())) as pulls,
-    ):
-        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
+    slow_calls: list[str] = []
+    fast_calls: list[str] = []
+    outside = [_pull_node(1000 + index, 1, 400, ["bob"], ["a.py"]) for index in range(200)]
+    fast_nodes = [*outside, *_window_pulls(), _pull_node(9, 400, 400, ["carol"], ["a.py"])]
+    slow = _collect(
+        {"alice@example.com", "bob@example.com"},
+        _paged(_window_pulls(), slow_calls),
+        handles=_HANDLES,
+    )
+    fast = _collect(
+        {"alice@example.com", "bob@example.com"},
+        _paged(fast_nodes, fast_calls),
+        handles=_HANDLES,
+    )
+    assert slow["a.py"] == fast["a.py"]
+    assert _review_scores(slow) == _review_scores(fast)
+    assert review_window().sampled == 3
+    assert review_window().window_days == 300
+    rest_calls = 2 * (len(outside) + len(_window_pulls()))
+    assert len(fast_calls) == (len(fast_nodes) + _REVIEW_PAGE_SIZE - 1) // _REVIEW_PAGE_SIZE
+    assert len(fast_calls) < rest_calls
+    assert len(slow_calls) == 1
+    clear_api_evidence()
+
+
+def test_review_without_a_user_does_not_page_files() -> None:
+    clear_api_evidence()
+    calls: list[str] = []
+
+    def respond(_token: str, query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        calls.append(query)
+        node: dict[str, object] = {
+            "number": 1,
+            "updatedAt": _stamp(1),
+            "closedAt": _stamp(1),
+            "reviews": {
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": [{"author": None}],
+            },
+            "files": {
+                "pageInfo": {"hasNextPage": True, "endCursor": "more"},
+                "nodes": [{"path": "a.py"}],
+            },
+        }
+        return _page([node], has_next=False, cursor=None)
+
+    coverage = _collect({"a@example.com"}, respond, handles={"a@example.com": "@a"})
     assert coverage == {}
-    assert pulls.call_args.args[2] == 200
+    assert len(calls) == 1
+    clear_api_evidence()
+
+
+def test_api_request_budget_stops_before_the_review_query() -> None:
+    clear_api_evidence()
+    begin_api_budget(0)
+    calls: list[str] = []
+    coverage = _collect({"a@example.com"}, _paged([], calls), handles={"a@example.com": "@a"})
+    assert coverage == {}
+    assert calls == []
+    assert review_was_omitted()
+    assert any(gap.reason == API_BUDGET_REASON for gap in collection_gaps())
+    clear_api_evidence()
+
+
+def _graphql_response(body: bytes, remaining: object = "8") -> MagicMock:
+    response = MagicMock()
+    response.read.return_value = body
+    response.headers.get.return_value = remaining
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
+    return response
+
+
+def test_review_coverage_ignores_a_repository_slug_and_a_failed_query() -> None:
+    clear_api_evidence()
+    with (
+        patch("checkowners.github.get_github_client", return_value=MagicMock()),
+        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
+    ):
+        assert (
+            build_review_coverage("tok", "noslug", {"a@example.com"}, as_of=_AS_OF, since=_SINCE)
+            == {}
+        )
+    failed = _collect(
+        {"a@example.com"},
+        lambda _token, _query, _variables: _GraphqlResult(None, False),
+        handles={"a@example.com": "@a"},
+    )
+    assert failed == {}
     assert review_was_omitted() is False
-    clear_api_evidence()
-
-
-def test_review_scan_keeps_the_planned_limit_when_quota_covers_it() -> None:
-    clear_api_evidence()
-    client = MagicMock()
-    client.get_rate_limit.return_value.core.remaining = 400
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
-        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter(())) as pulls,
-    ):
-        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
-    assert coverage == {}
-    assert pulls.call_args.args[2] == 200
+    missing = _collect(
+        {"a@example.com"},
+        lambda _token, _query, _variables: _GraphqlResult({"repository": None}, False),
+        handles={"a@example.com": "@a"},
+    )
+    assert missing == {}
+    empty = _collect(
+        {"a@example.com"},
+        lambda _token, _query, _variables: _page([], has_next=False, cursor=None),
+        handles={"a@example.com": "@a"},
+    )
+    assert empty == {}
+    assert review_window().sampled == 0
     assert collection_gaps() == ()
     clear_api_evidence()
 
 
-def test_review_page_fetch_stops_when_the_request_budget_is_spent() -> None:
+def test_review_scan_keeps_closed_pulls_inside_the_window() -> None:
+    future = (_AS_OF + timedelta(days=2)).isoformat().replace("+00:00", "Z")
+    nodes: list[dict[str, object]] = [
+        _pull_node(1, 10, 10, ["a"], ["a.py"]),
+        {
+            "number": True,
+            "updatedAt": _stamp(3),
+            "closedAt": _stamp(3),
+            "reviews": {"nodes": [{"author": {"login": "a"}}, {"author": {"login": 3}}, None]},
+            "files": {"nodes": [{"path": "kept.py"}, {"path": 4}, "skip"]},
+        },
+        {"updatedAt": "nope"},
+        {"closedAt": _stamp(2)},
+        {
+            "number": 4,
+            "updatedAt": future,
+            "closedAt": future,
+            "reviews": {"nodes": [{"author": {"login": "a"}}]},
+            "files": {"nodes": [{"path": "later.py"}]},
+        },
+        {
+            "number": 5,
+            "updatedAt": "2026-10-01T00:00:00",
+            "closedAt": "2026-10-01T00:00:00",
+            "reviews": {"nodes": [{"author": {"login": "a"}}]},
+            "files": {"nodes": [{"path": "naive.py"}]},
+        },
+        _pull_node(6, 4, 4, ["zoe"], ["other.py"]),
+        {
+            "number": 7,
+            "updatedAt": _stamp(5),
+            "reviews": {
+                "pageInfo": {"hasNextPage": True, "endCursor": 5},
+                "nodes": None,
+            },
+        },
+    ]
+    coverage = _collect(
+        {"a@example.com"},
+        lambda _token, _query, _variables: _page(nodes, has_next=False, cursor=None),
+        handles={"a@example.com": "@a"},
+    )
+    assert set(coverage) == {"a.py", "kept.py", "naive.py"}
+    assert "later.py" not in coverage
+    assert "other.py" not in coverage
+
+
+def test_review_follow_up_stops_when_the_budget_or_cursor_repeats() -> None:
     clear_api_evidence()
     begin_api_budget(1)
-    client = MagicMock()
-    client.get_rate_limit.return_value.core.remaining = 400
-    pull = _fake_pull(["ada"], ["a.py"])
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
-        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter([pull])),
-    ):
-        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
-    assert coverage == {}
-    pull.get_reviews.assert_not_called()
+    stopped = _collect(
+        {"a@example.com"},
+        lambda _token, _query, _variables: _page(
+            [_pull_node(1, 1, 1, ["a"], ["a.py"], files_cursor="more")],
+            has_next=True,
+            cursor="next",
+        ),
+        handles={"a@example.com": "@a"},
+    )
+    assert stopped["a.py"]["a@example.com"] == 1.0
+    assert any(gap.reason.startswith("Review window truncated:") for gap in collection_gaps())
+    clear_api_evidence()
+
+    def repeat(_token: str, _query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        return _page([_pull_node(1, 1, 1, ["a"], ["a.py"])], has_next=True, cursor="same")
+
+    repeated = _collect({"a@example.com"}, repeat, handles={"a@example.com": "@a"})
+    assert repeated["a.py"]["a@example.com"] == 1.0
+    assert any(gap.reason.startswith("Review window truncated:") for gap in collection_gaps())
+    clear_api_evidence()
+    missing_cursor = _collect(
+        {"a@example.com"},
+        lambda _token, _query, _variables: _GraphqlResult(
+            {
+                "repository": {
+                    "pullRequests": {
+                        "pageInfo": {"hasNextPage": True, "endCursor": None},
+                        "nodes": [_pull_node(2, 1, 1, ["a"], ["a.py"])],
+                    }
+                }
+            },
+            False,
+        ),
+        handles={"a@example.com": "@a"},
+    )
+    assert missing_cursor["a.py"]["a@example.com"] == 1.0
+    assert any(gap.reason.startswith("Review window truncated:") for gap in collection_gaps())
     clear_api_evidence()
 
 
-def test_review_file_fetch_stops_when_the_request_budget_is_spent() -> None:
+def test_review_follow_up_reads_reviews_and_reports_a_short_window() -> None:
+    clear_api_evidence()
+
+    def both(_token: str, query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        if "pullRequests(" in query:
+            return _page(
+                [_pull_node(1, 1, 1, ["a"], ["a.py"], files_cursor="f", reviews_cursor="r")],
+                has_next=False,
+                cursor=None,
+            )
+        return _GraphqlResult(
+            {
+                "repository": {
+                    "p0": {
+                        "reviews": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [{"author": {"login": "b"}}],
+                        },
+                        "files": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [{"path": "extra.py"}],
+                        },
+                    }
+                }
+            },
+            False,
+        )
+
+    covered = _collect(
+        {"a@example.com", "b@example.com"},
+        both,
+        handles={"a@example.com": "@a", "b@example.com": "@b"},
+    )
+    assert set(covered) == {"a.py", "extra.py"}
     clear_api_evidence()
     begin_api_budget(2)
-    client = MagicMock()
-    client.get_rate_limit.return_value.core.remaining = 400
-    pull = _fake_pull(["ada"], ["a.py"])
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
-        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter([pull])),
+
+    def limited(_token: str, query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        if "pullRequests(" in query:
+            return _page(
+                [_pull_node(2, 2, 2, ["a"], ["a.py"], reviews_cursor="r")],
+                has_next=True,
+                cursor="next",
+            )
+        return _GraphqlResult(
+            {
+                "repository": {
+                    "p0": {
+                        "reviews": {
+                            "pageInfo": {"hasNextPage": True, "endCursor": "more"},
+                            "nodes": [],
+                        }
+                    }
+                }
+            },
+            True,
+        )
+
+    _collect({"a@example.com"}, limited, handles={"a@example.com": "@a"})
+    assert any(gap.code == "api_rate_limit" for gap in collection_gaps())
+    clear_api_evidence()
+
+    def same_cursor(_token: str, query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        if "pullRequests(" in query:
+            return _page(
+                [_pull_node(3, 1, 1, ["a"], ["a.py"], reviews_cursor="r")],
+                has_next=False,
+                cursor=None,
+            )
+        return _GraphqlResult(
+            {
+                "repository": {
+                    "p0": {
+                        "reviews": {
+                            "pageInfo": {"hasNextPage": True, "endCursor": "r"},
+                            "nodes": [{"author": {"login": "a"}}],
+                        }
+                    }
+                }
+            },
+            False,
+        )
+
+    assert _collect({"a@example.com"}, same_cursor, handles={"a@example.com": "@a"})
+    clear_api_evidence()
+
+    def missing_repo(_token: str, query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        if "pullRequests(" in query:
+            return _page(
+                [_pull_node(4, 1, 1, ["a"], ["a.py"], reviews_cursor="r")],
+                has_next=False,
+                cursor=None,
+            )
+        return _GraphqlResult({"repository": None}, False)
+
+    def missing_node(_token: str, query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        if "pullRequests(" in query:
+            return _page(
+                [_pull_node(5, 1, 1, ["a"], ["a.py"], files_cursor="f")],
+                has_next=False,
+                cursor=None,
+            )
+        return _GraphqlResult({"repository": {}}, False)
+
+    def missing_page(_token: str, query: str, _variables: Mapping[str, object]) -> _GraphqlResult:
+        if "pullRequests(" in query:
+            return _page(
+                [_pull_node(6, 1, 1, ["a"], ["a.py"], files_cursor="f", reviews_cursor="r")],
+                has_next=False,
+                cursor=None,
+            )
+        return _GraphqlResult({"repository": {"p0": {}}}, False)
+
+    assert _collect({"a@example.com"}, missing_repo, handles={"a@example.com": "@a"})
+    assert _collect({"a@example.com"}, missing_node, handles={"a@example.com": "@a"})
+    assert _collect({"a@example.com"}, missing_page, handles={"a@example.com": "@a"})
+    clear_api_evidence()
+
+
+def test_open_ended_review_window_names_the_truncated_span() -> None:
+    clear_api_evidence()
+    begin_api_budget(1)
+    _collect(
+        {"a@example.com"},
+        lambda _token, _query, _variables: _page(
+            [_pull_node(1, 2, 2, ["a"], ["a.py"])],
+            has_next=True,
+            cursor="next",
+        ),
+        handles={"a@example.com": "@a"},
+        since=None,
+    )
+    assert any(
+        gap.reason == "Review window truncated: sample covers 2 days." for gap in collection_gaps()
+    )
+    clear_api_evidence()
+
+
+def test_review_window_start_uses_an_explicit_day_count() -> None:
+    explicit = Config(analysis=AnalysisConfig(lookback_days="adaptive", review_lookback_days=14))
+    assert review_window_start(explicit, _AS_OF) == _AS_OF - timedelta(days=14)
+    adaptive = Config(analysis=AnalysisConfig(lookback_days="adaptive"))
+    assert review_window_start(adaptive, _AS_OF) is None
+    assert _span_days(_AS_OF, _AS_OF + timedelta(days=1)) == 0
+
+
+def test_graphql_review_query_reports_transport_and_payload_failures() -> None:
+    clear_api_evidence()
+    with patch.dict(os.environ, {"GITHUB_API_URL": "ftp://example.test"}):
+        assert _graphql("tok", "query {}", {}).data is None
+    payload = {"data": {"repository": {"name": "app"}}}
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        return_value=_graphql_response(json.dumps(payload).encode(), "4"),
     ):
-        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
-    assert coverage == {}
-    pull.get_reviews.assert_called_once()
-    pull.get_files.assert_not_called()
-    clear_api_evidence()
-
-
-def test_review_without_a_user_does_not_fetch_files() -> None:
-    clear_api_evidence()
-    client = MagicMock()
-    client.get_rate_limit.return_value.core.remaining = 400
-    pull = MagicMock()
-    review = MagicMock()
-    review.user = None
-    pull.get_reviews.return_value = [review]
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
-        patch("checkowners.github.iter_recent_closed_pulls", return_value=iter([pull])),
+        loaded = _graphql("tok", "query {}", {"cursor": None})
+    assert loaded.data == payload["data"]
+    assert loaded.rate_limited is False
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        return_value=_graphql_response(json.dumps(payload).encode(), "0"),
     ):
-        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
-    assert coverage == {}
-    pull.get_files.assert_not_called()
-    clear_api_evidence()
-
-
-def test_api_request_budget_stops_before_the_rate_limit_probe() -> None:
-    clear_api_evidence()
-    begin_api_budget(0)
-    client = MagicMock()
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={"a@example.com": "@a"}),
+        assert _graphql("tok", "query {}", {}).rate_limited is True
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        return_value=_graphql_response(json.dumps(payload).encode(), 3),
     ):
-        coverage = build_review_coverage("tok", "org/repo", {"a@example.com"})
-    assert coverage == {}
-    assert client.get_rate_limit.called is False
-    assert any(gap.reason == API_BUDGET_REASON for gap in collection_gaps())
+        counted = _graphql("tok", "query {}", {})
+    assert counted.rate_limited is False
+    limited = json.dumps({"errors": [{"type": "RATE_LIMITED"}]}).encode()
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        return_value=_graphql_response(limited, "9"),
+    ):
+        assert _graphql("tok", "query {}", {}).rate_limited is True
+    message = json.dumps(
+        {"errors": [1, {"message": "API rate limit exceeded"}, {"type": "OTHER"}]}
+    ).encode()
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        return_value=_graphql_response(message, "9"),
+    ):
+        assert _graphql("tok", "query {}", {}).rate_limited is True
+    for body in (b"[]", b"\xff", b"{"):
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            return_value=_graphql_response(body, "9"),
+        ):
+            assert _graphql("tok", "query {}", {}).data is None
+    plain = json.dumps({"errors": "nope"}).encode()
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        return_value=_graphql_response(plain, "9"),
+    ):
+        assert _graphql("tok", "query {}", {}).rate_limited is False
+    other = json.dumps(
+        {"data": {"repository": {}}, "errors": [{"message": 1}, {"message": "nope"}]}
+    ).encode()
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        return_value=_graphql_response(other, "9"),
+    ):
+        assert _graphql("tok", "query {}", {}).rate_limited is False
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        side_effect=urllib.error.HTTPError(
+            "https://api.github.com/graphql",
+            403,
+            "no",
+            Message(),
+            BytesIO(b"no"),
+        ),
+    ):
+        assert _graphql("tok", "query {}", {}).rate_limited is True
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        side_effect=urllib.error.HTTPError(
+            "https://api.github.com/graphql",
+            500,
+            "no",
+            Message(),
+            BytesIO(b"no"),
+        ),
+    ):
+        assert _graphql("tok", "query {}", {}).rate_limited is False
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        side_effect=urllib.error.URLError("down"),
+    ):
+        assert _graphql("tok", "query {}", {}).data is None
+    with patch(
+        "checkowners.github.urllib.request.urlopen",
+        side_effect=TimeoutError(),
+    ):
+        assert _graphql("tok", "query {}", {}).data is None
     clear_api_evidence()
 
 
 def test_build_review_coverage_empty_without_client() -> None:
     with patch("checkowners.github.get_github_client", return_value=None):
-        assert build_review_coverage("tok", "org/repo", {"a@example.com"}) == {}
+        coverage = build_review_coverage(
+            "tok",
+            "org/repo",
+            {"a@example.com"},
+            as_of=_AS_OF,
+            since=_SINCE,
+        )
+        assert coverage == {}
 
 
 def test_build_review_coverage_empty_when_no_handles_resolve() -> None:
-    client = MagicMock()
-    with (
-        patch("checkowners.github.get_github_client", return_value=client),
-        patch("checkowners.github.resolve_handles", return_value={}),
-    ):
-        assert build_review_coverage("tok", "org/repo", {"a@example.com"}) == {}
+    coverage = _collect({"a@example.com"}, _paged([], []))
+    assert coverage == {}
 
 
 def test_get_github_client_with_token() -> None:

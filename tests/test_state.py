@@ -248,6 +248,8 @@ def test_write_and_read_roundtrip(repo: Path) -> None:
     assert data["bus_factor_summary"]["qualified_owner_count_cap"] == 3
     assert data["models"] == models_payload()
     assert data["analysis_ref"] == "deadbeef"
+    assert data["reviews_sampled"] == 0
+    assert data["reviews_window_days"] == 0
     assert data["analysis_completeness"] == {
         "ignore_revs_applied": False,
         "ignore_revs_file": "",
@@ -717,6 +719,8 @@ def test_load_ownership_analysis_ref_and_timestamp_edges(repo: Path) -> None:
     loaded = load_ownership(repo)
     assert loaded is not None
     assert loaded.analysis_ref == ""
+    assert loaded.reviews_sampled == 0
+    assert loaded.reviews_window_days == 0
     assert set(loaded.paths) == {"src/good.py", "src/decay.py"}
     assert loaded.paths["src/decay.py"].qualified_owner_count == 0
     assert len(loaded.paths["src/decay.py"].decay_warnings) == 1

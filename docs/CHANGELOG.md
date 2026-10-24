@@ -8,7 +8,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 
 ## [Unreleased]
 
-Next cycle is `0.7.0` (ownership risk and scale), tracked in [#183](https://github.com/smusali/checkowners/issues/183).
+Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183).
 
 ### Added
 - `checkowners suggest` recommends one reviewer from expertise and current load, with `balance` as an alias, always showing `load_signal`, treating commit totals as a git authorship proxy that recommends nobody, and, when the GitHub sample exists, adding requested and completed reviews, open requests, median response time, reviewed lines, pull complexity, ownership criticality, `review_concentration`, and writer, reviewer, and declared-owner divergence.
@@ -26,7 +26,7 @@ Next cycle is `0.7.0` (ownership risk and scale), tracked in [#183](https://gith
 - The Action `fail_on_drift` input defaults to empty, so a run follows `policy.drift.fail` unless the workflow sets `true` or `false`. `checkowners drift` exits 3 only when policy marks a novel finding as blocking.
 
 ### Removed
-- `ROADMAP.md`, `docs/ACTION_ITEMS.md`, and `docs/PROJECT_STATE_AND_ROADMAP.md`. Planning lives in the issue tracker: each issue's "Blocked by" list carries its dependencies, and `release` issues carry each version's scope, pin, and publish steps.
+- `ROADMAP.md`, `docs/ACTION_ITEMS.md`, and `docs/PROJECT_STATE_AND_ROADMAP.md`. Planning lives in the issue tracker: a `v0.x.0` label marks the release each issue ships in, its "Blocked by" list carries its dependencies, and one `Upgrade to v0.x.0` issue per release pins and publishes that version.
 
 ### Fixed
 - `requirements.lock` and `requirements-dev.lock` pin `PyJWT` 2.15.1 and `urllib3` 2.8.0 so `pip-audit` no longer fails on the advisories in the previous pins.

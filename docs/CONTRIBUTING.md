@@ -4,7 +4,7 @@ Thanks for thinking about contributing. CheckOwners is a pure-git ownership infe
 
 ## Picking work
 
-Start from a [good first issue](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or any [open issue](https://github.com/smusali/checkowners/issues). Every planned change is an issue, and its "Blocked by" list names what has to merge first. Issues labeled [`release`](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3Arelease) track each version's scope, pin, and publish.
+Start from a [good first issue](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or any [open issue](https://github.com/smusali/checkowners/issues). Every planned change is an issue with a label for the release it ships in, such as [`v0.7.0`](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3Av0.7.0), and its "Blocked by" list names what has to merge first. One `Upgrade to v0.x.0` issue per release pins and publishes that version.
 
 Usage questions go to [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a). The issue tracker is for bugs, false positives, and features; those forms are required.
 
@@ -141,4 +141,4 @@ A breaking change is any of:
 
 Scoring, risk classification, and topology each have a model id (`model.ownership`, `model.risk`, `model.topology`). Changing the algorithm bumps that id. Configuration files may pin the ids this release implements; an unknown pin is refused. Cached analyze state and the graph cache are reused only when those ids match.
 
-Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.md) as they merge. Leave `[Unreleased]` non-empty. A pointer to the next version's [`release`](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3Arelease) upgrade issue is enough when nothing has landed yet.
+Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.md) as they merge. Leave `[Unreleased]` non-empty. A pointer to the next `Upgrade to v0.x.0` issue is enough when nothing has landed yet.

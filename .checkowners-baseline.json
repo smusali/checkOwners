@@ -137,13 +137,6 @@
       "owners": [
         "samir.musali@gmail.com"
       ],
-      "path": "ROADMAP.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "samir.musali@gmail.com"
-      ],
       "path": "SECURITY.md",
       "rule": "single-expert"
     },
@@ -347,13 +340,6 @@
       "owners": [
         "samir.musali@gmail.com"
       ],
-      "path": "docs/ACTION_ITEMS.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "samir.musali@gmail.com"
-      ],
       "path": "docs/CHANGELOG.md",
       "rule": "single-expert"
     },
@@ -390,13 +376,6 @@
         "samir.musali@gmail.com"
       ],
       "path": "docs/PRIVACY.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "samir.musali@gmail.com"
-      ],
-      "path": "docs/PROJECT_STATE_AND_ROADMAP.md",
       "rule": "single-expert"
     },
     {

@@ -102,7 +102,8 @@ def init_git_repo(path: Path) -> Path:
         ("commit.gpgsign", "false"),
         ("core.autocrlf", "false"),
         ("core.quotePath", "false"),
-        ("core.precomposeunicode", "false"),
+        ("core.precomposeunicode", "true"),
+        ("core.longpaths", "true"),
     ):
         _git(path, ["git", "config", key, value], env=env)
     return path
@@ -216,6 +217,7 @@ def analyze_regression_repo(repo: GitRepo) -> OwnershipMap:
 
 
 def script_regression_repo(repo: GitRepo) -> None:
+    long_path = f"deep/{'a' * 200}.py"
     repo.commit_files(
         {
             "src/main.py": "def total(items):\n    return sum(items)\n",
@@ -223,6 +225,8 @@ def script_regression_repo(repo: GitRepo) -> None:
             "app/[companyId]/page.tsx": "export const page = 1\n",
             "notes/ünicode.py": "value = 1\n",
             "generated/out.py": "x = 1\n",
+            "Dir/File.py": "name = 'File'\n",
+            long_path: "long_path = True\n",
         },
         "squash initial tree",
         author="Alice",

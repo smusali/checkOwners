@@ -127,6 +127,15 @@ def _no_blame(
 _DEFAULT_BLAME = "abc 1 1 1\nauthor Alice\nauthor-mail <alice@example.com>\n\tline\n"
 
 
+def _git_subcommand(cmd: list[str]) -> str:
+    index = 1
+    while index < len(cmd) and cmd[index] == "-c":
+        index += 2
+    if index >= len(cmd):
+        return ""
+    return cmd[index]
+
+
 def _dispatch_git(
     *,
     log_stdout: str = "",
@@ -138,17 +147,18 @@ def _dispatch_git(
     reject_mailmap: bool = False,
 ) -> object:
     def fake(cmd: list[str], **_kwargs: object) -> object:
-        if cmd[1] == "version":
+        command = _git_subcommand(cmd)
+        if command == "version":
             return _mock_run(version)
-        if cmd[1] == "config":
+        if command == "config":
             if config_value is None:
                 raise subprocess.CalledProcessError(1, cmd)
             return _mock_run(config_value)
-        if cmd[1] == "ls-files":
+        if command == "ls-files":
             return _mock_run(ls_files)
-        if cmd[1] == "log":
+        if command == "log":
             return _mock_run(log_stdout)
-        if cmd[1] == "blame":
+        if command == "blame":
             if reject_mailmap and "--line-porcelain" not in cmd:
                 return _mock_run("error: unknown option `--use-mailmap'\n")
             if on_blame is not None and "--line-porcelain" in cmd:
@@ -911,13 +921,14 @@ def test_progress_hook_reports_blame_progress() -> None:
     blame_stdout = "abc 1 1 1\nauthor Alice\nauthor-mail <alice@example.com>\n\tline\n"
 
     def fake_git(cmd: list[str], **_kwargs: object) -> object:
-        if cmd[1] == "blame":
+        command = _git_subcommand(cmd)
+        if command == "blame":
             return _mock_run(blame_stdout)
-        if cmd[1] == "version":
+        if command == "version":
             return _mock_run("git version 2.40.0")
-        if cmd[1] == "config":
+        if command == "config":
             raise subprocess.CalledProcessError(1, cmd)
-        if cmd[1] == "ls-files":
+        if command == "ls-files":
             return _mock_run("a.py\nb.py\n")
         return _mock_run(stdout)
 
@@ -1064,6 +1075,47 @@ def test_git_probes_ignore_unexpected_output(tmp_path: Path) -> None:
     assert _stdout_has_rename("RX\told.py\tnew.py\n") is False
     assert _stdout_has_rename("R\n") is False
     assert _stdout_has_rename("M\told.py\n") is False
+    shallow_file = tmp_path / "shallow"
+    echoed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="--is-shallow-repository\n",
+        stderr="",
+    )
+
+    def fallback(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "--git-path" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout=f"{shallow_file.as_posix()}\n",
+                stderr="",
+            )
+        return echoed
+
+    with patch(_MOCK_GIT, side_effect=fallback):
+        assert _is_shallow_repository(tmp_path) is False
+    shallow_file.write_text("abc\n", encoding="utf-8")
+    with patch(_MOCK_GIT, side_effect=fallback):
+        assert _is_shallow_repository(tmp_path) is True
+    origin = init_git_repo(tmp_path / "origin")
+    (origin / "README").write_text("full\n", encoding="utf-8")
+    git_commit(
+        origin,
+        "init",
+        author="Test",
+        email="test@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    cloned = tmp_path / "cloned"
+    subprocess.run(  # noqa: S603
+        ["git", "clone", "--depth", "1", origin.as_uri(), cloned.as_posix()],  # noqa: S607
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert _is_shallow_repository(cloned) is True
+    assert _is_shallow_repository(origin) is False
 
 
 def test_ignore_revs_path_rejects_unexpected_names(tmp_path: Path) -> None:
@@ -1362,6 +1414,8 @@ def test_gather_includes_fidelity_flags_by_default() -> None:
     assert "-M" in seen[0]
     assert "-C" in seen[0]
     assert "--use-mailmap" in seen[0]
+    assert "core.quotePath=false" in seen[0]
+    assert "core.longpaths=true" in seen[0]
 
 
 def test_gather_omits_move_flags_when_disabled() -> None:
@@ -1646,7 +1700,9 @@ def test_pathspec_limits_blame_to_requested_path() -> None:
         )
     assert blamed == ["keep.py"]
     assert set(result.paths) == {"keep.py"}
-    log_calls = [call.args[0] for call in mock.call_args_list if call.args[0][1] == "log"]
+    log_calls = [
+        call.args[0] for call in mock.call_args_list if _git_subcommand(call.args[0]) == "log"
+    ]
     assert log_calls
     assert "--" in log_calls[0]
     assert "keep.py" in log_calls[0]

@@ -304,3 +304,12 @@ def test_patterns_match_paths_from_git_ls_files(git_repo: GitRepo) -> None:
     assert pattern_matches("app/*/page.tsx", bracket)
     assert pattern_matches("notes/", unicode_path)
     assert pattern_matches(unicode_path, unicode_path)
+    cased = next(path for path in tracked if path == "Dir/File.py")
+    long_path = next(path for path in tracked if path.startswith("deep/"))
+    for path in tracked:
+        assert "\\" not in path
+        assert not path.startswith("/")
+        assert not (len(path) >= 2 and path[1] == ":")
+    assert pattern_matches("dir/file.py", cased) is False
+    assert pattern_matches(cased, cased)
+    assert pattern_matches(long_path, long_path)

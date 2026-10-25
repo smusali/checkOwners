@@ -43,6 +43,7 @@ from checkowners.analyze import (
     head_commit_sha,
     resolve_as_of,
     review_window_start,
+    run_git,
 )
 from checkowners.balance import RECOMMENDATION_REASON, BalanceReport, ReviewLoad, analyze_balance
 from checkowners.baseline import (
@@ -1065,7 +1066,7 @@ def generate(
     if json_output:
         _emit_json(
             {
-                "path": str(rel_path),
+                "path": rel_path.as_posix(),
                 "content": result.content,
                 "broad_patterns": [record.as_json() for record in result.broad_patterns],
                 **codeowners_write_metrics(result.content),
@@ -1600,7 +1601,7 @@ def _sync_payload(
     pull_request: ReconciliationResult | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
-        "path": str(rel_path),
+        "path": rel_path.as_posix(),
         "committed": committed,
         "content": result.content,
         "broad_patterns": [record.as_json() for record in result.broad_patterns],
@@ -1695,19 +1696,11 @@ def _commit_synced(
         )
         return
     try:
-        subprocess.run(  # noqa: S603  # literal git argv, no shell
-            ["git", "add", str(rel_path)],  # noqa: S607  # git from PATH; path is in-repo
-            cwd=repo_root,
+        run_git(repo_root, ["git", "add", rel_path.as_posix()], check=True)
+        run_git(
+            repo_root,
+            ["git", "commit", "-m", "chore: sync CODEOWNERS via checkowners"],
             check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "chore: sync CODEOWNERS via checkowners"],  # noqa: S607  # git from PATH; argv is a literal list
-            cwd=repo_root,
-            check=True,
-            capture_output=True,
-            text=True,
         )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or str(exc)).strip()
@@ -1729,12 +1722,10 @@ def _commit_synced(
 def _has_uncommitted_changes(repo_root: Path, rel_path: Path) -> bool:
     """True when the generated file differs from what is committed."""
     try:
-        result = subprocess.run(  # noqa: S603  # literal git argv, no shell
-            ["git", "status", "--porcelain", "--", str(rel_path)],  # noqa: S607  # git from PATH; path follows --
-            cwd=repo_root,
+        result = run_git(
+            repo_root,
+            ["git", "status", "--porcelain", "--", rel_path.as_posix()],
             check=True,
-            capture_output=True,
-            text=True,
         )
     except subprocess.CalledProcessError:
         return True

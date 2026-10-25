@@ -658,7 +658,7 @@ def test_sync_rich() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
-        patch("checkowners.cli.subprocess.run") as mock_run,
+        patch("checkowners.cli.run_git") as mock_run,
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
@@ -672,7 +672,7 @@ def test_sync_json() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
-        patch("checkowners.cli.subprocess.run") as mock_run,
+        patch("checkowners.cli.run_git") as mock_run,
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
@@ -692,7 +692,7 @@ def test_sync_git_os_error() -> None:
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
         patch(
-            "checkowners.cli.subprocess.run",
+            "checkowners.cli.run_git",
             side_effect=[status, OSError("git not found")],
         ),
         _MOCK_PATH,
@@ -709,7 +709,7 @@ def test_sync_git_commit_error() -> None:
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
         patch(
-            "checkowners.cli.subprocess.run",
+            "checkowners.cli.run_git",
             side_effect=subprocess.CalledProcessError(1, "git", stderr="nothing to commit"),
         ),
         _MOCK_PATH,
@@ -1708,7 +1708,7 @@ def test_sync_noop_when_already_in_sync(tmp_path: Path, monkeypatch: pytest.Monk
         patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
         patch("checkowners.cli.find_codeowners_path", return_value=target),
         patch("checkowners.cli.open_or_update_reconciliation") as reconcile,
-        patch("checkowners.cli.subprocess.run") as mock_run,
+        patch("checkowners.cli.run_git") as mock_run,
         _MOCK_TOKEN,
     ):
         human = runner.invoke(app, ["sync"])
@@ -1741,7 +1741,7 @@ def test_sync_dry_run_writes_nothing_and_opens_nothing(
             "checkowners.cli.generate_codeowners",
             return_value=GenerateResult(content=proposed, broad_patterns=()),
         ) as generated,
-        patch("checkowners.cli.subprocess.run") as git,
+        patch("checkowners.cli.run_git") as git,
         patch("checkowners.github.urllib.request.urlopen") as urlopen,
     ):
         result = runner.invoke(app, ["sync", "--commit", "--dry-run"])
@@ -1911,7 +1911,7 @@ def test_sync_dry_run_json_and_clean_preview(
             "checkowners.cli.generate_codeowners",
             return_value=GenerateResult(content=current, broad_patterns=()),
         ),
-        patch("checkowners.cli.subprocess.run") as git,
+        patch("checkowners.cli.run_git") as git,
         patch("checkowners.github.urllib.request.urlopen") as urlopen,
     ):
         clean = runner.invoke(app, ["sync", "--dry-run"])
@@ -1952,7 +1952,7 @@ def test_sync_commit_flag_still_opens_pull_request_when_pr_is_set() -> None:
                 "updated": False,
             },
         ) as reconcile,
-        patch("checkowners.cli.subprocess.run") as git,
+        patch("checkowners.cli.run_git") as git,
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
@@ -1968,7 +1968,7 @@ def test_sync_commit_noop_when_worktree_is_clean() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
         patch("checkowners.cli.generate_codeowners", return_value=_GENERATED),
-        patch("checkowners.cli.subprocess.run", return_value=status) as git,
+        patch("checkowners.cli.run_git", return_value=status) as git,
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
@@ -1976,7 +1976,7 @@ def test_sync_commit_noop_when_worktree_is_clean() -> None:
     assert result.exit_code == 0, result.output
     assert "nothing to commit" in result.stdout
     git.assert_called_once()
-    assert git.call_args.args[0][:2] == ["git", "status"]
+    assert git.call_args.args[1][:2] == ["git", "status"]
 
 
 def test_sync_prints_reconciliation_error_without_traceback() -> None:
@@ -2090,7 +2090,7 @@ def test_sync_verification_failure_does_not_commit() -> None:
             side_effect=CodeownersVerificationError("round-trip failed"),
         ),
         patch("checkowners.cli.open_or_update_reconciliation") as reconcile,
-        patch("checkowners.cli.subprocess.run") as mock_run,
+        patch("checkowners.cli.run_git") as mock_run,
         _MOCK_PATH,
         _MOCK_TOKEN,
     ):
@@ -2554,7 +2554,7 @@ def test_command_json_includes_models(
         patch("checkowners.cli.rank_expertise", return_value=()),
         patch("checkowners.cli.declared_teams_from_github", return_value={}),
         patch("checkowners.cli.build_explanation", return_value=explanation),
-        patch("checkowners.cli.subprocess.run", return_value=MagicMock(returncode=0, stdout="")),
+        patch("checkowners.cli.run_git", return_value=MagicMock(returncode=0, stdout="")),
         patch("checkowners.cli.github_repository", return_value="acme/app"),
         patch(
             "checkowners.cli.open_or_update_reconciliation",
@@ -2824,12 +2824,12 @@ def test_exit_code_contract(
         patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph"),
         patch(
-            "checkowners.cli.subprocess.run",
+            "checkowners.cli.run_git",
             side_effect=subprocess.CalledProcessError(1, "git", stderr="commit failed"),
         )
         if git_sync
         else patch(
-            "checkowners.cli.subprocess.run",
+            "checkowners.cli.run_git",
             return_value=MagicMock(returncode=0, stdout=""),
         ),
         patch("checkowners.cli.github_repository", return_value="acme/app"),

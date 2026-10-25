@@ -625,6 +625,9 @@ def test_generate_sanitizes_tracked_bracket_and_space_paths(git_repo: GitRepo) -
     assert rule_lines
     assert all("[" not in line and "]" not in line for line in rule_lines)
     assert any("getting\\ started.md" in line for line in rule_lines)
+    assert any("notes/ünicode.py" in line for line in rule_lines)
+    assert all("\\" not in line.replace("\\ ", "") for line in rule_lines)
+    assert not any(len(line) >= 2 and line[1] == ":" for line in rule_lines)
     bracket = next(path for path in git_repo.ls_files() if "[" in path and "]" in path)
     winner = match_path(parse_rules(written.content), bracket)
     assert winner is not None

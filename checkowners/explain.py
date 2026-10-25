@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,6 +19,7 @@ from checkowners.analyze import (
     gather_blame_coverage,
     lookback_start,
     mailmap_flag,
+    run_git,
     score_owners,
     signal_weights,
 )
@@ -230,13 +230,7 @@ def commit_shas(
     if window_start is not None:
         argv.append(f"--since={window_start.isoformat()}")
     argv.extend([f"--until={as_of.isoformat()}", "--", target])
-    result = subprocess.run(  # noqa: S603
-        argv,
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=False,
-    )
+    result = run_git(repo_root, argv, check=False)
     return _parse_sha_log(
         result.stdout,
         repo_root,
@@ -247,8 +241,9 @@ def commit_shas(
 
 def rename_lineage(repo_root: Path, target: str) -> tuple[str, ...]:
     """Return prior names of ``target`` from ``git log --follow``, if any."""
-    result = subprocess.run(  # noqa: S603
-        [  # noqa: S607
+    result = run_git(
+        repo_root,
+        [
             "git",
             "log",
             "--follow",
@@ -257,10 +252,8 @@ def rename_lineage(repo_root: Path, target: str) -> tuple[str, ...]:
             "--",
             target,
         ],
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
         check=False,
+        paths=True,
     )
     names: list[str] = []
     seen = {target.lstrip("/")}
@@ -287,8 +280,9 @@ def last_contribution(
 ) -> tuple[str, datetime] | None:
     """Newest matching commit on ``target`` with no lookback bound."""
     email_fmt = "%aE" if use_mailmap else "%ae"
-    result = subprocess.run(  # noqa: S603
-        [  # noqa: S607
+    result = run_git(
+        repo_root,
+        [
             "git",
             "log",
             mailmap_flag(use_mailmap),
@@ -296,9 +290,6 @@ def last_contribution(
             "--",
             target,
         ],
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
         check=False,
     )
     rows = _credited_rows(

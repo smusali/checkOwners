@@ -449,7 +449,7 @@ def test_commit_shas_parses_and_respects_mailmap() -> None:
             ),
         )
     )
-    with patch("checkowners.explain.subprocess.run", return_value=_proc(stdout)) as mocked:
+    with patch("checkowners.analyze.subprocess.run", return_value=_proc(stdout)) as mocked:
         shas = commit_shas(Path(), "src/a.py", Config(), _NOW)
     assert shas["alice@example.com"] == ("aaaaaaaaaaaa", "bbbbbbbbbbbb")
     argv = mocked.call_args.args[0]
@@ -457,7 +457,7 @@ def test_commit_shas_parses_and_respects_mailmap() -> None:
     assert any("%aE" in part for part in argv)
 
     config = Config(git=GitConfig(use_mailmap=False))
-    with patch("checkowners.explain.subprocess.run", return_value=_proc("")) as mocked:
+    with patch("checkowners.analyze.subprocess.run", return_value=_proc("")) as mocked:
         assert commit_shas(Path(), "src/a.py", config, _NOW) == {}
     argv = mocked.call_args.args[0]
     assert "--no-use-mailmap" in argv
@@ -465,7 +465,7 @@ def test_commit_shas_parses_and_respects_mailmap() -> None:
     assert any(part.startswith("--since=") for part in argv)
 
     adaptive = Config(analysis=AnalysisConfig(lookback_days="adaptive"))
-    with patch("checkowners.explain.subprocess.run", return_value=_proc("")) as mocked:
+    with patch("checkowners.analyze.subprocess.run", return_value=_proc("")) as mocked:
         assert commit_shas(Path(), "src/a.py", adaptive, _NOW) == {}
     argv = mocked.call_args.args[0]
     assert not any(part.startswith("--since=") for part in argv)
@@ -482,7 +482,7 @@ def test_rename_lineage_keeps_unseen_old_names() -> None:
             "R090\told/a.py\tsrc/a.py",
         )
     )
-    with patch("checkowners.explain.subprocess.run", return_value=_proc(stdout)):
+    with patch("checkowners.analyze.subprocess.run", return_value=_proc(stdout)):
         assert rename_lineage(Path(), "src/a.py") == ("old/a.py", "first/a.py")
 
 
@@ -493,7 +493,7 @@ def test_last_contribution_matches_identity() -> None:
             *_sha_commit("ddddddddddddxxxx", "bob", _ISO),
         )
     )
-    with patch("checkowners.explain.subprocess.run", return_value=_proc(stdout)) as mocked:
+    with patch("checkowners.analyze.subprocess.run", return_value=_proc(stdout)) as mocked:
         found = last_contribution(Path(), "src/a.py", "eve", use_mailmap=True)
         missing = last_contribution(Path(), "src/a.py", "carol", use_mailmap=False)
     assert found == ("eve@example.com", datetime.fromisoformat(_ISO))

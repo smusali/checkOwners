@@ -818,12 +818,24 @@ def test_load_ownership_freshness_edges(repo: Path) -> None:
     assert dropped.decay_warnings == ()
 
 
-def test_write_state_creates_parent_dirs(tmp_path: Path, repo: Path) -> None:
+def test_write_state_creates_parent_dirs(
+    tmp_path: Path,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     nested = tmp_path / "nested" / "dir"
     with patch.dict("os.environ", {"CHECKOWNERS_STATE_DIR": str(nested)}):
         target = write_state(repo, _make_ownership())
     assert target.exists()
     assert target.is_relative_to(nested)
+    monkeypatch.delenv("CHECKOWNERS_STATE_DIR")
+    assert cache_directory() == Path.home() / ".checkowners"
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("CHECKOWNERS_STATE_DIR", "~/checkowners-state")
+    assert cache_directory() == home / "checkowners-state"
 
 
 def test_bus_factor_summary_empty(repo: Path) -> None:

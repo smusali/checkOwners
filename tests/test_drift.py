@@ -307,14 +307,21 @@ def test_tracked_files_lists_paths_and_propagates_git_failure(tmp_path: Path) ->
         stdout="src/a.py\n\nsrc/b.py\n",
         stderr="",
     )
-    with patch("checkowners.drift.subprocess.run", return_value=completed) as run:
+    with patch("checkowners.analyze.subprocess.run", return_value=completed) as run:
         assert _tracked_files(tmp_path) == ("src/a.py", "src/b.py")
-    assert run.call_args.args[0] == ["git", "ls-files"]
+    assert run.call_args.args[0] == [
+        "git",
+        "-c",
+        "core.quotePath=false",
+        "-c",
+        "core.longpaths=true",
+        "ls-files",
+    ]
     assert run.call_args.kwargs["cwd"] == tmp_path
     assert run.call_args.kwargs["check"] is True
     with (
         patch(
-            "checkowners.drift.subprocess.run",
+            "checkowners.analyze.subprocess.run",
             side_effect=subprocess.CalledProcessError(1, ["git", "ls-files"]),
         ),
         pytest.raises(subprocess.CalledProcessError),
@@ -435,6 +442,10 @@ def test_directory_rule_covers_files_from_real_git(git_repo: GitRepo) -> None:
         Config(analysis=regression_analysis_config().analysis, drift=DriftConfig(mode="both")),
     )
     assert "src/app.py" in ownership.paths
+    assert "notes/ünicode.py" in ownership.paths
+    assert "docs/getting started.md" in ownership.paths
+    assert "Dir/File.py" in ownership.paths
+    assert any(path.startswith("deep/") for path in ownership.paths)
     assert "src/app.py" not in {entry.path for entry in result.missing}
     assert "/gone/" in {entry.path for entry in result.stale}
 

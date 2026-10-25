@@ -89,7 +89,9 @@ def cache_directory() -> Path:
 def _base_dir() -> Path:
     """Resolve the checkowners state directory, honoring CHECKOWNERS_STATE_DIR."""
     override = os.environ.get("CHECKOWNERS_STATE_DIR")
-    return Path(override) if override else _STATE_DIR
+    if override:
+        return Path(override).expanduser()
+    return _STATE_DIR
 
 
 def repository_identity(repo_root: Path) -> str:

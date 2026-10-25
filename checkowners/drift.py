@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
+from checkowners.analyze import run_git
 from checkowners.busfactor import qualified_owner_count_fields
 from checkowners.github import RECONCILE_MARKER, external_evidence_payload
 from checkowners.models import (
@@ -106,13 +106,7 @@ def _load_rules(codeowners_path: Path) -> tuple[CodeownersRule, ...]:
 
 def _tracked_files(repo_root: Path) -> tuple[str, ...]:
     """List tracked files; used to tell dead rules from merely quiet ones."""
-    result = subprocess.run(
-        ["git", "ls-files"],  # noqa: S607  # git from PATH; argv is a literal list
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=True,
-    )
+    result = run_git(repo_root, ["git", "ls-files"], check=True, paths=True)
     return tuple(line for line in result.stdout.splitlines() if line)
 
 

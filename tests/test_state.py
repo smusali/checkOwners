@@ -6,6 +6,7 @@ import builtins
 import json
 import os
 import subprocess
+import sys
 import threading
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -1109,6 +1110,42 @@ def test_state_write_succeeds_without_fcntl(repo: Path, monkeypatch: pytest.Monk
     target = write_state(repo, _make_ownership())
     assert target.is_file()
     assert load_ownership(repo) is not None
+
+
+def test_windows_lock_uses_msvcrt_when_fcntl_is_missing(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_import = builtins.__import__
+
+    def guarded(name: str, *args: object, **kwargs: object) -> object:
+        if name == "fcntl":
+            raise ImportError
+        return real_import(name, *args, **kwargs)
+
+    class Msvcrt:
+        LK_UNLCK = 0
+        LK_LOCK = 1
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int, int]] = []
+
+        def locking(self, fd: int, mode: int, nbytes: int) -> None:
+            self.calls.append((fd, mode, nbytes))
+
+    fake = Msvcrt()
+    monkeypatch.setattr(builtins, "__import__", guarded)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    monkeypatch.setattr(sys, "platform", "win32")
+    write_state(repo, _make_ownership())
+    write_state(repo, _make_ownership())
+    assert [mode for _fd, mode, _nbytes in fake.calls] == [
+        Msvcrt.LK_LOCK,
+        Msvcrt.LK_UNLCK,
+        Msvcrt.LK_LOCK,
+        Msvcrt.LK_UNLCK,
+    ]
+    lock = _state_path(repo).with_name(f"{_state_path(repo).name}.lock")
+    assert lock.read_bytes() == b"\0"
 
 
 def test_atomic_write_removes_temp_on_failure(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

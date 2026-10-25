@@ -34,7 +34,7 @@ uvx checkowners drift
 
 ## Install
 
-Requires Python 3.11 through 3.14 and Git 2.23 or newer.
+Requires Python 3.11 through 3.14 and Git 2.23.0 or newer, on Ubuntu, macOS, and Windows.
 
 ```bash
 pip install checkowners               # core CLI (pure git, zero API deps)

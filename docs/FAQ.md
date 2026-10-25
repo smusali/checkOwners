@@ -2,6 +2,20 @@
 
 Common questions about configuring and operating checkowners. For the full configuration reference see [docs/USAGE.md](USAGE.md).
 
+## Requirements
+
+### Which systems does checkOwners support?
+
+Python 3.11 through 3.14, and Git 2.23.0 or newer, on Ubuntu, macOS, and Windows. A pull request checks Ubuntu on every supported Python and macOS plus Windows on Python 3.14. Each of those test jobs is limited to 25 minutes. Pushes to `main`, the nightly schedule, and a manual run also test Git 2.23.0 and Git 2.39.3 on Ubuntu. The Git already installed on the runner is the latest cell.
+
+### Why did the command exit 4 and mention Git 2.23.0?
+
+Blame needs `git blame --ignore-revs-file`, which Git added in 2.23.0. The message names the Git it found, or `none` when `git` is missing from `PATH`. Install Git 2.23.0 or newer and rerun. Both cases exit 4.
+
+### Where is the state directory on Windows?
+
+The default is `%USERPROFILE%\.checkowners`, the same `~/.checkowners` directory used on macOS and Linux. `CHECKOWNERS_STATE_DIR` overrides it and expands a leading `~`. Each repository is stored under `state/` by a hash of its origin URL, or of its resolved absolute path when it has no origin.
+
 ## Ownership identity
 
 ### Will the generated CODEOWNERS show GitHub usernames or commit email addresses?

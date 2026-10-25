@@ -18,6 +18,8 @@ import json
 import os
 import re
 import shutil
+import sys
+import threading
 import urllib.parse
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -89,7 +91,9 @@ def cache_directory() -> Path:
 def _base_dir() -> Path:
     """Resolve the checkowners state directory, honoring CHECKOWNERS_STATE_DIR."""
     override = os.environ.get("CHECKOWNERS_STATE_DIR")
-    return Path(override) if override else _STATE_DIR
+    if override:
+        return Path(override).expanduser()
+    return _STATE_DIR
 
 
 def repository_identity(repo_root: Path) -> str:
@@ -242,37 +246,48 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return {str(key): value for key, value in data.items()}
 
 
-def _acquire_lock(handle: IO[str]) -> None:
+_PROCESS_LOCK = threading.Lock()
+
+
+def _file_lock(handle: IO[bytes], *, release: bool) -> None:
     try:
         import fcntl  # noqa: PLC0415
     except ImportError:
+        _windows_lock(handle, release=release)
         return
-    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN if release else fcntl.LOCK_EX)
 
 
-def _release_lock(handle: IO[str]) -> None:
-    try:
-        import fcntl  # noqa: PLC0415
-    except ImportError:
+def _windows_lock(handle: IO[bytes], *, release: bool) -> None:
+    if sys.platform != "win32":
         return
-    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    import msvcrt  # noqa: PLC0415
+
+    if not release:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+    handle.seek(0)
+    mode = msvcrt.LK_UNLCK if release else msvcrt.LK_LOCK
+    msvcrt.locking(handle.fileno(), mode, 1)
 
 
 @contextmanager
 def _locked(target: Path) -> Iterator[None]:
     target.parent.mkdir(parents=True, exist_ok=True)
     lock_path = target.with_name(f"{target.name}.lock")
-    with lock_path.open("a+", encoding="utf-8") as handle:
-        _acquire_lock(handle)
+    with _PROCESS_LOCK, lock_path.open("a+b") as handle:
+        _file_lock(handle, release=False)
         try:
             yield
         finally:
-            _release_lock(handle)
+            _file_lock(handle, release=True)
 
 
 def _atomic_write(target: Path, text: str) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    tmp = target.with_name(f".{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         tmp.write_text(text, encoding="utf-8")
         tmp.replace(target)

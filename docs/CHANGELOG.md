@@ -11,25 +11,29 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183).
 
 ### Added
-- `checkowners suggest` recommends one reviewer from expertise and current load, with `balance` as an alias, always showing `load_signal`, treating commit totals as a git authorship proxy that recommends nobody, and, when the GitHub sample exists, adding requested and completed reviews, open requests, median response time, reviewed lines, pull complexity, ownership criticality, `review_concentration`, and writer, reviewer, and declared-owner divergence.
-- `policy` chooses which finding classes block, warning by default for drift, a single expert, unowned paths, and incomplete analysis, failing for invalid owners, applying stricter rules under `security.paths`, and reporting the effective policy and blocking findings in drift, validate, and Action JSON.
-- `checkowners sync` opens or updates one reconciliation pull request by default. `--commit` commits on the current branch, and `--dry-run` prints the diff without writing or calling the GitHub API.
-- `Co-authored-by` trailers credit co-authors when `git.count_co_authors` is true, with `git.co_author_weight` relative to the commit author, and analyze reports the detected or configured `merge_strategy` plus `co_author_count`.
-- Recency uses each path's median commit gap as its half-life, clamped to a floor and ceiling, with `scoring.recency_strategy: fixed` keeping one half-life for every path, `analysis.lookback_days: adaptive` reading history until the analysis instant, and each owner reporting `active_expertise`, `historical_expertise`, `maintenance_recency`, and a continuity-risk status of `stable`, `inactive`, `superseded`, or `departed`.
-- `checkowners simulate --remove` reports files that lose their only author, files left with one author, fully orphaned directories, the repository truck factor before and after, and candidate backup reviewers, using the cached map only.
-- `qualified-owners` reports a criticality-weighted distribution of `top_owner_share` (`minimum`, `p10`, `median`, `p90`, `critical_path_risk`, and `knowledge_at_risk`), with `criticality` mapping path globs to weights in `(0, 1]` and an empty map setting `criticality_incomplete`.
-- Per-path `risk` reports inverse-Herfindahl `effective_owners`, Shannon entropy, HHI, `truck_factor_50`, `truck_factor_75`, `truck_factor_90`, minor-contributor share, and major-contributor count from every `ownership_score` above the confidence threshold, with `risk.truck_factor_thresholds` defaulting to `[0.50, 0.75, 0.90]` and echoed on the risk object, while `top_n_owners` still caps only the displayed owner list and `qualified_owner_count`.
-- The composite Action caches pip and `~/.checkowners`, with the `cache` input defaulting to `"true"` and a restored state file reused only when its commit is `HEAD` and the config hash and model versions match.
+- CI tests Ubuntu, macOS, and Windows, limits each pull-request test job to 25 minutes, and covers Git 2.23.0 and Git 2.39.3 on Ubuntu for pushes, the nightly run, and manual runs.
+- `checkowners suggest` recommends one reviewer from expertise and current load, with `balance` as an alias and GitHub review load when a token sample exists.
+- `policy` chooses which finding classes block, warning by default for drift, a single expert, unowned paths, and incomplete analysis, and failing for invalid owners.
+- `checkowners sync` opens or updates one reconciliation pull request by default, while `--commit` commits on the current branch and `--dry-run` prints the diff only.
+- `Co-authored-by` trailers credit co-authors when `git.count_co_authors` is true, and analyze reports the detected `merge_strategy` plus `co_author_count`.
+- Recency uses each path's median commit gap as its half-life, and each owner reports expertise, maintenance recency, and a continuity-risk status.
+- `checkowners simulate --remove` reports paths that lose coverage and the repository truck factor before and after, using the cached map only.
+- `qualified-owners` reports a criticality-weighted distribution of `top_owner_share`, and an empty `criticality` map sets `criticality_incomplete`.
+- Per-path `risk` reports concentration from every `ownership_score` above the confidence threshold, while `top_n_owners` still caps only the displayed owner list.
+- The composite Action caches pip and `~/.checkowners`, reusing a restored state file only when its commit is `HEAD` and the config hash and model versions match.
 
 ### Changed
-- The ownership review factor reads pulls closed inside `analysis.review_lookback_days` (the analysis lookback when that key is omitted) through batched GraphQL queries, and every JSON payload reports `reviews_sampled` and `reviews_window_days`. A request budget that stops the window short records a gap and lowers `analysis_completeness`. `suggest` still reads the 200 most recently updated closed pulls.
-- `checkowners trends` reports `historical_activity_confidence` (`historical-v1`, recency and frequency) instead of `avg_top_confidence`, listing `model_version`, `metric`, `signals`, and `limitation` while envelope `schema_version` stays `"1"`, and `--compare-ownership` names `ownership_score` only together with `--acknowledge-different-metrics` without plotting that score on the historical series.
-- The Action `fail_on_drift` input defaults to empty, so a run follows `policy.drift.fail` unless the workflow sets `true` or `false`. `checkowners drift` exits 3 only when policy marks a novel finding as blocking.
+- The ownership review factor reads closed pulls inside `analysis.review_lookback_days` through batched GraphQL queries, and a window cut short by the request budget records a gap and lowers `analysis_completeness`.
+- `checkowners trends` reports `historical_activity_confidence` (`historical-v1`) instead of `avg_top_confidence`, and `--compare-ownership` requires `--acknowledge-different-metrics`.
+- The Action `fail_on_drift` input defaults to empty so a run follows `policy.drift.fail`, and `checkowners drift` exits 3 only for a novel finding that policy marks as blocking.
 
 ### Removed
-- `ROADMAP.md`, `docs/ACTION_ITEMS.md`, and `docs/PROJECT_STATE_AND_ROADMAP.md`. Planning lives in the issue tracker: a `v0.x.0` label marks the release each issue ships in, its "Blocked by" list carries its dependencies, and one `Upgrade to v0.x.0` issue per release pins and publishes that version.
+- `ROADMAP.md`, `docs/ACTION_ITEMS.md`, and `docs/PROJECT_STATE_AND_ROADMAP.md` are removed, and release planning now lives in the issue tracker.
 
 ### Fixed
+- Git path output is read as UTF-8 with quoting disabled, `CHECKOWNERS_STATE_DIR` expands a leading tilde, and Git older than 2.23.0 exits 4 with the version to install.
+- `requirements-dev.lock` pins `colorama` 0.4.6 on Windows so hashed installs satisfy pytest there.
+- Concurrent handle-cache writes take an in-process lock, and a Windows file lock when another process may write the same cache.
 - `requirements.lock` and `requirements-dev.lock` pin `PyJWT` 2.15.1 and `urllib3` 2.8.0 so `pip-audit` no longer fails on the advisories in the previous pins.
 - All three lock files pin `certifi` 2026.10.19, which drops the `emSign ECC Root CA - G3` root after its intermediates were compromised (PYSEC-2026-4320, GHSA-6q48-6c7w-9gw2).
 

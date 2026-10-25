@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -76,18 +83,103 @@ jobs:
       - name: Fail if a shipped metric has no methodology entry
         run: python tools/check_methodology.py
 
-  test:
+  select-test-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        shell: bash
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          event = os.environ["GITHUB_EVENT_NAME"]
+          pythons = ["3.11", "3.12", "3.13", "3.14"]
+          cells = []
+          if event == "pull_request":
+              for version in pythons:
+                  cells.append(
+                      {
+                          "os": "ubuntu-latest",
+                          "python-version": version,
+                          "git-version": "latest",
+                      }
+                  )
+              for system in ("macos-latest", "windows-latest"):
+                  cells.append(
+                      {
+                          "os": system,
+                          "python-version": "3.14",
+                          "git-version": "latest",
+                      }
+                  )
+          else:
+              for system in ("ubuntu-latest", "macos-latest", "windows-latest"):
+                  for version in pythons:
+                      cells.append(
+                          {
+                              "os": system,
+                              "python-version": version,
+                              "git-version": "latest",
+                          }
+                      )
+              for git_version in ("2.23.0", "2.39.3"):
+                  cells.append(
+                      {
+                          "os": "ubuntu-latest",
+                          "python-version": "3.14",
+                          "git-version": git_version,
+                      }
+                  )
+          payload = json.dumps({"include": cells}, separators=(",", ":"))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"matrix={payload}\n")
+          PY
+
+  test:
+    needs: select-test-matrix
+    name: test (${{ matrix.os }}, ${{ matrix.python-version }}, git ${{ matrix.git-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     permissions:
       contents: read
+      actions: write
+    defaults:
+      run:
+        shell: bash
     strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+      fail-fast: ${{ github.event_name == 'pull_request' }}
+      matrix: ${{ fromJSON(needs.select-test-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0     # required so git log / git blame have history
+
+      - name: Restore pinned Git
+        if: matrix.git-version != 'latest'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.cache/git
+          key: git-${{ matrix.git-version }}-${{ runner.os }}-${{ runner.arch }}-v1
+
+      - name: Build pinned Git
+        if: matrix.git-version != 'latest'
+        env:
+          GIT_VERSION: ${{ matrix.git-version }}
+        run: bash tools/install_git_version.sh "$GIT_VERSION" "$GITHUB_WORKSPACE/.cache/git"
+
+      - name: Use pinned Git
+        if: matrix.git-version != 'latest'
+        run: echo "$GITHUB_WORKSPACE/.cache/git/bin" >> "$GITHUB_PATH"
+
+      - name: Show Git version
+        run: git --version
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -110,14 +202,14 @@ jobs:
         env:
           HYPOTHESIS_PROFILE: ci
         run: |
-          pytest
+          python -m pytest
           include=checkowners/patterns.py,checkowners/analyze.py
           include=$include,checkowners/drift.py,checkowners/generate.py
-          coverage report --show-missing --include="$include"
-          coverage report --include=checkowners/patterns.py --fail-under=100
+          python -m coverage report --show-missing --include="$include"
+          python -m coverage report --include=checkowners/patterns.py --fail-under=100
 
       - name: Upload coverage
-        if: matrix.python-version == '3.14'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14' && matrix.git-version == 'latest'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         with:
           files: coverage.xml
@@ -142,29 +234,7 @@ jobs:
           set -euo pipefail
           python -m pip install --require-hashes -r requirements-tools.lock
           hatch build
-          python - <<'PY'
-          import re
-          import zipfile
-          from pathlib import Path
-
-          wheels = list(Path("dist").glob("checkowners-*-py3-none-any.whl"))
-          if len(wheels) != 1:
-              raise SystemExit(f"expected one wheel, found {wheels}")
-          wheel = wheels[0]
-          init = (Path("checkowners") / "__init__.py").read_text(encoding="utf-8")
-          match = re.search(r'(?m)^__version__ = "([^"]+)"', init)
-          if match is None:
-              raise SystemExit("__version__ missing from checkowners/__init__.py")
-          version = match.group(1)
-          with zipfile.ZipFile(wheel) as zf:
-              names = zf.namelist()
-              if "checkowners/py.typed" not in names:
-                  raise SystemExit("wheel is missing checkowners/py.typed")
-              meta_name = next(n for n in names if n.endswith(".dist-info/METADATA"))
-              meta = zf.read(meta_name).decode("utf-8")
-          if f"Version: {version}" not in meta.splitlines():
-              raise SystemExit(f"wheel METADATA Version does not match {version!r}")
-          PY
+          python tools/check_wheel.py
           python -m pip install --no-deps dist/checkowners-*-py3-none-any.whl
           python -m pip install --require-hashes -r requirements.lock
           python -c "import github, networkx"

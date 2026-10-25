@@ -6,6 +6,7 @@ import builtins
 import json
 import os
 import subprocess
+import sys
 import threading
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -818,12 +819,24 @@ def test_load_ownership_freshness_edges(repo: Path) -> None:
     assert dropped.decay_warnings == ()
 
 
-def test_write_state_creates_parent_dirs(tmp_path: Path, repo: Path) -> None:
+def test_write_state_creates_parent_dirs(
+    tmp_path: Path,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     nested = tmp_path / "nested" / "dir"
     with patch.dict("os.environ", {"CHECKOWNERS_STATE_DIR": str(nested)}):
         target = write_state(repo, _make_ownership())
     assert target.exists()
     assert target.is_relative_to(nested)
+    monkeypatch.delenv("CHECKOWNERS_STATE_DIR")
+    assert cache_directory() == Path.home() / ".checkowners"
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("CHECKOWNERS_STATE_DIR", "~/checkowners-state")
+    assert cache_directory() == home / "checkowners-state"
 
 
 def test_bus_factor_summary_empty(repo: Path) -> None:
@@ -1097,6 +1110,42 @@ def test_state_write_succeeds_without_fcntl(repo: Path, monkeypatch: pytest.Monk
     target = write_state(repo, _make_ownership())
     assert target.is_file()
     assert load_ownership(repo) is not None
+
+
+def test_windows_lock_uses_msvcrt_when_fcntl_is_missing(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_import = builtins.__import__
+
+    def guarded(name: str, *args: object, **kwargs: object) -> object:
+        if name == "fcntl":
+            raise ImportError
+        return real_import(name, *args, **kwargs)
+
+    class Msvcrt:
+        LK_UNLCK = 0
+        LK_LOCK = 1
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int, int]] = []
+
+        def locking(self, fd: int, mode: int, nbytes: int) -> None:
+            self.calls.append((fd, mode, nbytes))
+
+    fake = Msvcrt()
+    monkeypatch.setattr(builtins, "__import__", guarded)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    monkeypatch.setattr(sys, "platform", "win32")
+    write_state(repo, _make_ownership())
+    write_state(repo, _make_ownership())
+    assert [mode for _fd, mode, _nbytes in fake.calls] == [
+        Msvcrt.LK_LOCK,
+        Msvcrt.LK_UNLCK,
+        Msvcrt.LK_LOCK,
+        Msvcrt.LK_UNLCK,
+    ]
+    lock = _state_path(repo).with_name(f"{_state_path(repo).name}.lock")
+    assert lock.read_bytes() == b"\0"
 
 
 def test_atomic_write_removes_temp_on_failure(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

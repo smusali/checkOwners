@@ -39,7 +39,7 @@ pytest
 | `hatch run fmt` | ruff format |
 | `hatch build` | produce sdist and wheel in `dist/` |
 
-CI installs from `requirements-dev.lock` with hashes, then runs pytest across Python 3.11, 3.12, 3.13, and 3.14, builds the wheel, smoke-tests CLI subcommands against the built artifact (including `checkowners[all]` and `py.typed`), and runs ruff plus mypy `--strict`. Match those locally before opening a PR.
+CI installs from `requirements-dev.lock` with hashes. A pull request runs pytest on Ubuntu for Python 3.11, 3.12, 3.13, and 3.14, plus macOS and Windows on Python 3.14, each with the runner's Git. Each of those test jobs stops at 25 minutes. Pushes to `main`, the nightly schedule, and a manual run repeat the suite on Ubuntu, macOS, and Windows for every supported Python, and also run Ubuntu on Python 3.14 with Git 2.23.0 and Git 2.39.3. The runner's Git is the latest cell. CI then builds the wheel, smoke-tests CLI subcommands against the built artifact (including `checkowners[all]` and `py.typed`), and runs ruff plus mypy `--strict`. Match the pull-request set locally before opening a PR. A green `pytest` on macOS or Windows runs the same path corpus CI uses: spaces, Unicode, letter case, a long path, and repo-relative separators.
 
 Optionally, install the pre-commit hooks so ruff, formatting, and mypy run on every commit. This repository also runs `checkowners validate` when a CODEOWNERS file changes, and `checkowners drift` on push against `.checkowners-baseline.json`.
 
@@ -83,7 +83,7 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 
 ## Code conventions
 
-- Python 3.11 minimum through 3.14. Git 2.23 or newer is required at runtime (`ignore-revs` support). Use modern syntax (`X | Y` unions, `dict[str, int]`).
+- Python 3.11 minimum through 3.14. Git 2.23.0 or newer is required at runtime because blame ignore-revs landed in that release. An older Git exits 4 with the version it found and tells you to install a newer Git. Use modern syntax (`X | Y` unions, `dict[str, int]`).
 - Python 3.10 is not supported. It reaches upstream end of life in October 2026, and chasing it would only complicate the runtime. The Action installs its own interpreter. Older system Pythons are better served by standalone artifacts than by widening `requires-python`.
 - Functional style. The only classes allowed are dataclasses in `models.py` and small frozen dataclasses living inside the module that returns them.
 - Type hints on **every** function signature; `mypy --strict` is enforced.
@@ -101,7 +101,7 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 - The integration marker must finish within 60 seconds.
 - `tests/test_golden.py` is the ownership judgment suite. Histories pin author and committer dates, and analysis uses a fixed as-of. Expected conclusions are keyed by `OWNERSHIP_MODEL_VERSION`. A model-version change updates that record in the same commit. The beliefs are written in `docs/METHODOLOGY.md`.
 - Blame-fidelity tests may keep calling `init_git_repo` and `git_commit`.
-- Git 2.23 or newer is required. The fixture fails if `git version` is older.
+- Git 2.23.0 or newer is required. The fixture fails if `git version` is older. The scripted repository used by the integration tests includes spaces, Unicode, a case-distinct path, and a long path. A green run on macOS or Windows executes that same corpus.
 - Tests that touch `~/.checkowners/state.json` set the `CHECKOWNERS_STATE_DIR` env var so they don't clobber the contributor's real state.
 - Coverage is enforced at 85% repo-wide (`--cov-fail-under=85`); new modules should land above that. The floor is a gate, not a substitute for tests against real git repositories and real CODEOWNERS files. For a focused run that should not apply the floor, pass `--no-cov`.
 - `checkowners/patterns.py` also fails CI below 100% branch coverage. The cases live in `corpus/compatibility.jsonl` (pattern, path, and whole-file rules) and `corpus/realworld.jsonl` (parser fixtures from permissively licensed public repositories). `corpus/README.md` is the format other tools can load.

@@ -61,6 +61,7 @@ FREQUENCY_SHRINKAGE_PRIOR = 3.0
 SOURCE_DATE_EPOCH_ENV = "SOURCE_DATE_EPOCH"
 MIN_GIT_VERSION = (2, 23, 0)
 _GIT_VERSION_RE = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+_PATH_GIT_CONFIG = ("-c", "core.quotePath=false", "-c", "core.longpaths=true")
 
 
 class GitRequirementError(ValueError):
@@ -162,13 +163,7 @@ def parse_source_date_epoch(raw: str) -> datetime:
 
 
 def head_commit_datetime(repo_root: Path) -> datetime:
-    result = subprocess.run(
-        ["git", "log", "-1", "--format=%cI"],  # noqa: S607  # git from PATH; not user-supplied
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=True,
-    )
+    result = run_git(repo_root, ["git", "log", "-1", "--format=%cI"], check=True)
     parsed = _parse_timestamp(result.stdout.strip())
     if parsed is None:
         msg = "HEAD commit has no parseable committer timestamp"
@@ -179,13 +174,7 @@ def head_commit_datetime(repo_root: Path) -> datetime:
 
 
 def head_commit_sha(repo_root: Path) -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],  # noqa: S607  # git from PATH; not user-supplied
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=True,
-    )
+    result = run_git(repo_root, ["git", "rev-parse", "HEAD"], check=True)
     sha = result.stdout.strip()
     if not sha:
         msg = "Could not resolve HEAD commit SHA"
@@ -438,15 +427,30 @@ def apply_completeness(
     return replace(ownership, paths=paths, analysis_completeness=completeness)
 
 
-def _git_stdout(repo_root: Path, argv: list[str]) -> str | None:
+def run_git(
+    repo_root: Path,
+    args: list[str],
+    *,
+    check: bool,
+    paths: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    argv = args
+    if paths and args and args[0] == "git":
+        argv = ["git", *_PATH_GIT_CONFIG, *args[1:]]
+    return subprocess.run(  # noqa: S603
+        argv,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="surrogateescape",
+        cwd=repo_root,
+        check=check,
+    )
+
+
+def _git_stdout(repo_root: Path, argv: list[str], *, paths: bool = False) -> str | None:
     try:
-        result = subprocess.run(  # noqa: S603
-            argv,
-            capture_output=True,
-            text=True,
-            cwd=repo_root,
-            check=False,
-        )
+        result = run_git(repo_root, argv, check=False, paths=paths)
     except OSError:
         return None
     if result.returncode != 0:
@@ -456,7 +460,25 @@ def _git_stdout(repo_root: Path, argv: list[str]) -> str | None:
 
 def _is_shallow_repository(repo_root: Path) -> bool:
     stdout = _git_stdout(repo_root, ["git", "rev-parse", "--is-shallow-repository"])
-    return stdout is not None and stdout.strip() == "true"
+    if stdout is not None:
+        text = stdout.strip()
+        if text == "true":
+            return True
+        if text == "false":
+            return False
+    shallow = _git_stdout(repo_root, ["git", "rev-parse", "--git-path", "shallow"])
+    if shallow is None:
+        return False
+    text = shallow.strip()
+    if not text or "\n" in text:
+        return False
+    candidate = Path(text)
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    try:
+        return candidate.is_file()
+    except OSError:
+        return False
 
 
 def _insufficient_history(repo_root: Path, commits: list[_RawCommit]) -> bool:
@@ -488,10 +510,7 @@ def _window_has_renames(repo_root: Path, since: datetime | None, until: datetime
     if since is not None:
         argv.append(f"--since={since.isoformat()}")
     argv.append(f"--until={until.isoformat()}")
-    stdout = _git_stdout(
-        repo_root,
-        argv,
-    )
+    stdout = _git_stdout(repo_root, argv, paths=True)
     if not stdout:
         return False
     return _stdout_has_rename(stdout)
@@ -917,13 +936,7 @@ def canonical_emails(
     argv = ["git", "check-mailmap"]
     for name, email in contacts:
         argv.append(f"{name} <{email}>" if name else f"<{email}>")
-    result = subprocess.run(  # noqa: S603
-        argv,
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=False,
-    )
+    result = run_git(repo_root, argv, check=False)
     if result.returncode != 0:
         return raw
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -1006,13 +1019,7 @@ def _get_commit_history(
     if pathspec:
         argv.append("--")
         argv.extend(pathspec)
-    result = subprocess.run(  # noqa: S603  # literal git argv, no shell
-        argv,
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=True,
-    )
+    result = run_git(repo_root, argv, check=True, paths=True)
     records = _parse_log(result.stdout)
     file_records = [record for record in records if record.files]
     credited = assign_coauthors(
@@ -1422,33 +1429,31 @@ def parse_git_version(raw: str) -> tuple[int, int, int]:
 
 
 def _ensure_git_version(repo_root: Path) -> None:
-    result = subprocess.run(
-        ["git", "version"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=True,
-    )
+    required = ".".join(str(part) for part in MIN_GIT_VERSION)
+    try:
+        result = run_git(repo_root, ["git", "version"], check=True)
+    except OSError as exc:
+        msg = (
+            f"checkOwners requires Git {required} or newer; found none. "
+            "Install a newer Git and rerun."
+        )
+        raise GitRequirementError(msg) from exc
     try:
         found = parse_git_version(result.stdout)
     except ValueError as exc:
         raise GitRequirementError(str(exc)) from exc
     if found < MIN_GIT_VERSION:
         pretty = ".".join(str(part) for part in found)
-        required = ".".join(str(part) for part in MIN_GIT_VERSION)
-        msg = f"checkOwners requires Git {required} or newer; found {pretty}"
+        msg = (
+            f"checkOwners requires Git {required} or newer; found {pretty}. "
+            "Install a newer Git and rerun."
+        )
         raise GitRequirementError(msg)
 
 
 def _git_config_value(repo_root: Path, key: str) -> str:
     try:
-        result = subprocess.run(  # noqa: S603
-            ["git", "config", "--get", key],  # noqa: S607
-            capture_output=True,
-            text=True,
-            cwd=repo_root,
-            check=True,
-        )
+        result = run_git(repo_root, ["git", "config", "--get", key], check=True)
     except subprocess.CalledProcessError:
         return ""
     return result.stdout.strip()
@@ -1476,9 +1481,9 @@ def _resolve_ignore_revs_file(repo_root: Path, configured: str) -> Path | None:
 
 def _display_ignore_revs_path(repo_root: Path, path: Path) -> str:
     try:
-        return str(path.resolve().relative_to(repo_root.resolve()))
+        return path.resolve().relative_to(repo_root.resolve()).as_posix()
     except ValueError:
-        return str(path)
+        return path.as_posix()
 
 
 def _resolve_mailmap_file(repo_root: Path) -> Path | None:
@@ -1489,13 +1494,7 @@ def _resolve_mailmap_file(repo_root: Path) -> Path | None:
 
 
 def _tracked_file_count(repo_root: Path) -> int:
-    result = subprocess.run(
-        ["git", "ls-files"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=True,
-    )
+    result = run_git(repo_root, ["git", "ls-files"], check=True, paths=True)
     return sum(1 for line in result.stdout.splitlines() if line)
 
 
@@ -1531,12 +1530,11 @@ def _mass_refactor_revs(repo_root: Path, fraction: float) -> tuple[str, ...]:
     tracked = _tracked_file_count(repo_root)
     if tracked == 0:
         return ()
-    result = subprocess.run(
-        ["git", "log", "--name-status", "--pretty=format:%H"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
+    result = run_git(
+        repo_root,
+        ["git", "log", "--name-status", "--pretty=format:%H"],
         check=True,
+        paths=True,
     )
     return _parse_mass_refactor_revs(result.stdout, tracked, fraction)
 
@@ -1632,28 +1630,14 @@ def _drop_mailmap_flags(argv: list[str]) -> list[str]:
 
 
 def _blame_accepts_mailmap_flags(repo_root: Path) -> bool:
-    result = subprocess.run(
-        ["git", "blame", "--use-mailmap"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-        check=False,
-    )
+    result = run_git(repo_root, ["git", "blame", "--use-mailmap"], check=False)
     return "unknown option" not in f"{result.stdout}{result.stderr}"
 
 
 def _blame_for_path(repo_root: Path, path: str, argv: list[str]) -> dict[str, float]:
     """Run git blame with the prebuilt argv on one path; return coverage fractions."""
     try:
-        result = subprocess.run(  # noqa: S603
-            [*argv, "--", path],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=repo_root,
-            check=True,
-        )
+        result = run_git(repo_root, [*argv, "--", path], check=True, paths=True)
     except subprocess.CalledProcessError:
         return {}
     return _parse_blame_output(result.stdout)

@@ -33,6 +33,7 @@ Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0]
 ### Fixed
 - Git path output is read as UTF-8 with quoting disabled, `CHECKOWNERS_STATE_DIR` expands a leading tilde, and Git older than 2.23.0 exits 4 with the version to install.
 - `requirements-dev.lock` pins `colorama` 0.4.6 on Windows so hashed installs satisfy pytest there.
+- Concurrent handle-cache writes take an in-process lock, and a Windows file lock when another process may write the same cache.
 - `requirements.lock` and `requirements-dev.lock` pin `PyJWT` 2.15.1 and `urllib3` 2.8.0 so `pip-audit` no longer fails on the advisories in the previous pins.
 - All three lock files pin `certifi` 2026.10.19, which drops the `emSign ECC Root CA - G3` root after its intermediates were compromised (PYSEC-2026-4320, GHSA-6q48-6c7w-9gw2).
 

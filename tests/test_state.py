@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,6 +39,12 @@ from checkowners.state import (
     _as_gap_code,
     _evict,
     _file_size,
+    _history_payload,
+    _parse_blame_map,
+    _parse_count_map,
+    _parse_history,
+    _parse_path_lists,
+    _parse_string_set,
     _state_path,
     cache_clear,
     cache_directory,
@@ -1306,3 +1313,67 @@ def test_history_baseline_round_trips_without_emails(repo: Path) -> None:
     corrupt, corrupt_reason = read_history_baseline(repo, Config())
     assert corrupt is None
     assert corrupt_reason == "incremental baseline is corrupt"
+
+
+def test_history_baseline_rejects_bad_fields(repo: Path) -> None:
+    sha = "c" * 40
+    baseline = HistoryBaseline(
+        analysis_ref="a" * 40,
+        files={sha: ("src/app.py",)},
+        modified={sha: 1},
+        renames=frozenset({sha}),
+        blame={"src/app.py": BlameLines(blob_sha="b" * 40, lines={sha: 3})},
+        blame_inputs="inputs",
+        rename_detection="true",
+        truncated=False,
+    )
+    target = write_state(repo, _make_ownership(), config=Config(), history=baseline)
+    original = json.loads(target.read_text(encoding="utf-8"))
+
+    def reason_after(mutate: Callable[[dict[str, object]], None]) -> str:
+        payload = json.loads(json.dumps(original))
+        mutate(payload)
+        target.write_text(json.dumps(payload), encoding="utf-8")
+        _loaded, reason = read_history_baseline(repo, Config())
+        return reason
+
+    assert reason_after(lambda payload: payload.__setitem__("schema_version", 9)) == (
+        "analysis schema changed"
+    )
+    assert reason_after(lambda payload: payload.__setitem__("models", {})) == (
+        "analysis model changed"
+    )
+    assert reason_after(lambda payload: payload.__setitem__("repo_id", "origin:nope")) == (
+        "repository identity changed"
+    )
+    valid = {
+        "analysis_ref": "a" * 40,
+        "files": {sha: ["src/app.py"]},
+        "modified": {sha: 1},
+        "renames": [sha],
+        "blame": {"src/app.py": {"blob_sha": "b" * 40, "lines": {sha: 3}}},
+        "blame_inputs": "inputs",
+        "rename_detection": "true",
+        "truncated": False,
+    }
+    assert _parse_history([]) is None
+    assert _parse_history({**valid, "analysis_ref": 1}) is None
+    assert _parse_history({**valid, "files": []}) is None
+    assert _parse_history({**valid, "modified": []}) is None
+    assert _parse_history({**valid, "renames": {}}) is None
+    assert _parse_history({**valid, "blame": []}) is None
+    assert _parse_history({**valid, "blame_inputs": 1}) is None
+    assert _parse_history({**valid, "rename_detection": 1}) is None
+    assert _parse_history({**valid, "truncated": "no"}) is None
+    assert _parse_path_lists({1: ["src/app.py"]}) is None
+    assert _parse_path_lists({sha: "src/app.py"}) is None
+    assert _parse_path_lists({sha: [1]}) is None
+    assert _parse_count_map({sha: True}) is None
+    assert _parse_count_map({sha: -1}) is None
+    assert _parse_string_set("nope") is None
+    assert _parse_string_set([1]) is None
+    assert _parse_blame_map({"src/app.py": []}) is None
+    assert _parse_blame_map({"src/app.py": {"blob_sha": "", "lines": {}}}) is None
+    assert _parse_blame_map({"src/app.py": {"blob_sha": "abc", "lines": {sha: -1}}}) is None
+    assert _history_payload(None, None) is None
+    assert _history_payload(None, {"history": "nope"}) is None

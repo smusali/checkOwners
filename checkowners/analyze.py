@@ -1587,16 +1587,21 @@ def _coverage_with_reuse(
     sink: dict[str, _BlameDetail] = {}
     if dirty:
         observed = len(reused)
+        hook: ProgressHook | None
+        if on_progress is None:
+            hook = None
+        else:
+            callback = on_progress
 
-        def report(done: int, _total: int) -> None:
-            if on_progress is not None:
-                on_progress(observed + done, len(path_list))
+            def report(done: int, _total: int) -> None:
+                callback(observed + done, len(path_list))
 
+            hook = report
         fresh = gather_blame_coverage(
             dirty,
             repo_root,
             git=config.git,
-            on_progress=report if on_progress is not None else None,
+            on_progress=hook,
             max_workers=max_workers,
             mass_revs=mass,
             detail_sink=sink,

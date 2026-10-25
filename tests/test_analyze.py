@@ -25,8 +25,11 @@ from checkowners.analyze import (
     Contribution,
     GitRequirementError,
     _aggregate_contributions,
+    _author_emails,
     _blame_for_path,
+    _blame_inputs_token,
     _BlamePass,
+    _blob_shas,
     _detect_decay,
     _display_ignore_revs_path,
     _existing_file,
@@ -35,17 +38,23 @@ from checkowners.analyze import (
     _frequency_score,
     _gather_review_coverage,
     _get_commit_history,
+    _git_baseline_reason,
     _git_stdout,
     _gitattributes_pattern_matches,
     _insufficient_history,
+    _is_ancestor,
     _is_excluded,
     _is_shallow_repository,
     _linguist_excluded_paths,
+    _mass_shas,
+    _parse_blame_detail,
     _parse_blame_output,
     _parse_gitattributes,
     _parse_log_output,
     _RawCommit,
     _recency_score,
+    _rename_commit_shas,
+    _reused_fraction,
     _stdout_has_rename,
     _window_has_renames,
     analysis_epoch,
@@ -55,6 +64,7 @@ from checkowners.analyze import (
     canonical_emails,
     collect_analysis,
     combine_available_signals,
+    consume_analysis_outcome,
     effective_half_life,
     gather_blame_coverage,
     head_commit_datetime,
@@ -83,7 +93,7 @@ from checkowners.models import (
     QualificationConfig,
     ScoringConfig,
 )
-from checkowners.state import _state_path, write_state
+from checkowners.state import BlameLines, HistoryBaseline, _state_path, write_state
 from tests.conftest import GitRepo, git_commit, init_git_repo
 
 
@@ -2363,4 +2373,161 @@ def test_invalid_baseline_falls_back_to_full_analysis(git_repo: GitRepo) -> None
     _assert_same_ownership(
         diverged.ownership,
         analyze_ownership(git_repo.path, config, as_of=_NOW, analysis_ref=git_repo.head_sha()),
+    )
+
+
+def _baseline(
+    ref: str,
+    *,
+    truncated: bool = False,
+    rename_detection: str = "true",
+) -> HistoryBaseline:
+    return HistoryBaseline(
+        analysis_ref=ref,
+        files={},
+        modified={},
+        renames=frozenset(),
+        blame={},
+        blame_inputs="",
+        rename_detection=rename_detection,
+        truncated=truncated,
+    )
+
+
+def test_incremental_edges_cover_rejects_and_reuse(git_repo: GitRepo) -> None:
+    config = _score_config()
+    git_repo.commit_files(
+        {"a.py": "value = 1\n"},
+        "add",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    head = git_repo.head_sha()
+    assert _git_baseline_reason(git_repo.path, _baseline(head, truncated=True), head).startswith(
+        "incremental baseline is incomplete"
+    )
+    assert "no analyzed ref" in _git_baseline_reason(git_repo.path, _baseline(""), head)
+    assert "missing" in _git_baseline_reason(git_repo.path, _baseline("d" * 40), head)
+    assert not _is_ancestor(git_repo.path, "", head)
+    assert _rename_commit_shas(git_repo.path, None, _NOW) == frozenset()
+    assert _mass_shas({}, 0, 0.5) == ()
+    assert _mass_shas({head: 1}, 4, 0.0) == ()
+    assert _blob_shas(git_repo.path, ["a\nb"]) == {}
+    assert _reused_fraction(None, head, {}) is None
+    assert _reused_fraction(BlameLines(blob_sha=head, lines={}), head, {}) is None
+    missing = BlameLines(blob_sha=head, lines={head: 2})
+    assert _reused_fraction(missing, "other", {}) is None
+    assert _reused_fraction(missing, head, {}) is None
+    assert _reused_fraction(missing, head, {head: "alice@example.com"}) == {
+        "alice@example.com": 1.0
+    }
+    zero_lines = BlameLines(blob_sha=head, lines={head: 0})
+    assert _reused_fraction(zero_lines, head, {head: "alice@example.com"}) is None
+    zero = "0" * 40
+    detail = _parse_blame_detail(f"{zero} 1 1 1\nauthor-mail <zero@example.com>\n")
+    assert detail.reusable is False
+    assert _parse_blame_detail("author-mail <early@example.com>\n").reusable is False
+    failed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+    short = subprocess.CompletedProcess(args=[], returncode=0, stdout="abc\n", stderr="")
+    mailed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=f"not-a-sha\n{zero}\x00\n{head}\x00alice@example.com\n",
+        stderr="",
+    )
+    with patch("checkowners.analyze.run_git", return_value=failed):
+        assert _blob_shas(git_repo.path, ["a.py"]) == {}
+    with patch("checkowners.analyze.run_git", return_value=short):
+        assert _blob_shas(git_repo.path, ["a.py", "b.py"]) == {}
+    with patch("checkowners.analyze.run_git", return_value=mailed):
+        assert _author_emails(git_repo.path, [head, "short"], use_mailmap=False) == {
+            head: "alice@example.com"
+        }
+    renamed = f"{head}\nM\ta.py\nR100\told.py\tnew.py\n"
+    with patch("checkowners.analyze._git_stdout", return_value=renamed):
+        assert _rename_commit_shas(git_repo.path, _NOW, _NOW) == frozenset({head})
+    with patch("checkowners.analyze._git_stdout", return_value=None):
+        assert _rename_commit_shas(git_repo.path, _NOW, _NOW) == frozenset()
+    ignore = git_repo.path / ".git-blame-ignore-revs"
+    ignore.write_text(f"{head}\n", encoding="utf-8")
+    assert _blame_inputs_token(git_repo.path, config, ())
+    real_read = Path.read_text
+
+    def deny(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == ".git-blame-ignore-revs":
+            raise OSError("denied")
+        return real_read(self, *args, **kwargs)
+
+    with patch.object(Path, "read_text", deny):
+        assert _blame_inputs_token(git_repo.path, config, (head,))
+    _store(git_repo, config)
+    seen: list[int] = []
+    same = collect_analysis(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=head,
+        on_progress=lambda done, _total: seen.append(done),
+    )
+    assert same.mode == "incremental"
+    assert seen
+    quiet = collect_analysis(git_repo.path, config, as_of=_NOW, analysis_ref=head)
+    assert quiet.mode == "incremental"
+    plain = analyze_ownership(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=head,
+        incremental=True,
+    )
+    assert consume_analysis_outcome() is None
+    assert plain.analysis_ref == head
+    (git_repo.path / "a.py").write_text("value = 1\nextra = 1\n", encoding="utf-8")
+    dirty = collect_analysis(git_repo.path, config, as_of=_NOW, analysis_ref=head)
+    assert dirty.mode == "incremental"
+    git_repo.commit(
+        "stage extra",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-02T12:00:00+00:00",
+    )
+    with patch(
+        "checkowners.analyze.gather_blame_coverage",
+        return_value=_BlamePass(truncated=True),
+    ):
+        truncated = collect_analysis(
+            git_repo.path,
+            config,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+        )
+    assert truncated.baseline.truncated
+    assert truncated.baseline.blame == {}
+    with patch("checkowners.analyze._fetch_commit_files", return_value={}):
+        unfetched = collect_analysis(
+            git_repo.path,
+            config,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+        )
+    assert unfetched.fallback == "incremental baseline does not cover this lookback window"
+    run_git(git_repo.path, ["git", "config", "diff.renames", "false"], check=True)
+    renamed_config = collect_analysis(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    assert renamed_config.fallback == "rename detection changed"
+    adaptive = Config(analysis=AnalysisConfig(lookback_days="adaptive", confidence_threshold=0.0))
+    assert (
+        collect_analysis(
+            git_repo.path,
+            adaptive,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+            incremental=False,
+        ).mode
+        == "full"
     )

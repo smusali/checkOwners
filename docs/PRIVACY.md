@@ -45,7 +45,7 @@ A workflow that posts `GITHUB_OUTPUT` to a webhook does that itself. checkOwners
 
 | Location | Contents |
 | --- | --- |
-| `~/.checkowners/state/<id>.json` | Inferred owners, commits, and the analyzed commit. Email addresses are `email:` tokens: `email:` plus the first 16 hex characters of SHA-256 over the lowercased address. |
+| `~/.checkowners/state/<id>.json` | Inferred owners, the analyzed commit, and a history baseline of commit SHAs, path lists, and blame line counts. The baseline does not store author addresses. Email addresses on the ownership map are `email:` tokens: `email:` plus the first 16 hex characters of SHA-256 over the lowercased address. |
 | `~/.checkowners/graph/<id>.json` | Serialized ownership graph for that analysis. Contributor emails in node ids are the same tokens. |
 | `~/.checkowners/handles.json` | Email token to GitHub `@handle`, including remembered misses (an empty string). A file that still has plaintext addresses is rewritten on the next read. `@handles` are stored as themselves. |
 

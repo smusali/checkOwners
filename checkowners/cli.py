@@ -40,6 +40,7 @@ from checkowners.analyze import (
     analysis_epoch,
     analyze_ownership,
     apply_completeness,
+    consume_analysis_outcome,
     head_commit_sha,
     resolve_as_of,
     review_window_start,
@@ -244,6 +245,7 @@ _FAIL_ON_INCOMPLETE: ContextVar[bool] = ContextVar("cli_fail_on_incomplete", def
 _ALLOW_STALE: ContextVar[bool] = ContextVar("cli_allow_stale", default=False)
 _MAX_AGE: ContextVar[int | None] = ContextVar("cli_max_age", default=None)
 _NO_CACHE: ContextVar[bool] = ContextVar("cli_no_cache", default=False)
+_NO_INCREMENTAL: ContextVar[bool] = ContextVar("cli_no_incremental", default=False)
 _REDACT_EMAILS: ContextVar[bool] = ContextVar("cli_redact_emails", default=False)
 _ACTIVE_CONFIG: ContextVar[Config | None] = ContextVar("cli_config", default=None)
 
@@ -471,6 +473,13 @@ def _app_callback(
             help="Do not read or write the analysis cache.",
         ),
     ] = False,
+    no_incremental: Annotated[
+        bool,
+        typer.Option(
+            "--no-incremental",
+            help="Recompute the full lookback window.",
+        ),
+    ] = False,
     offline: Annotated[
         bool,
         typer.Option(
@@ -497,6 +506,7 @@ def _app_callback(
     _ALLOW_STALE.set(allow_stale)
     _MAX_AGE.set(max_age)
     _NO_CACHE.set(no_cache)
+    _NO_INCREMENTAL.set(no_incremental)
     _REDACT_EMAILS.set(redact_emails)
     set_offline(offline)
     if offline:
@@ -862,6 +872,7 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
         transient=True,
         disable=not err_console.is_terminal,
     )
+    outcome = None
     try:
         with progress:
             task_id = progress.add_task("Analyzing git history (blame pass)", total=None)
@@ -869,6 +880,7 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
             def on_progress(done: int, total: int) -> None:
                 progress.update(task_id, completed=done, total=total)
 
+            consume_analysis_outcome()
             ownership = analyze_ownership(
                 repo_root,
                 config,
@@ -877,7 +889,17 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
                 as_of=as_of,
                 analysis_ref=analysis_ref,
                 max_workers=config.analysis.max_git_workers,
+                incremental=not _NO_INCREMENTAL.get() and not _NO_CACHE.get(),
+                capture_baseline=not _NO_CACHE.get(),
             )
+            outcome = consume_analysis_outcome()
+            if outcome is not None and outcome.mode == "incremental":
+                err_console.print(
+                    "[dim]Incremental analysis from "
+                    f"{outcome.prior_ref} to {ownership.analysis_ref}.[/dim]"
+                )
+            elif outcome is not None and outcome.fallback:
+                err_console.print(f"[dim]Full analysis: {outcome.fallback}.[/dim]")
     except (ValueError, subprocess.CalledProcessError, OSError) as exc:
         _guard_ownership(exc)
     ownership = _resolve_github_owners(ownership, config)
@@ -893,6 +915,7 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
             ownership,
             qualified_owner_count_cap=config.analysis.top_n_owners,
             config=config,
+            history=None if outcome is None else outcome.baseline,
         )
     return ownership
 

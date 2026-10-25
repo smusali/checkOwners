@@ -28,7 +28,7 @@ from checkowners.action_report import (
     summarize_decay,
     summarize_drift,
 )
-from checkowners.analyze import GitRequirementError, resolve_as_of
+from checkowners.analyze import GitRequirementError, head_commit_sha, resolve_as_of, run_git
 from checkowners.balance import (
     BalanceReport,
     LoadSource,
@@ -3273,6 +3273,54 @@ def test_aggregate_text_reports_omit_people(
     assert "Repository knowledge risk" in named_decay.stdout
     assert named_topology.exit_code == 0, named_topology.output
     assert "bob@example.com" in named_topology.stdout
+
+
+def test_cli_reports_incremental_analysis_and_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    init_git_repo(repo)
+    monkeypatch.chdir(repo)
+    with patch("checkowners.cli.head_commit_sha", head_commit_sha):
+        (repo / "a.py").write_text("value = 1\n", encoding="utf-8")
+        git_commit(
+            repo,
+            "add",
+            author="Alice",
+            email="alice@example.com",
+            date="2026-05-01T12:00:00+00:00",
+        )
+        first = runner.invoke(app, ["--offline", "analyze"])
+        assert first.exit_code == 0, first.output
+        assert "Incremental analysis from" not in first.stderr
+        assert "Full analysis:" not in first.stderr
+        (repo / "b.py").write_text("value = 2\n", encoding="utf-8")
+        git_commit(
+            repo,
+            "add b",
+            author="Bob",
+            email="bob@example.com",
+            date="2026-05-02T12:00:00+00:00",
+        )
+        second = runner.invoke(app, ["--offline", "analyze"])
+        assert second.exit_code == 0, second.output
+        assert "Incremental analysis from" in second.stderr
+        forced = runner.invoke(app, ["--offline", "--no-incremental", "analyze"])
+        assert forced.exit_code == 0, forced.output
+        assert "Full analysis: incremental analysis disabled." in forced.stderr
+        run_git(repo, ["git", "checkout", "--orphan", "side"], check=True)
+        (repo / "c.py").write_text("value = 3\n", encoding="utf-8")
+        git_commit(
+            repo,
+            "side",
+            author="Carol",
+            email="carol@example.com",
+            date="2026-05-03T12:00:00+00:00",
+        )
+        diverged = runner.invoke(app, ["--offline", "analyze"])
+        assert diverged.exit_code == 0, diverged.output
+        assert "Full analysis: cached ref is not an ancestor of HEAD." in diverged.stderr
 
 
 def test_analysis_flag_lines_and_main(capsys: pytest.CaptureFixture[str]) -> None:

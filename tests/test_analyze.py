@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from collections.abc import Iterable
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -24,8 +25,11 @@ from checkowners.analyze import (
     Contribution,
     GitRequirementError,
     _aggregate_contributions,
+    _author_emails,
     _blame_for_path,
+    _blame_inputs_token,
     _BlamePass,
+    _blob_shas,
     _detect_decay,
     _display_ignore_revs_path,
     _existing_file,
@@ -34,17 +38,23 @@ from checkowners.analyze import (
     _frequency_score,
     _gather_review_coverage,
     _get_commit_history,
+    _git_baseline_reason,
     _git_stdout,
     _gitattributes_pattern_matches,
     _insufficient_history,
+    _is_ancestor,
     _is_excluded,
     _is_shallow_repository,
     _linguist_excluded_paths,
+    _mass_shas,
+    _parse_blame_detail,
     _parse_blame_output,
     _parse_gitattributes,
     _parse_log_output,
     _RawCommit,
     _recency_score,
+    _rename_commit_shas,
+    _reused_fraction,
     _stdout_has_rename,
     _window_has_renames,
     analysis_epoch,
@@ -52,7 +62,9 @@ from checkowners.analyze import (
     apply_completeness,
     assign_coauthors,
     canonical_emails,
+    collect_analysis,
     combine_available_signals,
+    consume_analysis_outcome,
     effective_half_life,
     gather_blame_coverage,
     head_commit_datetime,
@@ -61,6 +73,7 @@ from checkowners.analyze import (
     parse_git_version,
     parse_source_date_epoch,
     resolve_as_of,
+    run_git,
     score_owners,
     signal_reliabilities,
     signal_weights,
@@ -80,7 +93,8 @@ from checkowners.models import (
     QualificationConfig,
     ScoringConfig,
 )
-from tests.conftest import git_commit, init_git_repo
+from checkowners.state import BlameLines, HistoryBaseline, _state_path, write_state
+from tests.conftest import GitRepo, git_commit, init_git_repo
 
 
 def _make_git_log_output(
@@ -88,9 +102,10 @@ def _make_git_log_output(
 ) -> str:
     """Build a fake git log stdout string from (author, timestamp, files) triples."""
     chunks: list[str] = []
-    for author, ts, files in commits:
+    for index, (author, ts, files) in enumerate(commits, start=1):
+        sha = f"{index:040x}"
         chunk = (
-            f"COMMIT_START\n{author}\n{ts.isoformat()}\n"
+            f"COMMIT_START\n{sha}\n{author}\n{ts.isoformat()}\n"
             f"\nsubject\nBODY_START\n\nBODY_END\n" + "\n".join(files)
         )
         chunks.append(chunk)
@@ -2093,6 +2108,7 @@ def test_coauthor_mailmap_and_log_edges(tmp_path: Path) -> None:
             _BODY_END,
             "file.py",
             _COMMIT_SENTINEL,
+            "b" * 40,
             "bob@example.com",
             when,
             "parent",
@@ -2106,3 +2122,412 @@ def test_coauthor_mailmap_and_log_edges(tmp_path: Path) -> None:
     assert len(parsed) == 1
     assert parsed[0].author == "bob@example.com"
     assert parsed[0].files == ("ok.py",)
+
+
+def _canonical_ownership(ownership: OwnershipMap) -> str:
+    def convert(value: object) -> object:
+        if isinstance(value, datetime):
+            aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+            return aware.astimezone(UTC).isoformat()
+        if isinstance(value, dict):
+            return {str(key): convert(item) for key, item in value.items()}
+        if isinstance(value, list | tuple):
+            return [convert(item) for item in value]
+        return value
+
+    return json.dumps(convert(asdict(ownership)), sort_keys=True, separators=(",", ":"))
+
+
+def _assert_same_ownership(left: OwnershipMap, right: OwnershipMap) -> None:
+    assert _canonical_ownership(left) == _canonical_ownership(right)
+
+
+def _score_config(lookback_days: int | None = None) -> Config:
+    if lookback_days is None:
+        return Config(analysis=AnalysisConfig(confidence_threshold=0.0, min_commits=1))
+    return Config(
+        analysis=AnalysisConfig(
+            confidence_threshold=0.0,
+            min_commits=1,
+            lookback_days=lookback_days,
+        )
+    )
+
+
+def _store(repo: GitRepo, config: Config) -> None:
+    outcome = collect_analysis(
+        repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=repo.head_sha(),
+    )
+    write_state(repo.path, outcome.ownership, config=config, history=outcome.baseline)
+
+
+def _blamed_paths(calls: list[list[str]]) -> list[str]:
+    paths: list[str] = []
+    for argv in calls:
+        if not argv or argv[0] != "git" or "blame" not in argv or "--" not in argv:
+            continue
+        paths.append(argv[argv.index("--") + 1])
+    return paths
+
+
+def test_incremental_matches_full_analysis_and_blames_only_new_paths(git_repo: GitRepo) -> None:
+    config = _score_config()
+    git_repo.commit_files(
+        {"a.py": "def alpha():\n    return 1\n"},
+        "add a",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    git_repo.write("a.py", "def alpha():\n    return 2\n")
+    git_repo.coauthored_commit(
+        "update a",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-02T12:00:00+00:00",
+        coauthor="Alice",
+        coemail="alice@example.com",
+    )
+    _store(git_repo, config)
+    git_repo.commit_files(
+        {"b.py": "def beta():\n    return 1\n"},
+        "add b",
+        author="Carol",
+        email="carol@example.com",
+        date="2026-05-03T12:00:00+00:00",
+    )
+    calls: list[list[str]] = []
+
+    def spy(
+        repo: Path,
+        args: list[str],
+        *,
+        check: bool,
+        paths: bool = False,
+        stdin: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        return run_git(repo, args, check=check, paths=paths, stdin=stdin)
+
+    with patch("checkowners.analyze.run_git", spy):
+        incremental = collect_analysis(
+            git_repo.path,
+            config,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+        )
+    assert incremental.mode == "incremental"
+    assert incremental.fallback == ""
+    full = analyze_ownership(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    _assert_same_ownership(incremental.ownership, full)
+    assert _blamed_paths(calls) == ["b.py"]
+    name_only = [argv for argv in calls if "--name-only" in argv]
+    assert name_only
+    assert all("--no-walk" in argv for argv in name_only)
+
+
+def test_incremental_handles_rename_deletion_and_window_expiry(git_repo: GitRepo) -> None:
+    config = _score_config()
+    git_repo.commit_files(
+        {"foo.py": "value = 1\n", "gone.py": "keep = 1\n"},
+        "seed",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    _store(git_repo, config)
+    git_repo.rename("foo.py", "bar.py")
+    (git_repo.path / "gone.py").unlink()
+    git_repo.commit(
+        "rename and delete",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-04T12:00:00+00:00",
+    )
+    incremental = collect_analysis(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    full = analyze_ownership(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    _assert_same_ownership(incremental.ownership, full)
+    assert "foo.py" not in incremental.ownership.paths
+    assert "gone.py" not in incremental.ownership.paths
+    assert "bar.py" in incremental.ownership.paths
+
+    expired = GitRepo.create(git_repo.path.parent / "expired")
+    short = _score_config(lookback_days=1)
+    expired.commit_files(
+        {"old.py": "old = 1\n"},
+        "old",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-01-01T12:00:00+00:00",
+    )
+    early = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
+    first = collect_analysis(expired.path, short, as_of=early, analysis_ref=expired.head_sha())
+    write_state(expired.path, first.ownership, config=short, history=first.baseline)
+    expired.commit_files(
+        {"new.py": "new = 1\n"},
+        "new",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-03-01T12:00:00+00:00",
+    )
+    later = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+    warmed = collect_analysis(expired.path, short, as_of=later, analysis_ref=expired.head_sha())
+    cold = analyze_ownership(expired.path, short, as_of=later, analysis_ref=expired.head_sha())
+    _assert_same_ownership(warmed.ownership, cold)
+    assert warmed.mode == "incremental"
+    assert "old.py" not in warmed.ownership.paths
+    assert "new.py" in warmed.ownership.paths
+
+
+def test_invalid_baseline_falls_back_to_full_analysis(git_repo: GitRepo) -> None:
+    config = _score_config()
+    git_repo.commit_files(
+        {"a.py": "value = 1\n"},
+        "add",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    _store(git_repo, config)
+    target = _state_path(git_repo.path)
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    stored["history"]["files"].pop(next(iter(stored["history"]["files"])))
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    gapped = collect_analysis(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    assert gapped.mode == "full"
+    assert gapped.fallback == "incremental baseline does not cover this lookback window"
+    _assert_same_ownership(
+        gapped.ownership,
+        analyze_ownership(git_repo.path, config, as_of=_NOW, analysis_ref=git_repo.head_sha()),
+    )
+    changed = _score_config(lookback_days=30)
+    rejected = collect_analysis(
+        git_repo.path,
+        changed,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    assert rejected.mode == "full"
+    assert rejected.fallback == "scoring configuration changed"
+    _assert_same_ownership(
+        rejected.ownership,
+        analyze_ownership(
+            git_repo.path,
+            changed,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+        ),
+    )
+    forced = collect_analysis(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+        incremental=False,
+    )
+    assert forced.mode == "full"
+    assert forced.fallback == "incremental analysis disabled"
+    _assert_same_ownership(
+        forced.ownership,
+        analyze_ownership(git_repo.path, config, as_of=_NOW, analysis_ref=git_repo.head_sha()),
+    )
+    run_git(git_repo.path, ["git", "checkout", "--orphan", "side"], check=True)
+    git_repo.commit_files(
+        {"side.py": "side = 1\n"},
+        "side",
+        author="Carol",
+        email="carol@example.com",
+        date="2026-05-06T12:00:00+00:00",
+    )
+    diverged = collect_analysis(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    assert diverged.mode == "full"
+    assert diverged.fallback == "cached ref is not an ancestor of HEAD"
+    _assert_same_ownership(
+        diverged.ownership,
+        analyze_ownership(git_repo.path, config, as_of=_NOW, analysis_ref=git_repo.head_sha()),
+    )
+
+
+def _baseline(
+    ref: str,
+    *,
+    truncated: bool = False,
+    rename_detection: str = "true",
+) -> HistoryBaseline:
+    return HistoryBaseline(
+        analysis_ref=ref,
+        files={},
+        modified={},
+        renames=frozenset(),
+        blame={},
+        blame_inputs="",
+        rename_detection=rename_detection,
+        truncated=truncated,
+    )
+
+
+def test_incremental_edges_cover_rejects_and_reuse(git_repo: GitRepo) -> None:
+    config = _score_config()
+    git_repo.commit_files(
+        {"a.py": "value = 1\n"},
+        "add",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    head = git_repo.head_sha()
+    assert _git_baseline_reason(git_repo.path, _baseline(head, truncated=True), head).startswith(
+        "incremental baseline is incomplete"
+    )
+    assert "no analyzed ref" in _git_baseline_reason(git_repo.path, _baseline(""), head)
+    assert "missing" in _git_baseline_reason(git_repo.path, _baseline("d" * 40), head)
+    assert not _is_ancestor(git_repo.path, "", head)
+    assert _rename_commit_shas(git_repo.path, None, _NOW) == frozenset()
+    assert _mass_shas({}, 0, 0.5) == ()
+    assert _mass_shas({head: 1}, 4, 0.0) == ()
+    assert _blob_shas(git_repo.path, ["a\nb"]) == {}
+    assert _reused_fraction(None, head, {}) is None
+    assert _reused_fraction(BlameLines(blob_sha=head, lines={}), head, {}) is None
+    missing = BlameLines(blob_sha=head, lines={head: 2})
+    assert _reused_fraction(missing, "other", {}) is None
+    assert _reused_fraction(missing, head, {}) is None
+    assert _reused_fraction(missing, head, {head: "alice@example.com"}) == {
+        "alice@example.com": 1.0
+    }
+    zero_lines = BlameLines(blob_sha=head, lines={head: 0})
+    assert _reused_fraction(zero_lines, head, {head: "alice@example.com"}) is None
+    zero = "0" * 40
+    detail = _parse_blame_detail(f"{zero} 1 1 1\nauthor-mail <zero@example.com>\n")
+    assert detail.reusable is False
+    assert _parse_blame_detail("author-mail <early@example.com>\n").reusable is False
+    failed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+    short = subprocess.CompletedProcess(args=[], returncode=0, stdout="abc\n", stderr="")
+    mailed = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=f"not-a-sha\n{zero}\x00\n{head}\x00alice@example.com\n",
+        stderr="",
+    )
+    with patch("checkowners.analyze.run_git", return_value=failed):
+        assert _blob_shas(git_repo.path, ["a.py"]) == {}
+    with patch("checkowners.analyze.run_git", return_value=short):
+        assert _blob_shas(git_repo.path, ["a.py", "b.py"]) == {}
+    with patch("checkowners.analyze.run_git", return_value=mailed):
+        assert _author_emails(git_repo.path, [head, "short"], use_mailmap=False) == {
+            head: "alice@example.com"
+        }
+    renamed = f"{head}\nM\ta.py\nR100\told.py\tnew.py\n"
+    with patch("checkowners.analyze._git_stdout", return_value=renamed):
+        assert _rename_commit_shas(git_repo.path, _NOW, _NOW) == frozenset({head})
+    with patch("checkowners.analyze._git_stdout", return_value=None):
+        assert _rename_commit_shas(git_repo.path, _NOW, _NOW) == frozenset()
+    ignore = git_repo.path / ".git-blame-ignore-revs"
+    ignore.write_text(f"{head}\n", encoding="utf-8")
+    assert _blame_inputs_token(git_repo.path, config, ())
+    real_read = Path.read_text
+
+    def deny(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == ".git-blame-ignore-revs":
+            raise OSError("denied")
+        return real_read(self, *args, **kwargs)
+
+    with patch.object(Path, "read_text", deny):
+        assert _blame_inputs_token(git_repo.path, config, (head,))
+    _store(git_repo, config)
+    seen: list[int] = []
+    same = collect_analysis(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=head,
+        on_progress=lambda done, _total: seen.append(done),
+    )
+    assert same.mode == "incremental"
+    assert seen
+    quiet = collect_analysis(git_repo.path, config, as_of=_NOW, analysis_ref=head)
+    assert quiet.mode == "incremental"
+    plain = analyze_ownership(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=head,
+        incremental=True,
+    )
+    assert consume_analysis_outcome() is None
+    assert plain.analysis_ref == head
+    (git_repo.path / "a.py").write_text("value = 1\nextra = 1\n", encoding="utf-8")
+    dirty = collect_analysis(git_repo.path, config, as_of=_NOW, analysis_ref=head)
+    assert dirty.mode == "incremental"
+    git_repo.commit(
+        "stage extra",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-02T12:00:00+00:00",
+    )
+    with patch(
+        "checkowners.analyze.gather_blame_coverage",
+        return_value=_BlamePass(truncated=True),
+    ):
+        truncated = collect_analysis(
+            git_repo.path,
+            config,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+        )
+    assert truncated.baseline.truncated
+    assert truncated.baseline.blame == {}
+    with patch("checkowners.analyze._fetch_commit_files", return_value={}):
+        unfetched = collect_analysis(
+            git_repo.path,
+            config,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+        )
+    assert unfetched.fallback == "incremental baseline does not cover this lookback window"
+    run_git(git_repo.path, ["git", "config", "diff.renames", "false"], check=True)
+    renamed_config = collect_analysis(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    assert renamed_config.fallback == "rename detection changed"
+    adaptive = Config(analysis=AnalysisConfig(lookback_days="adaptive", confidence_threshold=0.0))
+    assert (
+        collect_analysis(
+            git_repo.path,
+            adaptive,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+            incremental=False,
+        ).mode
+        == "full"
+    )

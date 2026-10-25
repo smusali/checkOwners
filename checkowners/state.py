@@ -21,9 +21,9 @@ import shutil
 import sys
 import threading
 import urllib.parse
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any, TypedDict, TypeGuard, get_args
@@ -58,6 +58,26 @@ from checkowners.privacy import rekey_handle_cache, stored_identity
 
 SCHEMA_VERSION: int = 1
 CACHE_LIMIT_BYTES: int = 256 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class BlameLines:
+    blob_sha: str
+    lines: dict[str, int]
+
+
+@dataclass(frozen=True)
+class HistoryBaseline:
+    analysis_ref: str
+    files: dict[str, tuple[str, ...]]
+    modified: dict[str, int]
+    renames: frozenset[str]
+    blame: dict[str, BlameLines]
+    blame_inputs: str
+    rename_detection: str
+    truncated: bool
+
+
 _STATE_DIR = Path.home() / ".checkowners"
 _STATE_SUBDIR = "state"
 _GRAPH_CACHE_SUBDIR = "graph"
@@ -200,7 +220,7 @@ def _repo_digest(repo_root: Path) -> str:
     return hashlib.sha256(repository_identity(repo_root).encode("utf-8")).hexdigest()[:16]
 
 
-def _models_current(data: dict[str, Any]) -> bool:
+def _models_current(data: Mapping[str, object]) -> bool:
     models = data.get("models")
     if not isinstance(models, dict):
         return False
@@ -393,6 +413,162 @@ def read_graph_cache(
     return graph if isinstance(graph, dict) else None
 
 
+def read_history_baseline(
+    repo_root: Path,
+    config: Config,
+) -> tuple[HistoryBaseline | None, str]:
+    """Return `(baseline, reason)` for `repo_root` and `config`.
+
+    `reason` is empty when no baseline is stored.
+    """
+    data = _read_json(_state_path(repo_root))
+    if data is None or "history" not in data:
+        return None, ""
+    reason = _baseline_rejection(data, repo_root, config)
+    if reason:
+        return None, reason
+    parsed = _parse_history(data.get("history"))
+    if parsed is None:
+        return None, "incremental baseline is corrupt"
+    return parsed, ""
+
+
+def _baseline_rejection(data: Mapping[str, object], repo_root: Path, config: Config) -> str:
+    if data.get("schema_version") != SCHEMA_VERSION:
+        return "analysis schema changed"
+    if not _models_current(data):
+        return "analysis model changed"
+    if data.get("repo_id") != repository_identity(repo_root):
+        return "repository identity changed"
+    if data.get("config_hash") != config_hash(config):
+        return "scoring configuration changed"
+    if data.get("package_version") != __version__:
+        return "package version changed"
+    return ""
+
+
+def _history_payload(
+    history: HistoryBaseline | None,
+    existing: Mapping[str, object] | None,
+) -> object | None:
+    if history is not None:
+        return _serialize_history(history)
+    if existing is None:
+        return None
+    stored = existing.get("history")
+    if isinstance(stored, dict):
+        return stored
+    return None
+
+
+def _serialize_history(baseline: HistoryBaseline) -> dict[str, object]:
+    return {
+        "analysis_ref": baseline.analysis_ref,
+        "files": {sha: list(paths) for sha, paths in baseline.files.items()},
+        "modified": dict(baseline.modified),
+        "renames": sorted(baseline.renames),
+        "blame": {
+            path: {
+                "blob_sha": item.blob_sha,
+                "lines": dict(item.lines),
+            }
+            for path, item in baseline.blame.items()
+        },
+        "blame_inputs": baseline.blame_inputs,
+        "rename_detection": baseline.rename_detection,
+        "truncated": baseline.truncated,
+    }
+
+
+def _parse_history(raw: object) -> HistoryBaseline | None:
+    if not isinstance(raw, dict):
+        return None
+    ref = raw.get("analysis_ref")
+    files = _parse_path_lists(raw.get("files"))
+    modified = _parse_count_map(raw.get("modified"))
+    renames = _parse_string_set(raw.get("renames"))
+    blame = _parse_blame_map(raw.get("blame"))
+    blame_inputs = raw.get("blame_inputs")
+    rename_detection = raw.get("rename_detection")
+    truncated = raw.get("truncated")
+    if (
+        not isinstance(ref, str)
+        or files is None
+        or modified is None
+        or renames is None
+        or blame is None
+        or not isinstance(blame_inputs, str)
+        or not isinstance(rename_detection, str)
+        or not isinstance(truncated, bool)
+    ):
+        return None
+    return HistoryBaseline(
+        analysis_ref=ref,
+        files=files,
+        modified=modified,
+        renames=renames,
+        blame=blame,
+        blame_inputs=blame_inputs,
+        rename_detection=rename_detection,
+        truncated=truncated,
+    )
+
+
+def _parse_path_lists(raw: object) -> dict[str, tuple[str, ...]] | None:
+    if not isinstance(raw, dict):
+        return None
+    files: dict[str, tuple[str, ...]] = {}
+    for sha, paths in raw.items():
+        if not isinstance(sha, str) or not isinstance(paths, list):
+            return None
+        cleaned: list[str] = []
+        for path in paths:
+            if not isinstance(path, str):
+                return None
+            cleaned.append(path)
+        files[sha] = tuple(cleaned)
+    return files
+
+
+def _parse_count_map(raw: object) -> dict[str, int] | None:
+    if not isinstance(raw, dict):
+        return None
+    counts: dict[str, int] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or isinstance(value, bool) or not isinstance(value, int):
+            return None
+        if value < 0:
+            return None
+        counts[key] = value
+    return counts
+
+
+def _parse_string_set(raw: object) -> frozenset[str] | None:
+    if not isinstance(raw, list):
+        return None
+    values: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            return None
+        values.append(item)
+    return frozenset(values)
+
+
+def _parse_blame_map(raw: object) -> dict[str, BlameLines] | None:
+    if not isinstance(raw, dict):
+        return None
+    blame: dict[str, BlameLines] = {}
+    for path, item in raw.items():
+        if not isinstance(path, str) or not isinstance(item, dict):
+            return None
+        blob = item.get("blob_sha")
+        lines = _parse_count_map(item.get("lines"))
+        if not isinstance(blob, str) or not blob or lines is None:
+            return None
+        blame[path] = BlameLines(blob_sha=blob, lines=lines)
+    return blame
+
+
 def read_state(repo_root: Path) -> dict[str, Any] | None:
     """Read a repo's state as a dict, or None if missing or structurally invalid."""
     data = _read_json(_state_path(repo_root))
@@ -419,11 +595,14 @@ def write_state(
     drift_pending_severity: str | None = None,
     drift_pending_streak: int = 0,
     config: Config | None = None,
+    history: HistoryBaseline | None = None,
 ) -> Path:
     """Persist the latest ownership map and derived intelligence to disk.
 
     `config` selects the scoring hash stored with the map. When omitted, the
-    default config is hashed. Returns the state file path.
+    default config is hashed. `history`, when passed, replaces the stored
+    commit baseline. When omitted, an existing baseline is kept. Returns the
+    state file path.
     """
     target = _state_path(repo_root)
     with _locked(target):
@@ -473,6 +652,9 @@ def write_state(
             "drift_pending_severity": drift_pending_severity,
             "drift_pending_streak": drift_pending_streak,
         }
+        stored_history = _history_payload(history, existing)
+        if stored_history is not None:
+            payload["history"] = stored_history
         _atomic_write(target, json.dumps(payload, indent=2, sort_keys=True))
         _evict(target)
     return target

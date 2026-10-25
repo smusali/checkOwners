@@ -33,6 +33,8 @@ from checkowners.models import (
 from checkowners.privacy import email_token
 from checkowners.state import (
     SCHEMA_VERSION,
+    BlameLines,
+    HistoryBaseline,
     _as_gap_code,
     _evict,
     _file_size,
@@ -46,6 +48,7 @@ from checkowners.state import (
     load_ownership,
     read_graph_cache,
     read_handle_cache,
+    read_history_baseline,
     read_state,
     repository_identity,
     reusable_ownership,
@@ -1261,3 +1264,45 @@ def test_reusable_ownership_honors_positive_max_age(repo: Path) -> None:
     target.write_text(json.dumps(stored), encoding="utf-8")
     assert reusable_ownership(repo, Config(), head="deadbeef", max_age=60) is None
     assert read_handle_cache() == {}
+
+
+def test_history_baseline_round_trips_without_emails(repo: Path) -> None:
+    baseline = HistoryBaseline(
+        analysis_ref="a" * 40,
+        files={("c" * 40): ("src/app.py",)},
+        modified={("c" * 40): 1},
+        renames=frozenset({"c" * 40}),
+        blame={"src/app.py": BlameLines(blob_sha="b" * 40, lines={("c" * 40): 3})},
+        blame_inputs="inputs",
+        rename_detection="true",
+        truncated=False,
+    )
+    target = write_state(repo, _make_ownership(), config=Config(), history=baseline)
+    loaded, reason = read_history_baseline(repo, Config())
+    assert reason == ""
+    assert loaded == baseline
+    history = json.loads(target.read_text(encoding="utf-8"))["history"]
+    assert "@" not in json.dumps(history)
+    write_state(repo, _make_ownership(), config=Config())
+    kept, kept_reason = read_history_baseline(repo, Config())
+    assert kept_reason == ""
+    assert kept == baseline
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    package_version = stored["package_version"]
+    stored["config_hash"] = "0" * 64
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    rejected, why = read_history_baseline(repo, Config())
+    assert rejected is None
+    assert why == "scoring configuration changed"
+    stored["config_hash"] = config_hash(Config())
+    stored["package_version"] = "0.0.0"
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    versioned, version_reason = read_history_baseline(repo, Config())
+    assert versioned is None
+    assert version_reason == "package version changed"
+    stored["package_version"] = package_version
+    stored["history"] = {"analysis_ref": "x"}
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    corrupt, corrupt_reason = read_history_baseline(repo, Config())
+    assert corrupt is None
+    assert corrupt_reason == "incremental baseline is corrupt"

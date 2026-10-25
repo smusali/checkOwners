@@ -97,7 +97,18 @@ A formula change, a classifier change, or a topology-algorithm change bumps the 
 
 JSON carries `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema 1. Email addresses in that state are stored as tokens.
 
-Files without a matching `models` object, and files whose scoring config hash does not match, are ignored and replaced on the next analyze. A cached map is reused only when its commit is still `HEAD`, unless `--allow-stale` is set. Recency and the lookback window are evaluated at the analysis instant, not the wall clock. JSON payloads emit `head_sha` and `generated_at`.
+Files without a matching `models` object, and files whose scoring config hash
+does not match, are ignored and replaced on the next analyze. A cached map is
+reused only when its commit is still `HEAD`, unless `--allow-stale` is set.
+When the stored commit is an ancestor of `HEAD` and the baseline is usable,
+the next analyze replays `git log` metadata for the current lookback, attaches
+stored path lists for commits it already saw, and re-blames only paths whose
+blob changed. Commits that `git log --since` and `--until` no longer return
+are left out of the map. The scored result is the same function of the
+repository, commit, config, and model as a full lookback. `--no-incremental`
+forces that full lookback. Recency and the lookback window are evaluated at
+the analysis instant, not the wall clock. JSON payloads emit `head_sha` and
+`generated_at`.
 
 `qualification.strategy: adaptive` (the default) treats commit count as evidence:
 authors below `min_commits` still qualify when blame is at least
@@ -367,11 +378,20 @@ same change.
 
 ## Benchmark and calibration
 
-No performance benchmark has been published. The intended measurements, when a
+No broad performance benchmark has been published. The intended measurements, when a
 harness exists, are cold runtime, warm runtime, peak resident memory, git
 command count, API request count, cache size, and incremental runtime, on
 fixed repository shapes. Until those runs exist, do not treat a single
 timing as a benchmark.
+
+One local incremental measurement is recorded here. It is one development
+machine on 2026-10-24 and one generated repository, not the monorepo anecdote.
+The fixture was 600 one-line Python files added across 20 commits, then one
+commit that changed two of those files. The cold pass took 1.99 seconds and
+ran git blame on all 600 files. The warm pass took 0.34 seconds and ran git
+blame on the two changed files. That is about 5.9 times faster on the wall
+clock, and 300 times fewer file blames. On this fixture blame is cheap, so
+the wall-clock ratio is smaller than the blame-count ratio.
 
 On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo finished
 a 365-day analyze in under three minutes. That figure is one measurement on

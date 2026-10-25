@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
+import json
 import math
 import os
 import re
 import statistics
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -19,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from itertools import pairwise
 from pathlib import Path
+from typing import Literal
 
 from checkowners.expertise import path_matches_glob
 from checkowners.github import (
@@ -48,6 +52,7 @@ from checkowners.models import (
     merge_gaps,
     with_gaps,
 )
+from checkowners.state import BlameLines, HistoryBaseline, read_history_baseline
 
 _COMMIT_SENTINEL = "COMMIT_START"
 _BODY_START = "BODY_START"
@@ -104,6 +109,7 @@ class _RawCommit:
 
 @dataclass(frozen=True)
 class _ParsedCommit:
+    sha: str
     author: str
     timestamp: datetime
     files: tuple[str, ...]
@@ -125,6 +131,30 @@ class _BlamePass:
     ignore_revs_file: str = ""
     ignore_revs_applied: bool = False
     truncated: bool = False
+
+
+@dataclass(frozen=True)
+class _BlameDetail:
+    fractions: dict[str, float]
+    commits: dict[str, int]
+    reusable: bool
+
+
+@dataclass(frozen=True)
+class AnalysisOutcome:
+    ownership: OwnershipMap
+    baseline: HistoryBaseline
+    mode: Literal["full", "incremental"]
+    fallback: str
+    prior_ref: str
+
+
+_PENDING_OUTCOME: ContextVar[AnalysisOutcome | None] = ContextVar(
+    "checkowners_analysis_outcome",
+    default=None,
+)
+_BLAME_SINK_LOCK = threading.Lock()
+_SHA_BATCH = 40
 
 
 _BLAME_DEADLINE: ContextVar[float | None] = ContextVar("checkowners_blame_deadline", default=None)
@@ -196,6 +226,13 @@ def resolve_as_of(cli_value: str | None, repo_root: Path) -> datetime:
     return head_commit_datetime(repo_root)
 
 
+def consume_analysis_outcome() -> AnalysisOutcome | None:
+    """Return the captured outcome, or None, and clear it."""
+    outcome = _PENDING_OUTCOME.get()
+    _PENDING_OUTCOME.set(None)
+    return outcome
+
+
 def analysis_epoch(when: datetime) -> str:
     aware = when if when.tzinfo is not None else when.replace(tzinfo=UTC)
     return aware.astimezone(UTC).isoformat()
@@ -212,6 +249,8 @@ def analyze_ownership(
     max_workers: int | None = None,
     pathspec: tuple[str, ...] | None = None,
     retain_all: bool = False,
+    incremental: bool = False,
+    capture_baseline: bool = False,
 ) -> OwnershipMap:
     """Analyze git history and return a confidence-scored ownership map.
 
@@ -226,7 +265,23 @@ def analyze_ownership(
     omitted, HEAD is used. ``pathspec`` limits git log and blame to those
     paths. ``retain_all`` stores every scored author on ``candidates``;
     inferred ``owners`` still apply the confidence threshold and top-N cap.
+    ``incremental`` replays a stored baseline when one is usable.
+    ``capture_baseline`` stores the run for ``consume_analysis_outcome``.
     """
+    if incremental or capture_baseline:
+        outcome = collect_analysis(
+            repo_root,
+            config,
+            review_provider=review_provider,
+            on_progress=on_progress,
+            as_of=as_of,
+            analysis_ref=analysis_ref,
+            max_workers=max_workers,
+            incremental=incremental,
+        )
+        if capture_baseline:
+            _PENDING_OUTCOME.set(outcome)
+        return outcome.ownership
     when = as_of if as_of is not None else resolve_as_of(None, repo_root)
     ref = analysis_ref if analysis_ref is not None else head_commit_sha(repo_root)
     reset_review_window()
@@ -261,17 +316,22 @@ def _analyze_ownership(
     pathspec: tuple[str, ...] | None,
     retain_all: bool,
     deadline: float,
+    prepared_history: _CommitHistory | None = None,
+    blame_runner: Callable[[Iterable[str]], _BlamePass] | None = None,
+    renamed: bool | None = None,
 ) -> OwnershipMap:
     mailmap_path = _resolve_mailmap_file(repo_root)
-    history = _get_commit_history(
-        repo_root,
-        lookback_start(config.analysis.lookback_days, when),
-        when,
-        use_mailmap=config.git.use_mailmap,
-        pathspec=pathspec,
-        count_co_authors=config.git.count_co_authors,
-        merge_strategy=config.git.merge_strategy,
-    )
+    history = prepared_history
+    if history is None:
+        history = _get_commit_history(
+            repo_root,
+            lookback_start(config.analysis.lookback_days, when),
+            when,
+            use_mailmap=config.git.use_mailmap,
+            pathspec=pathspec,
+            count_co_authors=config.git.count_co_authors,
+            merge_strategy=config.git.merge_strategy,
+        )
     commits = history.commits
     contributions = _aggregate_contributions(
         commits,
@@ -296,7 +356,9 @@ def _analyze_ownership(
         contributions = _filter_bot_authors(contributions)
     if config.qualification.strategy == "threshold":
         contributions = _filter_unqualified(contributions, config.analysis.min_commits)
-    if time.monotonic() >= deadline:
+    if blame_runner is not None:
+        blame_pass = blame_runner(contributions.keys())
+    elif time.monotonic() >= deadline:
         blame_pass = _BlamePass(truncated=True)
     else:
         blame_pass = gather_blame_coverage(
@@ -333,6 +395,7 @@ def _analyze_ownership(
         and not review_omitted,
         merge_strategy=history.merge_strategy,
         co_author_count=history.co_author_count,
+        renamed=renamed,
     )
     sample = review_window()
     return apply_completeness(
@@ -362,12 +425,13 @@ def _run_completeness(
     review_missing: bool,
     merge_strategy: ReportedMergeStrategy,
     co_author_count: int,
+    renamed: bool | None = None,
 ) -> AnalysisCompleteness:
     since = lookback_start(config.analysis.lookback_days, when)
     gaps = history_evidence_gaps(
         shallow=_is_shallow_repository(repo_root),
         insufficient=_insufficient_history(repo_root, commits),
-        renamed=_window_has_renames(repo_root, since, when),
+        renamed=(_window_has_renames(repo_root, since, when) if renamed is None else renamed),
         mailmap_missing=config.git.use_mailmap and mailmap_path is None,
         ignore_revs_missing=_resolve_ignore_revs_file(repo_root, config.git.blame_ignore_revs_file)
         is None,
@@ -433,6 +497,7 @@ def run_git(
     *,
     check: bool,
     paths: bool = False,
+    stdin: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv = args
     if paths and args and args[0] == "git":
@@ -445,6 +510,7 @@ def run_git(
         errors="surrogateescape",
         cwd=repo_root,
         check=check,
+        input=stdin,
     )
 
 
@@ -497,6 +563,33 @@ def _stdout_has_rename(stdout: str) -> bool:
             if status == "R" or (len(status) > 1 and status[1:].isdigit()):
                 return True
     return False
+
+
+def _rename_commit_shas(
+    repo_root: Path,
+    since: datetime | None,
+    until: datetime,
+    revision: str | None = None,
+) -> frozenset[str]:
+    argv = ["git", "log", "--diff-filter=R", "--name-status", "--pretty=format:%H"]
+    if revision:
+        argv.append(revision)
+    if since is not None:
+        argv.append(f"--since={since.isoformat()}")
+    argv.append(f"--until={until.isoformat()}")
+    stdout = _git_stdout(repo_root, argv, paths=True)
+    if not stdout:
+        return frozenset()
+    found: set[str] = set()
+    current = ""
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if _FULL_SHA_RE.fullmatch(stripped):
+            current = stripped
+            continue
+        if current and _stdout_has_rename(line):
+            found.add(current)
+    return frozenset(found)
 
 
 def _window_has_renames(repo_root: Path, since: datetime | None, until: datetime) -> bool:
@@ -1002,25 +1095,65 @@ def _get_commit_history(
     merge_strategy: ConfiguredMergeStrategy = "auto",
 ) -> _CommitHistory:
     """Return parsed commits from `since` until `as_of`. `since` None omits the lower bound."""
-    email_fmt = "%aE" if use_mailmap else "%ae"
-    log_format = (
-        f"--format={_COMMIT_SENTINEL}%n{email_fmt}%n%cI%n%P%n%s%n{_BODY_START}%n%b%n{_BODY_END}"
+    records = _parsed_commits(
+        repo_root,
+        since,
+        as_of,
+        use_mailmap=use_mailmap,
+        name_only=True,
+        pathspec=pathspec,
     )
-    argv = [  # git from PATH; not user-supplied
-        "git",
-        "log",
-        mailmap_flag(use_mailmap),
-        log_format,
-        "--name-only",
-    ]
-    if since is not None:
-        argv.append(f"--since={since.isoformat()}")
-    argv.append(f"--until={as_of.isoformat()}")
-    if pathspec:
-        argv.append("--")
-        argv.extend(pathspec)
-    result = run_git(repo_root, argv, check=True, paths=True)
-    records = _parse_log(result.stdout)
+    return _history_from_records(
+        repo_root,
+        records,
+        use_mailmap=use_mailmap,
+        count_co_authors=count_co_authors,
+        merge_strategy=merge_strategy,
+    )
+
+
+def _history_log_format(use_mailmap: bool) -> str:
+    email_fmt = "%aE" if use_mailmap else "%ae"
+    return (
+        f"--format={_COMMIT_SENTINEL}%n%H%n{email_fmt}%n%cI%n%P%n%s%n{_BODY_START}%n%b%n{_BODY_END}"
+    )
+
+
+def _parsed_commits(
+    repo_root: Path,
+    since: datetime | None,
+    as_of: datetime,
+    *,
+    use_mailmap: bool,
+    name_only: bool,
+    pathspec: tuple[str, ...] | None = None,
+    revisions: tuple[str, ...] = (),
+) -> list[_ParsedCommit]:
+    argv = ["git", "log", mailmap_flag(use_mailmap), _history_log_format(use_mailmap)]
+    if name_only:
+        argv.append("--name-only")
+    if revisions:
+        argv.append("--no-walk")
+        argv.extend(revisions)
+    else:
+        if since is not None:
+            argv.append(f"--since={since.isoformat()}")
+        argv.append(f"--until={as_of.isoformat()}")
+        if pathspec:
+            argv.append("--")
+            argv.extend(pathspec)
+    result = run_git(repo_root, argv, check=True, paths=name_only)
+    return _parse_log(result.stdout)
+
+
+def _history_from_records(
+    repo_root: Path,
+    records: list[_ParsedCommit],
+    *,
+    use_mailmap: bool,
+    count_co_authors: bool,
+    merge_strategy: ConfiguredMergeStrategy,
+) -> _CommitHistory:
     file_records = [record for record in records if record.files]
     credited = assign_coauthors(
         repo_root,
@@ -1043,6 +1176,449 @@ def _get_commit_history(
         merge_strategy=_applied_strategy(merge_strategy, _detect_strategy(records)),
         co_author_count=sum(len(coauthors) for coauthors in credited),
     )
+
+
+class _ReplayError(Exception):
+    pass
+
+
+def collect_analysis(
+    repo_root: Path,
+    config: Config,
+    *,
+    review_provider: ReviewProvider | None = None,
+    on_progress: ProgressHook | None = None,
+    as_of: datetime | None = None,
+    analysis_ref: str | None = None,
+    max_workers: int | None = None,
+    incremental: bool = True,
+) -> AnalysisOutcome:
+    """Return scored ownership for `repo_root` and the baseline that reproduces it."""
+    when = as_of if as_of is not None else resolve_as_of(None, repo_root)
+    ref = analysis_ref if analysis_ref is not None else head_commit_sha(repo_root)
+    reset_review_window()
+    deadline = time.monotonic() + config.analysis.max_runtime_seconds
+    token = _BLAME_DEADLINE.set(deadline)
+    try:
+        return _collect_analysis(
+            repo_root,
+            config,
+            when=when,
+            ref=ref,
+            review_provider=review_provider,
+            on_progress=on_progress,
+            max_workers=max_workers,
+            incremental=incremental,
+            deadline=deadline,
+        )
+    finally:
+        _BLAME_DEADLINE.reset(token)
+
+
+def _collect_analysis(
+    repo_root: Path,
+    config: Config,
+    *,
+    when: datetime,
+    ref: str,
+    review_provider: ReviewProvider | None,
+    on_progress: ProgressHook | None,
+    max_workers: int | None,
+    incremental: bool,
+    deadline: float,
+) -> AnalysisOutcome:
+    since = lookback_start(config.analysis.lookback_days, when)
+    mode: Literal["full", "incremental"] = "full"
+    prior_ref = ""
+    fallback = "" if incremental else "incremental analysis disabled"
+    prior: HistoryBaseline | None = None
+    if incremental:
+        loaded, rejection = read_history_baseline(repo_root, config)
+        if rejection:
+            fallback = rejection
+        elif loaded is not None:
+            git_reason = _git_baseline_reason(repo_root, loaded, ref)
+            if git_reason:
+                fallback = git_reason
+            else:
+                prior = loaded
+    window: tuple[
+        _CommitHistory,
+        dict[str, tuple[str, ...]],
+        dict[str, int],
+        frozenset[str],
+    ]
+    if prior is not None:
+        try:
+            window = _replay_window(repo_root, config, prior, since, when, ref)
+        except _ReplayError as exc:
+            fallback = str(exc)
+            prior = None
+            window = _full_window(repo_root, config, since, when)
+        else:
+            mode = "incremental"
+            prior_ref = prior.analysis_ref
+            fallback = ""
+    else:
+        window = _full_window(repo_root, config, since, when)
+    history, files, modified, renames = window
+    saved = _BlameSaved()
+
+    def blame_runner(paths: Iterable[str]) -> _BlamePass:
+        blame_pass, lines, blame_inputs, truncated = _coverage_with_reuse(
+            paths,
+            repo_root,
+            config,
+            baseline=prior if mode == "incremental" else None,
+            modified=modified,
+            on_progress=on_progress,
+            max_workers=max_workers,
+        )
+        saved.lines = lines
+        saved.inputs = blame_inputs
+        saved.truncated = truncated
+        return blame_pass
+
+    ownership = _analyze_ownership(
+        repo_root,
+        config,
+        when=when,
+        ref=ref,
+        review_provider=review_provider,
+        on_progress=on_progress,
+        max_workers=max_workers,
+        pathspec=None,
+        retain_all=False,
+        deadline=deadline,
+        prepared_history=history,
+        blame_runner=blame_runner,
+        renamed=bool(renames),
+    )
+    baseline = HistoryBaseline(
+        analysis_ref=ref,
+        files=files,
+        modified=modified,
+        renames=renames,
+        blame={} if saved.truncated else saved.lines,
+        blame_inputs=saved.inputs,
+        rename_detection=_rename_detection(repo_root),
+        truncated=saved.truncated,
+    )
+    return AnalysisOutcome(
+        ownership=ownership,
+        baseline=baseline,
+        mode=mode,
+        fallback=fallback,
+        prior_ref=prior_ref,
+    )
+
+
+@dataclass
+class _BlameSaved:
+    lines: dict[str, BlameLines] = field(default_factory=dict)
+    inputs: str = ""
+    truncated: bool = False
+
+
+def _full_window(
+    repo_root: Path,
+    config: Config,
+    since: datetime | None,
+    when: datetime,
+) -> tuple[_CommitHistory, dict[str, tuple[str, ...]], dict[str, int], frozenset[str]]:
+    records = _parsed_commits(
+        repo_root,
+        since,
+        when,
+        use_mailmap=config.git.use_mailmap,
+        name_only=True,
+    )
+    history = _history_from_records(
+        repo_root,
+        records,
+        use_mailmap=config.git.use_mailmap,
+        count_co_authors=config.git.count_co_authors,
+        merge_strategy=config.git.merge_strategy,
+    )
+    files = {record.sha: record.files for record in records}
+    return history, files, _modified_counts(repo_root), _rename_commit_shas(repo_root, since, when)
+
+
+def _replay_window(
+    repo_root: Path,
+    config: Config,
+    baseline: HistoryBaseline,
+    since: datetime | None,
+    when: datetime,
+    head: str,
+) -> tuple[_CommitHistory, dict[str, tuple[str, ...]], dict[str, int], frozenset[str]]:
+    records = _parsed_commits(
+        repo_root,
+        since,
+        when,
+        use_mailmap=config.git.use_mailmap,
+        name_only=False,
+    )
+    missing = [record.sha for record in records if record.sha not in baseline.files]
+    fetched: dict[str, tuple[str, ...]] = {}
+    if missing:
+        ancestors = _ancestor_shas(repo_root, baseline.analysis_ref)
+        if any(sha in ancestors for sha in missing):
+            raise _ReplayError("incremental baseline does not cover this lookback window")
+        fetched = _fetch_commit_files(
+            repo_root,
+            missing,
+            use_mailmap=config.git.use_mailmap,
+            as_of=when,
+        )
+        if any(sha not in fetched for sha in missing):
+            raise _ReplayError("incremental baseline does not cover this lookback window")
+    files: dict[str, tuple[str, ...]] = {}
+    attached: list[_ParsedCommit] = []
+    for record in records:
+        paths = baseline.files.get(record.sha, fetched.get(record.sha, ()))
+        files[record.sha] = paths
+        attached.append(replace(record, files=paths))
+    history = _history_from_records(
+        repo_root,
+        attached,
+        use_mailmap=config.git.use_mailmap,
+        count_co_authors=config.git.count_co_authors,
+        merge_strategy=config.git.merge_strategy,
+    )
+    revision = f"{baseline.analysis_ref}..{head}"
+    modified = dict(baseline.modified)
+    modified.update(_modified_counts(repo_root, revision))
+    delta_renames = _rename_commit_shas(repo_root, since, when, revision)
+    window_shas = set(files)
+    renames = frozenset(sha for sha in baseline.renames | delta_renames if sha in window_shas)
+    return history, files, modified, renames
+
+
+def _fetch_commit_files(
+    repo_root: Path,
+    shas: list[str],
+    *,
+    use_mailmap: bool,
+    as_of: datetime,
+) -> dict[str, tuple[str, ...]]:
+    found: dict[str, tuple[str, ...]] = {}
+    for start in range(0, len(shas), _SHA_BATCH):
+        batch = tuple(shas[start : start + _SHA_BATCH])
+        records = _parsed_commits(
+            repo_root,
+            None,
+            as_of,
+            use_mailmap=use_mailmap,
+            name_only=True,
+            revisions=batch,
+        )
+        for record in records:
+            found[record.sha] = record.files
+    return found
+
+
+def _rename_detection(repo_root: Path) -> str:
+    return _git_config_value(repo_root, "diff.renames") or "true"
+
+
+def _commit_exists(repo_root: Path, ref: str) -> bool:
+    result = run_git(repo_root, ["git", "cat-file", "-e", f"{ref}^{{commit}}"], check=False)
+    return result.returncode == 0
+
+
+def _is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
+    if not ancestor or not descendant:
+        return False
+    result = run_git(
+        repo_root,
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _ancestor_shas(repo_root: Path, ref: str) -> set[str]:
+    result = run_git(repo_root, ["git", "rev-list", ref], check=True)
+    return set(result.stdout.split())
+
+
+def _git_baseline_reason(repo_root: Path, baseline: HistoryBaseline, head: str) -> str:
+    if baseline.truncated:
+        return "incremental baseline is incomplete"
+    if not baseline.analysis_ref:
+        return "incremental baseline has no analyzed ref"
+    if not _commit_exists(repo_root, baseline.analysis_ref):
+        return "cached ref is missing"
+    if not _is_ancestor(repo_root, baseline.analysis_ref, head):
+        return "cached ref is not an ancestor of HEAD"
+    if baseline.rename_detection != _rename_detection(repo_root):
+        return "rename detection changed"
+    return ""
+
+
+def _mailmap_enabled(repo_root: Path, requested: bool) -> bool:
+    return requested and _blame_accepts_mailmap_flags(repo_root)
+
+
+def _blame_inputs_token(repo_root: Path, config: Config, mass: tuple[str, ...]) -> str:
+    ignore = _resolve_ignore_revs_file(repo_root, config.git.blame_ignore_revs_file)
+    text = ""
+    if ignore is not None:
+        try:
+            text = ignore.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+    payload = json.dumps(
+        {"ignore": text, "mass": sorted(mass), "moves": config.git.detect_moves},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _blob_shas(repo_root: Path, paths: list[str]) -> dict[str, str]:
+    safe = [path for path in paths if "\n" not in path and "\x00" not in path]
+    if not safe:
+        return {}
+    result = run_git(
+        repo_root,
+        ["git", "hash-object", "--stdin-paths"],
+        check=False,
+        stdin="\n".join(safe) + "\n",
+    )
+    if result.returncode != 0:
+        return {}
+    hashes = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(hashes) != len(safe):
+        return {}
+    return dict(zip(safe, hashes, strict=True))
+
+
+def _author_emails(repo_root: Path, shas: Iterable[str], *, use_mailmap: bool) -> dict[str, str]:
+    unique = sorted({sha for sha in shas if _FULL_SHA_RE.fullmatch(sha)})
+    found: dict[str, str] = {}
+    for start in range(0, len(unique), _SHA_BATCH):
+        batch = unique[start : start + _SHA_BATCH]
+        result = run_git(
+            repo_root,
+            [
+                "git",
+                "log",
+                "--no-walk",
+                mailmap_flag(use_mailmap),
+                "--format=%H%x00%aE",
+                *batch,
+            ],
+            check=True,
+        )
+        for line in result.stdout.splitlines():
+            sha, separator, email = line.partition("\x00")
+            if separator and email and _FULL_SHA_RE.fullmatch(sha):
+                found[sha] = email
+    return found
+
+
+def _reused_fraction(
+    stored: BlameLines | None,
+    blob: str,
+    emails: Mapping[str, str],
+) -> dict[str, float] | None:
+    if stored is None or not blob or stored.blob_sha != blob or not stored.lines:
+        return None
+    total = 0
+    counts: dict[str, int] = {}
+    for sha, count in stored.lines.items():
+        email = emails.get(sha)
+        if not email:
+            return None
+        total += count
+        counts[email] = counts.get(email, 0) + count
+    if total <= 0:
+        return None
+    return dict(sorted((author, count / total) for author, count in counts.items()))
+
+
+def _coverage_with_reuse(
+    paths: Iterable[str],
+    repo_root: Path,
+    config: Config,
+    *,
+    baseline: HistoryBaseline | None,
+    modified: Mapping[str, int],
+    on_progress: ProgressHook | None,
+    max_workers: int | None,
+) -> tuple[_BlamePass, dict[str, BlameLines], str, bool]:
+    tracked = _tracked_file_count(repo_root)
+    mass = _mass_shas(modified, tracked, config.git.mass_refactor_file_fraction)
+    inputs = _blame_inputs_token(repo_root, config, mass)
+    path_list = sorted(paths)
+    reuse_ok = baseline is not None and not baseline.truncated and baseline.blame_inputs == inputs
+    blobs = _blob_shas(repo_root, path_list)
+    emails: dict[str, str] = {}
+    if reuse_ok and baseline is not None:
+        wanted: list[str] = []
+        for path in path_list:
+            stored = baseline.blame.get(path)
+            if stored is not None and stored.blob_sha == blobs.get(path, "") and stored.blob_sha:
+                wanted.extend(stored.lines)
+        emails = _author_emails(
+            repo_root,
+            wanted,
+            use_mailmap=_mailmap_enabled(repo_root, config.git.use_mailmap),
+        )
+    reused: dict[str, dict[str, float]] = {}
+    saved: dict[str, BlameLines] = {}
+    dirty: list[str] = []
+    for path in path_list:
+        if reuse_ok and baseline is not None:
+            fraction = _reused_fraction(
+                baseline.blame.get(path),
+                blobs.get(path, ""),
+                emails,
+            )
+            if fraction is not None:
+                reused[path] = fraction
+                saved[path] = baseline.blame[path]
+                continue
+        dirty.append(path)
+    ignore = _resolve_ignore_revs_file(repo_root, config.git.blame_ignore_revs_file)
+    display = _display_ignore_revs_path(repo_root, ignore) if ignore else ""
+    sink: dict[str, _BlameDetail] = {}
+    if dirty:
+        observed = len(reused)
+
+        def report(done: int, _total: int) -> None:
+            if on_progress is not None:
+                on_progress(observed + done, len(path_list))
+
+        fresh = gather_blame_coverage(
+            dirty,
+            repo_root,
+            git=config.git,
+            on_progress=report if on_progress is not None else None,
+            max_workers=max_workers,
+            mass_revs=mass,
+            detail_sink=sink,
+        )
+    else:
+        fresh = _BlamePass(ignore_revs_file=display, ignore_revs_applied=ignore is not None)
+        if on_progress is not None and path_list:
+            on_progress(len(path_list), len(path_list))
+    coverage = {**reused, **fresh.coverage}
+    passed = _BlamePass(
+        coverage=dict(sorted(coverage.items())),
+        ignore_revs_file=fresh.ignore_revs_file or display,
+        ignore_revs_applied=fresh.ignore_revs_applied or ignore is not None,
+        truncated=fresh.truncated,
+    )
+    if fresh.truncated:
+        return passed, {}, inputs, True
+    for path, detail in sink.items():
+        blob = blobs.get(path) or _blob_shas(repo_root, [path]).get(path, "")
+        if detail.reusable and blob and detail.commits:
+            saved[path] = BlameLines(blob_sha=blob, lines=dict(detail.commits))
+    return passed, saved, inputs, False
 
 
 def _parse_log_output(stdout: str) -> list[_RawCommit]:
@@ -1078,20 +1654,22 @@ def _parse_commit_chunk(chunk: str) -> _ParsedCommit | None:
     body = rest[:end]
     files_blob = rest[end + len(end_marker) :]
     lines = header.splitlines()
-    if len(lines) < 3:
+    if len(lines) < 4:
         return None
-    author = lines[0].strip()
-    timestamp = _parse_timestamp(lines[1].strip())
-    if timestamp is None or not author:
+    sha = lines[0].strip()
+    author = lines[1].strip()
+    timestamp = _parse_timestamp(lines[2].strip())
+    if timestamp is None or not author or _FULL_SHA_RE.fullmatch(sha) is None:
         return None
-    subject = lines[3] if len(lines) > 3 else ""
+    subject = lines[4] if len(lines) > 4 else ""
     files = tuple(line.strip() for line in files_blob.splitlines() if line.strip())
     return _ParsedCommit(
+        sha=sha,
         author=author,
         timestamp=timestamp,
         files=files,
         contacts=coauthor_contacts(body),
-        parent_count=len(lines[2].split()),
+        parent_count=len(lines[3].split()),
         squash_subject=_SQUASH_SUBJECT.search(subject) is not None,
     )
 
@@ -1498,15 +2076,15 @@ def _tracked_file_count(repo_root: Path) -> int:
     return sum(1 for line in result.stdout.splitlines() if line)
 
 
-def _parse_mass_refactor_revs(stdout: str, tracked: int, fraction: float) -> tuple[str, ...]:
-    found: list[str] = []
+def _parse_modified_counts(stdout: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
     current_sha = ""
     modified = 0
 
     def flush() -> None:
         nonlocal current_sha, modified
-        if current_sha and tracked > 0 and modified / tracked >= fraction:
-            found.append(current_sha)
+        if current_sha:
+            counts[current_sha] = modified
         current_sha = ""
         modified = 0
 
@@ -1521,7 +2099,21 @@ def _parse_mass_refactor_revs(stdout: str, tracked: int, fraction: float) -> tup
         if line.startswith("M\t") or line.startswith("M "):
             modified += 1
     flush()
-    return tuple(found)
+    return counts
+
+
+def _modified_counts(repo_root: Path, revision: str | None = None) -> dict[str, int]:
+    argv = ["git", "log", "--name-status", "--pretty=format:%H"]
+    if revision:
+        argv.append(revision)
+    result = run_git(repo_root, argv, check=True, paths=True)
+    return _parse_modified_counts(result.stdout)
+
+
+def _mass_shas(counts: Mapping[str, int], tracked: int, fraction: float) -> tuple[str, ...]:
+    if fraction <= 0.0 or tracked <= 0:
+        return ()
+    return tuple(sha for sha, modified in counts.items() if modified / tracked >= fraction)
 
 
 def _mass_refactor_revs(repo_root: Path, fraction: float) -> tuple[str, ...]:
@@ -1530,13 +2122,7 @@ def _mass_refactor_revs(repo_root: Path, fraction: float) -> tuple[str, ...]:
     tracked = _tracked_file_count(repo_root)
     if tracked == 0:
         return ()
-    result = run_git(
-        repo_root,
-        ["git", "log", "--name-status", "--pretty=format:%H"],
-        check=True,
-        paths=True,
-    )
-    return _parse_mass_refactor_revs(result.stdout, tracked, fraction)
+    return _mass_shas(_modified_counts(repo_root), tracked, fraction)
 
 
 def _write_ignore_revs(shas: tuple[str, ...]) -> Path:
@@ -1573,8 +2159,10 @@ def gather_blame_coverage(
     git: GitConfig | None = None,
     on_progress: ProgressHook | None = None,
     max_workers: int | None = None,
+    mass_revs: tuple[str, ...] | None = None,
+    detail_sink: dict[str, _BlameDetail] | None = None,
 ) -> _BlamePass:
-    """Run git blame per path (in parallel) and return author coverage plus ignore-revs status."""
+    """Return author coverage for `paths`, reusing `mass_revs` when it is passed."""
     git_config = git if git is not None else GitConfig()
     path_list = sorted(paths)
     total = len(path_list)
@@ -1584,7 +2172,11 @@ def gather_blame_coverage(
     ignore_revs = _resolve_ignore_revs_file(repo_root, git_config.blame_ignore_revs_file)
     extra_path: Path | None = None
     try:
-        mass = _mass_refactor_revs(repo_root, git_config.mass_refactor_file_fraction)
+        mass = (
+            mass_revs
+            if mass_revs is not None
+            else _mass_refactor_revs(repo_root, git_config.mass_refactor_file_fraction)
+        )
         if mass:
             extra_path = _write_ignore_revs(mass)
         argv = _blame_argv(git_config, ignore_revs, extra_path)
@@ -1605,7 +2197,9 @@ def gather_blame_coverage(
                 if deadline is not None and time.monotonic() >= deadline:
                     truncated = True
                     break
-                pending.append((path, pool.submit(_blame_for_path, repo_root, path, argv)))
+                pending.append(
+                    (path, pool.submit(_blame_for_path, repo_root, path, argv, detail_sink))
+                )
             for path, future in pending:
                 per_author = future.result()
                 done += 1
@@ -1634,23 +2228,53 @@ def _blame_accepts_mailmap_flags(repo_root: Path) -> bool:
     return "unknown option" not in f"{result.stdout}{result.stderr}"
 
 
-def _blame_for_path(repo_root: Path, path: str, argv: list[str]) -> dict[str, float]:
+def _blame_for_path(
+    repo_root: Path,
+    path: str,
+    argv: list[str],
+    sink: dict[str, _BlameDetail] | None = None,
+) -> dict[str, float]:
     """Run git blame with the prebuilt argv on one path; return coverage fractions."""
     try:
         result = run_git(repo_root, [*argv, "--", path], check=True, paths=True)
     except subprocess.CalledProcessError:
-        return {}
-    return _parse_blame_output(result.stdout)
+        detail = _BlameDetail(fractions={}, commits={}, reusable=False)
+    else:
+        detail = _parse_blame_detail(result.stdout)
+    if sink is not None:
+        with _BLAME_SINK_LOCK:
+            sink[path] = detail
+    return detail.fractions
 
 
 def _parse_blame_output(stdout: str) -> dict[str, float]:
+    return _parse_blame_detail(stdout).fractions
+
+
+def _parse_blame_detail(stdout: str) -> _BlameDetail:
     counts: dict[str, int] = {}
+    commits: dict[str, int] = {}
     total = 0
+    reusable = True
+    current = ""
     for line in stdout.splitlines():
-        if line.startswith("author-mail "):
-            email = line[len("author-mail ") :].strip().strip("<>")
-            counts[email] = counts.get(email, 0) + 1
-            total += 1
+        if "\t" not in line:
+            token = line.split(" ", 1)[0]
+            if _FULL_SHA_RE.fullmatch(token):
+                current = token
+                if token == "0" * 40:
+                    reusable = False
+                continue
+        if not line.startswith("author-mail "):
+            continue
+        email = line[len("author-mail ") :].strip().strip("<>")
+        counts[email] = counts.get(email, 0) + 1
+        total += 1
+        if not current or not reusable:
+            reusable = False
+            continue
+        commits[current] = commits.get(current, 0) + 1
     if total == 0:
-        return {}
-    return dict(sorted((author, count / total) for author, count in counts.items()))
+        return _BlameDetail(fractions={}, commits={}, reusable=False)
+    fractions = dict(sorted((author, count / total) for author, count in counts.items()))
+    return _BlameDetail(fractions=fractions, commits=commits, reusable=reusable)

@@ -96,11 +96,11 @@ inputs:
   cache:
     description: >-
       Cache pip downloads and ~/.checkowners between runs. Set to false to
-      skip both. A restored state file is reused only when its commit is
-      HEAD and its config hash and model versions match. Any other restored
-      file, including one whose commit is not an ancestor of HEAD, is
-      re-analyzed. This does not implement incremental analysis or
-      --diff-only: a near-miss restore only warms the directory.
+      skip both. A restored state file is reused when its commit is HEAD
+      and its config hash and model versions match. A restored ancestor
+      baseline is applied incrementally. A restored commit that is not an
+      ancestor of HEAD, or a baseline whose config or model ids do not
+      match, is scored again from the full lookback.
     required: false
     default: "true"
 

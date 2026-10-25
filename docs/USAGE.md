@@ -25,16 +25,17 @@ State is cached per repo at `~/.checkowners/state/<repo-hash>.json` (override th
 
 `trends` is independent of the cached state. It runs its own `git log` pass and reports `historical_activity_confidence` (`historical-v1`), not `ownership_score`. See [Trends](#trends). `explain` and `owners` (`who`) also skip the cache. They analyze only the requested file or directory and do not write state.
 
-Downstream commands reuse that file only when its commit is `HEAD`, its scoring config hash matches, and its model ids match. Otherwise they re-analyze. Place these flags before the command name:
+Downstream commands reuse that file only when its commit is `HEAD`, its scoring config hash matches, and its model ids match. Otherwise they refresh. A usable baseline replays commits since the stored ref and reuses blame for blobs that did not change. The result matches a full lookback for the same repository, commit, config, and model. Place these flags before the command name:
 
 ```bash
 checkowners --allow-stale decay
 checkowners --max-age 86400 qualified-owners
 checkowners --no-cache decay
+checkowners --no-incremental analyze
 checkowners --offline analyze
 ```
 
-`--allow-stale` reuses a map whose commit is not `HEAD`. `--max-age SECONDS` refuses a map older than that many seconds (`0` expires immediately). Omit it for no age limit. `--no-cache` neither reads nor writes the analysis cache. `--offline` makes no network calls and prints:
+`--allow-stale` reuses a map whose commit is not `HEAD`. `--max-age SECONDS` refuses a map older than that many seconds (`0` expires immediately). Omit it for no age limit. `--no-cache` neither reads nor writes the analysis cache. `--no-incremental` scores the full lookback and still writes a fresh baseline. A stored baseline is not used, and the reason is printed, when the scoring config, model ids, schema, repository identity, or package version differ, when the stored commit is missing or is not an ancestor of `HEAD`, when rename detection changed, or when the baseline does not cover the requested lookback. The first run has no baseline and does not print that notice. `--offline` makes no network calls and prints:
 
 ```text
 Network access: disabled
@@ -682,9 +683,9 @@ Advanced install inputs:
 | `install_spec` | `""` | **Security-sensitive.** Allowed only as a local extras spec for dogfooding this repository: `.`, `.[graph]`, `.[github]`, `.[graph,github]`, `.[github,graph]`, or `.[all]`. Interpolating untrusted workflow data into this input is remote code execution. Downstream callers must omit it. |
 | `cache` | `"true"` | Cache pip downloads and `~/.checkowners`. `"false"` skips both. |
 
-`cache: "false"` turns off the pip cache and the state cache. A warm run reuses the ownership map only when the stored commit is still `HEAD` and the config hash and model versions match. A restored file whose commit is not `HEAD` is re-analyzed, including a commit that is not an ancestor of `HEAD`.
+`cache: "false"` turns off the pip cache and the state cache. A warm run reuses the ownership map only when the stored commit is still `HEAD` and the config hash and model versions match. A restored ancestor baseline is applied incrementally. A restored commit that is not an ancestor of `HEAD`, or a baseline whose config or model ids do not match, is scored again from the full lookback, and the reason is printed.
 
-`--diff-only` and incremental analysis are not part of this Action. A near-miss cache restore warms `~/.checkowners`, including `handles.json`. It is not a partial ownership result. The cache key is repository identity, the merge base, the scoring config hash, and the model versions (`ownership`, `risk`, `topology`). Incremental analysis should keep that key and may reuse an ancestor. Until then, the Action re-analyzes whenever the stored commit is not `HEAD`.
+`--diff-only` is not part of this Action. Incremental analysis keeps the same cache key: repository identity, the merge base, the scoring config hash, and the model versions (`ownership`, `risk`, `topology`). A near-miss restore can supply an ancestor baseline. Pass `--no-incremental` on a hand-rolled CLI step to force a full lookback.
 
 ## How checkowners compares
 

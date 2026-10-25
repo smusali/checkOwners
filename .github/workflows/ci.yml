@@ -170,11 +170,13 @@ jobs:
 
       - name: Build pinned Git
         if: matrix.git-version != 'latest'
-        run: bash tools/install_git_version.sh "${{ matrix.git-version }}" "${{ github.workspace }}/.cache/git"
+        env:
+          GIT_VERSION: ${{ matrix.git-version }}
+        run: bash tools/install_git_version.sh "$GIT_VERSION" "$GITHUB_WORKSPACE/.cache/git"
 
       - name: Use pinned Git
         if: matrix.git-version != 'latest'
-        run: echo "${{ github.workspace }}/.cache/git/bin" >> "$GITHUB_PATH"
+        run: echo "$GITHUB_WORKSPACE/.cache/git/bin" >> "$GITHUB_PATH"
 
       - name: Show Git version
         run: git --version

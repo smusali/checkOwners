@@ -1098,6 +1098,24 @@ def test_git_probes_ignore_unexpected_output(tmp_path: Path) -> None:
     shallow_file.write_text("abc\n", encoding="utf-8")
     with patch(_MOCK_GIT, side_effect=fallback):
         assert _is_shallow_repository(tmp_path) is True
+
+    def relative(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "--git-path" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="shallow\n",
+                stderr="",
+            )
+        return echoed
+
+    with patch(_MOCK_GIT, side_effect=relative):
+        assert _is_shallow_repository(tmp_path) is True
+    with (
+        patch(_MOCK_GIT, side_effect=relative),
+        patch.object(Path, "is_file", side_effect=OSError("too long")),
+    ):
+        assert _is_shallow_repository(tmp_path) is False
     origin = init_git_repo(tmp_path / "origin")
     (origin / "README").write_text("full\n", encoding="utf-8")
     git_commit(
@@ -1440,6 +1458,15 @@ def test_gather_rejects_old_git() -> None:
     with (
         patch(_MOCK_GIT, side_effect=_dispatch_git(version="git version 2.19.0")),
         pytest.raises(ValueError, match=r"requires Git 2\.23"),
+    ):
+        gather_blame_coverage(["x.py"], Path("/fake"))
+
+    def missing(_cmd: list[str], **_kwargs: object) -> object:
+        raise OSError("missing")
+
+    with (
+        patch(_MOCK_GIT, side_effect=missing),
+        pytest.raises(GitRequirementError, match="found none"),
     ):
         gather_blame_coverage(["x.py"], Path("/fake"))
 

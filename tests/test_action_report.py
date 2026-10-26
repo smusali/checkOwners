@@ -455,3 +455,78 @@ def test_build_lists_reviewers_when_load_is_real(
         encoding="utf-8",
     )
     assert "### Recommended reviewers" not in build()
+
+
+def test_reviewer_lines_skip_unusable_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "drift.json").write_text(
+        json.dumps(
+            {
+                "drift_detected": False,
+                "notes": [],
+                "stale": [],
+                "missing": [],
+                "changed": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "balance.json").write_text(
+        json.dumps({"load_signal": "github_completed_reviews", "loads": "nope"}),
+        encoding="utf-8",
+    )
+    assert "### Recommended reviewers" not in build()
+    (tmp_path / "balance.json").write_text(
+        json.dumps(
+            {
+                "load_signal": "external",
+                "loads": [
+                    "nope",
+                    {"handle": "", "load_band": "low"},
+                    {"handle": 1, "load_band": "low"},
+                    {"handle": "@high", "load_band": "high"},
+                    {"handle": "@a", "load_band": "low"},
+                    {"handle": "@b", "load_band": "typical"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    text = build(limit=1)
+    assert "`@a` (low)" in text
+    assert "@b" not in text
+    (tmp_path / "balance.json").write_text(
+        json.dumps(
+            {
+                "load_signal": "github_completed_reviews",
+                "loads": [{"handle": "@high", "load_band": "high"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert "### Recommended reviewers" not in build()
+    lines, _cut = entry_lines(
+        [
+            (
+                "stale",
+                {
+                    "path": "a.py",
+                    "declared": "nope",
+                    "observed": {"owners": [1, "", "@a"], "teams": "no"},
+                },
+            ),
+            ("changed", {"path": "b.py", "reason": "because", "confidence_delta": 0.2}),
+            ("missing", {"path": "c.py", "declared": {"teams": ["@t"]}}),
+        ]
+    )
+    rendered = "\n".join(lines)
+    assert "Observed: @a" in rendered
+    assert "Declared: @t" in rendered
+    assert "because" in rendered
+
+
+def test_step_summary_ignores_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    with patch("checkowners.action_report.Path.write_text", side_effect=OSError("no")):
+        write_step_summary("hi")
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", "unused")
+        write_step_summary("hi")

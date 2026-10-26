@@ -18,6 +18,7 @@ from typing import Protocol
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 from check_json_contract import validate_instance
 from typer.testing import CliRunner
 
@@ -39,17 +40,30 @@ from checkowners.balance import (
 )
 from checkowners.busfactor import BusFactorReport
 from checkowners.cli import (
+    _ACTIVE_CONFIG,
+    _NO_CACHE,
     _api_gaps,
+    _change_team_resolver,
     _days_since,
     _declared_owners,
+    _emit_action_annotations,
+    _emit_change,
+    _gap_findings,
+    _gap_uri,
     _merge_identities,
     _owner_payload,
+    _ownership_for_spec,
+    _pull_request_change,
     _render_explained_owner,
     _render_explanation,
     _render_ignore_revs_line,
     _render_risk,
+    _repo_relative,
     _resolve_github_owners,
+    _scrubbed,
+    _scrubbed_annotations,
     _signal_label,
+    _tracked_paths,
     _warn_missing_api_token,
     app,
     main,
@@ -64,7 +78,7 @@ from checkowners.generate import (
     CodeownersVerificationError,
     GenerateResult,
 )
-from checkowners.github import ReconciliationError
+from checkowners.github import PullRequestFilesError, ReconciliationError, set_offline
 from checkowners.graph import GraphExtraMissingError
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
@@ -80,6 +94,7 @@ from checkowners.models import (
     ExpertiseRank,
     GitConfig,
     GithubConfig,
+    OutputConfig,
     OwnerDistribution,
     OwnerEntry,
     OwnershipMap,
@@ -90,6 +105,7 @@ from checkowners.models import (
 )
 from checkowners.onboard import OnboardingPath, OnboardingStep
 from checkowners.privacy import KNOWLEDGE_RISK_NOTICE, email_token
+from checkowners.report_formats import findings_for_gaps
 from checkowners.risk import Pathology, RiskEntry, RiskFactors, RiskReport, RiskSummary
 from checkowners.state import (
     SCHEMA_VERSION,
@@ -3442,3 +3458,211 @@ def test_analysis_flag_lines_and_main(capsys: pytest.CaptureFixture[str]) -> Non
     with patch("checkowners.cli.app") as cli_app:
         main()
     cli_app.assert_called_once_with()
+
+
+def _change_repo(path: Path) -> None:
+    init_git_repo(path)
+    (path / "a.py").write_text("a\n", encoding="utf-8")
+    git_commit(
+        path,
+        "base",
+        author="Test",
+        email="test@example.com",
+        date="2026-05-20T12:00:00+00:00",
+    )
+    (path / "a.py").write_text("b\n", encoding="utf-8")
+    (path / "CODEOWNERS").write_text("* @alice\n", encoding="utf-8")
+    git_commit(
+        path,
+        "head",
+        author="Test",
+        email="test@example.com",
+        date="2026-05-28T12:00:00+00:00",
+    )
+
+
+def test_formats_diff_scope_and_pull_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _change_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    as_of = ["--offline", "--as-of", "2026-06-15T00:00:00+00:00"]
+    bad_format = runner.invoke(app, [*as_of, "drift", "--format", "xml"])
+    assert bad_format.exit_code == 2
+    agreed = runner.invoke(app, [*as_of, "drift", "--json", "--format", "json"])
+    assert agreed.exit_code in {0, 3}
+    sarif = runner.invoke(app, [*as_of, "drift", "--format", "sarif"])
+    assert sarif.exit_code in {0, 3}
+    assert '"version": "2.1.0"' in sarif.stdout
+    junit = runner.invoke(app, [*as_of, "drift", "--format", "junit"])
+    assert junit.exit_code in {0, 3}
+    assert "<testsuites" in junit.stdout
+    risk = runner.invoke(app, [*as_of, "risk", "--format", "junit"])
+    assert risk.exit_code in {0, 3}
+    assert "<testsuites" in risk.stdout
+    valid = runner.invoke(app, [*as_of, "validate", "--format", "sarif"])
+    assert valid.exit_code in {0, 3}
+    assert "checkowners/unowned-path" in valid.stdout or '"runs"' in valid.stdout
+    diff_text = runner.invoke(app, [*as_of, "diff", "HEAD~1...HEAD"])
+    assert diff_text.exit_code == 0, diff_text.output
+    assert "Changed:" in diff_text.stdout
+    diff_json = runner.invoke(app, [*as_of, "diff", "HEAD", "--json"])
+    assert diff_json.exit_code == 0, diff_json.output
+    assert json.loads(diff_json.stdout)["schema_version"] == COMMAND_SCHEMA_VERSION
+    suggested = runner.invoke(app, [*as_of, "suggest", "--diff", "HEAD~1...HEAD"])
+    assert suggested.exit_code == 0, suggested.output
+    assert "Recommended reviewers:" in suggested.stdout
+    both = runner.invoke(app, ["suggest", "--diff", "HEAD", "--pr", "1"])
+    assert both.exit_code == 2
+    mixed = runner.invoke(app, ["--diff-only", "HEAD", "suggest", "--diff", "HEAD"])
+    assert mixed.exit_code == 2
+    rejected = runner.invoke(app, ["--diff-only", "HEAD", "generate"])
+    assert rejected.exit_code == 2
+    offline_pr = runner.invoke(app, ["--offline", "suggest", "--pr", "1"])
+    assert offline_pr.exit_code == 4
+    missing_token = runner.invoke(app, ["suggest", "--pr", "1"])
+    assert missing_token.exit_code == 4
+    broken = runner.invoke(app, [*as_of, "diff", "not-a-rev"])
+    assert broken.exit_code == 4
+    empty = runner.invoke(app, [*as_of, "--diff-only", "HEAD...HEAD", "analyze", "--json"])
+    assert empty.exit_code == 0, empty.output
+    assert json.loads(empty.stdout)["inferred"] == {}
+    missing = runner.invoke(app, [*as_of, "--diff-only", "HEAD~1...HEAD", "explain", "missing.py"])
+    assert missing.exit_code == 0, missing.output
+    present = runner.invoke(app, [*as_of, "--diff-only", "HEAD~1...HEAD", "explain", "a.py"])
+    assert present.exit_code == 0, present.output
+    scoped = runner.invoke(app, [*as_of, "--no-cache", "--diff-only", "HEAD~1...HEAD", "risk"])
+    assert scoped.exit_code in {0, 3}
+
+
+def test_scoped_helpers_and_privacy_scrub(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _change_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    outside = tmp_path.parent / "outside.yml"
+    outside.write_text("version: 1\n", encoding="utf-8")
+    assert _repo_relative(tmp_path, outside) == outside.as_posix()
+    assert _repo_relative(tmp_path, tmp_path / "a.py") == "a.py"
+    monkeypatch.setenv("CHECKOWNERS_CONFIG", str(outside))
+    assert _gap_uri(tmp_path, tmp_path / "CODEOWNERS") == outside.as_posix()
+    custom = tmp_path / "custom.yml"
+    custom.write_text("version: 1\n", encoding="utf-8")
+    monkeypatch.setenv("CHECKOWNERS_CONFIG", "custom.yml")
+    assert _gap_uri(tmp_path, tmp_path / "CODEOWNERS") == "custom.yml"
+    monkeypatch.delenv("CHECKOWNERS_CONFIG", raising=False)
+    config_file = tmp_path / ".github" / "checkowners.yml"
+    config_file.parent.mkdir()
+    config_file.write_text("version: 1\n", encoding="utf-8")
+    assert _gap_uri(tmp_path, tmp_path / "missing") == ".github/checkowners.yml"
+    config_file.unlink()
+    assert _gap_uri(tmp_path, tmp_path / "CODEOWNERS") == "CODEOWNERS"
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert _gap_uri(bare, bare / "CODEOWNERS") == ".github/checkowners.yml"
+    assert _tracked_paths(tmp_path)
+
+    def fail_git(*_args: object, **_kwargs: object) -> None:
+        raise OSError("no")
+
+    with patch("checkowners.cli.run_git", fail_git):
+        assert _tracked_paths(tmp_path) == ()
+    assert _gap_findings(None, tmp_path, tmp_path / "CODEOWNERS", Config()) == ()
+    owned = OwnershipMap(
+        paths={},
+        last_analyzed=datetime(2026, 6, 1, tzinfo=UTC),
+        analysis_completeness=AnalysisCompleteness(
+            gaps=(AnalysisGap(code="absent_token", reason="No token."),)
+        ),
+    )
+    assert _gap_findings(owned, tmp_path, tmp_path / "CODEOWNERS", Config())
+    cached = OwnershipMap(
+        paths={"a.py": PathOwnership(owners=(), qualified_owner_count=0)},
+        last_analyzed=datetime(2026, 6, 1, tzinfo=UTC),
+        analysis_ref="abc",
+    )
+    _NO_CACHE.set(False)
+    empty = _ownership_for_spec(Config(), tmp_path, "HEAD...HEAD")
+    assert empty.paths == {}
+    monkeypatch.setattr("checkowners.cli.reusable_ownership", lambda *_a, **_k: cached)
+    hit = _ownership_for_spec(Config(), tmp_path, "HEAD~1...HEAD")
+    assert set(hit.paths) == {"a.py"}
+    monkeypatch.setattr("checkowners.cli.reusable_ownership", lambda *_a, **_k: None)
+    monkeypatch.setattr("checkowners.cli.load_paths", lambda *_a, **_k: cached)
+    missed = _ownership_for_spec(Config(), tmp_path, "HEAD~1...HEAD")
+    assert set(missed.paths) == {"a.py"}
+    token = _NO_CACHE.set(True)
+
+    def fail(*_args: object, **_kwargs: object) -> OwnershipMap:
+        raise ValueError("nope")
+
+    monkeypatch.setattr("checkowners.cli.load_paths", fail)
+    try:
+        with pytest.raises(typer.Exit) as raised:
+            _ownership_for_spec(Config(), tmp_path, "HEAD~1...HEAD")
+        assert raised.value.exit_code == 1
+    finally:
+        _NO_CACHE.reset(token)
+    with pytest.raises(typer.BadParameter, match="SPEC is required"):
+        _emit_change(None, None, json_output=False, long=False)
+    previous = _ACTIVE_CONFIG.set(None)
+    try:
+        assert _scrubbed("alice@example.com") == "alice@example.com"
+    finally:
+        _ACTIVE_CONFIG.reset(previous)
+    hidden = _ACTIVE_CONFIG.set(Config(output=OutputConfig(aggregate_only=True)))
+    try:
+        assert "alice@example.com" not in _scrubbed("see alice@example.com")
+        monkeypatch.setattr(
+            "checkowners.cli.check_annotations",
+            lambda _findings: [{"message": 1, "path": None, "annotation_level": "notice"}],
+        )
+        assert _scrubbed_annotations(()) == [
+            {"message": 1, "path": None, "annotation_level": "notice"}
+        ]
+    finally:
+        _ACTIVE_CONFIG.reset(hidden)
+    rows = findings_for_gaps(
+        (AnalysisGap(code="absent_token", reason="No token."),),
+        "CODEOWNERS",
+        "warning",
+    )
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    _emit_action_annotations(rows)
+    _emit_action_annotations(())
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    _emit_action_annotations(rows)
+    set_offline(False)
+    monkeypatch.setattr("checkowners.cli.get_github_token", lambda: "tok")
+    monkeypatch.setattr("checkowners.cli.pull_request_paths", lambda *_args: ("a.py",))
+    monkeypatch.setattr("checkowners.cli.pull_request_base", lambda *_args: "abc")
+    monkeypatch.setattr("checkowners.cli.github_repository", lambda _root: "acme/app")
+    assert _pull_request_change(tmp_path, 2) == (("a.py",), "abc")
+
+    def deny(_root: Path) -> str:
+        raise ReconciliationError("no remote")
+
+    monkeypatch.setattr("checkowners.cli.github_repository", deny)
+    with pytest.raises(PullRequestFilesError, match="pull-requests: read"):
+        _pull_request_change(tmp_path, 2)
+    monkeypatch.setattr(
+        "checkowners.cli.create_team_resolver",
+        lambda _token, org: (lambda _owners: org),
+    )
+    named = _change_team_resolver(Config(github=GithubConfig(org="acme")), tmp_path)
+    assert named is not None
+    assert named(()) == "acme"
+    monkeypatch.setattr("checkowners.cli.github_repository", lambda _root: "acme/app")
+    inferred = _change_team_resolver(Config(), tmp_path)
+    assert inferred is not None
+    assert inferred(()) == "acme"
+    monkeypatch.setattr("checkowners.cli.github_repository", lambda _root: "")
+    assert _change_team_resolver(Config(), tmp_path) is None
+    monkeypatch.setattr("checkowners.cli.github_repository", deny)
+    assert _change_team_resolver(Config(), tmp_path) is None
+    monkeypatch.setattr("checkowners.cli.get_github_token", lambda: "")
+    assert _change_team_resolver(Config(github=GithubConfig(org="acme")), tmp_path) is None

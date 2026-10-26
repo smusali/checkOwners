@@ -250,6 +250,7 @@ def _rebuild_drift(
         changed=changed,
         drift_detected=bool(stale or missing or changed),
         notes=result.notes,
+        reviews=result.reviews,
     )
 
 

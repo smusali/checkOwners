@@ -17,13 +17,21 @@ from pathlib import Path
 from typing import TypedDict
 
 from checkowners.github import create_team_resolver
-from checkowners.models import Config, OwnerEntry, OwnershipMap
-from checkowners.patterns import CodeownersRule, parse_rules, pattern_matches
+from checkowners.models import BlockOrder, Config, OwnerEntry, OwnershipMap
+from checkowners.patterns import (
+    GENERATED_END,
+    GENERATED_START,
+    CodeownersMarkerError,
+    CodeownersRule,
+    MarkerLayout,
+    marker_layout,
+    parse_rules,
+    pattern_matches,
+    rules_with_source,
+)
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 SIZE_WARN_BYTES = 2 * 1024 * 1024
-_MANUAL_START = "# checkowners:manual:start"
-_MANUAL_END = "# checkowners:manual:end"
 
 _OwnerKey = frozenset[str]
 _FileRow = tuple[str, tuple[OwnerEntry, ...]]
@@ -116,12 +124,20 @@ def generate_codeowners(
 
     `ownership` and `config` supply the rules. `force` overwrites a file that
     lacks the machine-generated header and allows output past
-    `output.max_bytes`. Round-trip verification still runs. A manual region
-    between the start and end markers is kept above the generated rules.
+    `output.max_bytes`. Round-trip verification still runs. A manual marker
+    block is copied unchanged. `output.block_order` places that block before
+    or after the generated block.
     """
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
+    layout = _read_layout(target)
     content, expected, records = _render_codeowners(ownership, config, token=token, org=org)
-    content = _with_manual_region(content, config.output.header, _read_manual_region(target))
+    if layout.marked:
+        content = _assemble_hybrid(
+            config.output.header,
+            layout.manual,
+            _rules_body(content, config.output.header),
+            config.output.block_order,
+        )
     if config.output.verify_round_trip:
         verify_round_trip(content, expected)
     _ensure_size_ok(content, config.output.max_bytes, force=force)
@@ -142,42 +158,46 @@ def broad_pattern_warning(record: BroadPatternRecord) -> str:
     )
 
 
-def _read_manual_region(target: Path) -> str:
+def _read_layout(target: Path) -> MarkerLayout:
+    """Return marker blocks from `target`, or an empty layout when it is absent."""
+    try:
+        return marker_layout(_read_existing(target))
+    except CodeownersMarkerError as exc:
+        raise CodeownersGenerateError(str(exc)) from None
+
+
+def _read_existing(target: Path) -> str:
     if not target.exists():
         return ""
     try:
-        existing = target.read_text(encoding="utf-8")
+        return target.read_text(encoding="utf-8")
     except OSError as exc:
         msg = f"Could not read {target}: {exc}"
         raise CodeownersGenerateError(msg) from None
-    return _manual_region(existing)
 
 
-def _manual_region(text: str) -> str:
-    start = text.find(_MANUAL_START)
-    if start == -1:
-        return ""
-    end = text.find(_MANUAL_END, start + len(_MANUAL_START))
-    if end == -1:
-        msg = (
-            "CODEOWNERS has # checkowners:manual:start and no # checkowners:manual:end. "
-            "The manual region was not written."
-        )
-        raise CodeownersGenerateError(msg)
-    line_end = text.find("\n", end)
-    if line_end == -1:
-        return text[start:]
-    return text[start:line_end]
-
-
-def _with_manual_region(content: str, header: str, manual: str) -> str:
-    if not manual:
-        return content
+def _rules_body(content: str, header: str) -> str:
     prefix = f"{header}\n\n"
-    block = f"{manual}\n\n"
     if content.startswith(prefix):
-        return prefix + block + content[len(prefix) :]
-    return f"{prefix}{block}{content}"
+        return content[len(prefix) :]
+    return content
+
+
+def _generated_block(body: str) -> str:
+    if body and not body.endswith("\n"):
+        body = f"{body}\n"
+    return f"{GENERATED_START}\n{body}{GENERATED_END}\n"
+
+
+def _assemble_hybrid(header: str, manual: str, body: str, order: BlockOrder) -> str:
+    """Return `header`, `manual`, and generated `body` placed by `order`."""
+    generated = _generated_block(body)
+    first, second = (generated, manual) if order == "generated-first" else (manual, generated)
+    pieces = [piece for piece in (first, second) if piece]
+    text = f"{header}\n\n" + "\n".join(pieces)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
 
 
 def ensure_overwrite_safe(target: Path, header: str, *, force: bool) -> None:
@@ -214,13 +234,16 @@ def verify_round_trip(content: str, expected: _ExpectedOwners) -> None:
     """Fail if any assigned path resolves to owners other than ``expected``.
 
     ``expected`` maps repo-relative paths to the owner set generation assigned
-    after consolidation, sanitization, merge, and team collapse. This check
+    after consolidation, sanitization, merge, and team collapse. A path whose
+    winning rule is in the manual block is an accepted override. This check
     uses the written pattern text, including lines GitHub skips.
     """
-    rules = parse_rules(content)
+    rules = rules_with_source(content)
     raw_lines = content.splitlines()
     for path, intended in expected.items():
         rule = _last_written_match(rules, path)
+        if rule is not None and rule.source == "manual":
+            continue
         resolved = frozenset(owner.casefold() for owner in rule.owners) if rule else frozenset()
         if resolved == intended:
             continue

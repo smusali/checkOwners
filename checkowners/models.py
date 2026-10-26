@@ -13,6 +13,7 @@ from checkowners import __version__
 
 Severity = Literal["low", "medium", "high", "critical"]
 DriftMode = Literal["commit", "repo", "both"]
+BlockOrder = Literal["manual-first", "generated-first"]
 QualificationStrategy = Literal["adaptive", "threshold"]
 RecencyStrategy = Literal["fixed", "adaptive"]
 LookbackDays = int | Literal["adaptive"]
@@ -158,6 +159,7 @@ class OutputConfig:
     allow_broad_patterns: bool = False
     anonymize: bool = False
     aggregate_only: bool = False
+    block_order: BlockOrder = "manual-first"
 
 
 @dataclass(frozen=True)
@@ -573,6 +575,7 @@ class DriftResult:
     #: raw emails while CODEOWNERS uses @handles, making owner-set comparison
     #: impossible without handle resolution).
     notes: tuple[str, ...] = ()
+    reviews: tuple[DriftEntry, ...] = ()
 
     @property
     def max_confidence_delta(self) -> float:

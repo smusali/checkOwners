@@ -13,8 +13,42 @@ The last matching rule wins, mirroring GitHub's evaluation order.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
+from typing import Literal
+
+RuleSource = Literal["manual", "generated", "unmarked"]
+_MarkerKind = Literal["manual", "generated"]
+_MarkerEdge = Literal["start", "end"]
+
+MANUAL_START = "# checkowners:manual:start"
+MANUAL_END = "# checkowners:manual:end"
+GENERATED_START = "# checkowners:generated:start"
+GENERATED_END = "# checkowners:generated:end"
+
+_MARKERS: dict[str, tuple[_MarkerKind, _MarkerEdge]] = {
+    MANUAL_START: ("manual", "start"),
+    MANUAL_END: ("manual", "end"),
+    GENERATED_START: ("generated", "start"),
+    GENERATED_END: ("generated", "end"),
+}
+_PARTNER = {
+    MANUAL_START: MANUAL_END,
+    MANUAL_END: MANUAL_START,
+    GENERATED_START: GENERATED_END,
+    GENERATED_END: GENERATED_START,
+}
+
+
+class CodeownersMarkerError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class MarkerLayout:
+    manual: str
+    sources: dict[int, RuleSource]
+    marked: bool
 
 
 @dataclass(frozen=True)
@@ -24,6 +58,7 @@ class CodeownersRule:
     pattern: str
     owners: tuple[str, ...]
     line_number: int
+    source: RuleSource = "unmarked"
 
 
 def parse_rules(content: str) -> tuple[CodeownersRule, ...]:
@@ -46,6 +81,84 @@ def parse_rules(content: str) -> tuple[CodeownersRule, ...]:
             )
         )
     return tuple(rules)
+
+
+def marker_layout(content: str) -> MarkerLayout:
+    """Return the manual slice and per-line sources for `content`."""
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    for piece in content.splitlines(keepends=True):
+        spans.append((offset, offset + len(piece)))
+        offset += len(piece)
+
+    open_kind: _MarkerKind | None = None
+    open_line = 0
+    open_offset = 0
+    manual = ""
+    manual_done = False
+    generated_done = False
+    sources: dict[int, RuleSource] = {}
+
+    for line_number, (start, end) in enumerate(spans, start=1):
+        token = content[start:end].strip()
+        found = _MARKERS.get(token)
+        if found is None:
+            if open_kind is not None:
+                sources[line_number] = open_kind
+            continue
+        kind, edge = found
+        if open_kind is None:
+            if edge == "end":
+                raise _marker_error(line_number, token)
+            if (kind == "manual" and manual_done) or (kind == "generated" and generated_done):
+                raise _marker_error(line_number, token, f"repeats a {kind} block")
+            open_kind = kind
+            open_line = line_number
+            open_offset = start
+            continue
+        if kind != open_kind:
+            raise _marker_error(
+                line_number,
+                token,
+                f"is inside the {open_kind} block that started at line {open_line}",
+            )
+        if edge == "start":
+            raise _marker_error(line_number, token, f"repeats an open {kind} block")
+        if kind == "manual":
+            manual = content[open_offset:end]
+            manual_done = True
+        else:
+            generated_done = True
+        open_kind = None
+
+    if open_kind is not None:
+        token = MANUAL_START if open_kind == "manual" else GENERATED_START
+        raise _marker_error(open_line, token)
+    return MarkerLayout(
+        manual=manual,
+        sources=sources,
+        marked=manual_done or generated_done,
+    )
+
+
+def rules_with_source(content: str) -> tuple[CodeownersRule, ...]:
+    """Return rules parsed from `content`, tagged by marker source."""
+    rules = parse_rules(content)
+    sources = marker_layout(content).sources
+    if not sources:
+        return rules
+    return tuple(
+        replace(rule, source=sources[rule.line_number]) if rule.line_number in sources else rule
+        for rule in rules
+    )
+
+
+def _marker_error(line_number: int, marker: str, problem: str = "") -> CodeownersMarkerError:
+    if problem:
+        return CodeownersMarkerError(f"CODEOWNERS marker {marker} at line {line_number} {problem}.")
+    return CodeownersMarkerError(
+        f"CODEOWNERS marker {marker} at line {line_number} has no {_PARTNER[marker]}."
+    )
 
 
 def strip_inline_comment(line: str) -> str:

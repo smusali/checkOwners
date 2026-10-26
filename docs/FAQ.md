@@ -266,13 +266,29 @@ Open a [false-positive report](https://github.com/smusali/checkowners/issues/new
 
 ## Troubleshooting
 
+### Can I keep a hand-written rule when I generate CODEOWNERS?
+
+Yes. Put the rule between `# checkowners:manual:start` and `# checkowners:manual:end`. Regeneration copies that block unchanged and rewrites only the generated block. The file still needs the machine-generated header, or `--force` on the first write. A file with no markers is still refused without `--force`.
+
+### Which block wins when a manual rule and a generated rule match the same path?
+
+The later block wins. `output.block_order: manual-first` (the default) places the manual block first, so the generated rule wins the overlap. `generated-first` places the manual block last, so the manual rule wins. Drift reports that manual winner as `declared ownership without observed expertise` and asks for review. It does not call the rule `changed`.
+
+### Why did generate stop on a marker error and leave the file alone?
+
+A marker is missing its partner, repeated, or nested inside the other block. Generate exits 2 and does not write. Close the block, or remove the extra marker, and run again.
+
+### What does `drift --fix-plan` change?
+
+Nothing. It prints a suggested diff for generated rules and a review sentence for manual rules. It does not write CODEOWNERS and it does not open a pull request.
+
 ### Why did generate warn about `routes/[id]/` and emit per-file rules?
 
 GitHub skips CODEOWNERS lines that contain `[...]` character ranges, so Next.js and Remix dynamic segments cannot be written as-is. Generate rewrites those segments to `*`. When that wildcard would also own paths that were inferred for someone else (`routes/[slug]/`, `routes/static/`), the default is to refuse the broad rule, warn, and emit per-file rules. Those per-file lines stay GitHub-valid when a narrower `*` is unique; otherwise they keep the literal `[id]` path, which GitHub will ignore. Pass `--allow-broad-patterns` (or set `output.allow_broad_patterns: true`) only when you accept that over-ownership. `--force` does not opt in. `generate --json` records the affected paths and owner delta under `broad_patterns`.
 
 ### `generate` failed with a round-trip verification error.
 
-The generated rules did not resolve to the owners generation assigned. The message names the path, the intended owners, the resolved owners, and the winning rule. Last-match-wins ordering is the usual cause: a later broader rule (for example `*`) un-owns a subtree that a directory rule was meant to cover. Fix the ordering, or set `output.consolidate: false` and regenerate. `--force` does not skip this check. `checkowners explain-path <path>` shows the match chain for a single path.
+The generated rules did not resolve to the owners generation assigned. The message names the path, the intended owners, the resolved owners, and the winning rule. Last-match-wins ordering is the usual cause: a later broader rule (for example `*`) un-owns a subtree that a directory rule was meant to cover. Fix the ordering, or set `output.consolidate: false` and regenerate. A manual block that wins the path is kept and is not this error. `--force` does not skip this check. `checkowners explain-path <path>` shows the match chain for a single path.
 
 ### `generate` refused because the file is too large.
 

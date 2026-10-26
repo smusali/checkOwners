@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183).
 
 ### Added
+- `generate` keeps a `# checkowners:manual` block byte for byte and rewrites only the generated block, `output.block_order` chooses which block wins overlapping paths, `drift --fix-plan` prints suggested edits without writing, and a manual rule that differs from observed expertise is reported for review rather than as `changed`.
 - Incremental analysis replays a usable baseline by default, `--no-incremental` forces a full lookback, and a rejected baseline is scored again from scratch with the reason printed.
 - CI tests Ubuntu, macOS, and Windows, limits each pull-request test job to 25 minutes, and covers Git 2.23.0 and Git 2.39.3 on Ubuntu for pushes, the nightly run, and manual runs.
 - `checkowners suggest` recommends one reviewer from expertise and current load, with `balance` as an alias and GitHub review load when a token sample exists.

@@ -164,7 +164,35 @@ def test_generate_keeps_manual_region_without_trailing_newline(tmp_path: Path) -
             "# checkowners:manual:start\n/security/** @security-team\n",
             "manual:end",
         ),
+        ("# checkowners:generated:start\n", "generated:end"),
         ("# checkowners:generated:end\n", "generated:start"),
+        ("# checkowners:manual:end\n", "manual:start"),
+        (
+            "# checkowners:manual:start\n/a @x\n# checkowners:manual:end\n"
+            "# checkowners:manual:start\n",
+            "repeats a manual block",
+        ),
+        (
+            "# checkowners:generated:start\n/a @x\n# checkowners:generated:end\n"
+            "# checkowners:generated:start\n",
+            "repeats a generated block",
+        ),
+        (
+            "# checkowners:manual:start\n# checkowners:generated:start\n",
+            "is inside the manual block",
+        ),
+        (
+            "# checkowners:generated:start\n# checkowners:manual:end\n",
+            "is inside the generated block",
+        ),
+        (
+            "# checkowners:manual:start\n# checkowners:manual:start\n",
+            "repeats an open manual block",
+        ),
+        (
+            "# checkowners:generated:start\n# checkowners:generated:start\n",
+            "repeats an open generated block",
+        ),
     ],
 )
 def test_generate_refuses_unclosed_manual_region(

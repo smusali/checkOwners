@@ -563,6 +563,7 @@ class DriftEntry:
     observed_owners: tuple[str, ...] = ()
     observed_teams: tuple[str, ...] = ()
     drift_type: DriftKind = "owner_mismatch"
+    line_number: int | None = None
 
 
 @dataclass(frozen=True)

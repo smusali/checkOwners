@@ -55,6 +55,14 @@ inputs:
       out.
     required: false
     default: "true"
+  upload_sarif:
+    description: >-
+      Upload checkowners.sarif to code scanning. Requires
+      `security-events: write`. Fork and Dependabot pull requests skip the
+      upload because that token cannot be granted the scope. The SARIF file
+      is still written to the checkowners-reports artifact. Default false.
+    required: false
+    default: "false"
   python_version:
     description: Python version to set up.
     required: false
@@ -254,7 +262,21 @@ runs:
           bus_factor.json
           decay.json
           checkowners-report.md
+          checkowners.sarif
+          checkowners.junit.xml
         if-no-files-found: warn
+
+    - name: Upload SARIF
+      if: >-
+        ${{ inputs.upload_sarif == 'true' &&
+            (github.event_name != 'pull_request' ||
+             (github.event.pull_request.head.repo.full_name == github.repository &&
+              github.actor != 'dependabot[bot]')) }}
+      continue-on-error: true
+      uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
+      with:
+        sarif_file: checkowners.sarif
+        category: checkowners
 
     - name: Upload checkowners balance report
       if: ${{ always() && inputs.include_balance == 'true' }}

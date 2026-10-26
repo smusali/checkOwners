@@ -1,0 +1,61 @@
+name: checkowners
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: Path to the checkowners.yml file.
+        required: false
+        type: string
+        default: .github/checkowners.yml
+      mode:
+        description: Drift mode (commit | repo | both).
+        required: false
+        type: string
+        default: commit
+      comment_on_pr:
+        description: >-
+          Post the summary comment. The caller must grant pull-requests: write.
+        required: false
+        type: boolean
+        default: false
+      upload_sarif:
+        description: >-
+          Upload checkowners.sarif. The caller must grant security-events: write.
+        required: false
+        type: boolean
+        default: false
+      fail_on_drift:
+        description: Override policy.drift.fail. Empty uses policy.
+        required: false
+        type: string
+        default: ""
+      include_balance:
+        description: Write balance.json. Off unless true.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  checks: write
+  security-events: write
+  pull-requests: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./  # zizmor: ignore[self-repository]
+        with:
+          config: ${{ inputs.config }}
+          mode: ${{ inputs.mode }}
+          comment_on_pr: ${{ inputs.comment_on_pr && 'true' || 'false' }}
+          upload_sarif: ${{ inputs.upload_sarif && 'true' || 'false' }}
+          fail_on_drift: ${{ inputs.fail_on_drift }}
+          include_balance: ${{ inputs.include_balance && 'true' || 'false' }}

@@ -196,6 +196,7 @@ def _find_stale(
                 reason=f"pattern matches no tracked file (line {rule.line_number})",
                 owners=rule.owners,
                 drift_type="stale_rule",
+                line_number=rule.line_number,
             )
         )
     return entries
@@ -254,6 +255,7 @@ def _find_changed(
                 drift_type=_changed_drift_type(
                     rule.owners, measured.observed_owners, measured.decay
                 ),
+                line_number=rule.line_number,
             )
         )
     sorted_reviews = _sort_by_delta(reviews)
@@ -322,6 +324,7 @@ def _manual_review(
         owners=rule.owners,
         observed_owners=measured.observed_owners,
         drift_type=_changed_drift_type(rule.owners, measured.observed_owners, measured.decay),
+        line_number=rule.line_number,
     )
 
 

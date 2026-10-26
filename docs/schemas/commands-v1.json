@@ -3615,6 +3615,186 @@
           ]
         }
       ]
+    },
+    "change": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "required": [
+            "files",
+            "clusters",
+            "recommended",
+            "not_recommended",
+            "covered",
+            "total",
+            "risks",
+            "drift",
+            "impacts",
+            "single_owner_after"
+          ],
+          "properties": {
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "clusters": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "recommended": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/changeReviewer"
+              }
+            },
+            "not_recommended": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/changeReviewer"
+              }
+            },
+            "covered": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "risks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "drift": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "impacts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "before_primary",
+                  "after_primary",
+                  "before_count",
+                  "after_count",
+                  "kind"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "before_primary": {
+                    "type": "string"
+                  },
+                  "after_primary": {
+                    "type": "string"
+                  },
+                  "before_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "after_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "kind": {
+                    "enum": [
+                      "regression",
+                      "shift",
+                      "new",
+                      "single",
+                      "ok"
+                    ]
+                  }
+                }
+              }
+            },
+            "single_owner_after": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "team": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.6.0",
+          "models": {
+            "ownership": "ownership-v1",
+            "risk": "risk-v1",
+            "topology": "topology-v1"
+          },
+          "repository": "example/repo",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": null,
+          "reviews_sampled": 0,
+          "reviews_window_days": 0,
+          "files": [],
+          "clusters": 0,
+          "recommended": [],
+          "not_recommended": [],
+          "covered": 0,
+          "total": 0,
+          "risks": [],
+          "drift": [],
+          "impacts": [],
+          "single_owner_after": 0
+        }
+      ]
+    },
+    "changeReviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handle",
+        "score",
+        "reason",
+        "evidence_quality",
+        "signals",
+        "demoted",
+        "demote_reason"
+      ],
+      "properties": {
+        "handle": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "evidence_quality": {
+          "type": "number"
+        },
+        "signals": {
+          "$ref": "#/$defs/signalScores"
+        },
+        "demoted": {
+          "type": "boolean"
+        },
+        "demote_reason": {
+          "type": "string"
+        }
+      }
     }
   }
 }

@@ -18,6 +18,7 @@ import pytest
 from checkowners.analyze import Contribution, review_window_start, score_owners
 from checkowners.github import (
     _REVIEW_PAGE_SIZE,
+    PullRequestFilesError,
     ReconciliationError,
     _graphql,
     _GraphqlResult,
@@ -28,6 +29,7 @@ from checkowners.github import (
     _span_days,
     begin_api_budget,
     build_review_coverage,
+    clear_api_budget,
     clear_api_evidence,
     collection_gaps,
     collection_timestamp,
@@ -39,6 +41,9 @@ from checkowners.github import (
     note_api_call,
     note_collection_gap,
     open_or_update_reconciliation,
+    publish_check_run,
+    pull_request_base,
+    pull_request_paths,
     resolve_handles,
     resolve_noreply_handle,
     review_was_omitted,
@@ -1250,3 +1255,212 @@ def test_reconciliation_parsers_reject_incomplete_payloads() -> None:
         _require_mapping([])
     assert _mapping("no") is None
     assert _mapping({1: "a"}) is None
+
+
+class _Response:
+    def __init__(self, raw: bytes, status: int) -> None:
+        self._raw = raw
+        self.status = status
+
+    def read(self) -> bytes:
+        return self._raw
+
+    def __enter__(self) -> _Response:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
+def _http_error(status: int, body: bytes = b"") -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        "https://api.github.com/x",
+        status,
+        "no",
+        Message(),
+        BytesIO(body),
+    )
+
+
+def test_pull_request_files_and_check_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    set_offline(False)
+    clear_api_budget()
+    try:
+        with pytest.raises(PullRequestFilesError, match="Offline"):
+            set_offline(True)
+            pull_request_paths("acme/app", 1, "tok")
+        set_offline(False)
+        with pytest.raises(PullRequestFilesError, match="token"):
+            pull_request_paths("acme/app", 1, "")
+        with pytest.raises(PullRequestFilesError, match="token"):
+            pull_request_base("", 1, "tok")
+        first = [{"status": "removed", "filename": "gone.py"} for _ in range(98)]
+        first.append({"status": "added", "filename": ""})
+        first.append({"filename": "x.py"})
+        second = [
+            {"status": "copied", "filename": "copy.py"},
+            {"status": "changed", "filename": "chg.py"},
+            {"status": "renamed", "filename": "ren.py"},
+            {"status": "modified", "filename": 1},
+            1,
+        ]
+        pages = [json.dumps(first).encode(), json.dumps(second).encode()]
+
+        def open_pages(_req: urllib.request.Request, timeout: int = 30) -> _Response:
+            del timeout
+            return _Response(pages.pop(0), 200)
+
+        with patch("checkowners.github.urllib.request.urlopen", side_effect=open_pages):
+            assert pull_request_paths("acme/app", 7, "tok") == ("copy.py", "chg.py", "ren.py")
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            return_value=_Response(b"", 200),
+        ):
+            assert pull_request_paths("acme/app", 7, "tok") == ()
+        with (
+            patch(
+                "checkowners.github.urllib.request.urlopen",
+                return_value=_Response(b"\xff", 200),
+            ),
+            pytest.raises(PullRequestFilesError, match="pull-requests: read"),
+        ):
+            pull_request_paths("acme/app", 7, "tok")
+        with (
+            patch(
+                "checkowners.github.urllib.request.urlopen",
+                return_value=_Response(b"{", 200),
+            ),
+            pytest.raises(PullRequestFilesError, match="pull-requests: read"),
+        ):
+            pull_request_paths("acme/app", 7, "tok")
+        with (
+            patch(
+                "checkowners.github.urllib.request.urlopen",
+                return_value=_Response(b"{}", 200),
+            ),
+            pytest.raises(PullRequestFilesError, match="pull-requests: read"),
+        ):
+            pull_request_paths("acme/app", 7, "tok")
+        with (
+            patch(
+                "checkowners.github.urllib.request.urlopen",
+                side_effect=_http_error(500, b"no"),
+            ),
+            pytest.raises(PullRequestFilesError, match="HTTP 500"),
+        ):
+            pull_request_paths("acme/app", 7, "tok")
+        with (
+            patch(
+                "checkowners.github.urllib.request.urlopen",
+                side_effect=_http_error(404, b"no"),
+            ),
+            pytest.raises(PullRequestFilesError, match="pull-requests: read"),
+        ):
+            pull_request_base("acme/app", 7, "tok")
+        with (
+            patch(
+                "checkowners.github.urllib.request.urlopen",
+                side_effect=urllib.error.URLError("down"),
+            ),
+            pytest.raises(PullRequestFilesError, match="pull-requests: read"),
+        ):
+            pull_request_base("acme/app", 7, "tok")
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            return_value=_Response(json.dumps({"base": {"sha": "abc"}}).encode(), 200),
+        ):
+            assert pull_request_base("acme/app", 7, "tok") == "abc"
+        for body in (
+            b"[]",
+            b"{}",
+            json.dumps({"base": {}}).encode(),
+            json.dumps({"base": {"sha": ""}}).encode(),
+        ):
+            with (
+                patch(
+                    "checkowners.github.urllib.request.urlopen",
+                    return_value=_Response(body, 200),
+                ),
+                pytest.raises(PullRequestFilesError, match="pull-requests: read"),
+            ):
+                pull_request_base("acme/app", 7, "tok")
+        begin_api_budget(0)
+        with (
+            patch("checkowners.github.urllib.request.urlopen") as blocked,
+            pytest.raises(PullRequestFilesError, match="pull-requests: read"),
+        ):
+            pull_request_paths("acme/app", 7, "tok")
+        blocked.assert_not_called()
+        clear_api_budget()
+        for name in ("GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_SHA"):
+            monkeypatch.delenv(name, raising=False)
+        assert publish_check_run(conclusion="failure", summary="ok", annotations=[]) is False
+        monkeypatch.setenv("GITHUB_TOKEN", "tok")
+        monkeypatch.setenv("GITHUB_REPOSITORY", "acme/app")
+        monkeypatch.setenv("GITHUB_SHA", "abc")
+        monkeypatch.setenv("GITHUB_API_URL", "ftp://example.test")
+        with patch("checkowners.github.urllib.request.urlopen") as blocked:
+            assert publish_check_run(conclusion="success", summary="ok", annotations=[]) is False
+        blocked.assert_not_called()
+        monkeypatch.delenv("GITHUB_API_URL", raising=False)
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+        captured: list[bytes] = []
+
+        def open_check(req: urllib.request.Request, timeout: int = 30) -> _Response:
+            del timeout
+            assert req.data is not None
+            captured.append(req.data)
+            return _Response(b"{}", 201)
+
+        notes = [{"path": f"p{i}.py", "message": "m", "start_line": 1} for i in range(51)]
+        with patch("checkowners.github.urllib.request.urlopen", side_effect=open_check):
+            assert publish_check_run(conclusion="success", summary="  ", annotations=notes) is True
+        body = json.loads(captured[0])
+        assert body["output"]["summary"] == "checkOwners"
+        assert len(body["output"]["annotations"]) == 50
+        assert body["conclusion"] == "success"
+        long_summary = "x" * 70_000
+        with patch("checkowners.github.urllib.request.urlopen", side_effect=open_check):
+            assert publish_check_run(conclusion="failure", summary=long_summary, annotations=[])
+        assert len(json.loads(captured[1])["output"]["summary"]) == 65535
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            side_effect=_http_error(401, b"no"),
+        ):
+            assert publish_check_run(conclusion="success", summary="ok", annotations=[]) is False
+        assert "::notice::checkOwners check run was not created." in capsys.readouterr().err
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            side_effect=_http_error(500, b"no"),
+        ):
+            assert publish_check_run(conclusion="success", summary="ok", annotations=[]) is False
+        assert capsys.readouterr().err == ""
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("down"),
+        ):
+            assert publish_check_run(conclusion="success", summary="ok", annotations=[]) is False
+        assert "::notice::" in capsys.readouterr().err
+        cycle: dict[str, object] = {}
+        cycle["self"] = cycle
+        with patch("checkowners.github.urllib.request.urlopen") as blocked:
+            assert (
+                publish_check_run(conclusion="success", summary="ok", annotations=[cycle]) is False
+            )
+        blocked.assert_not_called()
+        assert "::notice::" in capsys.readouterr().err
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            side_effect=_http_error(403, b"no"),
+        ):
+            assert publish_check_run(conclusion="success", summary="ok", annotations=[]) is False
+        assert capsys.readouterr().err == ""
+    finally:
+        set_offline(False)
+        clear_api_budget()
+        clear_api_evidence()

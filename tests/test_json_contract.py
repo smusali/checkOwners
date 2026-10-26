@@ -54,6 +54,7 @@ _COMMANDS: tuple[tuple[list[str], str], ...] = (
     (["expertise", "src/main.py", "--json"], "expertise"),
     (["trends", "--json"], "trends"),
     (["simulate", "--remove", "alice@example.com", "--json"], "simulate"),
+    (["diff", "HEAD", "--json"], "change"),
 )
 
 

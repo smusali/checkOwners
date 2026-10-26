@@ -82,6 +82,19 @@ def _drift_entries(entries: object, kind: str) -> list[tuple[str, dict[str, obje
     ]
 
 
+def _people(value: object) -> str:
+    if not isinstance(value, dict):
+        return "none"
+    parts: list[str] = []
+    owners = value.get("owners")
+    teams = value.get("teams")
+    if isinstance(owners, list):
+        parts.extend(item for item in owners if isinstance(item, str) and item)
+    if isinstance(teams, list):
+        parts.extend(item for item in teams if isinstance(item, str) and item)
+    return ", ".join(parts) if parts else "none"
+
+
 def entry_lines(pairs: list[tuple[str, dict[str, object]]]) -> tuple[list[str], bool]:
     lines: list[str] = []
     truncated = False
@@ -92,12 +105,41 @@ def entry_lines(pairs: list[tuple[str, dict[str, object]]]) -> tuple[list[str], 
         shown, cut = _path_cell(path)
         truncated = truncated or cut
         lines.append(f"⚠ `{shown}` ({kind})")
-        reason = item.get("reason")
-        if isinstance(reason, str) and reason:
-            lines.append(md_cell(reason))
-        lines.append(f"Δ {fmt_delta(item.get('confidence_delta', 0))}")
+        declared = item.get("declared")
+        observed = item.get("observed")
+        if isinstance(declared, dict) or isinstance(observed, dict):
+            lines.append(f"Declared: {_people(declared)}")
+            lines.append(f"Observed: {_people(observed)}")
+        else:
+            reason = item.get("reason")
+            if isinstance(reason, str) and reason:
+                lines.append(md_cell(reason))
+            lines.append(f"Δ {fmt_delta(item.get('confidence_delta', 0))}")
         lines.append("")
     return lines, truncated
+
+
+def _reviewer_lines(limit: int) -> list[str]:
+    payload = load("balance.json")
+    if payload is None or payload.get("load_signal") == "git_authorship_proxy":
+        return []
+    loads = payload.get("loads")
+    if not isinstance(loads, list):
+        return []
+    rows: list[str] = []
+    for item in loads:
+        if not isinstance(item, dict):
+            continue
+        handle = item.get("handle")
+        band = item.get("load_band")
+        if not isinstance(handle, str) or not handle or band not in {"low", "typical"}:
+            continue
+        rows.append(f"- `{md_cell(handle)}` ({band})")
+        if len(rows) >= limit:
+            break
+    if not rows:
+        return []
+    return ["", "### Recommended reviewers", *rows]
 
 
 def _is_bot(handle: str) -> bool:
@@ -635,6 +677,7 @@ def build(*, limit: int | None = None) -> str:
             parts.append("")
             parts.append(_more_line(0))
 
+    parts.extend(_reviewer_lines(resolved))
     parts.append("")
     parts.append(_models_line())
     parts.append("")

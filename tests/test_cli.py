@@ -3651,7 +3651,7 @@ def test_scoped_helpers_and_privacy_scrub(
         _pull_request_change(tmp_path, 2)
     monkeypatch.setattr(
         "checkowners.cli.create_team_resolver",
-        lambda _token, org: (lambda _owners: org),
+        lambda _token, org: lambda _owners: org,
     )
     named = _change_team_resolver(Config(github=GithubConfig(org="acme")), tmp_path)
     assert named is not None

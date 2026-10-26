@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from checkowners.analyze import run_git
@@ -45,7 +46,13 @@ from checkowners.models import (
     repository_label,
     stamp_json,
 )
-from checkowners.patterns import CodeownersRule, match_path, parse_rules, pattern_matches
+from checkowners.patterns import (
+    CodeownersRule,
+    match_path,
+    matching_rules,
+    pattern_matches,
+    rules_with_source,
+)
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 
@@ -66,6 +73,7 @@ _IDENTITY_NOTE = (
     "to compare owner sets."
 )
 _TEAM_NOTE = "rules owned by teams (@org/team) are not compared against inferred individuals."
+_POLICY_NOTE = "declared ownership without observed expertise"
 
 
 def evidence_gaps(result: DriftResult) -> tuple[AnalysisGap, ...]:
@@ -101,7 +109,7 @@ def detect_drift(
 def _load_rules(codeowners_path: Path) -> tuple[CodeownersRule, ...]:
     if not codeowners_path.exists():
         return ()
-    return parse_rules(codeowners_path.read_text(encoding="utf-8"))
+    return rules_with_source(codeowners_path.read_text(encoding="utf-8"))
 
 
 def _tracked_files(repo_root: Path) -> tuple[str, ...]:
@@ -121,17 +129,18 @@ def _compare(
     missing: list[DriftEntry] = []
     changed: list[DriftEntry] = []
     notes: list[str] = []
+    reviews: tuple[DriftEntry, ...] = ()
 
     coverage = {path: match_path(rules, path.lstrip("/")) for path in inferred}
 
     if mode in ("commit", "both"):
         missing = _find_missing(inferred, coverage)
-        changed, notes = _find_changed(rules, inferred, coverage, min_delta)
+        changed, notes, reviews = _find_changed(rules, inferred, coverage, min_delta)
 
     if mode in ("repo", "both"):
         stale = _find_stale(rules, tracked)
         if mode == "repo":
-            changed, notes = _find_changed(rules, inferred, coverage, min_delta)
+            changed, notes, reviews = _find_changed(rules, inferred, coverage, min_delta)
 
     stale_sorted = _sort_by_delta(stale)
     missing_sorted = _sort_by_delta(missing)
@@ -142,6 +151,7 @@ def _compare(
         changed=changed_sorted,
         drift_detected=bool(stale_sorted or missing_sorted or changed_sorted),
         notes=tuple(notes),
+        reviews=reviews,
     )
 
 
@@ -191,16 +201,25 @@ def _find_stale(
     return entries
 
 
+@dataclass(frozen=True)
+class _RuleDivergence:
+    worst_delta: float
+    diverging: int
+    qualified_owner_count: int | None
+    decay: bool
+    observed_owners: tuple[str, ...]
+
+
 def _find_changed(
     rules: tuple[CodeownersRule, ...],
     inferred: dict[str, PathOwnership],
     coverage: dict[str, CodeownersRule | None],
     min_delta: float,
-) -> tuple[list[DriftEntry], list[str]]:
+) -> tuple[list[DriftEntry], list[str], tuple[DriftEntry, ...]]:
     """Per-rule owner disagreement, aggregated over the files the rule covers."""
     notes: list[str] = []
     if identities_incomparable(rules, inferred):
-        return [], [_IDENTITY_NOTE]
+        return [], [_IDENTITY_NOTE], ()
 
     per_rule: dict[CodeownersRule, list[tuple[str, PathOwnership]]] = {}
     for path, rule in coverage.items():
@@ -208,48 +227,121 @@ def _find_changed(
             per_rule.setdefault(rule, []).append((path, inferred[path]))
 
     entries: list[DriftEntry] = []
+    reviews: list[DriftEntry] = []
     team_rules_skipped = False
     for rule, covered in per_rule.items():
         if any("/" in owner for owner in rule.owners):
             team_rules_skipped = True
             continue
-        current = _normalize_owners(rule.owners)
-        worst_delta = 0.0
-        diverging = 0
-        qualified_owner_count: int | None = None
-        decay = False
-        observed_owners: tuple[str, ...] = ()
-        for _path, po in covered:
-            inferred_handles = _normalize_owners(o.handle for o in po.owners)
-            if current == inferred_handles:
-                continue
-            delta = _confidence_delta(rule.owners, po.owners)
-            diverging += 1
-            if delta > worst_delta:
-                worst_delta = delta
-                qualified_owner_count = po.qualified_owner_count
-                decay = bool(po.decay_warnings)
-                observed_owners = tuple(owner.handle for owner in po.owners)
-        if diverging == 0 or worst_delta < min_delta:
+        measured = _measure_divergence(rule, covered)
+        if measured is None or measured.worst_delta < min_delta:
+            continue
+        if rule.source == "manual":
+            reviews.append(_manual_review(rule, measured, _earlier_generated(rules, rule, covered)))
             continue
         entries.append(
             DriftEntry(
                 path=rule.pattern,
-                confidence_delta=worst_delta,
+                confidence_delta=measured.worst_delta,
                 reason=(
-                    f"owners diverge on {diverging} of {len(covered)} covered path(s) "
+                    f"owners diverge on {measured.diverging} of {len(covered)} covered path(s) "
                     f"(line {rule.line_number})"
                 ),
-                qualified_owner_count=qualified_owner_count,
-                decay=decay,
+                qualified_owner_count=measured.qualified_owner_count,
+                decay=measured.decay,
                 owners=rule.owners,
-                observed_owners=observed_owners,
-                drift_type=_changed_drift_type(rule.owners, observed_owners, decay),
+                observed_owners=measured.observed_owners,
+                drift_type=_changed_drift_type(
+                    rule.owners, measured.observed_owners, measured.decay
+                ),
             )
         )
+    sorted_reviews = _sort_by_delta(reviews)
+    notes.extend(entry.reason for entry in sorted_reviews)
     if team_rules_skipped:
         notes.append(_TEAM_NOTE)
-    return entries, notes
+    return entries, notes, sorted_reviews
+
+
+def _measure_divergence(
+    rule: CodeownersRule,
+    covered: list[tuple[str, PathOwnership]],
+) -> _RuleDivergence | None:
+    current = _normalize_owners(rule.owners)
+    worst_delta = 0.0
+    diverging = 0
+    qualified_owner_count: int | None = None
+    decay = False
+    observed_owners: tuple[str, ...] = ()
+    for _path, path_ownership in covered:
+        inferred_handles = _normalize_owners(owner.handle for owner in path_ownership.owners)
+        if current == inferred_handles:
+            continue
+        delta = _confidence_delta(rule.owners, path_ownership.owners)
+        diverging += 1
+        if delta > worst_delta:
+            worst_delta = delta
+            qualified_owner_count = path_ownership.qualified_owner_count
+            decay = bool(path_ownership.decay_warnings)
+            observed_owners = tuple(owner.handle for owner in path_ownership.owners)
+    if diverging == 0:
+        return None
+    return _RuleDivergence(
+        worst_delta=worst_delta,
+        diverging=diverging,
+        qualified_owner_count=qualified_owner_count,
+        decay=decay,
+        observed_owners=observed_owners,
+    )
+
+
+def _earlier_generated(
+    rules: tuple[CodeownersRule, ...],
+    winner: CodeownersRule,
+    covered: list[tuple[str, PathOwnership]],
+) -> CodeownersRule | None:
+    shadow: CodeownersRule | None = None
+    for path, _path_ownership in covered:
+        for match in matching_rules(rules, path):
+            if match.source != "generated" or match.line_number >= winner.line_number:
+                continue
+            if shadow is None or match.line_number > shadow.line_number:
+                shadow = match
+    return shadow
+
+
+def _manual_review(
+    rule: CodeownersRule,
+    measured: _RuleDivergence,
+    shadow: CodeownersRule | None,
+) -> DriftEntry:
+    return DriftEntry(
+        path=rule.pattern,
+        confidence_delta=measured.worst_delta,
+        reason=_manual_note(rule, shadow),
+        qualified_owner_count=measured.qualified_owner_count,
+        decay=measured.decay,
+        owners=rule.owners,
+        observed_owners=measured.observed_owners,
+        drift_type=_changed_drift_type(rule.owners, measured.observed_owners, measured.decay),
+    )
+
+
+def _manual_note(rule: CodeownersRule, shadow: CodeownersRule | None) -> str:
+    subject = _rule_line(rule.pattern, rule.owners)
+    if shadow is None:
+        return f"{_POLICY_NOTE}: {subject} (line {rule.line_number}). Review this manual rule."
+    other = _rule_line(shadow.pattern, shadow.owners)
+    return (
+        f"{_POLICY_NOTE}: {subject} wins over {other} (line {rule.line_number}). "
+        "Review this manual rule."
+    )
+
+
+def _rule_line(pattern: str, owners: tuple[str, ...]) -> str:
+    if not owners:
+        return pattern
+    return f"{pattern} {' '.join(owners)}"
 
 
 def identities_incomparable(
@@ -544,3 +636,37 @@ def _signal_evidence(owner: OwnerEntry) -> str:
         if signal.available:
             parts.append(f"{name} {signal.score:.2f}")
     return ", ".join(parts)
+
+
+def format_fix_plan(result: DriftResult, ownership: OwnershipMap) -> str:
+    """Return suggested edits for `result` using scores from `ownership`."""
+    blocks: list[str] = []
+    for entry in result.changed:
+        blocks.append("\n".join(_change_lines(entry, ownership)))
+    for entry in result.reviews:
+        blocks.append(entry.reason)
+    if not blocks:
+        return "No suggested changes.\n"
+    return "\n\n".join(blocks) + "\n"
+
+
+def _change_lines(entry: DriftEntry, ownership: OwnershipMap) -> list[str]:
+    declared = {owner.casefold() for owner in entry.owners}
+    observed = {owner.casefold() for owner in entry.observed_owners}
+    added = tuple(owner for owner in entry.observed_owners if owner.casefold() not in declared)
+    if entry.owners and added and all(owner.casefold() in observed for owner in entry.owners):
+        retained = " ".join(entry.owners)
+        lines: list[str] = []
+        for handle in added:
+            owner = _best_owner(ownership, handle)
+            score = 0.0 if owner is None else owner.ownership_score
+            lines.append(
+                f"Consider adding {handle} while retaining {retained}. "
+                f"{handle} has {score:.2f} observed expertise "
+                "and is not currently represented."
+            )
+        return lines
+    return [
+        f"-{_rule_line(entry.path, entry.owners)}",
+        f"+{_rule_line(entry.path, entry.observed_owners)}",
+    ]

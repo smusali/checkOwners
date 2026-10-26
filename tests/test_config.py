@@ -62,6 +62,7 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.output.max_bytes == 2_500_000
     assert cfg.output.verify_round_trip is True
     assert cfg.output.allow_broad_patterns is False
+    assert cfg.output.block_order == "manual-first"
     assert cfg.drift.mode == "commit"
     assert cfg.drift.min_confidence_delta == 0.2
     assert cfg.drift.hysteresis_runs == 1
@@ -161,6 +162,7 @@ output:
   max_bytes: 1000000
   verify_round_trip: false
   allow_broad_patterns: true
+  block_order: generated-first
 drift:
   mode: repo
   min_confidence_delta: 0.4
@@ -208,6 +210,7 @@ identity:
     assert cfg.output.max_bytes == 1_000_000
     assert cfg.output.verify_round_trip is False
     assert cfg.output.allow_broad_patterns is True
+    assert cfg.output.block_order == "generated-first"
     assert cfg.drift.mode == "repo"
     assert cfg.drift.min_confidence_delta == 0.4
     assert cfg.drift.hysteresis_runs == 3

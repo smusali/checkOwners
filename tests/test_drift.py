@@ -18,6 +18,7 @@ from checkowners.drift import (
     detect_drift,
     drift_entry_payload,
     evidence_gaps,
+    format_fix_plan,
     reconciliation_body,
     write_github_output,
 )
@@ -35,6 +36,7 @@ from checkowners.models import (
     PathOwnership,
     SignalScore,
 )
+from checkowners.patterns import match_path, rules_with_source
 from tests.conftest import (
     GitRepo,
     analyze_regression_repo,
@@ -185,6 +187,33 @@ def test_identity_incomparable_emails_vs_handles(tmp_path: Path) -> None:
     assert result.drift_detected is False
     assert any("commit emails" in note for note in result.notes)
     assert any(gap.code == "ambiguous_identity" for gap in evidence_gaps(result))
+
+
+def test_manual_rule_shadow_is_a_review_note(tmp_path: Path) -> None:
+    content = (
+        "# checkowners:generated:start\n"
+        "/payments/** @payments\n"
+        "# checkowners:generated:end\n"
+        "\n"
+        "# checkowners:manual:start\n"
+        "/payments/** @security-team\n"
+        "# checkowners:manual:end\n"
+    )
+    _write_codeowners(tmp_path, content)
+    ownership = _ownership({"payments/pay.py": (_owner("@payments", 0.91),)})
+    with patch(_MOCK_LS_FILES, return_value=("payments/pay.py",)):
+        result = detect_drift(tmp_path, ownership, _config())
+    winner = match_path(rules_with_source(content), "payments/pay.py")
+    assert winner is not None
+    assert winner.source == "manual"
+    assert winner.owners == ("@security-team",)
+    assert result.changed == ()
+    assert result.drift_detected is False
+    assert any("declared ownership without observed expertise" in note for note in result.notes)
+    assert any("wins over" in note and "/payments/** @payments" in note for note in result.notes)
+    plan = format_fix_plan(result, ownership)
+    assert "declared ownership without observed expertise" in plan
+    assert "-/payments/**" not in plan
 
 
 def test_team_rules_skipped_with_note(tmp_path: Path) -> None:

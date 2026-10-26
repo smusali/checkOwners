@@ -76,6 +76,7 @@ from checkowners.drift import (
     detect_drift,
     drift_entry_payload,
     evidence_gaps,
+    format_fix_plan,
     reconciliation_body,
     write_github_output,
 )
@@ -158,7 +159,12 @@ from checkowners.models import (
     with_gaps,
 )
 from checkowners.onboard import OnboardingPath, generate_onboarding_path
-from checkowners.patterns import CodeownersRule, matching_rules, parse_rules
+from checkowners.patterns import (
+    CodeownersMarkerError,
+    CodeownersRule,
+    matching_rules,
+    parse_rules,
+)
 from checkowners.policy import (
     blocking_findings,
     effective_policy,
@@ -397,6 +403,9 @@ def _detect_drift(
 ) -> DriftResult:
     try:
         return detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+    except CodeownersMarkerError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.CONFIG)
     except (subprocess.CalledProcessError, OSError) as exc:
         console.print(f"[red]Git command failed:[/red] {exc}")
         exit_with(ExitCode.INTEGRATION)
@@ -1450,6 +1459,13 @@ def baseline_create(
 def drift(
     json_output: JsonOption = False,
     baseline: BaselineOption = None,
+    fix_plan: Annotated[
+        bool,
+        typer.Option(
+            "--fix-plan",
+            help="Print suggested CODEOWNERS edits and write nothing.",
+        ),
+    ] = False,
 ) -> None:
     """Detect drift between inferred and current CODEOWNERS."""
     config = _load_config()
@@ -1482,8 +1498,9 @@ def drift(
         analysis_completeness=completeness,
         analysis_gaps=gaps,
     )
+    plan = format_fix_plan(result, ownership) if fix_plan else ""
     if json_output:
-        data = {
+        data: dict[str, object] = {
             "stale": [drift_entry_payload(e, cap, config) for e in result.stale],
             "missing": [drift_entry_payload(e, cap, config) for e in result.missing],
             "changed": [drift_entry_payload(e, cap, config) for e in result.changed],
@@ -1494,6 +1511,8 @@ def drift(
             **_ratchet_json(outcome),
             **_policy_payload(config, blocking),
         }
+        if fix_plan:
+            data["fix_plan"] = plan
         _emit_json(data, ownership)
     else:
         for note in result.notes:
@@ -1510,6 +1529,8 @@ def drift(
         _render_blocking(blocking)
         _render_completeness(ownership)
         _report_models("ownership", "risk")
+        if fix_plan:
+            console.print(plan, markup=False, highlight=False, soft_wrap=True)
     if blocking:
         exit_with(ExitCode.FINDINGS)
     _finish_analysis(ownership)

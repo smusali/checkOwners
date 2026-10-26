@@ -982,6 +982,9 @@
             "notes": {
               "$ref": "#/$defs/stringList"
             },
+            "fix_plan": {
+              "type": "string"
+            },
             "baselined": {
               "type": "integer"
             },

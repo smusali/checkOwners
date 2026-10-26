@@ -12,6 +12,7 @@ import yaml
 
 from checkowners.models import (
     AnalysisConfig,
+    BlockOrder,
     BusFactorConfig,
     CheckPolicy,
     Config,
@@ -143,6 +144,7 @@ _V2_OUTPUT: frozenset[str] = frozenset(
         "allow_broad_patterns",
         "anonymize",
         "aggregate_only",
+        "block_order",
     }
 )
 _V2_DRIFT: frozenset[str] = frozenset(
@@ -165,6 +167,7 @@ _V2_IDENTITY: frozenset[str] = frozenset({"mailmap", "mode"})
 _V2_PRIVACY: frozenset[str] = frozenset({"redact_emails"})
 _V2_CONTRIBUTORS: frozenset[str] = frozenset({"exclude"})
 _IDENTITY_MODES: frozenset[str] = frozenset(get_args(IdentityMode))
+_BLOCK_ORDERS: frozenset[str] = frozenset(get_args(BlockOrder))
 _V2_POLICY: frozenset[str] = frozenset(
     {
         "drift",
@@ -244,6 +247,10 @@ def _is_finding_rule(value: str) -> TypeGuard[FindingRule]:
 
 def _is_identity_mode(value: str) -> TypeGuard[IdentityMode]:
     return value in _IDENTITY_MODES
+
+
+def _is_block_order(value: str) -> TypeGuard[BlockOrder]:
+    return value in _BLOCK_ORDERS
 
 
 def _is_merge_strategy(value: str) -> TypeGuard[ConfiguredMergeStrategy]:
@@ -810,7 +817,16 @@ def _build_output_config(data: dict[str, Any]) -> OutputConfig:
         kwargs["anonymize"] = _require_bool(data["anonymize"], "output.anonymize")
     if "aggregate_only" in data:
         kwargs["aggregate_only"] = _require_bool(data["aggregate_only"], "output.aggregate_only")
+    if "block_order" in data:
+        kwargs["block_order"] = _require_block_order(data["block_order"])
     return OutputConfig(**kwargs)
+
+
+def _require_block_order(value: object) -> BlockOrder:
+    if isinstance(value, str) and _is_block_order(value):
+        return value
+    msg = f"Invalid output.block_order: {value!r}; expected one of {sorted(_BLOCK_ORDERS)}"
+    raise ValueError(msg)
 
 
 def _require_bool(value: object, key: str) -> bool:

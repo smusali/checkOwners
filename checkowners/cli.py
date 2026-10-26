@@ -381,6 +381,28 @@ def _public_payload(data: Mapping[str, object]) -> dict[str, object]:
     return sanitize(data, config, _repo_id())
 
 
+def _scrubbed(text: str) -> str:
+    config = _active_config()
+    if config is None:
+        return text
+    return scrub_text(text, config, _repo_id())
+
+
+def _scrubbed_annotations(findings: tuple[ReportFinding, ...]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for row in check_annotations(findings):
+        message = row.get("message")
+        path = row.get("path")
+        rows.append(
+            {
+                **row,
+                "message": _scrubbed(message) if isinstance(message, str) else message,
+                "path": _scrubbed(path) if isinstance(path, str) else path,
+            }
+        )
+    return rows
+
+
 def _refuse_named_codeowners(config: Config) -> None:
     if named_codeowners_allowed(config):
         return
@@ -695,11 +717,7 @@ def _emit_machine(
         )
         typer.echo(json.dumps(_public_payload(document), indent=2, sort_keys=True))
         return
-    text = junit_document(findings, command=command)
-    config = _active_config()
-    if config is not None:
-        text = scrub_text(text, config, _repo_id())
-    typer.echo(text)
+    typer.echo(_scrubbed(junit_document(findings, command=command)))
 
 
 def _repo_relative(repo_root: Path, path: Path) -> str:
@@ -2060,17 +2078,16 @@ def _write_action_machines(
         provenance=_stamp_output({}, ownership),
     )
     _write_action_json(Path("checkowners.sarif"), document)
-    text = junit_document(findings, command="github-action")
-    config = _active_config()
-    if config is not None:
-        text = scrub_text(text, config, _repo_id())
-    Path("checkowners.junit.xml").write_text(text, encoding="utf-8")
+    Path("checkowners.junit.xml").write_text(
+        _scrubbed(junit_document(findings, command="github-action")),
+        encoding="utf-8",
+    )
 
 
 def _emit_action_annotations(findings: tuple[ReportFinding, ...]) -> None:
     if not os.environ.get("GITHUB_ACTIONS"):
         return
-    text = workflow_annotations(findings)
+    text = _scrubbed(workflow_annotations(findings))
     if text:
         print(text, end="", file=sys.stderr)
 
@@ -2222,14 +2239,14 @@ def github_action(
         owners_report,
     )
     _write_action_machines(findings, ownership)
-    summary = build(limit=max_output_entries)
+    summary = _scrubbed(build(limit=max_output_entries))
     write_step_summary(summary)
     publish_outputs(limit=max_output_entries)
     _emit_action_annotations(findings)
     publish_check_run(
         conclusion="failure" if blocking else "success",
         summary=summary,
-        annotations=check_annotations(findings),
+        annotations=_scrubbed_annotations(findings),
     )
 
     if json_output:

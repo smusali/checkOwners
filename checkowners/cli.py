@@ -6,13 +6,14 @@ import difflib
 import json
 import os
 import subprocess
-from collections.abc import Mapping
+import sys
+from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import replace
 from datetime import UTC, datetime
 from enum import IntEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, NoReturn
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NoReturn, TypeGuard
 
 import typer
 from rich.console import Console
@@ -68,7 +69,21 @@ from checkowners.busfactor import (
     simulate_removal,
     simulation_payload,
 )
-from checkowners.config import find_codeowners_path, load_config
+from checkowners.change import (
+    build_change,
+    change_payload,
+    changed_paths,
+    load_paths,
+    merge_base,
+    render_diff,
+    render_suggest,
+)
+from checkowners.config import (
+    CONFIG_ENV_VAR,
+    CONFIG_FILENAME,
+    find_codeowners_path,
+    load_config,
+)
 from checkowners.decay import DecayReport, detect_decay
 from checkowners.drift import (
     apply_severity_hysteresis,
@@ -103,16 +118,22 @@ from checkowners.generate import (
     generate_codeowners,
 )
 from checkowners.github import (
+    PullRequestFilesError,
     ReconciliationError,
     ReconciliationResult,
     begin_api_budget,
     build_review_coverage,
     clear_api_evidence,
     collection_gaps,
+    create_team_resolver,
     external_evidence_payload,
     get_github_token,
     github_repository,
+    offline_enabled,
     open_or_update_reconciliation,
+    publish_check_run,
+    pull_request_base,
+    pull_request_paths,
     resolve_handles,
     set_offline,
 )
@@ -181,6 +202,19 @@ from checkowners.privacy import (
     scrub_text,
     without_emails,
 )
+from checkowners.report_formats import (
+    ReportFinding,
+    check_annotations,
+    combine_findings,
+    findings_for_bus,
+    findings_for_drift,
+    findings_for_gaps,
+    findings_for_shadows,
+    findings_for_validation,
+    junit_document,
+    sarif_document,
+    workflow_annotations,
+)
 from checkowners.risk import (
     Pathology,
     RiskEntry,
@@ -237,6 +271,16 @@ console = Console()
 err_console = Console(stderr=True)
 
 JsonOption = Annotated[bool, typer.Option("--json", help="Output as JSON.")]
+FormatOption = Annotated[
+    str | None,
+    typer.Option(
+        "--format",
+        help="Output format: text, json, sarif, or junit. --json selects json.",
+        case_sensitive=False,
+    ),
+]
+_FormatName = Literal["text", "json", "sarif", "junit"]
+_MachineFormat = Literal["sarif", "junit"]
 BaselineOption = Annotated[
     str | None,
     typer.Option(
@@ -254,6 +298,23 @@ _NO_CACHE: ContextVar[bool] = ContextVar("cli_no_cache", default=False)
 _NO_INCREMENTAL: ContextVar[bool] = ContextVar("cli_no_incremental", default=False)
 _REDACT_EMAILS: ContextVar[bool] = ContextVar("cli_redact_emails", default=False)
 _ACTIVE_CONFIG: ContextVar[Config | None] = ContextVar("cli_config", default=None)
+_DIFF_ONLY: ContextVar[str | None] = ContextVar("cli_diff_only", default=None)
+_DIFF_COMMANDS = frozenset(
+    {
+        "analyze",
+        "drift",
+        "risk",
+        "bus-factor",
+        "decay",
+        "suggest",
+        "balance",
+        "explain",
+        "owners",
+        "who",
+        "expertise",
+        "qualified-owners",
+    }
+)
 
 _OFFLINE_LINES = (
     "Network access: disabled",
@@ -503,6 +564,13 @@ def _app_callback(
             help="Replace email addresses in output with stable tokens.",
         ),
     ] = False,
+    diff_only: Annotated[
+        str | None,
+        typer.Option(
+            "--diff-only",
+            help="Limit read-only analysis to paths changed in SPEC (base...head or a revision).",
+        ),
+    ] = None,
 ) -> None:
     """Infer and maintain CODEOWNERS from git history."""
     clear_api_evidence()
@@ -517,6 +585,9 @@ def _app_callback(
     _NO_CACHE.set(no_cache)
     _NO_INCREMENTAL.set(no_incremental)
     _REDACT_EMAILS.set(redact_emails)
+    _DIFF_ONLY.set(diff_only)
+    if diff_only is not None and ctx.invoked_subcommand not in _DIFF_COMMANDS:
+        raise typer.BadParameter("--diff-only applies to read-only analysis commands")
     set_offline(offline)
     if offline:
         for line in _OFFLINE_LINES:
@@ -588,6 +659,92 @@ def _emit_json(
 ) -> None:
     stamped = _stamp_output(data, ownership, head_sha=head_sha, generated_at=generated_at)
     typer.echo(json.dumps(_public_payload(stamped), indent=2, sort_keys=True))
+
+
+def _output_format(json_output: bool, output_format: str | None) -> _FormatName:
+    chosen = output_format.casefold() if output_format else None
+    if chosen is not None and chosen not in {"text", "json", "sarif", "junit"}:
+        raise typer.BadParameter("--format must be text, json, sarif, or junit")
+    if json_output and chosen is not None and chosen != "json":
+        raise typer.BadParameter("--json and --format disagree")
+    if json_output or chosen == "json":
+        return "json"
+    if chosen == "sarif":
+        return "sarif"
+    if chosen == "junit":
+        return "junit"
+    return "text"
+
+
+def _is_machine(fmt: _FormatName) -> TypeGuard[_MachineFormat]:
+    return fmt in {"sarif", "junit"}
+
+
+def _emit_machine(
+    fmt: _MachineFormat,
+    findings: tuple[ReportFinding, ...],
+    *,
+    command: str,
+    ownership: OwnershipMap | None,
+) -> None:
+    if fmt == "sarif":
+        document = sarif_document(
+            findings,
+            command=command,
+            provenance=_stamp_output({}, ownership),
+        )
+        typer.echo(json.dumps(_public_payload(document), indent=2, sort_keys=True))
+        return
+    text = junit_document(findings, command=command)
+    config = _active_config()
+    if config is not None:
+        text = scrub_text(text, config, _repo_id())
+    typer.echo(text)
+
+
+def _repo_relative(repo_root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _gap_uri(repo_root: Path, codeowners_path: Path) -> str:
+    override = os.environ.get(CONFIG_ENV_VAR, "").strip()
+    if override:
+        candidate = Path(override)
+        if not candidate.is_absolute():
+            candidate = repo_root / candidate
+    else:
+        candidate = repo_root / CONFIG_FILENAME
+    if candidate.is_file():
+        return _repo_relative(repo_root, candidate)
+    if codeowners_path.is_file():
+        return _repo_relative(repo_root, codeowners_path)
+    return _repo_relative(repo_root, candidate)
+
+
+def _tracked_paths(repo_root: Path) -> tuple[str, ...]:
+    try:
+        result = run_git(repo_root, ["git", "ls-files"], check=True, paths=True)
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return ()
+    return tuple(line for line in result.stdout.splitlines() if line)
+
+
+def _gap_findings(
+    ownership: OwnershipMap | None,
+    repo_root: Path,
+    codeowners_path: Path,
+    config: Config,
+) -> tuple[ReportFinding, ...]:
+    if ownership is None:
+        return ()
+    return findings_for_gaps(
+        ownership.analysis_completeness.gaps,
+        _gap_uri(repo_root, codeowners_path),
+        config.policy.incomplete_analysis.severity,
+    )
 
 
 def _report_notice() -> None:
@@ -959,6 +1116,60 @@ def _load_or_analyze(config: Config, repo_root: Path) -> OwnershipMap:
     return _run_analyze(config, repo_root)
 
 
+def _resolved_ownership(ownership: OwnershipMap, config: Config) -> OwnershipMap:
+    resolved = _resolve_github_owners(ownership, config)
+    resolved = exclude_contributors(
+        resolved,
+        config.contributors_exclude,
+        confidence_threshold=config.analysis.confidence_threshold,
+    )
+    return _apply_extra_gaps(resolved, _api_gaps(resolved, config), config.scoring)
+
+
+def _ownership_for_spec(config: Config, repo_root: Path, spec: str) -> OwnershipMap:
+    paths = changed_paths(repo_root, spec, exclude=config.paths.exclude)
+    as_of, analysis_ref = _resolve_clock(repo_root)
+    if not paths:
+        return OwnershipMap(paths={}, last_analyzed=as_of, analysis_ref=analysis_ref)
+    if not _NO_CACHE.get():
+        cached = reusable_ownership(
+            repo_root,
+            config,
+            head=_try_head_sha(repo_root),
+            allow_stale=_ALLOW_STALE.get(),
+            max_age=_MAX_AGE.get(),
+        )
+        if cached is not None:
+            kept = {path: cached.paths[path] for path in paths if path in cached.paths}
+            return replace(cached, paths=kept)
+    try:
+        ownership = load_paths(
+            repo_root,
+            config,
+            paths,
+            None,
+            as_of=as_of,
+            review_provider=_review_provider(config, as_of),
+        )
+    except (ValueError, subprocess.CalledProcessError, OSError) as exc:
+        _guard_ownership(exc)
+    return _resolved_ownership(ownership, config)
+
+
+def _fresh_or_scoped(config: Config, repo_root: Path) -> OwnershipMap:
+    spec = _DIFF_ONLY.get()
+    if spec is None:
+        return _run_analyze(config, repo_root)
+    return _ownership_for_spec(config, repo_root, spec)
+
+
+def _load_for_command(config: Config, repo_root: Path) -> OwnershipMap:
+    spec = _DIFF_ONLY.get()
+    if spec is None:
+        return _load_or_analyze(config, repo_root)
+    return _ownership_for_spec(config, repo_root, spec)
+
+
 def _expertise_rank_payload(rank: ExpertiseRank) -> dict[str, Any]:
     return {
         "handle": rank.handle,
@@ -972,7 +1183,8 @@ def _expertise_rank_payload(rank: ExpertiseRank) -> dict[str, Any]:
 def analyze(json_output: JsonOption = False) -> None:
     """Analyze git history and rank owners by ownership score."""
     config = _load_config()
-    ownership = _run_analyze(config, Path.cwd())
+    repo_root = Path.cwd()
+    ownership = _fresh_or_scoped(config, repo_root)
     cap = config.analysis.top_n_owners
     if json_output:
         data = {
@@ -1141,8 +1353,12 @@ def print_cmd(json_output: JsonOption = False) -> None:
 
 
 @app.command()
-def validate(json_output: JsonOption = False) -> None:
+def validate(
+    json_output: JsonOption = False,
+    output_format: FormatOption = None,
+) -> None:
     """Validate CODEOWNERS file syntax."""
+    fmt = _output_format(json_output, output_format)
     config = _load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
@@ -1166,8 +1382,16 @@ def validate(json_output: JsonOption = False) -> None:
         "errors": [{"line": e.line_number, "message": e.message} for e in errors],
         **_policy_payload(config, blocking),
     }
-    if json_output:
+    if fmt == "json":
         _emit_json(payload)
+    elif _is_machine(fmt):
+        uri = _repo_relative(repo_root, codeowners_path)
+        rules = _codeowners_rules(codeowners_path)
+        machine = combine_findings(
+            findings_for_validation(errors, uri, config.policy.invalid_owner.severity),
+            findings_for_shadows(rules, _tracked_paths(repo_root), uri),
+        )
+        _emit_machine(fmt, machine, command="validate", ownership=None)
     elif not errors:
         console.print("[green]CODEOWNERS is valid.[/green]")
         _render_blocking(blocking)
@@ -1458,6 +1682,7 @@ def baseline_create(
 @app.command()
 def drift(
     json_output: JsonOption = False,
+    output_format: FormatOption = None,
     baseline: BaselineOption = None,
     fix_plan: Annotated[
         bool,
@@ -1468,10 +1693,11 @@ def drift(
     ] = False,
 ) -> None:
     """Detect drift between inferred and current CODEOWNERS."""
+    fmt = _output_format(json_output, output_format)
     config = _load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
-    ownership = _run_analyze(config, repo_root)
+    ownership = _fresh_or_scoped(config, repo_root)
     result = _detect_drift(repo_root, ownership, config, codeowners_path)
     bus = compute_qualified_owners(ownership, config, target=None)
     outcome, blocking = _enforcement(
@@ -1499,7 +1725,7 @@ def drift(
         analysis_gaps=gaps,
     )
     plan = format_fix_plan(result, ownership) if fix_plan else ""
-    if json_output:
+    if fmt == "json":
         data: dict[str, object] = {
             "stale": [drift_entry_payload(e, cap, config) for e in result.stale],
             "missing": [drift_entry_payload(e, cap, config) for e in result.missing],
@@ -1514,6 +1740,13 @@ def drift(
         if fix_plan:
             data["fix_plan"] = plan
         _emit_json(data, ownership)
+    elif _is_machine(fmt):
+        uri = _repo_relative(repo_root, codeowners_path)
+        findings = combine_findings(
+            findings_for_drift(result, codeowners_uri=uri, config=config),
+            _gap_findings(ownership, repo_root, codeowners_path, config),
+        )
+        _emit_machine(fmt, findings, command="drift", ownership=ownership)
     else:
         for note in result.notes:
             console.print(f"[yellow]note:[/yellow] {escape(note)}")
@@ -1792,6 +2025,54 @@ def _write_action_json(path: Path, payload: Mapping[str, object]) -> None:
 def _publish_action_failure() -> None:
     write_step_summary(DIAGNOSTIC)
     publish_outputs()
+    publish_check_run(conclusion="failure", summary=DIAGNOSTIC, annotations=[])
+
+
+def _action_findings(
+    repo_root: Path,
+    codeowners_path: Path,
+    ownership: OwnershipMap,
+    config: Config,
+    result: DriftResult,
+    bus: BusFactorReport | None,
+) -> tuple[ReportFinding, ...]:
+    uri = _repo_relative(repo_root, codeowners_path)
+    errors = validate_codeowners(repo_root, codeowners_path=codeowners_path)
+    rules = _codeowners_rules(codeowners_path)
+    groups: list[tuple[ReportFinding, ...]] = [
+        findings_for_drift(result, codeowners_uri=uri, config=config),
+        findings_for_validation(errors, uri, config.policy.invalid_owner.severity),
+        findings_for_shadows(rules, _tracked_paths(repo_root), uri),
+        _gap_findings(ownership, repo_root, codeowners_path, config),
+    ]
+    if bus is not None:
+        groups.append(findings_for_bus(bus))
+    return combine_findings(*groups)
+
+
+def _write_action_machines(
+    findings: tuple[ReportFinding, ...],
+    ownership: OwnershipMap,
+) -> None:
+    document = sarif_document(
+        findings,
+        command="github-action",
+        provenance=_stamp_output({}, ownership),
+    )
+    _write_action_json(Path("checkowners.sarif"), document)
+    text = junit_document(findings, command="github-action")
+    config = _active_config()
+    if config is not None:
+        text = scrub_text(text, config, _repo_id())
+    Path("checkowners.junit.xml").write_text(text, encoding="utf-8")
+
+
+def _emit_action_annotations(findings: tuple[ReportFinding, ...]) -> None:
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    text = workflow_annotations(findings)
+    if text:
+        print(text, end="", file=sys.stderr)
 
 
 @app.command(name="github-action")
@@ -1932,8 +2213,24 @@ def github_action(
     if balance_payload is not None:
         _write_action_json(Path("balance.json"), balance_payload)
 
-    write_step_summary(build(limit=max_output_entries))
+    findings = _action_findings(
+        repo_root,
+        codeowners_path,
+        ownership,
+        config,
+        result,
+        owners_report,
+    )
+    _write_action_machines(findings, ownership)
+    summary = build(limit=max_output_entries)
+    write_step_summary(summary)
     publish_outputs(limit=max_output_entries)
+    _emit_action_annotations(findings)
+    publish_check_run(
+        conclusion="failure" if blocking else "success",
+        summary=summary,
+        annotations=check_annotations(findings),
+    )
 
     if json_output:
         printed: dict[str, object] = {"drift_summary": drift_payload}
@@ -2027,10 +2324,11 @@ def graph(
     _finish_analysis(ownership)
 
 
-def _risk_impl(json_output: bool, baseline: str | None) -> None:
+def _risk_impl(json_output: bool, baseline: str | None, output_format: str | None) -> None:
+    fmt = _output_format(json_output, output_format)
     config = _load_config()
     repo_root = Path.cwd()
-    ownership = _load_or_analyze(config, repo_root)
+    ownership = _load_for_command(config, repo_root)
     codeowners_path = find_codeowners_path(repo_root)
     rules = (
         ()
@@ -2049,8 +2347,15 @@ def _risk_impl(json_output: bool, baseline: str | None) -> None:
     )
     report = select_pathologies(report, frozenset(item.identity() for item in visible))
     _print_expired_suppressions(expired)
-    if json_output:
+    if fmt == "json":
         _emit_json(risk_payload(report), ownership)
+    elif _is_machine(fmt):
+        bus = compute_qualified_owners(ownership, config, target=None)
+        machine = combine_findings(
+            findings_for_bus(bus),
+            _gap_findings(ownership, repo_root, codeowners_path, config),
+        )
+        _emit_machine(fmt, machine, command="risk", ownership=ownership)
     else:
         _render_risk(report)
         _report_models("ownership", "risk")
@@ -2059,26 +2364,29 @@ def _risk_impl(json_output: bool, baseline: str | None) -> None:
 
 def risk(
     json_output: JsonOption = False,
+    output_format: FormatOption = None,
     baseline: BaselineOption = None,
 ) -> None:
     """Report composite knowledge risk for the repository."""
-    _risk_impl(json_output, baseline)
+    _risk_impl(json_output, baseline, output_format)
 
 
 def bus_factor(
     json_output: JsonOption = False,
+    output_format: FormatOption = None,
     baseline: BaselineOption = None,
 ) -> None:
     """Alias of risk."""
-    _risk_impl(json_output, baseline)
+    _risk_impl(json_output, baseline, output_format)
 
 
 def decay(
     json_output: JsonOption = False,
+    output_format: FormatOption = None,
     baseline: BaselineOption = None,
 ) -> None:
     """Alias of risk."""
-    _risk_impl(json_output, baseline)
+    _risk_impl(json_output, baseline, output_format)
 
 
 app.command(name="risk")(risk)
@@ -2187,7 +2495,7 @@ def _qualified_owners_impl(
         console.print("[yellow]Specify a path or pass --all to report every path.[/yellow]")
         exit_with(ExitCode.CONFIG)
     config = _load_config()
-    ownership = _load_or_analyze(config, Path.cwd())
+    ownership = _load_for_command(config, Path.cwd())
     target = path if path else None
     report = compute_qualified_owners(ownership, config, target=target)
     if json_output:
@@ -2461,7 +2769,7 @@ def _load_payload(load: ReviewLoad) -> dict[str, object]:
 def _suggest_impl(json_output: bool) -> None:
     config = _load_config()
     repo_root = Path.cwd()
-    ownership = _load_or_analyze(config, repo_root)
+    ownership = _load_for_command(config, repo_root)
     report = analyze_balance(
         ownership,
         config,
@@ -2474,8 +2782,28 @@ def _suggest_impl(json_output: bool) -> None:
     _finish_analysis(ownership)
 
 
-def suggest(json_output: JsonOption = False) -> None:
+def suggest(
+    json_output: JsonOption = False,
+    diff: Annotated[
+        str | None,
+        typer.Option(
+            "--diff",
+            help="Recommend reviewers for SPEC (base...head or a revision).",
+        ),
+    ] = None,
+    pull_request: Annotated[
+        int | None,
+        typer.Option("--pr", min=1, help="Recommend reviewers for pull request N."),
+    ] = None,
+) -> None:
     """Recommend a reviewer from expertise and current load."""
+    if diff is not None and pull_request is not None:
+        raise typer.BadParameter("Pass either --diff or --pr.")
+    if (diff is not None or pull_request is not None) and _DIFF_ONLY.get() is not None:
+        raise typer.BadParameter("Pass either --diff, --pr, or --diff-only.")
+    if diff is not None or pull_request is not None:
+        _emit_change(diff, pull_request, json_output=json_output, long=True)
+        return
     _suggest_impl(json_output)
 
 
@@ -2486,6 +2814,115 @@ def balance(json_output: JsonOption = False) -> None:
 
 app.command(name="suggest")(suggest)
 app.command(name="balance")(balance)
+
+
+@app.command("diff")
+def diff_cmd(
+    spec: Annotated[
+        str,
+        typer.Argument(help="base...head, or a revision compared with HEAD."),
+    ],
+    json_output: JsonOption = False,
+) -> None:
+    """Print ownership impact for the paths changed in SPEC."""
+    _emit_change(spec, None, json_output=json_output, long=False)
+
+
+def _emit_change(
+    spec: str | None,
+    number: int | None,
+    *,
+    json_output: bool,
+    long: bool,
+) -> None:
+    config = _load_config()
+    repo_root = Path.cwd()
+    try:
+        if number is not None:
+            paths, base = _pull_request_change(repo_root, number)
+        else:
+            if spec is None:
+                raise typer.BadParameter("SPEC is required")
+            paths = changed_paths(repo_root, spec, exclude=config.paths.exclude)
+            base = merge_base(repo_root, spec)
+        report = build_change(
+            repo_root,
+            config,
+            paths,
+            base_revision=base,
+            load=_change_loader(repo_root, config),
+            team_resolve=_change_team_resolver(config, repo_root),
+        )
+    except PullRequestFilesError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.INTEGRATION)
+    except (ValueError, subprocess.CalledProcessError, OSError) as exc:
+        _guard_ownership(exc)
+    if json_output:
+        _emit_json(change_payload(report))
+        return
+    text = render_suggest(report) if long else render_diff(report)
+    typer.echo(scrub_text(text, config, _repo_id()), nl=False)
+
+
+def _pull_request_change(repo_root: Path, number: int) -> tuple[tuple[str, ...], str]:
+    if offline_enabled():
+        raise PullRequestFilesError("Offline mode cannot read pull request files.")
+    token = get_github_token()
+    if not token:
+        raise PullRequestFilesError("A token with pull-requests: read is required.")
+    try:
+        repository = github_repository(repo_root)
+    except ReconciliationError as exc:
+        raise PullRequestFilesError(
+            "Could not read pull request files. Grant pull-requests: read."
+        ) from exc
+    return (
+        pull_request_paths(repository, number, token),
+        pull_request_base(repository, number, token),
+    )
+
+
+def _change_loader(
+    repo_root: Path,
+    config: Config,
+) -> Callable[[tuple[str, ...], str | None], OwnershipMap]:
+    as_of, _analysis_ref = _resolve_clock(repo_root)
+    provider = _review_provider(config, as_of)
+
+    def load(paths: tuple[str, ...], revision: str | None) -> OwnershipMap:
+        ownership = load_paths(
+            repo_root,
+            config,
+            paths,
+            revision,
+            as_of=as_of,
+            review_provider=provider,
+        )
+        return _resolved_ownership(ownership, config)
+
+    return load
+
+
+def _change_team_resolver(
+    config: Config,
+    repo_root: Path,
+) -> Callable[[tuple[str, ...]], str | None] | None:
+    if not config.github.resolve_teams or offline_enabled():
+        return None
+    token = get_github_token()
+    if not token:
+        return None
+    org = config.github.org
+    if not org:
+        try:
+            slug = github_repository(repo_root)
+        except ReconciliationError:
+            return None
+        org = slug.split("/", 1)[0]
+    if not org:
+        return None
+    return create_team_resolver(token, org)
 
 
 def _render_balance(report: BalanceReport) -> None:
@@ -2651,6 +3088,12 @@ def onboard(
 
 
 def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMap:
+    spec = _DIFF_ONLY.get()
+    if spec is not None:
+        changed = set(changed_paths(repo_root, spec, exclude=config.paths.exclude))
+        if target not in changed:
+            as_of, analysis_ref = _resolve_clock(repo_root)
+            return OwnershipMap(paths={}, last_analyzed=as_of, analysis_ref=analysis_ref)
     _warn_missing_api_token(config)
     as_of, analysis_ref = _resolve_clock(repo_root)
     try:
@@ -2875,7 +3318,7 @@ def expertise(
 ) -> None:
     """Show the evidence ranking for a path."""
     config = _load_config()
-    ownership = _load_or_analyze(config, Path.cwd())
+    ownership = _load_for_command(config, Path.cwd())
     ranking = rank_expertise(ownership, path)
     if json_output:
         data = {

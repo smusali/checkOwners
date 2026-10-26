@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from checkowners.models import (
     API_BUDGET_REASON,
@@ -1202,3 +1203,161 @@ def _github_request(
         return None
     loaded: object = json.loads(raw.decode("utf-8"))
     return loaded
+
+
+class PullRequestFilesError(Exception):
+    pass
+
+
+_CHECK_SUMMARY_LIMIT = 65535
+_CHECK_ANNOTATION_LIMIT = 50
+_PR_PAGE = 100
+_PR_STATUSES = frozenset({"added", "modified", "renamed", "copied", "changed"})
+_PULL_READ = "Could not read pull request files. Grant pull-requests: read."
+
+
+def _require_pull_read(repository: str, token: str) -> None:
+    if offline_enabled():
+        raise PullRequestFilesError("Offline mode cannot read pull request files.")
+    if not token or not repository:
+        raise PullRequestFilesError("A token with pull-requests: read is required.")
+
+
+def _pull_read_error(detail: str | None = None) -> PullRequestFilesError:
+    if detail is None:
+        return PullRequestFilesError(_PULL_READ)
+    return PullRequestFilesError(
+        f"Could not read pull request files ({detail}). Grant pull-requests: read."
+    )
+
+
+def pull_request_paths(repository: str, number: int, token: str) -> tuple[str, ...]:
+    _require_pull_read(repository, token)
+    paths: list[str] = []
+    page = 1
+    while True:
+        body = _read_json(
+            "GET",
+            f"/repos/{repository}/pulls/{number}/files?per_page={_PR_PAGE}&page={page}",
+            token,
+        )
+        if not isinstance(body, list):
+            raise _pull_read_error()
+        for item in body:
+            if not isinstance(item, dict):
+                continue
+            status = item.get("status")
+            filename = item.get("filename")
+            if status not in _PR_STATUSES or not isinstance(filename, str) or not filename:
+                continue
+            paths.append(filename)
+        if len(body) < _PR_PAGE:
+            break
+        page += 1
+    return tuple(paths)
+
+
+def pull_request_base(repository: str, number: int, token: str) -> str:
+    _require_pull_read(repository, token)
+    body = _read_json("GET", f"/repos/{repository}/pulls/{number}", token)
+    base = body.get("base") if isinstance(body, dict) else None
+    sha = base.get("sha") if isinstance(base, dict) else None
+    if not isinstance(sha, str) or not sha:
+        raise _pull_read_error()
+    return sha
+
+
+def publish_check_run(
+    *,
+    conclusion: Literal["success", "failure"],
+    summary: str,
+    annotations: list[dict[str, object]],
+) -> bool:
+    if offline_enabled():
+        return False
+    token = get_github_token()
+    repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    sha = os.environ.get("GITHUB_SHA", "").strip()
+    if not token or not repository or not sha:
+        return False
+    text = summary.strip() or "checkOwners"
+    payload: dict[str, object] = {
+        "name": "checkOwners",
+        "head_sha": sha,
+        "status": "completed",
+        "conclusion": conclusion,
+        "output": {
+            "title": "checkOwners",
+            "summary": text[:_CHECK_SUMMARY_LIMIT],
+            "annotations": annotations[:_CHECK_ANNOTATION_LIMIT],
+        },
+    }
+    try:
+        status, _body = _exchange("POST", f"/repos/{repository}/check-runs", token, payload)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        _notice_check_skipped()
+        return False
+    if status in {200, 201}:
+        return True
+    if status in {401, 403, 404}:
+        _notice_check_skipped()
+    return False
+
+
+def _read_json(method: str, path: str, token: str) -> object:
+    try:
+        status, raw = _exchange(method, path, token, None)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise _pull_read_error() from exc
+    if status in {401, 403, 404}:
+        raise _pull_read_error()
+    if status < 200 or status >= 300:
+        raise _pull_read_error(f"HTTP {status}")
+    if not raw:
+        return []
+    try:
+        loaded: object = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise _pull_read_error() from exc
+    return loaded
+
+
+def _exchange(
+    method: str,
+    path: str,
+    token: str,
+    payload: Mapping[str, object] | None,
+) -> tuple[int, bytes]:
+    if not take_api_request():
+        return 403, b""
+    root = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    url = f"{root}{path}"
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return 0, b""
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(  # noqa: S310  # scheme restricted to http/https above
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": _API_VERSION,
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            raw = resp.read()
+            status = resp.status
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        status = exc.code
+    note_api_call()
+    return status, raw
+
+
+def _notice_check_skipped() -> None:
+    if os.environ.get("GITHUB_ACTIONS"):
+        print("::notice::checkOwners check run was not created.", file=sys.stderr)

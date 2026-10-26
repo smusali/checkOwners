@@ -251,6 +251,8 @@ def analyze_ownership(
     retain_all: bool = False,
     incremental: bool = False,
     capture_baseline: bool = False,
+    revision: str | None = None,
+    mass_revs: tuple[str, ...] | None = None,
 ) -> OwnershipMap:
     """Analyze git history and return a confidence-scored ownership map.
 
@@ -267,6 +269,8 @@ def analyze_ownership(
     inferred ``owners`` still apply the confidence threshold and top-N cap.
     ``incremental`` replays a stored baseline when one is usable.
     ``capture_baseline`` stores the run for ``consume_analysis_outcome``.
+    ``revision`` logs and blames that commit instead of HEAD.
+    ``mass_revs`` is passed through to blame; an empty tuple skips the scan.
     """
     if incremental or capture_baseline:
         outcome = collect_analysis(
@@ -299,6 +303,8 @@ def analyze_ownership(
             pathspec=pathspec,
             retain_all=retain_all,
             deadline=deadline,
+            revision=revision,
+            mass_revs=mass_revs,
         )
     finally:
         _BLAME_DEADLINE.reset(deadline_token)
@@ -319,6 +325,8 @@ def _analyze_ownership(
     prepared_history: _CommitHistory | None = None,
     blame_runner: Callable[[Iterable[str]], _BlamePass] | None = None,
     renamed: bool | None = None,
+    revision: str | None = None,
+    mass_revs: tuple[str, ...] | None = None,
 ) -> OwnershipMap:
     mailmap_path = _resolve_mailmap_file(repo_root)
     history = prepared_history
@@ -331,6 +339,7 @@ def _analyze_ownership(
             pathspec=pathspec,
             count_co_authors=config.git.count_co_authors,
             merge_strategy=config.git.merge_strategy,
+            tip=revision,
         )
     commits = history.commits
     contributions = _aggregate_contributions(
@@ -360,6 +369,14 @@ def _analyze_ownership(
         blame_pass = blame_runner(contributions.keys())
     elif time.monotonic() >= deadline:
         blame_pass = _BlamePass(truncated=True)
+    elif mass_revs is None and revision is None:
+        blame_pass = gather_blame_coverage(
+            contributions.keys(),
+            repo_root,
+            git=config.git,
+            on_progress=on_progress,
+            max_workers=max_workers,
+        )
     else:
         blame_pass = gather_blame_coverage(
             contributions.keys(),
@@ -367,6 +384,8 @@ def _analyze_ownership(
             git=config.git,
             on_progress=on_progress,
             max_workers=max_workers,
+            mass_revs=mass_revs,
+            revision=revision,
         )
     review_coverage = _gather_review_coverage(contributions, review_provider)
     review_omitted = review_was_omitted()
@@ -1093,6 +1112,7 @@ def _get_commit_history(
     pathspec: tuple[str, ...] | None = None,
     count_co_authors: bool = True,
     merge_strategy: ConfiguredMergeStrategy = "auto",
+    tip: str | None = None,
 ) -> _CommitHistory:
     """Return parsed commits from `since` until `as_of`. `since` None omits the lower bound."""
     records = _parsed_commits(
@@ -1102,6 +1122,7 @@ def _get_commit_history(
         use_mailmap=use_mailmap,
         name_only=True,
         pathspec=pathspec,
+        tip=tip,
     )
     return _history_from_records(
         repo_root,
@@ -1128,6 +1149,7 @@ def _parsed_commits(
     name_only: bool,
     pathspec: tuple[str, ...] | None = None,
     revisions: tuple[str, ...] = (),
+    tip: str | None = None,
 ) -> list[_ParsedCommit]:
     argv = ["git", "log", mailmap_flag(use_mailmap), _history_log_format(use_mailmap)]
     if name_only:
@@ -1136,6 +1158,8 @@ def _parsed_commits(
         argv.append("--no-walk")
         argv.extend(revisions)
     else:
+        if tip is not None:
+            argv.append(tip)
         if since is not None:
             argv.append(f"--since={since.isoformat()}")
         argv.append(f"--until={as_of.isoformat()}")
@@ -2146,6 +2170,7 @@ def _blame_argv(
     git: GitConfig,
     ignore_revs: Path | None,
     extra_revs: Path | None,
+    revision: str | None = None,
 ) -> list[str]:
     argv = ["git", "blame", "--line-porcelain", "-w", mailmap_flag(git.use_mailmap)]
     if git.detect_moves:
@@ -2154,6 +2179,8 @@ def _blame_argv(
         argv.append(f"--ignore-revs-file={ignore_revs}")
     if extra_revs is not None:
         argv.append(f"--ignore-revs-file={extra_revs}")
+    if revision is not None:
+        argv.append(revision)
     return argv
 
 
@@ -2166,6 +2193,7 @@ def gather_blame_coverage(
     max_workers: int | None = None,
     mass_revs: tuple[str, ...] | None = None,
     detail_sink: dict[str, _BlameDetail] | None = None,
+    revision: str | None = None,
 ) -> _BlamePass:
     """Return author coverage for `paths`, reusing `mass_revs` when it is passed."""
     git_config = git if git is not None else GitConfig()
@@ -2184,7 +2212,7 @@ def gather_blame_coverage(
         )
         if mass:
             extra_path = _write_ignore_revs(mass)
-        argv = _blame_argv(git_config, ignore_revs, extra_path)
+        argv = _blame_argv(git_config, ignore_revs, extra_path, revision)
         if not _blame_accepts_mailmap_flags(repo_root):
             argv = _drop_mailmap_flags(argv)
         coverage: dict[str, dict[str, float]] = {}

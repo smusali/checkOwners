@@ -925,6 +925,8 @@ def test_github_action_clean_exits_zero(tmp_path: Path, monkeypatch: pytest.Monk
     assert (tmp_path / "drift.json").is_file()
     assert (tmp_path / "bus_factor.json").is_file()
     assert (tmp_path / "decay.json").is_file()
+    assert (tmp_path / "checkowners.sarif").is_file()
+    assert (tmp_path / "checkowners.junit.xml").is_file()
 
 
 @pytest.mark.parametrize("fail_on_drift", [True, False])

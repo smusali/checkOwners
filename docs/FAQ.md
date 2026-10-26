@@ -103,10 +103,13 @@ If you invoke the CLI yourself in a `run:` step, export the token:
 | Email to `@username` (user search) | Default job token is enough (`contents: read` is already required for checkout) | Authenticated token; `read:user` if you want the user-search scope stated explicitly | No extra repository permission |
 | Team / subteam resolution | Not available: the default `GITHUB_TOKEN` is repo-scoped and cannot list org teams. Pass a PAT or App token via `github_token` | `read:org` | Organization members: Read |
 | Review coverage and `suggest` (`github.api_enabled`) | `pull-requests: read` | `repo` (private) or `public_repo` | Pull requests: Read |
+| `suggest --pr` file list | `pull-requests: read` | `repo` (private) or `public_repo` | Pull requests: Read |
 | PR comment (Action `comment_on_pr`) | `pull-requests: write` | `repo` | Pull requests: Write |
+| Code scanning upload (`upload_sarif`) | `security-events: write` | Not applicable to a classic PAT for this upload | Code scanning alerts: Read and write |
+| checkOwners check run | `checks: write` | Not applicable to a classic PAT for this check | Checks: Read and write |
 | Reconciliation pull request (`checkowners sync`) | `contents: write` and `pull-requests: write` | `repo` | Contents: Read and write, and Pull requests: Read and write |
 
-Fork `pull_request` runs cannot comment with the job token: GitHub makes that token read-only regardless of the `permissions:` block. The action skips the comment, writes the report to the job summary, and does not fail the job. The same warning-not-failure path applies when the workflow itself is read-only; set `comment_on_pr: false` to skip the attempt.
+Fork `pull_request` runs cannot comment or upload code scanning results with the job token: GitHub makes that token read-only regardless of the `permissions:` block. The action skips the comment, skips the SARIF upload, writes the report and the SARIF artifact, and does not fail the job. The same warning-not-failure path applies when the workflow itself is read-only; set `comment_on_pr: false` to skip the comment. A check run needs `checks: write`. Without it the check is skipped and the job result stays the findings exit code.
 
 `checkowners sync` uses the same token to open a pull request. The repository `GITHUB_TOKEN` can do that, but GitHub will not run `push` workflows from it, and the `pull_request` workflows it creates stay waiting for approval. Use a personal access token or a GitHub App token when those checks should start on their own. `--commit` commits on the current branch instead. `--dry-run` only prints the diff.
 

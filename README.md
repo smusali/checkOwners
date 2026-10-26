@@ -13,7 +13,7 @@
 $ checkowners --offline drift
 
 severity: HIGH (Δmax=1.00)
-                                CODEOWNERS Drift                                
+                                CODEOWNERS Drift
 ┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Category ┃ Path       ┃    Δ ┃ Reason                                        ┃
 ┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
@@ -74,7 +74,19 @@ jobs:
           comment_on_pr: false
 ```
 
-Same-repo comments need `pull-requests: write`. The comment workflow and the pre-commit hooks are in [GitHub Actions](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#github-actions) and [Pre-commit](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#pre-commit).
+Same-repo comments need `pull-requests: write`. A code scanning upload needs `security-events: write` and `upload_sarif: true`. A check run needs `checks: write`. Callers can also use the reusable workflow in this repository:
+
+```yaml
+jobs:
+  drift:
+    uses: smusali/checkowners/.github/workflows/checkowners.yml@v0
+    permissions:
+      contents: read
+    with:
+      comment_on_pr: false
+```
+
+The comment workflow and the pre-commit hooks are in [GitHub Actions](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#github-actions) and [Pre-commit](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#pre-commit).
 
 > CheckOwners treats code ownership as a confidence-scored spectrum rather than a static binary declaration.
 
@@ -131,7 +143,8 @@ The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/b
 | `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with candidate backup reviewers |
 | `checkowners simulate --remove @alice` | What breaks if those people leave, from the cached map |
 | `checkowners topology` | Exploratory repository topology from commit co-occurrence |
-| `checkowners suggest` | Recommend a reviewer from expertise and current load. `balance` is an alias |
+| `checkowners suggest` | Recommend a reviewer from expertise and current load. `balance` is an alias. `--diff` and `--pr` scope that recommendation to a change |
+| `checkowners diff <spec>` | Ownership impact for the paths changed in `base...head` |
 | `checkowners onboard <path>` | Learning path from broadly shared paths to concentrated qualified ownership |
 | `checkowners trends [--periods N] [--period-days D]` | Historical activity and qualified owner count over time |
 | `checkowners github-action` | Run the full CI flow and write `GITHUB_OUTPUT`; used by the composite Action |

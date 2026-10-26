@@ -117,6 +117,21 @@ def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
     lines, _cut = entry_lines([("stale", {"path": 1})])
     assert lines == []
+    declared, cut = entry_lines(
+        [
+            (
+                "changed",
+                {
+                    "path": "src/a.py",
+                    "declared": {"owners": ["@alice"]},
+                    "observed": {"owners": ["@bob"], "teams": ["@org/team"]},
+                },
+            )
+        ]
+    )
+    assert cut is False
+    assert "Declared: @alice" in declared
+    assert "Observed: @bob, @org/team" in declared
     assert has_actionable_knowledge_risk(
         {
             "entries": [
@@ -400,3 +415,43 @@ def test_balance_summary_is_absent_without_balance_json(
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     publish_outputs(limit=1)
     assert "balance_summary" not in output.read_text(encoding="utf-8")
+
+
+def test_build_lists_reviewers_when_load_is_real(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "drift.json").write_text(
+        json.dumps(
+            {
+                "drift_detected": False,
+                "notes": [],
+                "stale": [],
+                "missing": [],
+                "changed": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "balance.json").write_text(
+        json.dumps(
+            {
+                "load_signal": "github_completed_reviews",
+                "loads": [
+                    {"handle": "@alice", "load_band": "high"},
+                    {"handle": "@bob", "load_band": "low"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    text = build()
+    assert "### Recommended reviewers" in text
+    assert "`@bob` (low)" in text
+    assert "@alice" not in text
+    (tmp_path / "balance.json").write_text(
+        json.dumps({"load_signal": "git_authorship_proxy", "loads": []}),
+        encoding="utf-8",
+    )
+    assert "### Recommended reviewers" not in build()

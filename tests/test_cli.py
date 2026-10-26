@@ -635,6 +635,21 @@ def test_drift_detected_shows_severity() -> None:
     assert "stale" in result.stdout
 
 
+def test_drift_rejects_unbalanced_markers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CHECKOWNERS_STATE_DIR", str(tmp_path / "state"))
+    target = tmp_path / "CODEOWNERS"
+    target.write_text("# checkowners:manual:start\n/src @security\n", encoding="utf-8")
+    with (
+        patch("checkowners.cli.load_config", return_value=Config()),
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.find_codeowners_path", return_value=target),
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["drift"])
+    assert result.exit_code == 2, result.output
+    assert "manual:end" in result.output
+
+
 def test_drift_fix_plan_prints_diff_and_writes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

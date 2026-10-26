@@ -293,6 +293,15 @@ def test_drift_mode_literal(tmp_path: Path) -> None:
         (tmp_path / ".github").rmdir()
 
 
+def test_block_order_invalid_rejected(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, "output:\n  block_order: sideways\n")
+    with pytest.raises(ValueError, match=r"Invalid output\.block_order"):
+        load_config(repo_root=root)
+    root = _write_config(tmp_path, "output:\n  block_order: 1\n")
+    with pytest.raises(ValueError, match=r"Invalid output\.block_order"):
+        load_config(repo_root=root)
+
+
 def test_drift_mode_invalid_rejected(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "drift:\n  mode: nonsense\n")
     with pytest.raises(ValueError, match=r"Invalid drift\.mode"):

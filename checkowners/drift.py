@@ -303,9 +303,7 @@ def _earlier_generated(
     shadow: CodeownersRule | None = None
     for path, _path_ownership in covered:
         for match in matching_rules(rules, path):
-            if match.source != "generated" or match.line_number >= winner.line_number:
-                continue
-            if shadow is None or match.line_number > shadow.line_number:
+            if match.source == "generated" and match.line_number < winner.line_number:
                 shadow = match
     return shadow
 

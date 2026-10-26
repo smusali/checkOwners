@@ -48,7 +48,7 @@ pip install pre-commit
 pre-commit install
 ```
 
-`pre-commit install` registers both the commit hook and the push hook (`default_install_hook_types`). Re-run it after pulling this change if the hooks were already installed. `checkowners` must be on `PATH` for those two hooks.
+`pre-commit install` registers both the commit hook and the push hook (`default_install_hook_types`). Re-run it after pulling this change if the hooks were already installed. The mypy and checkowners hooks use `.venv` or `venv` when one of those directories is present.
 
 ## Branch and PR workflow
 

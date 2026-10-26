@@ -19,6 +19,7 @@ from checkowners.generate import (
     _collect_unowned_paths,
     _consolidate,
     _render_codeowners,
+    _rules_body,
     broad_pattern_warning,
     generate_codeowners,
     verify_round_trip,
@@ -217,10 +218,11 @@ def test_generate_reports_unreadable_manual_region(tmp_path: Path) -> None:
 
 def test_manual_region_is_inserted_when_header_is_absent() -> None:
     manual = "# checkowners:manual:start\n* @ops\n# checkowners:manual:end"
-    merged = _assemble_hybrid("# Generated", manual, "* @alice\n", "manual-first")
+    merged = _assemble_hybrid("# Generated", manual, "* @alice", "generated-first")
     assert manual in merged
-    assert merged.index(manual) < merged.index("* @alice")
-    assert merged.index("* @alice") < merged.index("# checkowners:generated:end")
+    assert merged.index("# checkowners:generated:end") < merged.index(manual)
+    assert "* @alice\n" in merged
+    assert _rules_body("orphan\n", "# Generated") == "orphan\n"
 
 
 def test_consolidates_uniform_directory() -> None:

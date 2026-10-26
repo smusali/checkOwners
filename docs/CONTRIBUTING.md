@@ -4,7 +4,7 @@ Thanks for thinking about contributing. CheckOwners is a pure-git ownership infe
 
 ## Picking work
 
-Start from a [good first issue](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or any [open issue](https://github.com/smusali/checkowners/issues). Every planned change is an issue with a label for the release it ships in, such as [`v0.7.0`](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3Av0.7.0), and its "Blocked by" list names what has to merge first. One `Upgrade to v0.x.0` issue per release pins and publishes that version.
+Start from a [good first issue](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or any [open issue](https://github.com/smusali/checkowners/issues). Every planned change is an issue with a label for the release it ships in, such as [`v0.7.0`](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3Av0.7.0), and its "Blocked by" list names what has to merge first. The same links appear as GitHub's native "Blocked by" and "Blocking" relationships on each issue. One `Upgrade to v0.x.0` issue per release pins and publishes that version.
 
 Usage questions go to [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a). The issue tracker is for bugs, false positives, and features; those forms are required.
 

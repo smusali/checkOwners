@@ -8,7 +8,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 
 ## [Unreleased]
 
-Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183).
+Next cycle is `0.7.0` (ownership risk, audit, scale, and validation), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183). It takes the whole open backlog; no `0.8.0`, `0.9.0`, or `1.0.0` is planned.
 
 ### Added
 - `generate` keeps a `# checkowners:manual` block byte for byte and rewrites only the generated block, `output.block_order` chooses which block wins overlapping paths, `drift --fix-plan` prints suggested edits without writing, and a manual rule that differs from observed expertise is reported for review rather than as `changed`.

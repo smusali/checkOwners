@@ -39,7 +39,7 @@ pytest
 | `hatch run fmt` | ruff format |
 | `hatch build` | produce sdist and wheel in `dist/` |
 
-CI installs from `requirements-dev.lock` with hashes. A pull request runs pytest on Ubuntu for Python 3.11, 3.12, 3.13, and 3.14, plus macOS and Windows on Python 3.14, each with the runner's Git. Each of those test jobs stops at 25 minutes. Pushes to `main`, the nightly schedule, and a manual run repeat the suite on Ubuntu, macOS, and Windows for every supported Python, and also run Ubuntu on Python 3.14 with Git 2.23.0 and Git 2.39.3. The runner's Git is the latest cell. CI then builds the wheel, smoke-tests CLI subcommands against the built artifact (including `checkowners[all]` and `py.typed`), and runs ruff plus mypy `--strict`. Match the pull-request set locally before opening a PR. A green `pytest` on macOS or Windows runs the same path corpus CI uses: spaces, Unicode, letter case, a long path, and repo-relative separators.
+CI installs from `requirements-dev.lock` with hashes. A pull request runs pytest on Ubuntu for Python 3.11, 3.12, 3.13, and 3.14, plus macOS and Windows on Python 3.14, each with the runner's Git. Each of those test jobs stops at 25 minutes. Pushes to `main`, the nightly schedule, and a manual run repeat the suite on Ubuntu, macOS, and Windows for every supported Python, and also run Ubuntu on Python 3.14 with Git 2.23.0 and Git 2.39.3. The runner's Git is the latest cell. CI then builds the wheel, smoke-tests CLI subcommands against the built artifact (including `checkowners[all]` and `py.typed`), and runs ruff plus mypy `--strict`. Match the pull-request set locally before opening a PR. A green `pytest` on macOS or Windows runs the same path corpus CI uses: spaces, Unicode, letter case, a long path, and repo-relative separators. The matcher tests also lock forward slashes, backslashes, mixed separators, drive letters, and UNC paths, with no live filesystem.
 
 Optionally, install the pre-commit hooks so ruff, formatting, and mypy run on every commit. This repository also runs `checkowners validate` when a CODEOWNERS file changes, and `checkowners drift` on push against `.checkowners-baseline.json`.
 
@@ -106,7 +106,56 @@ Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`
 - Coverage is enforced at 85% repo-wide (`--cov-fail-under=85`); new modules should land above that. The floor is a gate, not a substitute for tests against real git repositories and real CODEOWNERS files. For a focused run that should not apply the floor, pass `--no-cov`.
 - `checkowners/patterns.py` also fails CI below 100% branch coverage. The cases live in `corpus/compatibility.jsonl` (pattern, path, and whole-file rules) and `corpus/realworld.jsonl` (parser fixtures from permissively licensed public repositories). `corpus/README.md` is the format other tools can load.
 - Property and differential tests use Hypothesis. `HYPOTHESIS_PROFILE=ci` (the default) runs 200 examples. `HYPOTHESIS_PROFILE=nightly` runs 10,000.
-- The nightly Fuzz workflow runs that profile, then mutation-tests `patterns.py` and fails if the killed-mutant score is below 90. A shrunk failure is a JSON object with `kind`, `category`, `pattern`, `path`, and `expected`. Append it to `corpus/compatibility.jsonl` and fix the matcher. Do not commit a bot-generated file.
+- The nightly Fuzz workflow runs that profile. A shrunk failure is a JSON object with `kind`, `category`, `pattern`, `path`, and `expected`. Append it to `corpus/compatibility.jsonl` and fix the matcher. Do not commit a bot-generated file.
+
+## Quality bar
+
+The Fuzz workflow's `mutation` job runs on the nightly cron `0 6 * * *` and on `workflow_dispatch`. It is a sibling of the fuzz job, and it is not in `ci.yml`. The job sets `HYPOTHESIS_PROFILE=ci`. One Ubuntu runner and Python 3.14 run five `mutmut run` calls into one `mutants/` directory.
+
+The scopes are:
+
+- `patterns.py`, `drift.py`, and `generate.py`: every function. Local command: `mutmut run "checkowners.patterns.x*"`, and the same shape for `drift` and `generate`.
+- `analyze.py` scoring: `combine_available_signals`, `signal_weights`, `signal_reliabilities`, `frequency_prior_for`, `_qualify_authors`, `score_owners`, `effective_half_life`, `_as_days`, `_bounded_half_life`, `_historical_expertise`, `_classify_freshness`, `_recency_score`, `_elapsed_days`, `frequency_credit`, `_frequency_score`, and `_clamp`.
+- `github.py` identity: `resolve_noreply_handle`, `resolve_handles`, `_cached_handle`, `_rate_remaining`, `_search_budget_allows`, and `_lookup_handle`.
+
+A scoped local run passes those names as globs, for example `mutmut run "checkowners.analyze.x_score_owners*" "checkowners.analyze.x__clamp*"`.
+
+The score is `100 * killed / (killed + survived)`. Killed exit codes are 1, 3, and 37. Timeouts stay out of the score. The job fails when a scope has no scored mutants, and when `patterns.py` is under 90. The other four scopes publish the measured score and have no floor.
+
+This baseline was measured with `HYPOTHESIS_PROFILE=ci`. `pattern_matches` returning `regex.match(path) is not None` is killed.
+
+| Scope | Killed | Survived | Score |
+| --- | ---: | ---: | ---: |
+| `patterns.py` | 331 | 9 | 97.4 |
+| `drift.py` | 770 | 13 | 98.3 |
+| `generate.py` | 622 | 29 | 95.5 |
+| `analyze.py` scoring | 313 | 6 | 98.1 |
+| `github.py` identity | 109 | 1 | 99.1 |
+
+These survivors leave behavior unchanged:
+
+- `marker_layout` assigns `open_line` and `open_offset` when a block opens, so the initial `0` can be `None` or `1` without being read. The initial `manual_done` of `False` can be `None`: `None` is falsy, and a completed block assigns `True` before a repeat is checked.
+- `_degenerate_globstar` can treat a body of `""` as degenerate. The only such pattern is `/`, and `_translate` already turns it into a regex that matches nothing.
+- `_translate` can wrap the empty-pattern regex `(?!)` in extra literal text. The regex still matches nothing.
+- `_translate_segment` reads `escaped` as a flag. `None` is falsy both at the start and after an escape is consumed.
+- `_load_rules`, `_read_existing`, `ensure_overwrite_safe`, `_write_codeowners`, and `write_github_output` can pass `encoding=None` or `encoding="UTF-8"` where the source passes `"utf-8"`. `"UTF-8"` is the same codec. `None` selects the process locale, and this baseline and the nightly runner use UTF-8, so the CODEOWNERS text is unchanged. Omitting the argument selects that same locale default.
+- `_compare` assigns `changed`, `notes`, and `reviews` for `commit`, `repo`, and `both` before it builds the result, so an initial `None` is unused.
+- `_find_changed` can start `team_rules_skipped` at `None`. `None` is falsy, so a comparison with no team rule still omits the team note.
+- `_confidence_delta` can return `1.0` for equal casefolded owner sets. `_measure_divergence` returns before that call when the sets already match.
+- `drift_entry_payload` and `_reconciliation_entry` build a one-entry result so `compute_severity` can score it. That score uses qualified-owner counts, decay, and the confidence delta. `drift_detected` can be `None` or `False` on that temporary result.
+- `_as_days` can subtract `0.0` instead of adding it. The day count is unchanged.
+- `_bounded_half_life` can use `<=` and `>=` at the floor and ceiling. A cadence equal to either bound still returns that bound.
+- `_elapsed_days` can treat `seconds < 0` like `seconds <= 0`, treat `seconds <= 1` like `seconds <= 0`, and use `/` instead of `//`. Zero and a fraction of a second still return 0, and a positive duration still truncates to whole days.
+- `_search_budget_allows` can return true after the request budget is already spent. `resolve_handles` checks that budget again before a search, so no lookup runs and the budget gap is unchanged.
+- `generate_codeowners`, `_build_codeowners_content`, and `_render_codeowners` can default `token` or `org` to `"XXXX"`. Team resolution runs only when both values are non-empty, and each mutant changes one default while the other stays `""`.
+- `_read_existing` can return `"XXXX"` for a missing file. That text has no markers, so the manual slice stays empty.
+- `_collect_rows` can sort with `key=None`. The path is the first element of each row and paths are unique, so the order matches a path sort.
+- `_consolidate` can split a root path with `split("/")` or `split("/", 2)` instead of `split("/", 1)`. The first segment is the same.
+- `_merge_owners` can omit `score_breakdown=None`. `None` is the field default.
+- `_records_for_group` looks up paths that are already in the owner map, so the `()` default can be `None` or omitted.
+- `_resolve_sanitized_rows` recurses with per-file rows only. Those rows cannot explode, so `file_owners`, `allow_broad`, and `depth` on the recursive call are unread. On the first call, `depth < 1`, `depth <= 1`, and `depth < 2` are all true, and exploding a per-file row with `or` reproduces that row.
+
+A rewritten module gets this baseline recorded again. The workflow summary and the open issue titled `Mutation scores` show the latest run. This table is the snapshot for the tree that produced it, and the two can diverge until the baseline is recorded again.
 
 ## Dependencies
 

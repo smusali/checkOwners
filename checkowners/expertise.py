@@ -46,20 +46,28 @@ def rank_expertise(
     return tuple(ranked)
 
 
+def fnmatch_posix(name: str, pat: str) -> bool:
+    """Return whether `name` matches shell pattern `pat`.
+
+    `\\` and `/` are the same separator. Matching is case-sensitive.
+    """
+    return fnmatch.fnmatchcase(name.replace("\\", "/"), pat.replace("\\", "/"))
+
+
 def path_matches_glob(path: str, pattern: str) -> bool:
     """Match a repo path against a user-supplied path, glob, or directory prefix.
 
     Shared matching semantics for expertise, bus factor, and onboarding
-    targets: fnmatch (where ``*`` may cross ``/``), PLUS a bare
-    directory-prefix convenience, so a non-glob pattern like ``controllers``
-    or ``controllers/`` matches any path under that directory
-    (segment-aware prefix match).
+    targets: a case-sensitive fnmatch (where ``*`` may cross ``/``, and
+    ``\\`` counts as ``/``), PLUS a bare directory-prefix convenience, so a
+    non-glob pattern like ``controllers`` or ``controllers/`` matches any path
+    under that directory (segment-aware prefix match).
     """
     normalized_path = path.lstrip("/")
     normalized_pattern = pattern.lstrip("/")
     if normalized_path == normalized_pattern:
         return True
-    if fnmatch.fnmatch(normalized_path, normalized_pattern):
+    if fnmatch_posix(normalized_path, normalized_pattern):
         return True
     prefix = normalized_pattern.rstrip("/")
     if prefix and not _is_glob(prefix):

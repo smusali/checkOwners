@@ -33,7 +33,9 @@ Otherwise a token can be used for the calls below. Each one runs only when its g
 
 | When | Call | Sent |
 | --- | --- | --- |
-| `github.resolve_handles` is true (the default), and an address is not a noreply email, not in `contributors.exclude`, and not already in `handles.json` (including a remembered miss) | `GET /rate_limit`, then `GET /search/users` with query `{email} in:email` | The address is the search query |
+| `github.resolve_handles` is true (the default), a local commit SHA is known, and no earlier stage resolved the address | `GET /repos/{owner}/{repo}/commits/{sha}` | The commit SHA. The response used is `author.login`, `author.type`, and `committer.type` |
+| The commit read found no login. A core rate-limit gap does not continue to this row | `GET /rate_limit`, then `GET /search/users` with query `{email} in:email` | The address is the search query. Search is last |
+| `github.org` is set and a token exists | `GET /orgs/{org}/members` once per analyze | The organization name. The response is member logins. A failure leaves membership unused |
 | `github.api_enabled` is true and `GITHUB_REPOSITORY` is set. Review collection also resolves handles, so the search row above can run first | Ownership review: `POST /graphql` for closed pulls in the review window, including reviewer logins and changed paths. `suggest` still uses `GET /repos/{owner}/{repo}/pulls` (closed, newest update first, at most 200), then `GET /repos/{owner}/{repo}/pulls/{n}/reviews` and `GET /repos/{owner}/{repo}/pulls/{n}/files`, and reads open pulls the same way, at most 200 | Repository name. Responses are reviewer logins, requested reviewers, and changed paths |
 | `generate` or `sync` with `github.resolve_teams` and `github.org`, or topology and explain when `github.api_enabled` and `github.org` are set | `GET /orgs/{org}`, `GET /orgs/{org}/teams`, `GET /orgs/{org}/teams/{slug}/members` | Organization name. Responses are team slugs and member logins |
 | Composite Action, `comment_on_pr` true, same-repo pull request | `GET /repos/{owner}/{repo}/issues/{n}/comments`, then `POST` a new comment or `PATCH` the existing one | The report markdown |
@@ -47,7 +49,9 @@ A workflow that posts `GITHUB_OUTPUT` to a webhook does that itself. checkOwners
 | --- | --- |
 | `~/.checkowners/state/<id>.json` | Inferred owners, the analyzed commit, and a history baseline of commit SHAs, path lists, and blame line counts. The baseline does not store author addresses. Email addresses on the ownership map are `email:` tokens: `email:` plus the first 16 hex characters of SHA-256 over the lowercased address. |
 | `~/.checkowners/graph/<id>.json` | Serialized ownership graph for that analysis. Contributor emails in node ids are the same tokens. |
-| `~/.checkowners/handles.json` | Email token to GitHub `@handle`, including remembered misses (an empty string). A file that still has plaintext addresses is rewritten on the next read. `@handles` are stored as themselves. |
+| `~/.checkowners/handles/<id>.json` | This repository's email token to GitHub `@handle`. A hit stores the handle, the source, and the account type. A miss stores an empty handle and the UTC instant it expires. A legacy string handle is still a hit. A legacy empty string is dropped. `@handles` are stored as themselves. |
+| `~/.checkowners/identity/<id>.json` | Contributor records for merges and unmerges. Emails are tokens. Handles stay handles. |
+| `~/.checkowners/handles.json` | Legacy global handle file. It is not copied into the per-repository files. `cache purge` deletes it. |
 
 `checkowners cache path` prints the directory. `CHECKOWNERS_STATE_DIR` overrides it. The composite Action sets that variable to `~/.checkowners` when `cache` is `"true"`, and to `${{ runner.temp }}/checkowners-state` when `cache` is `"false"`. Analysis does not upload file contents. With `cache` `"true"`, the Actions cache stores the directory for the next run.
 
@@ -55,9 +59,9 @@ The cache holds hashed emails and `@handles`. It does not hold raw addresses aft
 
 ## Deleting it
 
-`checkowners cache clear` removes analysis state and graph files and leaves `handles.json` in place.
+`checkowners cache clear` removes analysis state and graph files and leaves handle files and the identity graph in place.
 
-`checkowners cache purge` removes every file under the cache directory, including contributor identities in `handles.json`. That is how you delete this data. The cache directory itself is kept.
+`checkowners cache purge` removes every file under the cache directory, including per-repository handle files, the identity graph, and a legacy `handles.json`. That is how you delete this data. The cache directory itself is kept.
 
 ## Disable identity lookup
 
@@ -71,7 +75,7 @@ Set `privacy.redact_emails: true`, or pass `--redact-emails`. Addresses in outpu
 
 There is no time-to-live.
 
-State and graph files are dropped oldest-first once they exceed 256 MiB together. `handles.json` is not part of that eviction. It stays until `cache purge`, or until you delete the cache directory.
+State and graph files are dropped oldest-first once they exceed 256 MiB together. Handle files and the identity graph are not part of that eviction. They stay until `cache purge`, or until you delete the cache directory.
 
 `--max-age SECONDS` refuses to reuse an analysis older than that. It does not delete the file. `0` expires immediately for reuse. Omit the flag for no age limit.
 
@@ -99,7 +103,7 @@ flowchart LR
     githubOutput --> webhook
 ```
 
-Identity resolution is local first: `.mailmap`, then GitHub noreply addresses, then `handles.json`, then the user-search API. Review coverage and team resolution are API steps and run only under the gates in [What leaves the machine](#what-leaves-the-machine). Outputs are the terminal, local report files, `GITHUB_OUTPUT`, and the pull-request comment. A webhook is optional and is posted by the caller's workflow from `GITHUB_OUTPUT`, not by checkOwners.
+Identity resolution is local first: a configured identity, `.mailmap`, GitHub noreply addresses, then this repository's handle file. A commit lookup sends a SHA and reads `author.login` and account type. User search still sends the email and is last. Org membership is one members request when `github.org` is set. Review coverage and team resolution are API steps and run only under the gates in [What leaves the machine](#what-leaves-the-machine). Outputs are the terminal, local report files, `GITHUB_OUTPUT`, and the pull-request comment. A webhook is optional and is posted by the caller's workflow from `GITHUB_OUTPUT`, not by checkOwners. `output.aggregate_only` drops identities from `identity audit` and leaves `duplicate_count`.
 
 ## Threat model
 

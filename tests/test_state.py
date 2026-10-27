@@ -35,6 +35,7 @@ from checkowners.privacy import email_token
 from checkowners.state import (
     SCHEMA_VERSION,
     BlameLines,
+    HandleCacheEntry,
     HistoryBaseline,
     _as_gap_code,
     _evict,
@@ -858,31 +859,44 @@ def test_bus_factor_summary_empty(repo: Path) -> None:
     assert data["bus_factor_summary"]["distribution"]["criticality_incomplete"] is True
 
 
-def test_handle_cache_roundtrip() -> None:
-    write_handle_cache({"alice@example.com": "@alice", "gone@example.com": ""})
-    cache = read_handle_cache()
+def test_handle_cache_roundtrip(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    write_handle_cache(
+        repo,
+        {
+            "alice@example.com": HandleCacheEntry(handle="@alice", source="commit"),
+            "gone@example.com": HandleCacheEntry(
+                handle="",
+                expires_at="2099-01-01T00:00:00+00:00",
+            ),
+        },
+    )
+    cache = read_handle_cache(repo)
     assert "alice@example.com" not in cache
-    assert cache[email_token("alice@example.com")] == "@alice"
-    assert cache[email_token("gone@example.com")] == ""
+    assert cache[email_token("alice@example.com")].handle == "@alice"
+    assert cache[email_token("gone@example.com")].handle == ""
 
 
-def test_handle_cache_merges_on_write() -> None:
-    write_handle_cache({"alice@example.com": "@alice"})
-    write_handle_cache({"bob@example.com": "@bob"})
-    cache = read_handle_cache()
-    assert cache == {
-        email_token("alice@example.com"): "@alice",
-        email_token("bob@example.com"): "@bob",
-    }
+def test_handle_cache_merges_on_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    write_handle_cache(repo, {"alice@example.com": HandleCacheEntry(handle="@alice")})
+    write_handle_cache(repo, {"bob@example.com": HandleCacheEntry(handle="@bob")})
+    cache = read_handle_cache(repo)
+    assert cache[email_token("alice@example.com")].handle == "@alice"
+    assert cache[email_token("bob@example.com")].handle == "@bob"
 
 
-def test_handle_cache_missing_returns_empty() -> None:
-    assert read_handle_cache() == {}
-    target = write_handle_cache({"x@example.com": "@x"})
+def test_handle_cache_missing_returns_empty(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    assert read_handle_cache(repo) == {}
+    target = write_handle_cache(repo, {"x@example.com": HandleCacheEntry(handle="@x")})
     target.write_text("{not json", encoding="utf-8")
-    assert read_handle_cache() == {}
+    assert read_handle_cache(repo) == {}
     target.write_text("[]", encoding="utf-8")
-    assert read_handle_cache() == {}
+    assert read_handle_cache(repo) == {}
 
 
 def test_graph_cache_roundtrip(tmp_path: Path) -> None:
@@ -924,12 +938,17 @@ def test_graph_cache_keyed_by_repo(tmp_path: Path) -> None:
     assert read_graph_cache(repo_a, _NOW) == {"nodes": [{"id": "a"}], "edges": []}
 
 
-def test_parallel_handle_writes_do_not_corrupt() -> None:
+def test_parallel_handle_writes_do_not_corrupt(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
     errors: list[BaseException] = []
 
     def write_one(index: int) -> None:
         try:
-            write_handle_cache({f"user{index}@example.com": f"@user{index}"})
+            write_handle_cache(
+                repo,
+                {f"user{index}@example.com": HandleCacheEntry(handle=f"@user{index}")},
+            )
         except Exception as exc:
             errors.append(exc)
 
@@ -939,9 +958,9 @@ def test_parallel_handle_writes_do_not_corrupt() -> None:
     for thread in threads:
         thread.join()
     assert errors == []
-    cache = read_handle_cache()
+    cache = read_handle_cache(repo)
     assert len(cache) == 8
-    assert cache[email_token("user3@example.com")] == "@user3"
+    assert cache[email_token("user3@example.com")].handle == "@user3"
 
 
 def test_reusable_ownership_refuses_advanced_head(tmp_path: Path) -> None:
@@ -1013,7 +1032,7 @@ def test_cache_evicts_oldest_state_files(tmp_path: Path, monkeypatch: pytest.Mon
 
 def test_cache_clear_keeps_handles_and_purge_removes_them(repo: Path) -> None:
     write_state(repo, _make_ownership())
-    handles = write_handle_cache({"alice@example.com": "@alice"})
+    handles = write_handle_cache(repo, {"alice@example.com": HandleCacheEntry(handle="@alice")})
     outside = repo.parent / "outside-dir"
     outside.mkdir()
     (outside / "keep.txt").write_text("x", encoding="utf-8")
@@ -1270,7 +1289,7 @@ def test_reusable_ownership_honors_positive_max_age(repo: Path) -> None:
     stored["last_analyzed"] = "2020-01-01T00:00:00"
     target.write_text(json.dumps(stored), encoding="utf-8")
     assert reusable_ownership(repo, Config(), head="deadbeef", max_age=60) is None
-    assert read_handle_cache() == {}
+    assert read_handle_cache(repo) == {}
 
 
 def test_history_baseline_round_trips_without_emails(repo: Path) -> None:

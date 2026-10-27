@@ -41,6 +41,7 @@ from checkowners.models import (
     BusFactor,
     ConfidenceScore,
     Config,
+    ContributorStatus,
     DecayWarning,
     FreshnessStatus,
     GapCode,
@@ -52,9 +53,10 @@ from checkowners.models import (
     Severity,
     SignalScore,
     TeamCluster,
+    is_contributor_status,
     models_payload,
 )
-from checkowners.privacy import rekey_handle_cache, stored_identity
+from checkowners.privacy import stored_identity
 
 SCHEMA_VERSION: int = 1
 CACHE_LIMIT_BYTES: int = 256 * 1024 * 1024
@@ -81,6 +83,8 @@ class HistoryBaseline:
 _STATE_DIR = Path.home() / ".checkowners"
 _STATE_SUBDIR = "state"
 _GRAPH_CACHE_SUBDIR = "graph"
+_HANDLE_CACHE_SUBDIR = "handles"
+_IDENTITY_SUBDIR = "identity"
 _HANDLE_CACHE_FILENAME = "handles.json"
 _SCP_REMOTE = re.compile(r"^(?:[^@/]+@)?([^:/]+):(.+)$")
 
@@ -90,6 +94,14 @@ class CacheEntry(TypedDict):
     analysis_ref: str
     last_analyzed: str
     bytes: int
+
+
+@dataclass(frozen=True)
+class HandleCacheEntry:
+    handle: str
+    source: str = ""
+    account_type: str = ""
+    expires_at: str = ""
 
 
 class CacheInfo(TypedDict):
@@ -146,6 +158,13 @@ def config_hash(config: Config) -> str:
         },
         "contributors_exclude": list(config.contributors_exclude),
         "criticality": [list(rule) for rule in config.criticality],
+        "negative_cache_ttl_days": config.negative_cache_ttl_days,
+        "identity_do_not_merge": [list(pair) for pair in config.identity_do_not_merge],
+        "identity_overrides": [
+            {"handle": handle, **asdict(override)} for handle, override in config.identity_overrides
+        ],
+        "contributor_roster": [list(item) for item in config.contributor_roster],
+        "bot_addresses": list(config.bot_addresses),
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -314,6 +333,20 @@ def _atomic_write(target: Path, text: str) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def _handle_cache_files() -> list[Path]:
+    files = list(_json_files(_HANDLE_CACHE_SUBDIR))
+    legacy = _base_dir() / _HANDLE_CACHE_FILENAME
+    if legacy.is_file():
+        files.append(legacy)
+    return files
+
+
+def _contributor_status(value: object) -> ContributorStatus:
+    if isinstance(value, str) and is_contributor_status(value):
+        return value
+    return "unknown"
 
 
 def _json_files(subdir: str) -> list[Path]:
@@ -660,38 +693,117 @@ def write_state(
     return target
 
 
-def _handle_map(data: dict[str, Any] | None) -> dict[str, str]:
+def handle_cache_path(repo_root: Path) -> Path:
+    """Return the handle-cache file for `repo_root`."""
+    return _base_dir() / _HANDLE_CACHE_SUBDIR / f"{_repo_digest(repo_root)}.json"
+
+
+def identity_store_path(repo_root: Path) -> Path:
+    """Return the identity-graph file for `repo_root`."""
+    return _base_dir() / _IDENTITY_SUBDIR / f"{_repo_digest(repo_root)}.json"
+
+
+def _handle_entry(value: object) -> HandleCacheEntry | None:
+    if isinstance(value, str):
+        if not value:
+            return None
+        return HandleCacheEntry(handle=value)
+    if not isinstance(value, dict):
+        return None
+    handle = value.get("handle", "")
+    source = value.get("source", "")
+    account_type = value.get("account_type", "")
+    expires_at = value.get("expires_at", "")
+    if not isinstance(handle, str):
+        return None
+    if not isinstance(source, str):
+        source = ""
+    if not isinstance(account_type, str):
+        account_type = ""
+    if not isinstance(expires_at, str):
+        expires_at = ""
+    if not handle and not expires_at:
+        return None
+    return HandleCacheEntry(
+        handle=handle,
+        source=source,
+        account_type=account_type,
+        expires_at=expires_at,
+    )
+
+
+def _parse_handle_cache(
+    data: Mapping[str, object] | None,
+) -> tuple[dict[str, HandleCacheEntry], bool]:
     if data is None:
-        return {}
-    return {key: value for key, value in data.items() if isinstance(value, str)}
+        return {}, False
+    parsed: dict[str, HandleCacheEntry] = {}
+    changed = False
+    for key, value in data.items():
+        token = stored_identity(str(key))
+        if token != key:
+            changed = True
+        entry = _handle_entry(value)
+        if entry is None:
+            changed = True
+            continue
+        parsed[token] = entry
+    return parsed, changed
 
 
-def read_handle_cache() -> dict[str, str]:
-    """Read the email-token -> @handle cache (shared across repos).
+def _dump_handle_cache(cache: Mapping[str, HandleCacheEntry]) -> dict[str, dict[str, str]]:
+    payload: dict[str, dict[str, str]] = {}
+    for key, entry in cache.items():
+        record = {"handle": entry.handle}
+        if entry.handle:
+            if entry.source:
+                record["source"] = entry.source
+            if entry.account_type:
+                record["account_type"] = entry.account_type
+        elif entry.expires_at:
+            record["expires_at"] = entry.expires_at
+        payload[stored_identity(key)] = record
+    return payload
 
-    An empty-string value is a remembered miss: the address was looked up
-    before and did not resolve, so callers should not re-query the API for it.
-    A file that still uses plaintext email keys is rewritten on read.
-    """
-    target = _base_dir() / _HANDLE_CACHE_FILENAME
+
+def read_handle_cache(repo_root: Path) -> dict[str, HandleCacheEntry]:
+    """Return cached handle hits and misses for `repo_root`."""
+    target = handle_cache_path(repo_root)
     with _locked(target):
-        raw = _handle_map(_read_json(target))
-        stored = rekey_handle_cache(raw)
-        if stored != raw:
-            _atomic_write(target, json.dumps(stored, indent=2, sort_keys=True))
-        return stored
+        parsed, changed = _parse_handle_cache(_read_json(target))
+        if changed:
+            _atomic_write(target, json.dumps(_dump_handle_cache(parsed), indent=2, sort_keys=True))
+        return parsed
 
 
-def write_handle_cache(cache: dict[str, str]) -> Path:
-    """Persist the email-token -> @handle cache, merging over any existing entries.
-
-    Email keys are stored as tokens. Returns the cache file path.
-    """
-    target = _base_dir() / _HANDLE_CACHE_FILENAME
+def write_handle_cache(repo_root: Path, cache: Mapping[str, HandleCacheEntry]) -> Path:
+    """Merge `cache` into the handle file for `repo_root` and return its path."""
+    target = handle_cache_path(repo_root)
     with _locked(target):
-        merged = rekey_handle_cache({**_handle_map(_read_json(target)), **cache})
-        _atomic_write(target, json.dumps(merged, indent=2, sort_keys=True))
+        current, _changed = _parse_handle_cache(_read_json(target))
+        current.update(_dump_entries(cache))
+        _atomic_write(target, json.dumps(_dump_handle_cache(current), indent=2, sort_keys=True))
     return target
+
+
+def _dump_entries(cache: Mapping[str, HandleCacheEntry]) -> dict[str, HandleCacheEntry]:
+    return {stored_identity(key): value for key, value in cache.items()}
+
+
+def read_json_file(path: Path) -> dict[str, object] | None:
+    """Return the JSON object at `path`, or None when it is missing or invalid."""
+    raw = _read_json(path)
+    if raw is None:
+        return None
+    copied: dict[str, object] = {}
+    for key, item in raw.items():
+        copied[key] = item
+    return copied
+
+
+def write_json_file(path: Path, payload: object) -> None:
+    """Atomically write `payload` as JSON at `path`."""
+    _atomic_write(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
 def load_ownership(repo_root: Path) -> OwnershipMap | None:
@@ -764,10 +876,8 @@ def cache_info() -> CacheInfo:
     """Return path, size, file counts, and one entry per state file."""
     state_files = _json_files(_STATE_SUBDIR)
     graph_files = _json_files(_GRAPH_CACHE_SUBDIR)
-    handles = _base_dir() / _HANDLE_CACHE_FILENAME
-    total = sum(_file_size(path) for path in (*state_files, *graph_files))
-    if handles.is_file():
-        total += _file_size(handles)
+    handle_files = _handle_cache_files()
+    total = sum(_file_size(path) for path in (*state_files, *graph_files, *handle_files))
     entries: list[CacheEntry] = []
     for path in state_files:
         data = _read_json(path)
@@ -785,7 +895,7 @@ def cache_info() -> CacheInfo:
         "bytes": total,
         "state_files": len(state_files),
         "graph_files": len(graph_files),
-        "handles": handles.is_file(),
+        "handles": bool(handle_files),
         "limit_bytes": CACHE_LIMIT_BYTES,
         "entries": entries,
     }
@@ -910,6 +1020,7 @@ def _serialize_owner(entry: OwnerEntry) -> dict[str, Any]:
         "evidence_quality": entry.evidence_quality,
         "last_commit": entry.last_commit.astimezone(UTC).isoformat() if entry.last_commit else None,
         "commits": entry.commits,
+        "contributor_status": entry.contributor_status,
     }
     if entry.score_breakdown is not None:
         payload["signals"] = entry.score_breakdown.signals_payload()
@@ -1118,6 +1229,7 @@ def _deserialize_owner(raw: dict[str, Any]) -> OwnerEntry | None:
         evidence_quality=_number(quality_raw),
         score_breakdown=score_breakdown,
         freshness=_deserialize_freshness(raw.get("freshness")),
+        contributor_status=_contributor_status(raw.get("contributor_status")),
     )
 
 

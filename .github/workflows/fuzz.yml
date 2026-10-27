@@ -124,6 +124,7 @@ jobs:
                       "checkowners.github.x__rate_remaining*",
                       "checkowners.github.x__search_budget_allows*",
                       "checkowners.github.x__lookup_handle*",
+                      "checkowners.github.x__lookup_commit_login*",
                   ),
               ),
           )

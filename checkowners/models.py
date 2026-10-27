@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict, TypeGuard, get_args
 
 from checkowners import __version__
 
@@ -38,6 +38,8 @@ PolicyCheck = Literal[
     "invalid_owner",
 ]
 IdentityMode = Literal["handle", "email", "hashed"]
+ContributorStatus = Literal["active", "inactive", "unknown", "former", "bot", "external"]
+_CONTRIBUTOR_STATUSES = frozenset(get_args(ContributorStatus))
 ConfiguredMergeStrategy = Literal["auto", "squash", "merge", "rebase"]
 ReportedMergeStrategy = Literal["squash", "merge", "rebase"]
 
@@ -250,6 +252,18 @@ class PrivacyConfig:
 
 
 @dataclass(frozen=True)
+class IdentityOverride:
+    emails: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
+    service_account: bool = False
+
+
+def is_contributor_status(value: str) -> TypeGuard[ContributorStatus]:
+    """Return whether `value` is one of the contributor status names."""
+    return value in _CONTRIBUTOR_STATUSES
+
+
+@dataclass(frozen=True)
 class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     qualification: QualificationConfig = field(default_factory=QualificationConfig)
@@ -270,6 +284,11 @@ class Config:
     contributors_exclude: tuple[str, ...] = ()
     suppressions: tuple[Suppression, ...] = ()
     criticality: tuple[tuple[str, float], ...] = ()
+    negative_cache_ttl_days: int = 30
+    identity_do_not_merge: tuple[tuple[str, str], ...] = ()
+    identity_overrides: tuple[tuple[str, IdentityOverride], ...] = ()
+    contributor_roster: tuple[tuple[str, ContributorStatus], ...] = ()
+    bot_addresses: tuple[str, ...] = ()
 
 
 GapCode = Literal[
@@ -478,6 +497,7 @@ class OwnerEntry:
     evidence_quality: float = 1.0
     score_breakdown: ConfidenceScore | None = None
     freshness: OwnershipFreshness | None = None
+    contributor_status: ContributorStatus = "unknown"
 
     @property
     def confidence(self) -> float:
@@ -564,6 +584,7 @@ class DriftEntry:
     observed_teams: tuple[str, ...] = ()
     drift_type: DriftKind = "owner_mismatch"
     line_number: int | None = None
+    former_owners: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -609,6 +630,7 @@ class OwnerJson(TypedDict):
     last_commit: str | None
     signals: NotRequired[SignalScores]
     freshness: NotRequired[FreshnessJson]
+    contributor_status: ContributorStatus
 
 
 @dataclass(frozen=True)
@@ -647,6 +669,7 @@ class OwnerDistribution:
     critical_path_risk: float
     knowledge_at_risk: float
     criticality_incomplete: bool
+    former_knowledge_share: float = 0.0
 
 
 class OwnerDistributionJson(TypedDict):
@@ -657,6 +680,7 @@ class OwnerDistributionJson(TypedDict):
     critical_path_risk: float
     knowledge_at_risk: float
     criticality_incomplete: bool
+    former_knowledge_share: float
 
 
 class PathAnalysisJson(TypedDict):
@@ -685,6 +709,7 @@ class DecayWarningJson(TypedDict):
     last_commit: str
     historical_confidence: float
     status: NotRequired[FreshnessStatus]
+    contributor_status: NotRequired[ContributorStatus]
 
 
 class PathOwnershipJson(TypedDict):
@@ -727,6 +752,7 @@ class DriftEntryJson(TypedDict):
     qualified_owner_count: NotRequired[int]
     qualified_owner_count_cap: NotRequired[int]
     decay: NotRequired[bool]
+    former_owners: NotRequired[list[str]]
 
 
 class ModelVersionsJson(TypedDict):
@@ -924,6 +950,7 @@ def owner_json(owner: OwnerEntry) -> OwnerJson:
         "evidence_quality": round(owner.evidence_quality, 4),
         "commits": owner.commits,
         "last_commit": owner.last_commit.isoformat() if owner.last_commit else None,
+        "contributor_status": owner.contributor_status,
     }
     signals = flat_signal_scores(owner)
     if signals:

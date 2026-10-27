@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -17,6 +18,7 @@ from checkowners.models import (
     CheckPolicy,
     Config,
     ConfiguredMergeStrategy,
+    ContributorStatus,
     DecayConfig,
     DriftConfig,
     DriftMode,
@@ -24,6 +26,7 @@ from checkowners.models import (
     GitConfig,
     GithubConfig,
     IdentityMode,
+    IdentityOverride,
     LookbackDays,
     ModelVersions,
     OutputConfig,
@@ -38,6 +41,7 @@ from checkowners.models import (
     ScoringConfig,
     SecurityPolicy,
     Suppression,
+    is_contributor_status,
     models_payload,
 )
 
@@ -94,6 +98,7 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
         "security",
         "contributors",
         "criticality",
+        "identities",
     }
 )
 
@@ -163,9 +168,11 @@ _V2_GIT: frozenset[str] = frozenset(
         "merge_strategy",
     }
 )
-_V2_IDENTITY: frozenset[str] = frozenset({"mailmap", "mode"})
+_V2_IDENTITY: frozenset[str] = frozenset(
+    {"mailmap", "mode", "negative_cache_ttl_days", "do_not_merge"}
+)
 _V2_PRIVACY: frozenset[str] = frozenset({"redact_emails"})
-_V2_CONTRIBUTORS: frozenset[str] = frozenset({"exclude"})
+_V2_CONTRIBUTORS: frozenset[str] = frozenset({"exclude", "roster"})
 _IDENTITY_MODES: frozenset[str] = frozenset(get_args(IdentityMode))
 _BLOCK_ORDERS: frozenset[str] = frozenset(get_args(BlockOrder))
 _V2_POLICY: frozenset[str] = frozenset(
@@ -187,7 +194,8 @@ _V2_SECURITY: frozenset[str] = frozenset(
         "require_active_expert",
     }
 )
-_V2_BOTS: frozenset[str] = frozenset({"exclude"})
+_V2_BOTS: frozenset[str] = frozenset({"exclude", "additional"})
+_IDENTITY_OVERRIDE_KEYS: frozenset[str] = frozenset({"emails", "aliases", "service_account"})
 _V2_MODEL: frozenset[str] = frozenset({"ownership", "risk", "topology", "signals"})
 _V2_SIGNALS: frozenset[str] = frozenset({"recency", "frequency", "blame", "reviews"})
 
@@ -370,7 +378,12 @@ def _translate_v2(raw: dict[str, Any]) -> dict[str, Any]:
         msg = "suppressions must be a list"
         raise ValueError(msg)
     _validate_policy(translated.get("policy"))
-    translated["analysis"] = _translate_analysis(translated.get("analysis"), translated.get("bots"))
+    bots = translated.get("bots")
+    translated["analysis"] = _translate_analysis(translated.get("analysis"), bots)
+    translated["bot_addresses"] = _string_tuple(
+        bots.get("additional") if isinstance(bots, dict) else None,
+        "bots.additional",
+    )
     translated.pop("bots", None)
     scoring = _translate_scoring(translated.get("scoring"), translated.get("model"))
     translated.pop("model", None)
@@ -501,8 +514,14 @@ def _merge_config(raw: dict[str, Any]) -> Config:
     identity = _mapping_section(raw, "identity")
     kwargs["git"] = _apply_identity_mailmap(kwargs.get("git", GitConfig()), identity)
     kwargs["identity_mode"] = _build_identity_mode(identity)
+    kwargs["negative_cache_ttl_days"] = _build_negative_ttl(identity)
+    kwargs["identity_do_not_merge"] = _build_do_not_merge(identity)
+    kwargs["identity_overrides"] = _build_identity_overrides(raw.get("identities"))
     kwargs["privacy"] = _build_privacy_config(_mapping_section(raw, "privacy"))
     kwargs["contributors_exclude"] = _build_contributors_exclude(raw.get("contributors"))
+    kwargs["contributor_roster"] = _build_contributor_roster(raw.get("contributors"))
+    addresses = raw.get("bot_addresses", ())
+    kwargs["bot_addresses"] = addresses if _is_string_tuple(addresses) else ()
     if "suppressions" in raw:
         kwargs["suppressions"] = _build_suppressions(raw["suppressions"])
     if "criticality" in raw:
@@ -852,6 +871,112 @@ def _build_privacy_config(data: dict[str, Any]) -> PrivacyConfig:
     return PrivacyConfig(
         redact_emails=_require_bool(data["redact_emails"], "privacy.redact_emails"),
     )
+
+
+def _is_string_tuple(value: object) -> TypeGuard[tuple[str, ...]]:
+    return isinstance(value, tuple) and all(isinstance(item, str) for item in value)
+
+
+def _string_tuple(value: object, key: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        msg = f"{key} must be a list"
+        raise ValueError(msg)
+    names: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            msg = f"{key} entries must be non-empty strings"
+            raise ValueError(msg)
+        names.append(item.strip())
+    return tuple(names)
+
+
+def _build_negative_ttl(identity: Mapping[str, object]) -> int:
+    if "negative_cache_ttl_days" not in identity:
+        return 30
+    value = identity["negative_cache_ttl_days"]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        msg = "identity.negative_cache_ttl_days must be a non-negative integer"
+        raise ValueError(msg)
+    return value
+
+
+def _build_do_not_merge(identity: Mapping[str, object]) -> tuple[tuple[str, str], ...]:
+    if "do_not_merge" not in identity:
+        return ()
+    raw = identity["do_not_merge"]
+    if not isinstance(raw, list):
+        msg = "identity.do_not_merge must be a list"
+        raise ValueError(msg)
+    pairs: list[tuple[str, str]] = []
+    for item in raw:
+        if not isinstance(item, list) or len(item) != 2:
+            msg = "identity.do_not_merge entries must be pairs"
+            raise ValueError(msg)
+        left, right = item
+        if not isinstance(left, str) or not isinstance(right, str):
+            msg = "identity.do_not_merge entries must be non-empty strings"
+            raise ValueError(msg)
+        if not left.strip() or not right.strip():
+            msg = "identity.do_not_merge entries must be non-empty strings"
+            raise ValueError(msg)
+        pairs.append((left.strip(), right.strip()))
+    return tuple(pairs)
+
+
+def _build_identity_overrides(raw: object) -> tuple[tuple[str, IdentityOverride], ...]:
+    if raw is None:
+        return ()
+    section = _require_mapping(raw, "identities")
+    overrides: list[tuple[str, IdentityOverride]] = []
+    for handle, body in section.items():
+        if not isinstance(handle, str) or not handle.strip():
+            msg = "identities keys must be non-empty strings"
+            raise ValueError(msg)
+        block = _require_mapping(body, f"identities.{handle}")
+        _reject_unknown_keys(block, _IDENTITY_OVERRIDE_KEYS, f"identities.{handle}")
+        service = False
+        if "service_account" in block:
+            service = _require_bool(
+                block["service_account"],
+                f"identities.{handle}.service_account",
+            )
+        overrides.append(
+            (
+                handle.strip(),
+                IdentityOverride(
+                    emails=_string_tuple(block.get("emails"), f"identities.{handle}.emails"),
+                    aliases=_string_tuple(block.get("aliases"), f"identities.{handle}.aliases"),
+                    service_account=service,
+                ),
+            )
+        )
+    return tuple(overrides)
+
+
+def _build_contributor_roster(
+    contributors: object,
+) -> tuple[tuple[str, ContributorStatus], ...]:
+    if contributors is None:
+        return ()
+    section = _require_mapping(contributors, "contributors")
+    if "roster" not in section:
+        return ()
+    roster = section["roster"]
+    if not isinstance(roster, dict):
+        msg = "contributors.roster must be a mapping"
+        raise ValueError(msg)
+    items: list[tuple[str, ContributorStatus]] = []
+    for name, status in roster.items():
+        if not isinstance(name, str) or not name.strip():
+            msg = "contributors.roster keys must be non-empty strings"
+            raise ValueError(msg)
+        if not isinstance(status, str) or not is_contributor_status(status):
+            msg = f"Invalid contributors.roster status: {status!r}"
+            raise ValueError(msg)
+        items.append((name.strip(), status))
+    return tuple(items)
 
 
 def _build_contributors_exclude(contributors: object) -> tuple[str, ...]:

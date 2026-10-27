@@ -37,6 +37,9 @@ _PERSON_KEYS = frozenset(
         "dominant_expert",
         "writer",
         "declared",
+        "contributor_status",
+        "former_owners",
+        "identities",
     }
 )
 

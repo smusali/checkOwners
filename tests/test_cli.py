@@ -80,6 +80,7 @@ from checkowners.generate import (
 )
 from checkowners.github import PullRequestFilesError, ReconciliationError, set_offline
 from checkowners.graph import GraphExtraMissingError
+from checkowners.identity import HandleHit
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
     OWNERSHIP_MODEL_VERSION,
@@ -109,6 +110,7 @@ from checkowners.report_formats import findings_for_gaps
 from checkowners.risk import Pathology, RiskEntry, RiskFactors, RiskReport, RiskSummary
 from checkowners.state import (
     SCHEMA_VERSION,
+    HandleCacheEntry,
     load_ownership,
     read_graph_cache,
     read_handle_cache,
@@ -299,7 +301,7 @@ def test_analyze_json() -> None:
     assert owners[0]["identity"] == "alice@example.com"
     assert owners[0]["ownership_score"] == 0.92
     assert "historical_activity_confidence" not in json.dumps(data)
-    assert owners[0]["evidence_quality"] == 1.0
+    assert owners[0]["evidence_quality"] == 0.75
     assert owners[0]["signals"]["recency"] == 1.0
     assert "review" not in owners[0]["signals"]
     path_data = data["inferred"]["src/main.py"]
@@ -381,7 +383,7 @@ def test_analyze_table() -> None:
         result = runner.invoke(app, ["analyze"])
     assert result.exit_code == 0
     assert "alice@example.com" in result.stdout
-    assert "0.92/1.00" in result.stdout
+    assert "0.92/0.75" in result.stdout
     assert "Blame ignore-revs: not found" in result.stdout
     assert "Mailmap: not found" in result.stdout
     assert "Exclusions: 0 gitattributes, 0 static" in result.stdout
@@ -570,7 +572,7 @@ def test_print_plain_shows_confidence() -> None:
         result = runner.invoke(app, ["print"])
     assert result.exit_code == 0
     assert "src/main.py" in result.stdout
-    assert "alice@example.com(0.92/1.00)" in result.stdout
+    assert "alice@example.com(0.92/0.75)" in result.stdout
 
 
 # --- validate ---
@@ -1468,11 +1470,11 @@ def test_expertise_json_includes_stamp() -> None:
 def test_resolve_github_owners_keeps_analysis_ref() -> None:
     config = Config(github=GithubConfig(resolve_handles=True))
     mapping = {
-        "alice@example.com": "@alice",
-        "bob@example.com": "@bob",
-        "dave@example.com": "@dave",
+        "alice@example.com": HandleHit("@alice", "commit"),
+        "bob@example.com": HandleHit("@bob", "commit"),
+        "dave@example.com": HandleHit("@dave", "commit"),
     }
-    with patch("checkowners.cli.resolve_handles", return_value=mapping):
+    with patch("checkowners.cli.resolve_handle_details", return_value=mapping):
         result = _resolve_github_owners(_OWNERSHIP, config)
     assert result.analysis_ref == "deadbeef"
     assert result.last_analyzed == _NOW
@@ -1986,7 +1988,7 @@ def test_sync_opens_and_updates_reconciliation_pull_request(
         patch("checkowners.cli.analyze_ownership", return_value=ownership),
         patch(
             "checkowners.cli._resolve_github_owners",
-            side_effect=lambda mapped, _config: mapped,
+            side_effect=lambda mapped, _config, _repo=None: mapped,
         ),
         patch("checkowners.cli.detect_drift", return_value=drift),
         patch(
@@ -3170,7 +3172,7 @@ def test_stale_message_uses_unknown_for_blank_ref() -> None:
 
 def test_cache_commands(tmp_path: Path) -> None:
     write_state(Path.cwd(), _EMPTY_OWNERSHIP, config=load_config())
-    write_handle_cache({"alice@example.com": "@alice"})
+    write_handle_cache(Path.cwd(), {"alice@example.com": HandleCacheEntry(handle="@alice")})
     path_result = runner.invoke(app, ["cache", "path"])
     assert path_result.exit_code == 0, path_result.output
     assert path_result.stdout.strip() == str(tmp_path)
@@ -3186,12 +3188,12 @@ def test_cache_commands(tmp_path: Path) -> None:
     assert payload["schema_version"] == SCHEMA_VERSION
     cleared = runner.invoke(app, ["cache", "clear"])
     assert cleared.exit_code == 0, cleared.output
-    assert read_handle_cache()[email_token("alice@example.com")] == "@alice"
+    assert read_handle_cache(Path.cwd())[email_token("alice@example.com")].handle == "@alice"
     assert json.loads(runner.invoke(app, ["cache", "info", "--json"]).stdout)["state_files"] == 0
     purged = runner.invoke(app, ["cache", "purge"])
     assert purged.exit_code == 0, purged.output
     assert "purged" in purged.stdout
-    assert read_handle_cache() == {}
+    assert read_handle_cache(Path.cwd()) == {}
     after = runner.invoke(app, ["cache", "info"])
     assert after.exit_code == 0, after.output
     assert "handles: no" in after.stdout

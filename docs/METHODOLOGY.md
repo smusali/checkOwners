@@ -72,8 +72,25 @@ renames, mailmap, ignore-revs). It is recomputed from the signal breakdown
 whenever gaps change, so the run score is applied once. A missing signal stays
 unavailable. A measured zero stays zero. The ownership score is not multiplied.
 
+On a fresh analyze, that quality is then multiplied once by identity certainty:
+`1.0` when the link is an override, a noreply address, a commit login, or an
+already-resolved handle; `0.75` for an unresolved email; `0.5` for a user-search
+hit. A cached load does not scale again. Qualification still uses
+`ownership_score`, so the factor does not change who counts as an owner.
+
+An author with at least 20 commits whose subjects are at least 80 percent one
+template, after commit SHAs and version numbers are stripped, or who matches a
+mechanical subject prefix (`bump`, `chore(deps)`, `dependabot`, `automated`),
+keeps recency and has frequency credit capped at one commit. The author stays
+in the map. `bots.exclude` is what drops a bot address before scoring.
+
 Human output shows both values as `handle (score/quality)`, for example
 `@alice 0.91/0.93` versus `@bob 0.79/0.31`.
+
+`contributor_status` is separate from freshness `status`. `former` is set only
+by `contributors.roster`. `former_knowledge_share` is the share of positive
+`ownership_score` held by those owners. It is a knowledge-risk figure, not a
+performance measure. The knowledge-risk notice still applies.
 
 `checkowners explain PATH` prints the same C5 weighted mean as `analyze`. Each
 row shows the four signals with their configured weight and availability. A

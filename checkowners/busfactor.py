@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from checkowners.expertise import common_prefix_depth, path_matches_glob
+from checkowners.identity import repository_former_share
 from checkowners.models import (
     BusFactor,
     BusFactorConfig,
@@ -106,6 +107,7 @@ def distribution_json(distribution: OwnerDistribution) -> OwnerDistributionJson:
         "critical_path_risk": distribution.critical_path_risk,
         "knowledge_at_risk": distribution.knowledge_at_risk,
         "criticality_incomplete": distribution.criticality_incomplete,
+        "former_knowledge_share": distribution.former_knowledge_share,
     }
 
 
@@ -149,6 +151,7 @@ def owner_distribution(
         critical_path_risk=round(weighted_share / total_weight, 4),
         knowledge_at_risk=round(risk_weight / total_weight, 4),
         criticality_incomplete=incomplete,
+        former_knowledge_share=repository_former_share(ownership, config.criticality),
     )
 
 

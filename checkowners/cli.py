@@ -42,6 +42,7 @@ from checkowners.analyze import (
     analyze_ownership,
     apply_completeness,
     consume_analysis_outcome,
+    consume_author_index,
     head_commit_sha,
     resolve_as_of,
     review_window_start,
@@ -131,10 +132,11 @@ from checkowners.github import (
     github_repository,
     offline_enabled,
     open_or_update_reconciliation,
+    organization_members,
     publish_check_run,
     pull_request_base,
     pull_request_paths,
-    resolve_handles,
+    resolve_handle_details,
     set_offline,
 )
 from checkowners.graph import (
@@ -146,12 +148,29 @@ from checkowners.graph import (
     to_serializable,
     to_text,
 )
+from checkowners.identity import (
+    HandleHit,
+    IdentityGraph,
+    OwnerMerge,
+    apply_contributor_status,
+    apply_merge,
+    audit_payload,
+    audit_records,
+    load_identity_graph,
+    merge_owners,
+    override_handles,
+    probable_duplicates,
+    record_certain_merges,
+    revert_merge,
+    save_identity_graph,
+)
 from checkowners.models import (
     ABSENT_TOKEN_REASON,
     AnalysisCompleteness,
     AnalysisGap,
     AnalyzeAnalysisJson,
     Config,
+    ContributorStatus,
     DecayWarning,
     DecayWarningJson,
     DriftResult,
@@ -169,6 +188,7 @@ from checkowners.models import (
     analysis_flags_json,
     completeness_label,
     envelope_completeness,
+    is_contributor_status,
     models_payload,
     owner_json,
     ownership_signal_completeness,
@@ -230,6 +250,7 @@ from checkowners.state import (
     cache_info,
     cache_purge,
     load_hysteresis,
+    load_ownership,
     read_graph_cache,
     read_state,
     repository_identity,
@@ -266,6 +287,8 @@ baseline_app = typer.Typer(help="Manage the accepted-findings baseline.")
 app.add_typer(baseline_app, name="baseline")
 cache_app = typer.Typer(help="Inspect and delete the on-disk cache.")
 app.add_typer(cache_app, name="cache")
+identity_app = typer.Typer(help="Inspect and edit contributor identity.")
+app.add_typer(identity_app, name="identity")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -813,76 +836,161 @@ def _severity_with_hysteresis(
     return reported
 
 
-def _resolve_github_owners(ownership: OwnershipMap, config: Config) -> OwnershipMap:
-    """Rewrite email identities to GitHub @handles and merge duplicates.
+def _status_configured(config: Config) -> bool:
+    if config.contributor_roster or config.bot_addresses or config.github.org:
+        return True
+    return any(override.service_account for _handle, override in config.identity_overrides)
 
-    Handle resolution works even without a token (noreply emails parse
-    locally; prior lookups come from the on-disk cache). When two commit
-    emails resolve to the same @handle they are one person: their entries
-    merge and the path's qualified owner count is recomputed over distinct
-    identities, so one owner with two emails can no longer masquerade as
-    two qualified owners.
-    """
-    if not config.github.resolve_handles:
+
+def _resolve_github_owners(
+    ownership: OwnershipMap,
+    config: Config,
+    repo_root: Path | None = None,
+) -> OwnershipMap:
+    """Return `ownership` with handles resolved, certain duplicates merged, and status set."""
+    index = consume_author_index()
+    if not config.github.resolve_handles and not _status_configured(config):
         return ownership
+    root = repo_root if repo_root is not None else Path.cwd()
     emails = {
-        owner.handle for po in ownership.paths.values() for owner in (*po.owners, *po.scored_owners)
+        owner.handle
+        for po in ownership.paths.values()
+        for owner in (*po.owners, *po.scored_owners, *po.candidates)
     }
     for po in ownership.paths.values():
-        emails.update(w.handle for w in po.decay_warnings)
-        emails.update(c.handle for c in po.candidates)
+        emails.update(warning.handle for warning in po.decay_warnings)
     emails = {email for email in emails if not is_excluded(email, config.contributors_exclude)}
-    if not emails:
+    hits: dict[str, HandleHit] = {}
+    if config.github.resolve_handles and emails:
+        hits = resolve_handle_details(
+            emails,
+            get_github_token(),
+            repo_root=root,
+            author_shas=index.shas,
+            overrides=override_handles(config.identity_overrides),
+            ttl=config.negative_cache_ttl_days,
+        )
+    if not emails and not _status_configured(config):
         return ownership
-    email_to_handle = resolve_handles(emails, get_github_token())
-    if not email_to_handle:
-        return ownership
+    graph = load_identity_graph(root)
+    separations = (*config.identity_do_not_merge, *graph.separations)
+    org_members = _org_members(config)
+    as_of = ownership.last_analyzed
     new_paths: dict[str, PathOwnership] = {}
-    for path, po in ownership.paths.items():
-        merged = _merge_identities(po.owners, email_to_handle)
-        decay_warnings = tuple(
-            replace(warning, handle=email_to_handle.get(warning.handle, warning.handle))
-            for warning in po.decay_warnings
+    groups: list[tuple[str, ...]] = []
+    for path, path_ownership in ownership.paths.items():
+        resolved, recorded = _resolved_path(
+            path_ownership,
+            config,
+            hits,
+            separations,
+            org_members,
+            as_of,
         )
-        qualified_owner_count = sum(
-            1 for e in merged if e.confidence >= config.analysis.confidence_threshold
-        )
-        new_paths[path] = PathOwnership(
-            owners=merged,
-            qualified_owner_count=qualified_owner_count,
-            decay_warnings=decay_warnings,
-            candidates=_merge_identities(po.candidates, email_to_handle),
-            scored_owners=_merge_identities(po.scored_owners, email_to_handle),
-            change_events=po.change_events,
-            cadence_days=po.cadence_days,
-            cochange_degree=po.cochange_degree,
-        )
+        new_paths[path] = resolved
+        groups.extend(recorded)
+    if config.github.resolve_handles and groups:
+        into = {
+            email: hit.handle
+            for email, hit in hits.items()
+            if hit.handle and hit.source != "search"
+        }
+        updated = record_certain_merges(graph, groups, into)
+        if updated is not graph:
+            save_identity_graph(root, updated)
     return replace(ownership, paths=new_paths)
+
+
+def _merged_owners(
+    owners: tuple[OwnerEntry, ...],
+    hits: Mapping[str, HandleHit],
+    separations: tuple[tuple[str, str], ...],
+    config: Config,
+) -> OwnerMerge:
+    if not config.github.resolve_handles:
+        return OwnerMerge(owners, ())
+    return merge_owners(owners, hits, separations)
+
+
+def _resolved_path(
+    path_ownership: PathOwnership,
+    config: Config,
+    hits: Mapping[str, HandleHit],
+    separations: tuple[tuple[str, str], ...],
+    org_members: frozenset[str] | None,
+    as_of: datetime,
+) -> tuple[PathOwnership, tuple[tuple[str, ...], ...]]:
+    owner_merge = _merged_owners(path_ownership.owners, hits, separations, config)
+    owners = apply_contributor_status(
+        owner_merge.owners,
+        config=config,
+        hits=hits,
+        org_members=org_members,
+        as_of=as_of,
+    )
+    candidates = apply_contributor_status(
+        _merged_owners(path_ownership.candidates, hits, separations, config).owners,
+        config=config,
+        hits=hits,
+        org_members=org_members,
+        as_of=as_of,
+    )
+    scored = apply_contributor_status(
+        _merged_owners(path_ownership.scored_owners, hits, separations, config).owners,
+        config=config,
+        hits=hits,
+        org_members=org_members,
+        as_of=as_of,
+    )
+    if config.analysis.exclude_bots:
+        owners = tuple(owner for owner in owners if owner.contributor_status != "bot")
+        candidates = tuple(owner for owner in candidates if owner.contributor_status != "bot")
+        scored = tuple(owner for owner in scored if owner.contributor_status != "bot")
+    warnings = tuple(
+        replace(warning, handle=_certain_handle(warning.handle, hits))
+        if config.github.resolve_handles
+        else warning
+        for warning in path_ownership.decay_warnings
+    )
+    threshold = config.analysis.confidence_threshold
+    qualified = sum(1 for owner in owners if owner.confidence >= threshold)
+    resolved = PathOwnership(
+        owners=owners,
+        qualified_owner_count=qualified,
+        decay_warnings=warnings,
+        candidates=candidates,
+        scored_owners=scored,
+        change_events=path_ownership.change_events,
+        cadence_days=path_ownership.cadence_days,
+        cochange_degree=path_ownership.cochange_degree,
+    )
+    return resolved, owner_merge.groups
+
+
+def _certain_handle(identity: str, hits: Mapping[str, HandleHit]) -> str:
+    hit = hits.get(identity)
+    if hit is None or not hit.handle or hit.source == "search":
+        return identity
+    return hit.handle
+
+
+def _org_members(config: Config) -> frozenset[str] | None:
+    if not config.github.org:
+        return None
+    return organization_members(get_github_token(), config.github.org)
 
 
 def _merge_identities(
     owners: tuple[OwnerEntry, ...],
-    email_to_handle: dict[str, str],
+    email_to_handle: Mapping[str, str],
 ) -> tuple[OwnerEntry, ...]:
     """Merge owner entries whose emails resolve to the same @handle."""
-    grouped: dict[str, list[OwnerEntry]] = {}
-    for owner in owners:
-        identity = email_to_handle.get(owner.handle, owner.handle)
-        grouped.setdefault(identity, []).append(owner)
-    merged: list[OwnerEntry] = []
-    for identity, entries in grouped.items():
-        best = max(entries, key=lambda e: e.confidence)
-        last_commits = [e.last_commit for e in entries if e.last_commit is not None]
-        merged.append(
-            replace(
-                best,
-                handle=identity,
-                last_commit=max(last_commits) if last_commits else None,
-                commits=sum(e.commits for e in entries),
-            )
-        )
-    merged.sort(key=lambda e: (-e.confidence, e.handle))
-    return tuple(merged)
+    hits = {
+        email: HandleHit(handle=handle, source="commit")
+        for email, handle in email_to_handle.items()
+        if handle
+    }
+    return merge_owners(owners, hits).owners
 
 
 def _confidence_style(confidence: float) -> str:
@@ -897,14 +1005,22 @@ def _format_last_commit(value: datetime | None) -> str:
     return value.date().isoformat() if value else "-"
 
 
-def _decay_warning_json(warning: DecayWarning) -> DecayWarningJson:
-    return {
+def _decay_warning_json(
+    warning: DecayWarning,
+    owners: tuple[OwnerEntry, ...] = (),
+) -> DecayWarningJson:
+    payload: DecayWarningJson = {
         "handle": warning.handle,
         "days_since_last_commit": warning.days_since_last_commit,
         "last_commit": warning.last_commit.isoformat(),
         "historical_confidence": round(warning.historical_confidence, 4),
         "status": warning.status,
     }
+    for owner in owners:
+        if owner.handle == warning.handle and owner.contributor_status == "former":
+            payload["contributor_status"] = "former"
+            break
+    return payload
 
 
 def _owner_payload(owner: OwnerEntry) -> OwnerJson:
@@ -927,7 +1043,9 @@ def _path_payload(
         ),
         "qualified_owner_count": counts["qualified_owner_count"],
         "qualified_owner_count_cap": counts["qualified_owner_count_cap"],
-        "decay_warnings": [_decay_warning_json(warning) for warning in po.decay_warnings],
+        "decay_warnings": [
+            _decay_warning_json(warning, po.owners) for warning in po.decay_warnings
+        ],
     }
 
 
@@ -1018,7 +1136,11 @@ def _warn_missing_api_token(config: Config) -> None:
         )
 
 
-def _review_provider(config: Config, as_of: datetime) -> ReviewProvider | None:
+def _review_provider(
+    config: Config,
+    as_of: datetime,
+    repo_root: Path | None = None,
+) -> ReviewProvider | None:
     """Return the review provider for `config` at `as_of`, or None when collection is off."""
     if not config.github.api_enabled:
         return None
@@ -1038,6 +1160,7 @@ def _review_provider(config: Config, as_of: datetime) -> ReviewProvider | None:
             allowed,
             as_of=as_of,
             since=since,
+            repo_root=repo_root,
         )
 
     return provider
@@ -1068,7 +1191,7 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
             ownership = analyze_ownership(
                 repo_root,
                 config,
-                review_provider=_review_provider(config, as_of),
+                review_provider=_review_provider(config, as_of, repo_root),
                 on_progress=on_progress,
                 as_of=as_of,
                 analysis_ref=analysis_ref,
@@ -1086,7 +1209,7 @@ def _run_analyze(config: Config, repo_root: Path) -> OwnershipMap:
                 err_console.print(f"[dim]Full analysis: {outcome.fallback}.[/dim]")
     except (ValueError, subprocess.CalledProcessError, OSError) as exc:
         _guard_ownership(exc)
-    ownership = _resolve_github_owners(ownership, config)
+    ownership = _resolve_github_owners(ownership, config, repo_root)
     ownership = exclude_contributors(
         ownership,
         config.contributors_exclude,
@@ -1134,8 +1257,12 @@ def _load_or_analyze(config: Config, repo_root: Path) -> OwnershipMap:
     return _run_analyze(config, repo_root)
 
 
-def _resolved_ownership(ownership: OwnershipMap, config: Config) -> OwnershipMap:
-    resolved = _resolve_github_owners(ownership, config)
+def _resolved_ownership(
+    ownership: OwnershipMap,
+    config: Config,
+    repo_root: Path,
+) -> OwnershipMap:
+    resolved = _resolve_github_owners(ownership, config, repo_root)
     resolved = exclude_contributors(
         resolved,
         config.contributors_exclude,
@@ -1167,11 +1294,11 @@ def _ownership_for_spec(config: Config, repo_root: Path, spec: str) -> Ownership
             paths,
             None,
             as_of=as_of,
-            review_provider=_review_provider(config, as_of),
+            review_provider=_review_provider(config, as_of, repo_root),
         )
     except (ValueError, subprocess.CalledProcessError, OSError) as exc:
         _guard_ownership(exc)
-    return _resolved_ownership(ownership, config)
+    return _resolved_ownership(ownership, config, repo_root)
 
 
 def _fresh_or_scoped(config: Config, repo_root: Path) -> OwnershipMap:
@@ -2274,8 +2401,8 @@ def github_action(
     _finish_analysis(ownership)
 
 
-def _decay_report_payload(report: DecayReport) -> dict[str, Any]:
-    return {
+def _decay_report_payload(report: DecayReport) -> dict[str, object]:
+    payload: dict[str, object] = {
         "handle": report.warning.handle,
         "path": report.warning.path,
         "days_since_last_commit": report.warning.days_since_last_commit,
@@ -2284,6 +2411,9 @@ def _decay_report_payload(report: DecayReport) -> dict[str, Any]:
         "status": report.warning.status,
         "recommended_transfer": report.recommended_transfer,
     }
+    if report.contributor_status == "former":
+        payload["contributor_status"] = "former"
+    return payload
 
 
 def _build_or_load_graph(repo_root: Path, ownership: OwnershipMap, config: Config) -> nx.Graph:
@@ -2438,6 +2568,7 @@ def _render_risk(report: RiskReport) -> None:
     summary = report.summary
     _leader("Observed ownership coverage", f"{summary.observed_ownership_coverage:.1%}")
     _leader("Knowledge-at-risk", f"{summary.knowledge_at_risk:.1%}")
+    _leader("Former contributor knowledge", f"{summary.former_knowledge_share:.1%}")
     _leader("Critical components", str(summary.critical_components))
     _leader("Ownership vacuums", str(summary.ownership_vacuums))
     _leader("High CODEOWNERS drift", str(summary.high_codeowners_drift))
@@ -2460,6 +2591,9 @@ def _render_risk_entry(entry: RiskEntry) -> None:
         console.print(f"          {detail}")
     if entry.reason:
         console.print(f"          {escape(entry.reason)}")
+    if entry.former_knowledge_share > 0:
+        percent = round(entry.former_knowledge_share * 100)
+        console.print(f"          {percent}% of knowledge attributed to former contributors")
 
 
 def _risk_detail(entry: RiskEntry) -> str:
@@ -2649,17 +2783,35 @@ def simulate(
         Path | None,
         typer.Option("--remove-file", help="Roster of identities, one per line."),
     ] = None,
+    remove_status: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--remove-status",
+            help="Also remove cached owners with this contributor status. Repeatable.",
+        ),
+    ] = None,
     json_output: JsonOption = False,
 ) -> None:
     """Report what changes if the named contributors leave. Uses cached analysis only."""
-    identities = tuple(remove or ())
+    identities = tuple(item.strip() for item in (remove or ()) if item.strip())
     if remove_file is not None:
         identities = (*identities, *_roster(remove_file))
-    if not any(item.strip() for item in identities):
-        console.print("[red]Pass --remove or --remove-file with at least one identity.[/red]")
+    statuses = _remove_statuses(remove_status)
+    if not identities and not statuses:
+        console.print(
+            "[red]Pass --remove, --remove-file, or --remove-status "
+            "with at least one identity.[/red]"
+        )
         exit_with(ExitCode.CONFIG)
     config = _load_config()
     ownership = _load_cached(config, Path.cwd())
+    identities = (*identities, *_owners_with_status(ownership, statuses))
+    if not identities:
+        console.print(
+            "[red]Pass --remove, --remove-file, or --remove-status "
+            "with at least one identity.[/red]"
+        )
+        exit_with(ExitCode.CONFIG)
     try:
         report = simulate_removal(ownership, config, identities)
     except UnknownIdentityError as exc:
@@ -2673,6 +2825,115 @@ def simulate(
     _finish_analysis(ownership)
 
 
+def _remove_statuses(values: list[str] | None) -> tuple[ContributorStatus, ...]:
+    statuses: list[ContributorStatus] = []
+    for value in values or ():
+        if not is_contributor_status(value):
+            console.print(f"[red]Unknown contributor status: {value}[/red]")
+            exit_with(ExitCode.CONFIG)
+        statuses.append(value)
+    return tuple(statuses)
+
+
+def _owners_with_status(
+    ownership: OwnershipMap,
+    statuses: tuple[ContributorStatus, ...],
+) -> tuple[str, ...]:
+    if not statuses:
+        return ()
+    found: list[str] = []
+    for path_ownership in ownership.paths.values():
+        for owner in path_ownership.owners:
+            if owner.contributor_status in statuses and owner.handle not in found:
+                found.append(owner.handle)
+    return tuple(found)
+
+
+@identity_app.command("audit")
+def identity_audit(json_output: JsonOption = False) -> None:
+    """List probable duplicate identities in this repository."""
+    config = _load_config()
+    repo_root = Path.cwd()
+    graph = load_identity_graph(repo_root)
+    records = audit_records(
+        _audit_identities(repo_root, config, graph),
+        _author_names(repo_root),
+        config.identity_overrides,
+    )
+    groups = probable_duplicates(records, (*config.identity_do_not_merge, *graph.separations))
+    payload = audit_payload(groups, aggregate_only=config.output.aggregate_only)
+    if json_output:
+        _emit_json(payload)
+        return
+    if config.output.aggregate_only:
+        console.print(f"Probable duplicates: {payload['duplicate_count']}")
+        return
+    if not groups:
+        console.print("No probable duplicate identities.")
+        return
+    for group in groups:
+        left = _person(group.identities[0])
+        right = _person(group.identities[1])
+        console.print(f"{left} and {right}: {group.reason}")
+
+
+@identity_app.command("merge")
+def identity_merge(left: str, right: str, into: str) -> None:
+    """Combine two identities into one and record the merge."""
+    repo_root = Path.cwd()
+    graph = apply_merge(load_identity_graph(repo_root), left, right, into)
+    save_identity_graph(repo_root, graph)
+    console.print(f"Merged {_person(left)} and {_person(right)} into {_person(into)}.")
+
+
+@identity_app.command("unmerge")
+def identity_unmerge(left: str, right: str) -> None:
+    """Restore the records from a recorded merge and keep the pair separate."""
+    repo_root = Path.cwd()
+    current = load_identity_graph(repo_root)
+    updated = revert_merge(current, left, right)
+    if updated is current:
+        console.print("[red]No recorded merge of those identities.[/red]")
+        exit_with(ExitCode.CONFIG)
+    save_identity_graph(repo_root, updated)
+    console.print(f"Restored {_person(left)} and {_person(right)}.")
+
+
+def _audit_identities(repo_root: Path, config: Config, graph: IdentityGraph) -> tuple[str, ...]:
+    found: set[str] = set(_author_names(repo_root))
+    cached = load_ownership(repo_root)
+    if cached is not None:
+        for path_ownership in cached.paths.values():
+            for owner in (
+                *path_ownership.owners,
+                *path_ownership.candidates,
+                *path_ownership.scored_owners,
+            ):
+                found.add(owner.handle)
+    for handle, _override in config.identity_overrides:
+        found.add(handle if handle.startswith("@") else f"@{handle}")
+    for record in graph.contributors:
+        found.add(record.handle)
+    return tuple(found)
+
+
+def _author_names(repo_root: Path) -> dict[str, tuple[str, ...]]:
+    try:
+        result = run_git(repo_root, ["git", "log", "--format=%aE%x09%aN"], check=False)
+    except OSError:
+        return {}
+    if result.returncode != 0:
+        return {}
+    grouped: dict[str, set[str]] = {}
+    for line in result.stdout.splitlines():
+        if "\t" not in line:
+            continue
+        email, name = line.split("\t", 1)
+        if email.strip() and name.strip():
+            grouped.setdefault(email.strip(), set()).add(name.strip())
+    return {email: tuple(sorted(names)) for email, names in grouped.items()}
+
+
 def _print_owner_distribution(report: BusFactorReport) -> None:
     distribution = report.distribution
     console.print(
@@ -2682,7 +2943,8 @@ def _print_owner_distribution(report: BusFactorReport) -> None:
         f"median {distribution.median:.2f}, "
         f"p90 {distribution.p90:.2f}, "
         f"critical-path risk {distribution.critical_path_risk:.2f}, "
-        f"knowledge at risk {distribution.knowledge_at_risk:.0%}[/dim]"
+        f"knowledge at risk {distribution.knowledge_at_risk:.0%}, "
+        f"former contributor knowledge {distribution.former_knowledge_share:.0%}[/dim]"
     )
     if distribution.criticality_incomplete:
         console.print("[dim]repository risk is incomplete without criticality[/dim]")
@@ -2905,7 +3167,7 @@ def _change_loader(
     config: Config,
 ) -> Callable[[tuple[str, ...], str | None], OwnershipMap]:
     as_of, _analysis_ref = _resolve_clock(repo_root)
-    provider = _review_provider(config, as_of)
+    provider = _review_provider(config, as_of, repo_root)
 
     def load(paths: tuple[str, ...], revision: str | None) -> OwnershipMap:
         ownership = load_paths(
@@ -2916,7 +3178,7 @@ def _change_loader(
             as_of=as_of,
             review_provider=provider,
         )
-        return _resolved_ownership(ownership, config)
+        return _resolved_ownership(ownership, config, repo_root)
 
     return load
 
@@ -3117,7 +3379,7 @@ def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMa
         ownership = analyze_ownership(
             repo_root,
             config,
-            review_provider=_review_provider(config, as_of),
+            review_provider=_review_provider(config, as_of, repo_root),
             as_of=as_of,
             analysis_ref=analysis_ref,
             pathspec=(target,),
@@ -3126,7 +3388,7 @@ def _analyze_target(config: Config, repo_root: Path, target: str) -> OwnershipMa
         )
     except (ValueError, subprocess.CalledProcessError, OSError) as exc:
         _guard_ownership(exc)
-    ownership = _resolve_github_owners(ownership, config)
+    ownership = _resolve_github_owners(ownership, config, repo_root)
     ownership = exclude_contributors(
         ownership,
         config.contributors_exclude,

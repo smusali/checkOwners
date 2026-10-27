@@ -129,6 +129,10 @@
       "type": "string",
       "enum": ["inactive", "superseded", "stable", "departed"]
     },
+    "contributorStatus": {
+      "type": "string",
+      "enum": ["active", "inactive", "unknown", "former", "bot", "external"]
+    },
     "freshness": {
       "type": "object",
       "additionalProperties": false,
@@ -191,6 +195,9 @@
         },
         "freshness": {
           "$ref": "#/$defs/freshness"
+        },
+        "contributor_status": {
+          "$ref": "#/$defs/contributorStatus"
         }
       }
     },
@@ -343,6 +350,9 @@
         },
         "status": {
           "$ref": "#/$defs/freshnessStatus"
+        },
+        "contributor_status": {
+          "$ref": "#/$defs/contributorStatus"
         }
       }
     },
@@ -569,6 +579,9 @@
         },
         "decay": {
           "type": "boolean"
+        },
+        "former_owners": {
+          "$ref": "#/$defs/stringList"
         },
         "recommendation": {
           "type": "object",
@@ -1648,6 +1661,9 @@
         },
         "criticality_incomplete": {
           "type": "boolean"
+        },
+        "former_knowledge_share": {
+          "type": "number"
         }
       }
     },
@@ -1749,6 +1765,9 @@
             "very low",
             null
           ]
+        },
+        "former_knowledge_share": {
+          "type": "number"
         }
       }
     },
@@ -1853,6 +1872,9 @@
         },
         "high_codeowners_drift": {
           "type": "integer"
+        },
+        "former_knowledge_share": {
+          "type": "number"
         }
       }
     },
@@ -2013,6 +2035,9 @@
                   },
                   "status": {
                     "$ref": "#/$defs/freshnessStatus"
+                  },
+                  "contributor_status": {
+                    "$ref": "#/$defs/contributorStatus"
                   }
                 }
               }
@@ -3350,6 +3375,9 @@
               },
               "status": {
                 "$ref": "#/$defs/freshnessStatus"
+              },
+              "contributor_status": {
+                "$ref": "#/$defs/contributorStatus"
               }
             }
           }
@@ -3795,6 +3823,77 @@
           "type": "string"
         }
       }
+    },
+    "identity-audit": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "required": [
+            "duplicate_count"
+          ],
+          "properties": {
+            "duplicate_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "duplicates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "identities",
+                  "reason"
+                ],
+                "properties": {
+                  "identities": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.5.1",
+          "models": {
+            "ownership": "ownership-v1",
+            "risk": "risk-v1",
+            "topology": "topology-v1"
+          },
+          "repository": "acme/payments",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": null,
+          "reviews_sampled": 0,
+          "reviews_window_days": 0,
+          "duplicate_count": 1,
+          "duplicates": [
+            {
+              "identities": [
+                "alice@example.com",
+                "alice@company.example"
+              ],
+              "reason": "same author name"
+            }
+          ]
+        }
+      ]
     }
   }
 }

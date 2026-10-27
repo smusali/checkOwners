@@ -14,11 +14,12 @@ import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 
+from checkowners.identity import HandleHit
 from checkowners.models import (
     API_BUDGET_REASON,
     API_RATE_LIMIT_REASON,
@@ -28,7 +29,14 @@ from checkowners.models import (
     review_window_truncated_reason,
 )
 from checkowners.privacy import email_token, is_email
-from checkowners.state import read_handle_cache, repository_identity, write_handle_cache
+from checkowners.state import (
+    HandleCacheEntry,
+    read_handle_cache,
+    repository_identity,
+    write_handle_cache,
+)
+
+_HandleCacheValue = HandleCacheEntry | str
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -268,60 +276,252 @@ def resolve_noreply_handle(email: str) -> str | None:
 def resolve_handles(
     emails: set[str],
     token: str,
+    *,
+    repo_root: Path | None = None,
+    author_shas: Mapping[str, str] | None = None,
+    overrides: Mapping[str, str] | None = None,
+    ttl: int | None = None,
 ) -> dict[str, str]:
-    """Map git commit emails to GitHub @handles.
+    """Return @handles for the `emails` that resolve."""
+    details = resolve_handle_details(
+        emails,
+        token,
+        repo_root=repo_root,
+        author_shas=author_shas,
+        overrides=overrides,
+        ttl=ttl,
+    )
+    return {email: hit.handle for email, hit in details.items() if hit.handle}
 
-    Incoming emails are already mailmap-canonical when that mapping ran.
-    Resolution order: noreply-email parsing (local, free), then the on-disk
-    cache (which also remembers misses as empty strings so unresolvable
-    emails are not re-queried), then the rate-limited user-search API.
-    """
-    resolved: dict[str, str] = {}
+
+def resolve_handle_details(
+    emails: set[str],
+    token: str,
+    *,
+    repo_root: Path | None = None,
+    author_shas: Mapping[str, str] | None = None,
+    overrides: Mapping[str, str] | None = None,
+    ttl: int | None = None,
+) -> dict[str, HandleHit]:
+    """Return the handle hit for each resolved email. `repo_root` None skips the cache."""
+    configured = overrides or {}
+    shas = author_shas or {}
+    resolved: dict[str, HandleHit] = {}
     remaining: list[str] = []
     for email in sorted(emails):
+        override = configured.get(email) or configured.get(email.casefold())
+        if override:
+            resolved[email] = HandleHit(handle=override, source="override")
+            continue
         noreply = resolve_noreply_handle(email)
         if noreply is not None:
-            resolved[email] = noreply
-        else:
-            remaining.append(email)
+            resolved[email] = HandleHit(handle=noreply, source="noreply")
+            continue
+        remaining.append(email)
     if not remaining:
         return resolved
 
-    cached = read_handle_cache()
+    cached: Mapping[str, _HandleCacheValue] = (
+        read_handle_cache(repo_root) if repo_root is not None else {}
+    )
     api_queue: list[str] = []
+    now = datetime.now(tz=UTC)
     for email in remaining:
         hit = _cached_handle(cached, email)
-        if hit:
-            resolved[email] = hit
-        elif hit is None:
+        if hit is None:
             api_queue.append(email)
-        # hit == "": remembered miss; skip the API.
+            continue
+        if hit.handle:
+            resolved[email] = HandleHit(
+                handle=hit.handle,
+                source=hit.source or "commit",
+                account_type=hit.account_type,
+            )
+            continue
+        if _miss_is_active(hit, now):
+            continue
+        api_queue.append(email)
     if not api_queue:
         return resolved
 
     client = get_github_client(token)
     if client is None:
         return resolved
-    if not _search_budget_allows(client):
-        return resolved
-    fresh: dict[str, str] = {}
-    for email in api_queue:
-        if not take_api_request():
-            break
-        handle = _lookup_handle(client, email)
-        fresh[email] = handle if handle is not None else ""
-        if handle is not None:
-            resolved[email] = handle
-    write_handle_cache(fresh)
+    fresh: dict[str, HandleCacheEntry] = {}
+    search_queue = _resolve_from_commits(
+        client,
+        api_queue,
+        shas,
+        repo_root,
+        resolved,
+        fresh,
+    )
+    if search_queue and _search_budget_allows(client):
+        _resolve_from_search(client, search_queue, resolved, fresh, ttl if ttl is not None else 30)
+    if repo_root is not None and fresh:
+        write_handle_cache(repo_root, fresh)
     return resolved
 
 
-def _cached_handle(cache: dict[str, str], email: str) -> str | None:
+def organization_members(token: str, org: str) -> frozenset[str] | None:
+    """Return member logins for `org`, or None when the list was not fetched."""
+    if not org or offline_enabled() or not token:
+        return None
+    client = get_github_client(token)
+    if client is None or not take_api_request():
+        return None
+    note_api_call()
+    try:
+        members = client.get_organization(org).get_members()
+    except Exception:
+        logger.warning("Failed to read members of %s", org)
+        return None
+    logins: set[str] = set()
+    for member in members:
+        login = getattr(member, "login", "")
+        if isinstance(login, str) and login:
+            logins.add(login)
+    return frozenset(logins)
+
+
+def _cached_handle(cache: Mapping[str, _HandleCacheValue], email: str) -> HandleCacheEntry | None:
     token = email_token(email) if is_email(email) else email
     hit = cache.get(token)
     if hit is None and token != email:
-        return cache.get(email)
-    return hit
+        hit = cache.get(email)
+    return _cache_entry(hit)
+
+
+def _cache_entry(value: _HandleCacheValue | None) -> HandleCacheEntry | None:
+    if isinstance(value, HandleCacheEntry):
+        return value
+    if isinstance(value, str):
+        if not value:
+            return HandleCacheEntry(handle="", expires_at="9999-01-01T00:00:00+00:00")
+        return HandleCacheEntry(handle=value)
+    return None
+
+
+def _miss_is_active(entry: HandleCacheEntry, now: datetime) -> bool:
+    if not entry.expires_at:
+        return False
+    try:
+        expires = datetime.fromisoformat(entry.expires_at)
+    except ValueError:
+        return False
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    return expires > now
+
+
+def _resolve_from_commits(
+    client: Github,
+    emails: list[str],
+    shas: Mapping[str, str],
+    repo_root: Path | None,
+    resolved: dict[str, HandleHit],
+    fresh: dict[str, HandleCacheEntry],
+) -> list[str]:
+    needing_commit = [email for email in emails if shas.get(email)]
+    if not needing_commit:
+        return list(emails)
+    if not _core_budget_allows(client):
+        return [email for email in emails if email not in set(needing_commit)]
+    slug = _repository_slug(repo_root) if repo_root is not None else ""
+    if not slug:
+        return list(emails)
+    search_queue = [email for email in emails if email not in set(needing_commit)]
+    for email in needing_commit:
+        if not take_api_request():
+            break
+        looked_up = _lookup_commit_login(client, slug, shas[email])
+        if looked_up is None:
+            continue
+        login, author_type, committer_type = looked_up
+        if not login:
+            search_queue.append(email)
+            continue
+        handle = login if login.startswith("@") else f"@{login}"
+        resolved[email] = HandleHit(
+            handle=handle,
+            source="commit",
+            account_type=author_type,
+            committer_type=committer_type,
+        )
+        fresh[email] = HandleCacheEntry(
+            handle=handle,
+            source="commit",
+            account_type=author_type,
+        )
+    return search_queue
+
+
+def _resolve_from_search(
+    client: Github,
+    emails: list[str],
+    resolved: dict[str, HandleHit],
+    fresh: dict[str, HandleCacheEntry],
+    ttl: int,
+) -> None:
+    for email in emails:
+        if not take_api_request():
+            break
+        handle = _lookup_handle(client, email)
+        if handle is None:
+            if ttl > 0:
+                expires = datetime.now(tz=UTC) + timedelta(days=ttl)
+                fresh[email] = HandleCacheEntry(handle="", expires_at=expires.isoformat())
+            continue
+        resolved[email] = HandleHit(handle=handle, source="search")
+        fresh[email] = HandleCacheEntry(handle=handle, source="search")
+
+
+def _repository_slug(repo_root: Path) -> str:
+    try:
+        return github_repository(repo_root)
+    except ReconciliationError:
+        return ""
+
+
+def _lookup_commit_login(
+    client: Github,
+    repo: str,
+    sha: str,
+) -> tuple[str, str, str] | None:
+    """Return `(login, author type, committer type)` for `sha`, or None when the read fails."""
+    note_api_call()
+    try:
+        commit = client.get_repo(repo).get_commit(sha)
+    except Exception:
+        logger.warning("Failed to read commit %s", sha)
+        return None
+    author = getattr(commit, "author", None)
+    committer = getattr(commit, "committer", None)
+    login = getattr(author, "login", "") if author is not None else ""
+    author_type = getattr(author, "type", "") if author is not None else ""
+    committer_type = getattr(committer, "type", "") if committer is not None else ""
+    if not isinstance(login, str):
+        login = ""
+    if not isinstance(author_type, str):
+        author_type = ""
+    if not isinstance(committer_type, str):
+        committer_type = ""
+    return login, author_type, committer_type
+
+
+def _core_budget_allows(client: Github) -> bool:
+    if not take_api_request():
+        return False
+    try:
+        rate = client.get_rate_limit()
+    except Exception:
+        logger.warning("Failed to read the GitHub core rate limit")
+        return True
+    remaining = _rate_remaining(rate, "core")
+    if remaining is None or remaining >= 1:
+        return True
+    note_collection_gap(AnalysisGap("api_rate_limit", SEARCH_RATE_LIMIT_REASON))
+    return False
 
 
 def _rate_remaining(rate: object, bucket: str) -> int | None:
@@ -368,6 +568,7 @@ def build_review_coverage(
     *,
     as_of: datetime,
     since: datetime | None,
+    repo_root: Path | None = None,
 ) -> dict[str, dict[str, float]]:
     """Return `path -> {email: fraction}` for pulls closed from `since` through `as_of`.
 
@@ -379,7 +580,7 @@ def build_review_coverage(
     client = get_github_client(token)
     if client is None or not repo_full_name or not emails:
         return {}
-    email_to_handle = resolve_handles(emails, token)
+    email_to_handle = resolve_handles(emails, token, repo_root=repo_root)
     login_to_email = {handle.lstrip("@"): email for email, handle in email_to_handle.items()}
     if not login_to_email:
         return {}

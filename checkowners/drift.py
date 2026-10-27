@@ -155,6 +155,10 @@ def _compare(
     )
 
 
+def _former_owner_handles(owners: tuple[OwnerEntry, ...]) -> tuple[str, ...]:
+    return tuple(owner.handle for owner in owners if owner.contributor_status == "former")
+
+
 def _find_missing(
     inferred: dict[str, PathOwnership],
     coverage: dict[str, CodeownersRule | None],
@@ -173,6 +177,7 @@ def _find_missing(
                 decay=bool(po.decay_warnings),
                 observed_owners=tuple(owner.handle for owner in po.owners),
                 drift_type="missing_observed_expert",
+                former_owners=_former_owner_handles(po.owners),
             )
         )
     return entries
@@ -209,6 +214,7 @@ class _RuleDivergence:
     qualified_owner_count: int | None
     decay: bool
     observed_owners: tuple[str, ...]
+    former_owners: tuple[str, ...] = ()
 
 
 def _find_changed(
@@ -256,6 +262,7 @@ def _find_changed(
                     rule.owners, measured.observed_owners, measured.decay
                 ),
                 line_number=rule.line_number,
+                former_owners=measured.former_owners,
             )
         )
     sorted_reviews = _sort_by_delta(reviews)
@@ -275,6 +282,7 @@ def _measure_divergence(
     qualified_owner_count: int | None = None
     decay = False
     observed_owners: tuple[str, ...] = ()
+    former_owners: tuple[str, ...] = ()
     for _path, path_ownership in covered:
         inferred_handles = _normalize_owners(owner.handle for owner in path_ownership.owners)
         if current == inferred_handles:
@@ -286,6 +294,7 @@ def _measure_divergence(
             qualified_owner_count = path_ownership.qualified_owner_count
             decay = bool(path_ownership.decay_warnings)
             observed_owners = tuple(owner.handle for owner in path_ownership.owners)
+            former_owners = _former_owner_handles(path_ownership.owners)
     if diverging == 0:
         return None
     return _RuleDivergence(
@@ -294,6 +303,7 @@ def _measure_divergence(
         qualified_owner_count=qualified_owner_count,
         decay=decay,
         observed_owners=observed_owners,
+        former_owners=former_owners,
     )
 
 
@@ -325,6 +335,7 @@ def _manual_review(
         observed_owners=measured.observed_owners,
         drift_type=_changed_drift_type(rule.owners, measured.observed_owners, measured.decay),
         line_number=rule.line_number,
+        former_owners=measured.former_owners,
     )
 
 
@@ -545,6 +556,8 @@ def drift_entry_payload(
         payload["qualified_owner_count_cap"] = counts["qualified_owner_count_cap"]
     if entry.decay:
         payload["decay"] = True
+    if entry.former_owners:
+        payload["former_owners"] = list(entry.former_owners)
     return payload
 
 
@@ -587,6 +600,8 @@ def _reconciliation_entry(
     ]
     if entry.owners:
         lines.append(f"Declared: {' '.join(entry.owners)}")
+    if entry.former_owners:
+        lines.append(f"Former contributors: {' '.join(entry.former_owners)}")
     lines.extend(_observed_owner_lines(entry, ownership))
     lines.append("")
     return lines

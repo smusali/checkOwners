@@ -5,13 +5,21 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from checkowners.expertise import common_prefix_depth
-from checkowners.models import Config, DecayWarning, FreshnessStatus, OwnershipMap, PathOwnership
+from checkowners.models import (
+    Config,
+    ContributorStatus,
+    DecayWarning,
+    FreshnessStatus,
+    OwnershipMap,
+    PathOwnership,
+)
 
 
 @dataclass(frozen=True)
 class DecayReport:
     warning: DecayWarning
     recommended_transfer: str | None
+    contributor_status: ContributorStatus | None = None
 
 
 def detect_decay(
@@ -36,10 +44,23 @@ def detect_decay(
                 DecayReport(
                     warning=replace(warning, status=status),
                     recommended_transfer=recommended,
+                    contributor_status=_former_status(po, warning.handle),
                 )
             )
     reports.sort(key=lambda r: (-r.warning.days_since_last_commit, r.warning.path))
     return tuple(reports)
+
+
+def _former_status(path_ownership: PathOwnership, handle: str) -> ContributorStatus | None:
+    owners = (
+        *path_ownership.owners,
+        *path_ownership.scored_owners,
+        *path_ownership.candidates,
+    )
+    for owner in owners:
+        if owner.handle == handle and owner.contributor_status == "former":
+            return "former"
+    return None
 
 
 def _report_status(warning: DecayWarning, active_handles: frozenset[str]) -> FreshnessStatus:

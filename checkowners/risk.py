@@ -9,6 +9,7 @@ from typing import Literal
 from checkowners.busfactor import compute_qualified_owners
 from checkowners.drift import identities_incomparable
 from checkowners.expertise import path_matches_glob
+from checkowners.identity import former_knowledge_share, repository_former_share
 from checkowners.models import (
     Config,
     DriftResult,
@@ -75,6 +76,7 @@ class RiskEntry:
     dominant_expert: str | None
     dominant_share: float | None
     change_frequency_label: FrequencyLabel | None
+    former_knowledge_share: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,7 @@ class RiskSummary:
     critical_components: int
     ownership_vacuums: int
     high_codeowners_drift: int
+    former_knowledge_share: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -141,6 +144,7 @@ def assess_risk(
                 dominant_expert=None if dominant is None else dominant.handle,
                 dominant_share=None if dominant is None else concentration.top_owner_share,
                 change_frequency_label=_frequency_label(factors.change_frequency),
+                former_knowledge_share=former_knowledge_share(observed),
             )
         )
         pathologies.extend(_path_pathologies(path, po, rules, ownership, config, comparable))
@@ -154,6 +158,7 @@ def assess_risk(
         critical_components=sum(1 for item in entries if item.tier == "critical"),
         ownership_vacuums=vacuums,
         high_codeowners_drift=_high_drift_count(drift, config.bus_factor.critical_threshold),
+        former_knowledge_share=repository_former_share(ownership, config.criticality),
     )
     return RiskReport(
         criticality_unavailable=_criticality_unavailable(ownership, config),
@@ -186,6 +191,7 @@ def risk_payload(report: RiskReport) -> dict[str, object]:
             "critical_components": report.summary.critical_components,
             "ownership_vacuums": report.summary.ownership_vacuums,
             "high_codeowners_drift": report.summary.high_codeowners_drift,
+            "former_knowledge_share": report.summary.former_knowledge_share,
         },
     }
 
@@ -209,6 +215,7 @@ def _entry_payload(entry: RiskEntry) -> dict[str, object]:
         "dominant_expert": entry.dominant_expert,
         "dominant_share": entry.dominant_share,
         "change_frequency_label": entry.change_frequency_label,
+        "former_knowledge_share": entry.former_knowledge_share,
     }
 
 

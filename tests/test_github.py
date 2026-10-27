@@ -62,7 +62,7 @@ from checkowners.models import (
     completeness_score,
 )
 from checkowners.privacy import email_token
-from checkowners.state import read_handle_cache, write_handle_cache
+from checkowners.state import HandleCacheEntry, read_handle_cache, write_handle_cache
 
 
 def test_get_github_token_present() -> None:
@@ -807,17 +807,18 @@ def test_resolve_handles_no_token() -> None:
     assert result == {}
 
 
-def test_resolve_handles_success() -> None:
+def test_resolve_handles_success(tmp_path: Path) -> None:
     mock_user = MagicMock()
     mock_user.login = "alice"
     mock_client = MagicMock()
     mock_client.search_users.return_value = [mock_user]
     with patch("checkowners.github.get_github_client", return_value=mock_client) as get_client:
-        result = resolve_handles({"alice@example.com"}, "ghp_test")
+        result = resolve_handles({"alice@example.com"}, "ghp_test", repo_root=tmp_path)
     assert result == {"alice@example.com": "@alice"}
     get_client.assert_called_once_with("ghp_test")
     mock_client.search_users.assert_called_once_with("alice@example.com in:email")
-    assert read_handle_cache()[email_token("alice@example.com")] == "@alice"
+    stored = read_handle_cache(tmp_path)[email_token("alice@example.com")]
+    assert stored.handle == "@alice"
 
 
 def test_resolve_handles_not_found() -> None:
@@ -925,16 +926,16 @@ def test_resolve_handles_noreply_without_token() -> None:
     assert result == {"99+alice@users.noreply.github.com": "@alice"}
 
 
-def test_resolve_handles_uses_disk_cache_before_api() -> None:
-    write_handle_cache({"alice@example.com": "@alice"})
+def test_resolve_handles_uses_disk_cache_before_api(tmp_path: Path) -> None:
+    write_handle_cache(tmp_path, {"alice@example.com": HandleCacheEntry(handle="@alice")})
     mock_client = MagicMock()
     with patch("checkowners.github.get_github_client", return_value=mock_client):
-        result = resolve_handles({"alice@example.com"}, "ghp_test")
+        result = resolve_handles({"alice@example.com"}, "ghp_test", repo_root=tmp_path)
     assert result == {"alice@example.com": "@alice"}
     mock_client.search_users.assert_not_called()
 
 
-def test_resolve_handles_accepts_a_plaintext_email_cache_key() -> None:
+def test_resolve_handles_accepts_a_plaintext_email_cache_key(tmp_path: Path) -> None:
     mock_client = MagicMock()
     with (
         patch("checkowners.github.get_github_client", return_value=mock_client),
@@ -943,12 +944,12 @@ def test_resolve_handles_accepts_a_plaintext_email_cache_key() -> None:
             return_value={"alice@example.com": "@alice"},
         ),
     ):
-        result = resolve_handles({"alice@example.com"}, "ghp_test")
+        result = resolve_handles({"alice@example.com"}, "ghp_test", repo_root=tmp_path)
     assert result == {"alice@example.com": "@alice"}
     mock_client.search_users.assert_not_called()
 
 
-def test_resolve_handles_does_not_hash_a_non_email_cache_key() -> None:
+def test_resolve_handles_does_not_hash_a_non_email_cache_key(tmp_path: Path) -> None:
     identity = "ada-the-author"
     mock_client = MagicMock()
     mock_client.search_users.return_value = []
@@ -959,7 +960,7 @@ def test_resolve_handles_does_not_hash_a_non_email_cache_key() -> None:
             return_value={email_token(identity): "@ada"},
         ),
     ):
-        result = resolve_handles({identity}, "ghp_test")
+        result = resolve_handles({identity}, "ghp_test", repo_root=tmp_path)
     assert result == {}
     mock_client.search_users.assert_called_once_with(f"{identity} in:email")
 
@@ -1066,16 +1067,15 @@ def test_team_fetch_failure_records_api_evidence_without_snapshot() -> None:
         clear_api_evidence()
 
 
-def test_resolve_handles_remembers_misses() -> None:
+def test_resolve_handles_remembers_misses(tmp_path: Path) -> None:
     mock_client = MagicMock()
     mock_client.search_users.return_value = []
     with patch("checkowners.github.get_github_client", return_value=mock_client):
-        resolve_handles({"ghost@example.com"}, "ghp_test")
-    assert read_handle_cache()[email_token("ghost@example.com")] == ""
-    # Second run: the remembered miss short-circuits the API.
+        resolve_handles({"ghost@example.com"}, "ghp_test", repo_root=tmp_path)
+    assert read_handle_cache(tmp_path)[email_token("ghost@example.com")].handle == ""
     mock_client.search_users.reset_mock()
     with patch("checkowners.github.get_github_client", return_value=mock_client):
-        result = resolve_handles({"ghost@example.com"}, "ghp_test")
+        result = resolve_handles({"ghost@example.com"}, "ghp_test", repo_root=tmp_path)
     assert result == {}
     mock_client.search_users.assert_not_called()
 

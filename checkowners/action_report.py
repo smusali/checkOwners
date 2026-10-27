@@ -250,6 +250,8 @@ def _decay_lines(decay: dict[str, object] | None) -> tuple[list[str], bool]:
             lines.append(f"{owner} last committed to `{shown}` {count} {noun} ago.")
         else:
             lines.append(f"{owner} last committed to `{shown}` a while ago.")
+        if report.get("contributor_status") == "former":
+            lines.append(f"{owner} is a former contributor.")
         lines.append("")
     extra = len(reports) - min(len(reports), MAX_RISK_PATHS)
     if extra > 0:

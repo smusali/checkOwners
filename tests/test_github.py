@@ -269,7 +269,10 @@ def test_resolve_handles_omits_when_search_budget_is_exhausted() -> None:
         result = resolve_handles({"budget@example.com"}, "ghp_test")
     assert result == {}
     assert client.search_users.called is False
-    assert any(gap.reason == SEARCH_RATE_LIMIT_REASON for gap in collection_gaps())
+    gaps = collection_gaps()
+    assert any(
+        gap.code == "api_rate_limit" and gap.reason == SEARCH_RATE_LIMIT_REASON for gap in gaps
+    )
     clear_api_evidence()
 
 
@@ -314,7 +317,7 @@ def test_resolve_handles_stops_mid_lookup_when_the_request_budget_is_spent() -> 
     clear_api_evidence()
 
 
-def test_search_rate_limit_failure_still_looks_up_handles() -> None:
+def test_search_rate_limit_failure_still_looks_up_handles(caplog: pytest.LogCaptureFixture) -> None:
     clear_api_evidence()
     client = MagicMock()
     client.get_rate_limit.side_effect = RuntimeError("down")
@@ -327,6 +330,10 @@ def test_search_rate_limit_failure_still_looks_up_handles() -> None:
     ):
         result = resolve_handles({"ada@example.com"}, "ghp_test")
     assert result == {"ada@example.com": "@ada"}
+    assert any(
+        record.getMessage() == "Failed to read the GitHub search rate limit"
+        for record in caplog.records
+    )
     clear_api_evidence()
 
 
@@ -805,9 +812,12 @@ def test_resolve_handles_success() -> None:
     mock_user.login = "alice"
     mock_client = MagicMock()
     mock_client.search_users.return_value = [mock_user]
-    with patch("checkowners.github.get_github_client", return_value=mock_client):
+    with patch("checkowners.github.get_github_client", return_value=mock_client) as get_client:
         result = resolve_handles({"alice@example.com"}, "ghp_test")
     assert result == {"alice@example.com": "@alice"}
+    get_client.assert_called_once_with("ghp_test")
+    mock_client.search_users.assert_called_once_with("alice@example.com in:email")
+    assert read_handle_cache()[email_token("alice@example.com")] == "@alice"
 
 
 def test_resolve_handles_not_found() -> None:
@@ -818,12 +828,16 @@ def test_resolve_handles_not_found() -> None:
     assert result == {}
 
 
-def test_resolve_handles_api_error() -> None:
+def test_resolve_handles_api_error(caplog: pytest.LogCaptureFixture) -> None:
     mock_client = MagicMock()
     mock_client.search_users.side_effect = Exception("rate limit")
     with patch("checkowners.github.get_github_client", return_value=mock_client):
         result = resolve_handles({"alice@example.com"}, "ghp_test")
     assert result == {}
+    assert any(
+        record.getMessage() == "Failed to resolve GitHub handle for alice@example.com"
+        for record in caplog.records
+    )
 
 
 def test_create_team_resolver_all_in_one_team() -> None:
@@ -918,6 +932,88 @@ def test_resolve_handles_uses_disk_cache_before_api() -> None:
         result = resolve_handles({"alice@example.com"}, "ghp_test")
     assert result == {"alice@example.com": "@alice"}
     mock_client.search_users.assert_not_called()
+
+
+def test_resolve_handles_accepts_a_plaintext_email_cache_key() -> None:
+    mock_client = MagicMock()
+    with (
+        patch("checkowners.github.get_github_client", return_value=mock_client),
+        patch(
+            "checkowners.github.read_handle_cache",
+            return_value={"alice@example.com": "@alice"},
+        ),
+    ):
+        result = resolve_handles({"alice@example.com"}, "ghp_test")
+    assert result == {"alice@example.com": "@alice"}
+    mock_client.search_users.assert_not_called()
+
+
+def test_resolve_handles_does_not_hash_a_non_email_cache_key() -> None:
+    identity = "ada-the-author"
+    mock_client = MagicMock()
+    mock_client.search_users.return_value = []
+    with (
+        patch("checkowners.github.get_github_client", return_value=mock_client),
+        patch(
+            "checkowners.github.read_handle_cache",
+            return_value={email_token(identity): "@ada"},
+        ),
+    ):
+        result = resolve_handles({identity}, "ghp_test")
+    assert result == {}
+    mock_client.search_users.assert_called_once_with(f"{identity} in:email")
+
+
+def test_resolve_handles_searches_when_one_search_request_remains() -> None:
+    clear_api_evidence()
+    client = MagicMock()
+    client.get_rate_limit.return_value.search.remaining = 1
+    user = MagicMock()
+    user.login = "ada"
+    client.search_users.return_value = [user]
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.read_handle_cache", return_value={}),
+    ):
+        result = resolve_handles({"ada@example.com"}, "ghp_test")
+    assert result == {"ada@example.com": "@ada"}
+    clear_api_evidence()
+
+
+def test_resolve_handles_searches_when_the_search_quota_is_absent() -> None:
+    clear_api_evidence()
+    client = MagicMock()
+    client.get_rate_limit.return_value = object()
+    user = MagicMock()
+    user.login = "ada"
+    client.search_users.return_value = [user]
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.read_handle_cache", return_value={}),
+    ):
+        result = resolve_handles({"ada@example.com"}, "ghp_test")
+    assert result == {"ada@example.com": "@ada"}
+    clear_api_evidence()
+
+
+class _SearchQuota:
+    search = object()
+
+
+def test_resolve_handles_searches_when_remaining_is_absent() -> None:
+    clear_api_evidence()
+    client = MagicMock()
+    client.get_rate_limit.return_value = _SearchQuota()
+    user = MagicMock()
+    user.login = "ada"
+    client.search_users.return_value = [user]
+    with (
+        patch("checkowners.github.get_github_client", return_value=client),
+        patch("checkowners.github.read_handle_cache", return_value={}),
+    ):
+        result = resolve_handles({"ada@example.com"}, "ghp_test")
+    assert result == {"ada@example.com": "@ada"}
+    clear_api_evidence()
 
 
 def test_collection_timestamp_uses_source_date_epoch() -> None:

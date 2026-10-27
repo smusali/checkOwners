@@ -11,6 +11,7 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183).
 
 ### Added
+- The nightly Fuzz workflow publishes mutation scores for `patterns.py`, `drift.py`, `generate.py`, the `analyze.py` scoring path, and the GitHub identity helpers. `patterns.py` fails when its score is below 90.
 - `drift`, `risk`, and `validate` accept `--format text|json|sarif|junit`. `--json` remains the shortcut for JSON. SARIF 2.1.0 uses seven stable rule ids, and the fingerprint is the baseline identity so a later severity change does not mint a new alert. The Action always writes `checkowners.sarif` and `checkowners.junit.xml` into the report artifact. `upload_sarif` uploads that file for a same-repo token that can write `security-events`. Fork and Dependabot pull requests keep the artifact and skip the upload. A `workflow_run` workflow uploads the artifact for those forks once that workflow file is on the default branch.
 - In GitHub Actions the same findings become workflow annotations, capped at 50, and a completed check run named checkOwners. A missing token or a 401, 403, or 404 leaves the job result unchanged. `checks: write` is the scope for the check run. `.github/workflows/checkowners.yml` is a reusable workflow for the composite action.
 - `checkowners diff SPEC` and `checkowners suggest --diff SPEC` report ownership impact and reviewer routing for the changed paths. `suggest --pr N` reads the pull request file list and does not request reviewers. `--diff-only SPEC` limits read-only analysis commands to those paths and does not replace the repository cache. Recommendations carry per-signal evidence. A high review-load band demotes someone only when the load signal is completed reviews or caller-supplied counts.
@@ -36,6 +37,7 @@ Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0]
 - `ROADMAP.md`, `docs/ACTION_ITEMS.md`, and `docs/PROJECT_STATE_AND_ROADMAP.md` are removed, and release planning now lives in the issue tracker.
 
 ### Fixed
+- Path globs and `paths.exclude` treat `\` and `/` as the same separator and stay case-sensitive on every operating system.
 - Git path output is read as UTF-8 with quoting disabled, `CHECKOWNERS_STATE_DIR` expands a leading tilde, and Git older than 2.23.0 exits 4 with the version to install.
 - `requirements-dev.lock` pins `colorama` 0.4.6 on Windows so hashed installs satisfy pytest there.
 - Concurrent handle-cache writes take an in-process lock, and a Windows file lock when another process may write the same cache.

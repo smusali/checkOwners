@@ -20,6 +20,7 @@ from checkowners.analyze import (
     _BODY_END,
     _BODY_START,
     _COMMIT_SENTINEL,
+    FREQUENCY_SHRINKAGE_PRIOR,
     MIN_GIT_VERSION,
     SOURCE_DATE_EPOCH_ENV,
     Contribution,
@@ -30,8 +31,11 @@ from checkowners.analyze import (
     _blame_inputs_token,
     _BlamePass,
     _blob_shas,
+    _clamp,
+    _classify_freshness,
     _detect_decay,
     _display_ignore_revs_path,
+    _elapsed_days,
     _existing_file,
     _filter_excluded,
     _filter_nonexistent,
@@ -41,6 +45,7 @@ from checkowners.analyze import (
     _git_baseline_reason,
     _git_stdout,
     _gitattributes_pattern_matches,
+    _historical_expertise,
     _insufficient_history,
     _is_ancestor,
     _is_excluded,
@@ -51,6 +56,7 @@ from checkowners.analyze import (
     _parse_blame_output,
     _parse_gitattributes,
     _parse_log_output,
+    _qualify_authors,
     _RawCommit,
     _recency_score,
     _rename_commit_shas,
@@ -66,6 +72,7 @@ from checkowners.analyze import (
     combine_available_signals,
     consume_analysis_outcome,
     effective_half_life,
+    frequency_prior_for,
     gather_blame_coverage,
     head_commit_datetime,
     head_commit_sha,
@@ -692,6 +699,224 @@ def test_recency_score_decays_exponentially() -> None:
 
 def test_recency_score_zero_half_life_returns_one() -> None:
     assert _recency_score(_NOW - timedelta(days=10), _NOW, 0) == 1.0
+
+
+def test_recency_score_one_day_half_life_is_one_half() -> None:
+    aged = _recency_score(_NOW - timedelta(seconds=86400), _NOW, 1)
+    assert aged == pytest.approx(0.5)
+
+
+def test_clamp_and_frequency_stay_inside_the_unit_interval() -> None:
+    assert _clamp(1.5) == 1.0
+    assert _clamp(-0.2) == 0.0
+    assert _frequency_score(3, 2) == 1.0
+    assert _frequency_score(1, 4) == pytest.approx(0.25)
+
+
+def test_elapsed_days_counts_whole_utc_days() -> None:
+    assert _elapsed_days(_NOW, _NOW) == 0
+    assert _elapsed_days(_NOW + timedelta(seconds=30), _NOW) == 0
+    assert _elapsed_days(_NOW - timedelta(seconds=86400), _NOW) == 1
+
+
+def test_historical_expertise_is_the_share_of_commits() -> None:
+    assert _historical_expertise(0, 0) == 0.0
+    assert _historical_expertise(1, 0) == 1.0
+    assert _historical_expertise(3, 1) == pytest.approx(0.75)
+
+
+def test_freshness_uses_exact_boundaries_and_status_names() -> None:
+    tied = Contribution(commits=2, last_commit=_NOW, credit=2.0, later_commits=2)
+    superseded = Contribution(commits=2, last_commit=_NOW, credit=2.0, later_commits=3)
+    quiet = Contribution(commits=2, last_commit=_NOW, credit=2.0)
+    recent = Contribution(commits=2, last_commit=_NOW, credit=2.0, cadence_days=10.0)
+
+    def status(
+        contrib: Contribution,
+        *,
+        days: int,
+        path_last: datetime = _NOW,
+    ) -> str:
+        return _classify_freshness(
+            contrib,
+            days=days,
+            half_life_days=10.0,
+            path_last=path_last,
+            ceiling_days=30,
+            threshold_days=180,
+        )
+
+    assert status(tied, days=0) == "stable"
+    assert status(superseded, days=0) == "superseded"
+    assert status(quiet, days=180) == "stable"
+    assert status(quiet, days=181) == "inactive"
+    assert status(recent, days=10) == "stable"
+    assert status(recent, days=10, path_last=_NOW - timedelta(days=1)) == "stable"
+    assert status(recent, days=11, path_last=_NOW - timedelta(days=1)) == "inactive"
+    assert status(recent, days=30) == "stable"
+
+
+def test_qualification_and_frequency_prior_follow_the_strategy() -> None:
+    author = Contribution(commits=0, last_commit=_NOW, credit=0.0)
+    authors = {"ada": author}
+    assert (
+        _qualify_authors(
+            authors,
+            min_commits=1,
+            strategy="threshold",
+            path_blame={"ada": 1.0},
+            blame_override=0.5,
+        )
+        == {}
+    )
+    assert "ada" in _qualify_authors(
+        authors,
+        min_commits=1,
+        strategy="adaptive",
+        path_blame={"ada": 0.5},
+        blame_override=0.5,
+    )
+    assert (
+        _qualify_authors(
+            authors,
+            min_commits=1,
+            strategy="adaptive",
+            path_blame={},
+            blame_override=0.5,
+        )
+        == {}
+    )
+    assert frequency_prior_for("adaptive") == FREQUENCY_SHRINKAGE_PRIOR
+    assert frequency_prior_for("threshold") == 0.0
+
+
+def test_fixed_half_life_ignores_cadence() -> None:
+    scoring = ScoringConfig(recency_strategy="fixed", recency_half_life_days=90)
+    assert effective_half_life(3.0, scoring) == 90.0
+
+
+def test_missing_signal_weights_do_not_invent_a_score() -> None:
+    empty_score, empty_quality = combine_available_signals({}, {}, {})
+    assert empty_score == 0.0
+    assert empty_quality == 0.0
+    unknown_score, unknown_quality = combine_available_signals({"mystery": (1.0, True)}, {}, {})
+    assert unknown_score == 0.0
+    assert unknown_quality == 0.0
+    score, quality = combine_available_signals(
+        {"known": (0.0, False), "mystery": (1.0, True)},
+        {"known": 1.0, "mystery": 1.0},
+        {"known": 1.0},
+    )
+    assert score == pytest.approx(1.0)
+    assert quality == pytest.approx(0.5)
+    scaled, scaled_quality = combine_available_signals(
+        {"recency": (1.0, True)},
+        {"recency": 1.0},
+        {"recency": 0.5},
+    )
+    assert scaled == pytest.approx(1.0)
+    assert scaled_quality == pytest.approx(0.5)
+
+
+def test_score_owners_locks_defaults_and_unavailable_signals() -> None:
+    scoring = ScoringConfig(
+        recency_strategy="fixed",
+        recency_half_life_days=90,
+        recency_weight=0.25,
+        frequency_weight=0.25,
+        blame_weight=0.25,
+        review_weight=0.25,
+        recency_reliability=0.5,
+        frequency_reliability=0.5,
+        blame_reliability=0.5,
+        review_reliability=0.5,
+    )
+    current = Contribution(commits=2, last_commit=_NOW, credit=2.0)
+    scored = score_owners(
+        {"ada": current},
+        {},
+        {},
+        max_commits=2,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=True,
+        review_available=True,
+    )
+    entry = scored[0]
+    assert entry.commits == 2
+    assert entry.last_commit == _NOW
+    assert entry.evidence_quality == pytest.approx(0.5)
+    assert entry.freshness is not None
+    assert entry.freshness.status == "stable"
+    assert entry.freshness.half_life_days == 90.0
+    assert entry.freshness.historical_expertise == 1.0
+    assert entry.freshness.maintenance_recency == pytest.approx(1.0)
+    assert entry.score_breakdown is not None
+    assert entry.score_breakdown.total == pytest.approx(entry.ownership_score)
+    assert entry.score_breakdown.blame.score == 0.0
+    assert entry.score_breakdown.review.score == 0.0
+    assert entry.score_breakdown.frequency.score == pytest.approx(1.0)
+
+    hidden = score_owners(
+        {"ada": current},
+        {"ada": 1.0},
+        {"ada": 1.0},
+        max_commits=2,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=False,
+        review_available=False,
+    )
+    assert hidden[0].score_breakdown is not None
+    assert hidden[0].score_breakdown.blame.score == 0.0
+    assert hidden[0].score_breakdown.review.score == 0.0
+
+    aged = Contribution(commits=2, last_commit=_NOW - timedelta(days=181), credit=2.0)
+    aged_score = score_owners(
+        {"ada": aged},
+        {},
+        {},
+        max_commits=2,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=False,
+        review_available=False,
+    )
+    assert aged_score[0].freshness is not None
+    assert aged_score[0].freshness.status == "inactive"
+
+    shrunk = score_owners(
+        {"ada": current},
+        {},
+        {},
+        max_commits=2,
+        scoring=scoring,
+        now=_NOW,
+        blame_available=False,
+        review_available=False,
+        frequency_prior=3.0,
+    )
+    assert shrunk[0].score_breakdown is not None
+    assert shrunk[0].score_breakdown.frequency.score == pytest.approx(2 / 5)
+
+    maintained = Contribution(
+        commits=2,
+        last_commit=_NOW - timedelta(days=20),
+        credit=2.0,
+        cadence_days=10.0,
+    )
+    maintained_score = score_owners(
+        {"ada": maintained},
+        {},
+        {},
+        max_commits=2,
+        scoring=ScoringConfig(recency_strategy="adaptive"),
+        now=_NOW,
+        blame_available=False,
+        review_available=False,
+    )
+    assert maintained_score[0].freshness is not None
+    assert maintained_score[0].freshness.status == "stable"
 
 
 @given(

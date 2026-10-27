@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fnmatch
 import hashlib
 import json
 import math
@@ -24,7 +23,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Literal
 
-from checkowners.expertise import path_matches_glob
+from checkowners.expertise import fnmatch_posix, path_matches_glob
 from checkowners.github import (
     collection_gaps,
     reset_review_window,
@@ -1875,7 +1874,7 @@ def _filter_unqualified(
 
 
 def _is_excluded(path: str, patterns: tuple[str, ...]) -> bool:
-    return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+    return any(fnmatch_posix(path, pattern) for pattern in patterns)
 
 
 def _parse_attribute_token(token: str) -> tuple[str, bool] | None:

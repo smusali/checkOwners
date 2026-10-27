@@ -11,7 +11,17 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from checkowners.patterns import match_path, parse_rules, pattern_matches
+from checkowners.analyze import _is_excluded
+from checkowners.change import _matches_exclude
+from checkowners.patterns import (
+    CodeownersMarkerError,
+    marker_layout,
+    match_path,
+    parse_rules,
+    pattern_matches,
+    rules_with_source,
+    strip_inline_comment,
+)
 from checkowners.validate import validate_codeowners
 from tests.codeowners_reference import reference_matches
 from tests.conftest import GitRepo, script_regression_repo
@@ -82,6 +92,19 @@ class RealWorldCase(TypedDict):
     path: str
     text: str
     parse_sha256: str
+
+
+class WindowsPathCase(TypedDict):
+    pattern: str
+    path: str
+    match: bool
+    exclude: bool
+
+
+class WindowsRuleCase(TypedDict):
+    content: str
+    path: str
+    owners: tuple[str, ...] | None
 
 
 def _json_object(line: str) -> dict[str, object]:
@@ -217,6 +240,211 @@ def test_compatibility_rule(case: RuleCase, tmp_path: Path) -> None:
     target = tmp_path / "CODEOWNERS"
     target.write_text(case["content"], encoding="utf-8")
     assert validate_codeowners(tmp_path, codeowners_path=target)
+
+
+_WINDOWS_PATHS: tuple[WindowsPathCase, ...] = (
+    {
+        "pattern": "src/*",
+        "path": "src/file.py",
+        "match": True,
+        "exclude": True,
+    },
+    {
+        "pattern": "src/*",
+        "path": "src/a/b.py",
+        "match": False,
+        "exclude": True,
+    },
+    {
+        "pattern": "src/*",
+        "path": "src\\file.py",
+        "match": False,
+        "exclude": True,
+    },
+    {
+        "pattern": "src/*",
+        "path": "src/sub\\file.py",
+        "match": True,
+        "exclude": True,
+    },
+    {
+        "pattern": "*.py",
+        "path": "src\\file.py",
+        "match": True,
+        "exclude": True,
+    },
+    {
+        "pattern": "*.py",
+        "path": "C:/src/file.py",
+        "match": True,
+        "exclude": True,
+    },
+    {
+        "pattern": "*.py",
+        "path": "C:\\src\\file.py",
+        "match": True,
+        "exclude": True,
+    },
+    {
+        "pattern": "src/*",
+        "path": "C:\\src\\file.py",
+        "match": False,
+        "exclude": False,
+    },
+    {
+        "pattern": "src/*",
+        "path": "C:/src/file.py",
+        "match": False,
+        "exclude": False,
+    },
+    {
+        "pattern": "*.py",
+        "path": "\\\\server\\share\\file.py",
+        "match": True,
+        "exclude": True,
+    },
+    {
+        "pattern": "src/*",
+        "path": "\\\\server\\share\\file.py",
+        "match": False,
+        "exclude": False,
+    },
+    {
+        "pattern": "dir/file.py",
+        "path": "Dir/File.py",
+        "match": False,
+        "exclude": False,
+    },
+    {
+        "pattern": "*.py",
+        "path": "Dir/File.PY",
+        "match": False,
+        "exclude": False,
+    },
+)
+
+
+_WINDOWS_RULES: tuple[WindowsRuleCase, ...] = (
+    {
+        "content": "* @alice\n",
+        "path": "C:\\src\\a.py",
+        "owners": ("@alice",),
+    },
+    {
+        "content": "* @alice\n",
+        "path": "\\\\server\\share\\a.py",
+        "owners": ("@alice",),
+    },
+    {
+        "content": "src/* @alice\n",
+        "path": "src\\file.py",
+        "owners": None,
+    },
+    {
+        "content": "*.py @alice\n",
+        "path": "Dir/File.PY",
+        "owners": None,
+    },
+)
+
+
+_WINDOWS_PATH_IDS = (
+    "forward-slash-child",
+    "forward-slash-nested",
+    "backslash",
+    "mixed",
+    "backslash-star",
+    "drive-forward",
+    "drive-backslash",
+    "drive-backslash-rooted",
+    "drive-forward-rooted",
+    "unc-star",
+    "unc-rooted",
+    "case-path",
+    "case-extension",
+)
+
+_WINDOWS_RULE_IDS = (
+    "star-drive",
+    "star-unc",
+    "rooted-backslash",
+    "case-extension",
+)
+
+
+@pytest.mark.parametrize("case", _WINDOWS_PATHS, ids=_WINDOWS_PATH_IDS)
+def test_windows_path_corpus(case: WindowsPathCase) -> None:
+    assert pattern_matches(case["pattern"], case["path"]) is case["match"]
+    assert _is_excluded(case["path"], (case["pattern"],)) is case["exclude"]
+    assert _matches_exclude(case["path"], (case["pattern"],)) is case["exclude"]
+
+
+@pytest.mark.parametrize("case", _WINDOWS_RULES, ids=_WINDOWS_RULE_IDS)
+def test_windows_path_owners(case: WindowsRuleCase) -> None:
+    matched = match_path(parse_rules(case["content"]), case["path"])
+    if case["owners"] is None:
+        assert matched is None
+    else:
+        assert matched is not None
+        assert matched.owners == case["owners"]
+
+
+def test_pattern_matches_rejects_degenerate_forms_and_keeps_literals() -> None:
+    assert pattern_matches("***", "file") is False
+    assert pattern_matches("X", "X") is True
+    assert pattern_matches("docsX/", "docsX/a") is True
+    assert pattern_matches("a/**/c", "a/xc") is False
+    assert pattern_matches("a/*/c", "a//c") is False
+    assert pattern_matches(r"\**", "*a") is True
+
+
+def test_bracket_patterns_and_slash_stripping_do_not_invent_owners() -> None:
+    assert match_path(parse_rules("foo[ @alice\n"), "foo[") is None
+    assert match_path(parse_rules("foo] @alice\n"), "foo]") is None
+    rooted = match_path(parse_rules("* @alice\n"), "/foo")
+    assert rooted is not None
+    assert rooted.owners == ("@alice",)
+    literal = match_path(parse_rules("Xfoo @alice\n"), "Xfoo")
+    assert literal is not None
+    assert literal.owners == ("@alice",)
+
+
+def test_strip_inline_comment_cuts_at_the_first_spaced_hash() -> None:
+    assert strip_inline_comment("  # comment") == ""
+    assert strip_inline_comment("a # b # c") == "a"
+    assert strip_inline_comment("keep") == "keep"
+
+
+def test_marker_layout_reports_manual_text_and_marker_locations() -> None:
+    unmarked = marker_layout("* @alice\n")
+    assert unmarked.manual == ""
+    assert unmarked.marked is False
+
+    content = "preamble\n# checkowners:manual:start\nkeep @alice\n# checkowners:manual:end\n"
+    layout = marker_layout(content)
+    assert layout.marked is True
+    assert layout.manual.startswith("# checkowners:manual:start")
+    assert "preamble" not in layout.manual
+    assert "keep @alice" in layout.manual
+
+    with pytest.raises(CodeownersMarkerError, match=r"manual:end at line 1"):
+        marker_layout("# checkowners:manual:end\n")
+    with pytest.raises(CodeownersMarkerError, match=r"manual:start at line 3"):
+        marker_layout(
+            "# checkowners:manual:start\n# checkowners:manual:end\n# checkowners:manual:start\n"
+        )
+    with pytest.raises(CodeownersMarkerError, match=r"generated:start at line 2"):
+        marker_layout("# checkowners:manual:start\n# checkowners:generated:start\n")
+    with pytest.raises(CodeownersMarkerError, match=r"manual:start at line 2"):
+        marker_layout("# checkowners:manual:start\n# checkowners:manual:start\n")
+    with pytest.raises(CodeownersMarkerError, match=r"manual:start at line 1"):
+        marker_layout("# checkowners:manual:start\n* @alice\n")
+
+
+def test_rules_outside_a_marker_block_stay_unmarked() -> None:
+    content = "# checkowners:manual:start\nkeep @alice\n# checkowners:manual:end\n* @bob\n"
+    sources = {rule.pattern: rule.source for rule in rules_with_source(content)}
+    assert sources == {"keep": "manual", "*": "unmarked"}
 
 
 def test_realworld_corpus_parses_and_is_licensed() -> None:

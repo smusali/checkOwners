@@ -43,35 +43,188 @@ jobs:
       - name: Extended fuzz
         run: pytest tests/test_patterns.py -k "not git_ls"
 
-      - name: Mutation score
-        env:
-          HYPOTHESIS_PROFILE: ci
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      issues: write
+    env:
+      HYPOTHESIS_PROFILE: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install locked dependencies
         run: |
           set -euo pipefail
-          mutmut run
+          for attempt in 1 2 3 4 5; do
+            if python -m pip install --require-hashes -r requirements-dev.lock \
+              && python -m pip install -e . --no-deps; then
+              exit 0
+            fi
+            echo "pip install failed (attempt ${attempt}); retrying"
+            sleep $((attempt * 8))
+          done
+          exit 1
+
+      - name: Mutation scores
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          rm -rf mutants
           python - << 'PY'
+          import fnmatch
           import json
+          import os
+          import subprocess
           from pathlib import Path
 
-          meta_path = Path("mutants/checkowners/patterns.py.meta")
-          meta = json.loads(meta_path.read_text(encoding="utf-8"))
-          codes = meta["exit_code_by_key"]
-          killed = sum(code in (1, 3, 37) for code in codes.values())
-          survived = sum(code == 0 for code in codes.values())
-          scored = killed + survived
-          if scored == 0:
-              raise SystemExit("patterns.py produced no scored mutants")
-          score = 100 * killed / scored
-          print(f"mutation score {score:.1f} ({killed} killed, {survived} survived)")
-          if score < 90:
-              raise SystemExit("mutation score is below 90")
+          KILLED = {1, 3, 37}
+          FLOOR = {"patterns.py": 90.0}
+          SCOPES = (
+              ("patterns.py", "patterns.py", ("checkowners.patterns.x*",)),
+              ("drift.py", "drift.py", ("checkowners.drift.x*",)),
+              ("generate.py", "generate.py", ("checkowners.generate.x*",)),
+              (
+                  "analyze.py scoring",
+                  "analyze.py",
+                  (
+                      "checkowners.analyze.x_combine_available_signals*",
+                      "checkowners.analyze.x_signal_weights*",
+                      "checkowners.analyze.x_signal_reliabilities*",
+                      "checkowners.analyze.x_frequency_prior_for*",
+                      "checkowners.analyze.x__qualify_authors*",
+                      "checkowners.analyze.x_score_owners*",
+                      "checkowners.analyze.x_effective_half_life*",
+                      "checkowners.analyze.x__as_days*",
+                      "checkowners.analyze.x__bounded_half_life*",
+                      "checkowners.analyze.x__historical_expertise*",
+                      "checkowners.analyze.x__classify_freshness*",
+                      "checkowners.analyze.x__recency_score*",
+                      "checkowners.analyze.x__elapsed_days*",
+                      "checkowners.analyze.x_frequency_credit*",
+                      "checkowners.analyze.x__frequency_score*",
+                      "checkowners.analyze.x__clamp*",
+                  ),
+              ),
+              (
+                  "github.py identity",
+                  "github.py",
+                  (
+                      "checkowners.github.x_resolve_noreply_handle*",
+                      "checkowners.github.x_resolve_handles*",
+                      "checkowners.github.x__cached_handle*",
+                      "checkowners.github.x__rate_remaining*",
+                      "checkowners.github.x__search_budget_allows*",
+                      "checkowners.github.x__lookup_handle*",
+                  ),
+              ),
+          )
+
+          run_failed = False
+          for label, _filename, globs in SCOPES:
+              print(f"== {label}", flush=True)
+              completed = subprocess.run(["mutmut", "run", *globs], check=False)
+              if completed.returncode != 0:
+                  run_failed = True
+                  print(f"{label} mutmut run exited {completed.returncode}", flush=True)
+
+          lines = ["## Mutation scores", ""]
+          run_url = os.environ.get("RUN_URL", "")
+          if run_url:
+              lines.append(f"Run: {run_url}")
+              lines.append("")
+          lines.append(
+              "Score is `100 * killed / (killed + survived)`. "
+              "Killed exit codes are 1, 3, and 37. Timeouts are reported and left out of the score."
+          )
+          lines.append("")
+          floor_failed = False
+          for label, filename, globs in SCOPES:
+              meta_path = Path("mutants/checkowners") / f"{filename}.meta"
+              if not meta_path.is_file():
+                  lines.append(f"- {label}: no results")
+                  floor_failed = True
+                  continue
+              meta = json.loads(meta_path.read_text(encoding="utf-8"))
+              codes = meta["exit_code_by_key"]
+              scoped = {
+                  key: code
+                  for key, code in codes.items()
+                  if any(fnmatch.fnmatch(key, pattern) for pattern in globs)
+              }
+              killed = sum(code in KILLED for code in scoped.values())
+              survived = sum(code == 0 for code in scoped.values())
+              other = sum(code not in KILLED and code not in (0, None) for code in scoped.values())
+              scored = killed + survived
+              if scored == 0:
+                  lines.append(f"- {label}: no scored mutants ({other} other)")
+                  floor_failed = True
+                  continue
+              score = 100 * killed / scored
+              floor = FLOOR.get(filename)
+              floor_text = ""
+              if floor is not None:
+                  if score < floor:
+                      floor_failed = True
+                      floor_text = f". Floor {floor:.0f} failed"
+                  else:
+                      floor_text = f". Floor {floor:.0f} passed"
+              lines.append(
+                  f"- {label}: {score:.1f} "
+                  f"(killed {killed}, survived {survived}, other {other}){floor_text}"
+              )
+              print(
+                  f"{label} mutation score {score:.1f} "
+                  f"({killed} killed, {survived} survived, {other} other)",
+                  flush=True,
+              )
+
+          summary = "\n".join(lines) + "\n"
+          Path("mutants/mutation-summary.md").write_text(summary, encoding="utf-8")
+          print(summary, flush=True)
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step_summary:
+              with Path(step_summary).open("a", encoding="utf-8") as handle:
+                  handle.write(summary)
+          if run_failed or floor_failed:
+              raise SystemExit("mutation run failed or a score floor was missed")
           PY
 
-      - name: Upload fuzz log
-        if: failure()
+      - name: Publish mutation scores
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          summary="mutants/mutation-summary.md"
+          if [ ! -f "$summary" ]; then
+            echo "no mutation summary to publish"
+            exit 0
+          fi
+          title="Mutation scores"
+          number="$(gh issue list --state open --limit 20 --search "Mutation scores in:title" \
+            --json number,title \
+            --jq '[.[] | select(.title == "Mutation scores") | .number][0] // empty')"
+          if [ -z "$number" ]; then
+            gh issue create --title "$title" --body-file "$summary"
+          else
+            gh issue edit "$number" --body-file "$summary"
+          fi
+
+      - name: Upload mutation results
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
-          name: fuzz-failure
+          name: mutation-scores
           path: |
-            mutants/checkowners/patterns.py.meta
+            mutants/mutation-summary.md
+            mutants/checkowners/*.meta
           if-no-files-found: ignore

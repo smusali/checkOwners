@@ -154,10 +154,24 @@ branch = true
 show_missing = true
 
 [tool.mutmut]
-source_paths = ["checkowners/patterns.py"]
+source_paths = [
+    "checkowners/patterns.py",
+    "checkowners/analyze.py",
+    "checkowners/drift.py",
+    "checkowners/generate.py",
+    "checkowners/github.py",
+]
 also_copy = ["corpus", "checkowners"]
-pytest_add_cli_args = ["--no-cov"]
-pytest_add_cli_args_test_selection = ["tests/test_patterns.py", "-k", "not git_ls"]
+pytest_add_cli_args = ["--no-cov", "-m", "not integration"]
+pytest_add_cli_args_test_selection = [
+    "tests/test_patterns.py",
+    "tests/test_analyze.py",
+    "tests/test_drift.py",
+    "tests/test_generate.py",
+    "tests/test_github.py",
+    "-k",
+    "not git_ls",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "tools"]

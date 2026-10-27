@@ -1,5 +1,3 @@
-"""Contributor identity graph, status, and bot classification."""
-
 from __future__ import annotations
 
 import re
@@ -7,7 +5,6 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
 
 from checkowners.expertise import path_matches_glob
 from checkowners.models import (
@@ -29,7 +26,6 @@ _MECHANICAL_PREFIXES = ("bump", "chore(deps)", "dependabot", "automated")
 _BOT_LOCAL_PARTS = frozenset({"dependabot", "renovate", "github-actions", "release-please"})
 _SHA_RE = re.compile(r"\b[0-9a-f]{7,}\b", re.IGNORECASE)
 _VERSION_RE = re.compile(r"\d+(?:\.\d+)*")
-_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -134,13 +130,6 @@ def is_bot_identity(identity: str, extra: Sequence[str] = ()) -> bool:
     return local in _BOT_LOCAL_PARTS
 
 
-def without_bot_authors(authors: Mapping[str, _T], extra: Sequence[str] = ()) -> dict[str, _T]:
-    """Return `authors` with bot identities removed."""
-    return {
-        author: value for author, value in authors.items() if not is_bot_identity(author, extra)
-    }
-
-
 def subject_template(subject: str) -> str:
     """Return `subject` with commit SHAs and version numbers removed."""
     stripped = _SHA_RE.sub("", subject.casefold())
@@ -239,7 +228,6 @@ def assign_status(
         is_bot_identity(identity, bot_identities)
         or account_type == "Bot"
         or committer_type == "Bot"
-        or identity.casefold().endswith("[bot]")
     ):
         return "bot"
     if org_members is not None and identity.startswith("@"):
@@ -248,10 +236,9 @@ def assign_status(
         if login in members:
             return _activity_status(last_commit, as_of, threshold_days) or "inactive"
         return "external"
-    if org_members is None or not identity.startswith("@"):
-        activity = _activity_status(last_commit, as_of, threshold_days)
-        if activity is not None:
-            return activity
+    activity = _activity_status(last_commit, as_of, threshold_days)
+    if activity is not None:
+        return activity
     return "unknown"
 
 
@@ -357,7 +344,7 @@ def probable_duplicates(
     records: Sequence[ContributorRecord],
     separations: tuple[tuple[str, str], ...] = (),
 ) -> tuple[DuplicateGroup, ...]:
-    """Return probable duplicate pairs. Separated and already-merged pairs are omitted."""
+    """Return probable duplicate pairs among `records`, skipping `separations`."""
     found: list[DuplicateGroup] = []
     items = list(records)
     for index, left in enumerate(items):
@@ -535,11 +522,8 @@ def _roster_status(
 
 
 def _same_identity(left: str, right: str) -> bool:
-    if left.casefold() == right.casefold():
-        return True
-    if left.casefold().lstrip("@") == right.casefold().lstrip("@") and left.lstrip("@"):
-        return True
-    return is_email(left) and is_email(right) and stored_identity(left) == stored_identity(right)
+    folded = left.casefold().lstrip("@")
+    return bool(folded) and folded == right.casefold().lstrip("@")
 
 
 def _index_hits(hits: Mapping[str, HandleHit]) -> dict[str, HandleHit]:

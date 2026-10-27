@@ -52,16 +52,19 @@ from checkowners.state import (
     cache_info,
     cache_purge,
     config_hash,
+    handle_cache_path,
     load_hysteresis,
     load_ownership,
     read_graph_cache,
     read_handle_cache,
     read_history_baseline,
+    read_json_file,
     read_state,
     repository_identity,
     reusable_ownership,
     write_graph_cache,
     write_handle_cache,
+    write_json_file,
     write_state,
 )
 from tests.conftest import git_commit, init_git_repo
@@ -1396,3 +1399,37 @@ def test_history_baseline_rejects_bad_fields(repo: Path) -> None:
     assert _parse_blame_map({"src/app.py": {"blob_sha": "abc", "lines": {sha: -1}}}) is None
     assert _history_payload(None, None) is None
     assert _history_payload(None, {"history": "nope"}) is None
+
+
+def test_handle_cache_and_json_files_drop_malformed_values(tmp_path: Path) -> None:
+    path = handle_cache_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "alice@example.com": "@alice",
+                "email:dead": "",
+                "n": 1,
+                "bad-handle": {"handle": 1},
+                "bad-source": {"handle": "@a", "source": 1, "account_type": 2, "expires_at": 3},
+                "empty": {"handle": "", "expires_at": ""},
+                "miss": {"handle": "", "expires_at": "9999-01-01T00:00:00+00:00"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = read_handle_cache(tmp_path)
+    handles = {entry.handle: entry for entry in loaded.values()}
+    assert handles["@alice"].source == ""
+    assert handles["@a"].source == ""
+    assert handles["@a"].account_type == ""
+    assert any(entry.expires_at.startswith("9999") for entry in loaded.values())
+    missing = tmp_path / "missing.json"
+    assert read_json_file(missing) is None
+    write_json_file(missing, {"ok": True})
+    assert read_json_file(missing) == {"ok": True}
+    missing.write_text("[1]", encoding="utf-8")
+    assert read_json_file(missing) is None
+    legacy = handle_cache_path(tmp_path).parents[1] / "handles.json"
+    legacy.write_text("{}", encoding="utf-8")
+    assert cache_info()["handles"] is True

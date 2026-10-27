@@ -1115,3 +1115,22 @@ def test_github_output_writes_the_sorted_summary(tmp_path: Path) -> None:
             assert omitted["generated_at"] == ""
     finally:
         clear_api_evidence()
+
+
+def test_former_owners_appear_in_drift_payload_and_reconciliation() -> None:
+    entry = DriftEntry(
+        path="src/a.py",
+        confidence_delta=0.4,
+        reason="owners changed",
+        owners=("@alice",),
+        observed_owners=("@bob",),
+        former_owners=("@carol",),
+    )
+    payload = drift_entry_payload(entry, 3, Config())
+    assert payload["former_owners"] == ["@carol"]
+    body = reconciliation_body(
+        DriftResult(stale=(), missing=(), changed=(entry,), drift_detected=True),
+        OwnershipMap(paths={}, last_analyzed=_NOW),
+        Config(),
+    )
+    assert "Former contributors: @carol" in body

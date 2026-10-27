@@ -303,7 +303,7 @@ def resolve_handle_details(
     overrides: Mapping[str, str] | None = None,
     ttl: int | None = None,
 ) -> dict[str, HandleHit]:
-    """Return the handle hit for each resolved email. `repo_root` None skips the cache."""
+    """Return the handle hit for each resolved email. `repo_root` selects the cache."""
     configured = overrides or {}
     shas = author_shas or {}
     resolved: dict[str, HandleHit] = {}

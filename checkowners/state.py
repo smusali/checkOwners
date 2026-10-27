@@ -740,7 +740,7 @@ def _parse_handle_cache(
     parsed: dict[str, HandleCacheEntry] = {}
     changed = False
     for key, value in data.items():
-        token = stored_identity(str(key))
+        token = stored_identity(key)
         if token != key:
             changed = True
         entry = _handle_entry(value)

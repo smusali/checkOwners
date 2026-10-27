@@ -11,6 +11,7 @@ import yaml
 
 from checkowners.config import (
     _build_suppressions,
+    _is_string_tuple,
     find_codeowners_path,
     load_config,
 )
@@ -742,3 +743,70 @@ def test_suppression_builder_rejects_non_lists() -> None:
     assert _build_suppressions(None) == ()
     with pytest.raises(ValueError, match="expected a YAML list"):
         _build_suppressions({})
+
+
+def test_identity_roster_and_bot_addresses_load(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        """
+identity:
+  negative_cache_ttl_days: 0
+  do_not_merge:
+    - [" @alice ", " @bob "]
+bots:
+  additional:
+    - " release@company.com "
+identities:
+  " alice ":
+    emails:
+      - " ada@example.com "
+    aliases:
+      - "Ada"
+    service_account: true
+contributors:
+  roster:
+    " @bob ": former
+""",
+    )
+    cfg = load_config(repo_root=root)
+    assert cfg.negative_cache_ttl_days == 0
+    assert cfg.identity_do_not_merge == (("@alice", "@bob"),)
+    assert cfg.bot_addresses == ("release@company.com",)
+    assert cfg.contributor_roster == (("@bob", "former"),)
+    handle, override = cfg.identity_overrides[0]
+    assert handle == "alice"
+    assert override.emails == ("ada@example.com",)
+    assert override.aliases == ("Ada",)
+    assert override.service_account is True
+    assert _is_string_tuple(("ada",))
+    assert not _is_string_tuple(("ada", 1))
+    assert not _is_string_tuple(["ada"])
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        ("identity:\n  negative_cache_ttl_days: true\n", "non-negative integer"),
+        ("identity:\n  negative_cache_ttl_days: -1\n", "non-negative integer"),
+        ("identity:\n  do_not_merge: nope\n", "must be a list"),
+        ("identity:\n  do_not_merge:\n    - [only]\n", "must be pairs"),
+        ("identity:\n  do_not_merge:\n    - [1, 2]\n", "non-empty strings"),
+        ("identity:\n  do_not_merge:\n    - [' ', bob]\n", "non-empty strings"),
+        ("bots:\n  additional: nope\n", "must be a list"),
+        ("bots:\n  additional:\n    - ' '\n", "non-empty strings"),
+        ("identities: []\n", "identities"),
+        ("identities:\n  ' ':\n    emails: []\n", "non-empty strings"),
+        ("identities:\n  ada: []\n", "identities.ada"),
+        ("identities:\n  ada:\n    extra: 1\n", "Unsupported"),
+        ("identities:\n  ada:\n    service_account: nope\n", "service_account"),
+        ("identities:\n  ada:\n    emails: nope\n", "must be a list"),
+        ("contributors:\n  roster: []\n", "must be a mapping"),
+        ("contributors:\n  roster:\n    ' ': former\n", "non-empty strings"),
+        ("contributors:\n  roster:\n    ada: 1\n", "Invalid contributors.roster"),
+        ("contributors:\n  roster:\n    ada: nope\n", "Invalid contributors.roster"),
+    ],
+)
+def test_identity_config_rejects_invalid_values(tmp_path: Path, content: str, match: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)

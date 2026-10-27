@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from checkowners.decay import detect_decay
@@ -182,3 +183,21 @@ def test_common_prefix_depth_adjacency() -> None:
     assert common_prefix_depth("src/auth/login.py", "src/auth/session.py") == 2
     assert common_prefix_depth("src/main.py", "src/util.py") == 1
     assert common_prefix_depth("src/main.py", "tests/test_main.py") == 0
+
+
+def test_detect_decay_marks_a_former_owner() -> None:
+    former = _entry("@alice", 0.3, _OLD)
+    ownership = OwnershipMap(
+        paths={
+            "src/auth.py": PathOwnership(
+                owners=(),
+                scored_owners=(),
+                candidates=(replace(former, contributor_status="former"),),
+                qualified_owner_count=0,
+                decay_warnings=(_make_warning("@alice", "src/auth.py"),),
+            ),
+        },
+        last_analyzed=_NOW,
+    )
+    reports = detect_decay(ownership, _zero_threshold())
+    assert reports[0].contributor_status == "former"

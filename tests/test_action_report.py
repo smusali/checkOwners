@@ -525,6 +525,28 @@ def test_reviewer_lines_skip_unusable_rows(tmp_path: Path, monkeypatch: pytest.M
     assert "because" in rendered
 
 
+def test_decay_lines_name_a_former_contributor() -> None:
+    lines, _truncated = knowledge_risk_lines(
+        {
+            "entries": [
+                {"path": "a.py", "contributors_above_threshold": ["@ada"]},
+                {"path": "b.py", "contributors_above_threshold": ["@bob"]},
+            ]
+        },
+        {
+            "reports": [
+                {
+                    "handle": "alice@example.com",
+                    "path": "src/a.py",
+                    "days_since_last_commit": 3,
+                    "contributor_status": "former",
+                }
+            ]
+        },
+    )
+    assert any("former contributor" in line for line in lines)
+
+
 def test_step_summary_ignores_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
     with patch("checkowners.action_report.Path.write_text", side_effect=OSError("no")):
         write_step_summary("hi")

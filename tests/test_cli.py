@@ -45,6 +45,8 @@ from checkowners.cli import (
     _api_gaps,
     _change_team_resolver,
     _days_since,
+    _decay_report_payload,
+    _decay_warning_json,
     _declared_owners,
     _emit_action_annotations,
     _emit_change,
@@ -58,6 +60,7 @@ from checkowners.cli import (
     _render_explanation,
     _render_ignore_revs_line,
     _render_risk,
+    _render_risk_entry,
     _repo_relative,
     _resolve_github_owners,
     _scrubbed,
@@ -80,7 +83,13 @@ from checkowners.generate import (
 )
 from checkowners.github import PullRequestFilesError, ReconciliationError, set_offline
 from checkowners.graph import GraphExtraMissingError
-from checkowners.identity import HandleHit
+from checkowners.identity import (
+    ContributorRecord,
+    HandleHit,
+    IdentityGraph,
+    load_identity_graph,
+    save_identity_graph,
+)
 from checkowners.models import (
     COMMAND_SCHEMA_VERSION,
     OWNERSHIP_MODEL_VERSION,
@@ -95,6 +104,7 @@ from checkowners.models import (
     ExpertiseRank,
     GitConfig,
     GithubConfig,
+    IdentityOverride,
     OutputConfig,
     OwnerDistribution,
     OwnerEntry,
@@ -3668,3 +3678,209 @@ def test_scoped_helpers_and_privacy_scrub(
     assert _change_team_resolver(Config(), tmp_path) is None
     monkeypatch.setattr("checkowners.cli.get_github_token", lambda: "")
     assert _change_team_resolver(Config(github=GithubConfig(org="acme")), tmp_path) is None
+
+
+def test_resolve_records_merges_and_keeps_search_labels(tmp_path: Path) -> None:
+    warning = DecayWarning(
+        handle="a@x.com",
+        path="a.py",
+        last_commit=_NOW,
+        days_since_last_commit=12,
+        historical_confidence=0.4,
+    )
+    ownership = OwnershipMap(
+        paths={
+            "a.py": PathOwnership(
+                owners=(_entry("a@x.com", 0.9), _entry("b@x.com", 0.4), _entry("bot@x.com", 0.2)),
+                qualified_owner_count=2,
+                decay_warnings=(warning,),
+                candidates=(_entry("bot@x.com", 0.1),),
+            )
+        },
+        last_analyzed=_NOW,
+        analysis_ref="abc",
+    )
+    hits = {
+        "a@x.com": HandleHit("@ada", "commit"),
+        "b@x.com": HandleHit("@ada", "commit"),
+        "seen@x.com": HandleHit("@seen", "search"),
+    }
+    with patch("checkowners.cli.resolve_handle_details", return_value=hits):
+        resolved = _resolve_github_owners(ownership, Config(), tmp_path)
+    assert resolved.paths["a.py"].owners[0].handle == "@ada"
+    assert load_identity_graph(tmp_path).audit
+    save_identity_graph(
+        tmp_path,
+        IdentityGraph(
+            contributors=(ContributorRecord(handle="@ada", aliases=("a@x.com", "b@x.com")),)
+        ),
+    )
+    with patch("checkowners.cli.resolve_handle_details", return_value=hits):
+        _resolve_github_owners(ownership, Config(), tmp_path)
+    assert load_identity_graph(tmp_path).audit == ()
+    search_only = OwnershipMap(
+        paths={
+            "a.py": PathOwnership(
+                owners=(_entry("seen@x.com"),),
+                qualified_owner_count=1,
+                decay_warnings=(replace(warning, handle="seen@x.com"),),
+            )
+        },
+        last_analyzed=_NOW,
+        analysis_ref="abc",
+    )
+    with patch("checkowners.cli.resolve_handle_details", return_value=hits):
+        labeled = _resolve_github_owners(search_only, Config(), tmp_path)
+    assert labeled.paths["a.py"].decay_warnings[0].handle == "seen@x.com"
+    bots = replace(
+        Config(),
+        github=GithubConfig(resolve_handles=False),
+        bot_addresses=("bot@x.com",),
+        analysis=replace(Config().analysis, exclude_bots=False),
+    )
+    kept = _resolve_github_owners(ownership, bots, tmp_path)
+    assert any(owner.handle == "bot@x.com" for owner in kept.paths["a.py"].owners)
+    dropped = _resolve_github_owners(
+        ownership,
+        replace(bots, analysis=replace(bots.analysis, exclude_bots=True)),
+        tmp_path,
+    )
+    assert all(owner.handle != "bot@x.com" for owner in dropped.paths["a.py"].owners)
+    service = replace(
+        Config(),
+        github=GithubConfig(resolve_handles=False),
+        identity_overrides=(("svc", IdentityOverride(service_account=True)),),
+        analysis=replace(Config().analysis, exclude_bots=False),
+    )
+    assert _resolve_github_owners(ownership, service, tmp_path).paths
+    org = replace(Config(), github=GithubConfig(org="acme"))
+    with (
+        patch("checkowners.cli.resolve_handle_details", return_value={}),
+        patch("checkowners.cli.organization_members", return_value=frozenset({"ada"})),
+    ):
+        _resolve_github_owners(
+            OwnershipMap(
+                paths={"a.py": PathOwnership(owners=(_entry("@ada"),), qualified_owner_count=1)},
+                last_analyzed=_NOW,
+                analysis_ref="abc",
+            ),
+            org,
+            tmp_path,
+        )
+    former = _entry("@ada")
+    payload = _decay_warning_json(
+        warning,
+        (replace(former, handle=warning.handle, contributor_status="former"),),
+    )
+    assert payload["contributor_status"] == "former"
+    report = DecayReport(warning=warning, recommended_transfer=None, contributor_status="former")
+    assert _decay_report_payload(report)["contributor_status"] == "former"
+    entry = RiskEntry(
+        path="a.py",
+        risk=10,
+        tier="low",
+        reason="",
+        factors=RiskFactors(
+            ownership_concentration=0.5,
+            change_frequency=None,
+            dependency_criticality=None,
+            code_criticality=None,
+            expertise_decay=None,
+        ),
+        truck_factor_50=1,
+        effective_owners=1.0,
+        dominant_expert=None,
+        dominant_share=None,
+        change_frequency_label=None,
+        former_knowledge_share=0.4,
+    )
+    _render_risk_entry(entry)
+
+
+def test_identity_commands_and_remove_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = Path.cwd()
+    monkeypatch.chdir(tmp_path)
+    quiet_git = MagicMock(returncode=0, stdout="")
+    with patch("checkowners.cli.run_git", return_value=quiet_git):
+        empty = runner.invoke(app, ["identity", "audit"])
+    assert empty.exit_code == 0, empty.output
+    assert "No probable duplicate identities." in empty.stdout
+    merged = runner.invoke(app, ["identity", "merge", "a@x.com", "b@x.com", "@ada"])
+    assert merged.exit_code == 0, merged.output
+    assert "Merged" in merged.stdout
+    missing = runner.invoke(app, ["identity", "unmerge", "c@x.com", "d@x.com"])
+    assert missing.exit_code == 2, missing.output
+    restored = runner.invoke(app, ["identity", "unmerge", "a@x.com", "b@x.com"])
+    assert restored.exit_code == 0, restored.output
+    save_identity_graph(
+        tmp_path,
+        IdentityGraph(
+            contributors=(
+                ContributorRecord(handle="@ada", names=("Ada",)),
+                ContributorRecord(handle="ada@x.com", names=("Ada",)),
+            )
+        ),
+    )
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "checkowners.yml").write_text(
+        "version: 1\nidentities:\n  ada:\n    emails:\n      - ada@x.com\n",
+        encoding="utf-8",
+    )
+    write_state(
+        tmp_path,
+        OwnershipMap(
+            paths={
+                "a.py": PathOwnership(
+                    owners=(_entry("@erin"),),
+                    candidates=(_entry("@frank"),),
+                    scored_owners=(_entry("@gina"),),
+                    qualified_owner_count=1,
+                )
+            },
+            last_analyzed=_NOW,
+            analysis_ref="oldsha",
+        ),
+        config=load_config(tmp_path),
+    )
+    stdout = MagicMock(returncode=0, stdout="not a pair\nada@x.com\tAda\n@ada\tAda\n\t\n")
+    with patch("checkowners.cli.run_git", return_value=stdout):
+        listed = runner.invoke(app, ["identity", "audit"])
+    assert listed.exit_code == 0, listed.output
+    assert "same author name" in listed.stdout
+    with patch("checkowners.cli.run_git", side_effect=OSError("no git")):
+        quiet = runner.invoke(app, ["identity", "audit", "--json"])
+    assert quiet.exit_code == 0, quiet.output
+    assert "duplicate_count" in quiet.stdout
+    (tmp_path / ".github" / "checkowners.yml").write_text(
+        "version: 1\noutput:\n  aggregate_only: true\n",
+        encoding="utf-8",
+    )
+    counted = runner.invoke(app, ["identity", "audit"])
+    assert counted.exit_code == 0, counted.output
+    assert "Probable duplicates:" in counted.stdout
+    monkeypatch.chdir(repo)
+    write_state(
+        repo,
+        replace(
+            _OWNERSHIP,
+            analysis_ref="oldsha",
+            paths={
+                "src/main.py": PathOwnership(
+                    owners=(replace(_entry("@ada"), contributor_status="former"),),
+                    qualified_owner_count=1,
+                )
+            },
+        ),
+        config=load_config(),
+    )
+    removed = runner.invoke(app, ["--allow-stale", "simulate", "--remove-status", "former"])
+    assert removed.exit_code == 0, removed.output
+    unknown = runner.invoke(app, ["--allow-stale", "simulate", "--remove-status", "nope"])
+    assert unknown.exit_code == 2, unknown.output
+    assert "Unknown contributor status" in unknown.output
+    nobody = runner.invoke(app, ["--allow-stale", "simulate", "--remove-status", "external"])
+    assert nobody.exit_code == 2, nobody.output
+    assert "at least one identity" in nobody.output

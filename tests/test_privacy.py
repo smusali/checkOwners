@@ -155,12 +155,12 @@ def test_state_stores_email_tokens(tmp_path: Path) -> None:
     assert email_token("alice@example.com") in text
 
 
-def test_handle_cache_rewrites_plaintext_keys() -> None:
-    target = write_handle_cache({})
+def test_handle_cache_rewrites_plaintext_keys(tmp_path: Path) -> None:
+    target = write_handle_cache(tmp_path, {})
     target.write_text(json.dumps({"alice@example.com": "@alice"}), encoding="utf-8")
-    cache = read_handle_cache()
+    cache = read_handle_cache(tmp_path)
     assert "alice@example.com" not in target.read_text(encoding="utf-8")
-    assert cache[email_token("alice@example.com")] == "@alice"
+    assert cache[email_token("alice@example.com")].handle == "@alice"
 
 
 @pytest.mark.parametrize("mode", ["anonymize", "aggregate_only"])

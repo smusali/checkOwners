@@ -116,7 +116,7 @@ The scopes are:
 
 - `patterns.py`, `drift.py`, and `generate.py`: every function. Local command: `mutmut run "checkowners.patterns.x*"`, and the same shape for `drift` and `generate`.
 - `analyze.py` scoring: `combine_available_signals`, `signal_weights`, `signal_reliabilities`, `frequency_prior_for`, `_qualify_authors`, `score_owners`, `effective_half_life`, `_as_days`, `_bounded_half_life`, `_historical_expertise`, `_classify_freshness`, `_recency_score`, `_elapsed_days`, `frequency_credit`, `_frequency_score`, and `_clamp`.
-- `github.py` identity: `resolve_noreply_handle`, `resolve_handles`, `_cached_handle`, `_rate_remaining`, `_search_budget_allows`, and `_lookup_handle`.
+- `github.py` identity: `resolve_noreply_handle`, `resolve_handles`, `_cached_handle`, `_rate_remaining`, `_search_budget_allows`, `_lookup_handle`, and `_lookup_commit_login`.
 
 A scoped local run passes those names as globs, for example `mutmut run "checkowners.analyze.x_score_owners*" "checkowners.analyze.x__clamp*"`.
 

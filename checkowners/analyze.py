@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -30,6 +30,7 @@ from checkowners.github import (
     review_was_omitted,
     review_window,
 )
+from checkowners.identity import bot_identities, is_bot_identity, mechanical_authors
 from checkowners.models import (
     AnalysisCompleteness,
     ConfidenceScore,
@@ -104,6 +105,9 @@ class _RawCommit:
     timestamp: datetime
     files: tuple[str, ...]
     coauthors: tuple[str, ...] = ()
+    sha: str = ""
+    subject: str = ""
+    author_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -115,6 +119,20 @@ class _ParsedCommit:
     contacts: tuple[tuple[str, str], ...]
     parent_count: int
     squash_subject: bool
+    author_name: str = ""
+    subject: str = ""
+
+
+@dataclass(frozen=True)
+class AuthorIndex:
+    shas: dict[str, str] = field(default_factory=dict)
+    names: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+_AUTHOR_INDEX: ContextVar[AuthorIndex | None] = ContextVar(
+    "checkowners_author_index",
+    default=None,
+)
 
 
 @dataclass(frozen=True)
@@ -341,6 +359,7 @@ def _analyze_ownership(
             tip=revision,
         )
     commits = history.commits
+    _AUTHOR_INDEX.set(_author_index(commits))
     contributions = _aggregate_contributions(
         commits,
         co_author_weight=config.git.co_author_weight,
@@ -360,8 +379,9 @@ def _analyze_ownership(
     contributions = _filter_excluded(contributions, config.paths.exclude)
     static_n = before_static - len(contributions)
     contributions = _filter_nonexistent(contributions, repo_root)
+    contributions = _cap_mechanical_authors(contributions, commits)
     if config.analysis.exclude_bots:
-        contributions = _filter_bot_authors(contributions)
+        contributions = _filter_bot_authors(contributions, bot_identities(config))
     if config.qualification.strategy == "threshold":
         contributions = _filter_unqualified(contributions, config.analysis.min_commits)
     if blame_runner is not None:
@@ -1133,10 +1153,19 @@ def _get_commit_history(
 
 
 def _history_log_format(use_mailmap: bool) -> str:
-    email_fmt = "%aE" if use_mailmap else "%ae"
-    return (
-        f"--format={_COMMIT_SENTINEL}%n%H%n{email_fmt}%n%cI%n%P%n%s%n{_BODY_START}%n%b%n{_BODY_END}"
-    )
+    author_fmt = "%aN%x09%aE" if use_mailmap else "%an%x09%ae"
+    prefix = f"--format={_COMMIT_SENTINEL}%n%H%n{author_fmt}%n%cI%n%P%n%s"
+    trailer = f"%n{_BODY_START}%n%b%n{_BODY_END}"
+    return prefix + trailer
+
+
+def consume_author_index() -> AuthorIndex:
+    """Return the author index from the latest analysis and clear it."""
+    current = _AUTHOR_INDEX.get()
+    _AUTHOR_INDEX.set(None)
+    if current is None:
+        return AuthorIndex()
+    return current
 
 
 def _parsed_commits(
@@ -1191,6 +1220,9 @@ def _history_from_records(
             timestamp=record.timestamp,
             files=record.files,
             coauthors=coauthors,
+            sha=record.sha,
+            subject=record.subject,
+            author_name=record.author_name,
         )
         for record, coauthors in zip(file_records, credited, strict=True)
     ]
@@ -1685,7 +1717,7 @@ def _parse_commit_chunk(chunk: str) -> _ParsedCommit | None:
     if len(lines) < 4:
         return None
     sha = lines[0].strip()
-    author = lines[1].strip()
+    author_name, author = _split_author(lines[1].strip())
     timestamp = _parse_timestamp(lines[2].strip())
     if timestamp is None or not author or _FULL_SHA_RE.fullmatch(sha) is None:
         return None
@@ -1699,7 +1731,48 @@ def _parse_commit_chunk(chunk: str) -> _ParsedCommit | None:
         contacts=coauthor_contacts(body),
         parent_count=len(lines[3].split()),
         squash_subject=_SQUASH_SUBJECT.search(subject) is not None,
+        author_name=author_name,
+        subject=subject,
     )
+
+
+def _split_author(line: str) -> tuple[str, str]:
+    if "\t" not in line:
+        return "", line
+    name, email = line.split("\t", 1)
+    return name.strip(), email.strip()
+
+
+def _author_index(commits: list[_RawCommit]) -> AuthorIndex:
+    shas: dict[str, str] = {}
+    names: dict[str, set[str]] = {}
+    for commit in commits:
+        if commit.sha:
+            shas.setdefault(commit.author, commit.sha)
+        if commit.author_name:
+            names.setdefault(commit.author, set()).add(commit.author_name)
+    return AuthorIndex(
+        shas=shas,
+        names={author: tuple(sorted(values)) for author, values in names.items()},
+    )
+
+
+def _cap_mechanical_authors(
+    contributions: dict[str, dict[str, Contribution]],
+    commits: list[_RawCommit],
+) -> dict[str, dict[str, Contribution]]:
+    mechanical = mechanical_authors(tuple((commit.author, commit.subject) for commit in commits))
+    if not mechanical:
+        return contributions
+    return {
+        path: {
+            author: replace(contrib, credit=min(contrib.credit, 1.0))
+            if author in mechanical
+            else contrib
+            for author, contrib in authors.items()
+        }
+        for path, authors in contributions.items()
+    }
 
 
 def _detect_strategy(records: list[_ParsedCommit]) -> ReportedMergeStrategy:
@@ -1845,18 +1918,13 @@ def _filter_nonexistent(
     return {path: authors for path, authors in contributions.items() if (repo_root / path).exists()}
 
 
-def _is_bot_email(email: str) -> bool:
-    """True for automation authors (GitHub Apps sign as `name[bot]@...`)."""
-    lowered = email.lower()
-    return "[bot]" in lowered or lowered == "actions@github.com" or lowered.startswith("bot@")
-
-
 def _filter_bot_authors(
     contributions: dict[str, dict[str, Contribution]],
+    extra: Sequence[str] = (),
 ) -> dict[str, dict[str, Contribution]]:
     result: dict[str, dict[str, Contribution]] = {}
     for path, authors in contributions.items():
-        humans = {a: c for a, c in authors.items() if not _is_bot_email(a)}
+        humans = {a: c for a, c in authors.items() if not is_bot_identity(a, extra)}
         if humans:
             result[path] = humans
     return result

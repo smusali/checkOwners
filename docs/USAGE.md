@@ -43,7 +43,7 @@ Review evidence: unavailable
 Team verification: unavailable
 ```
 
-`checkowners cache path` prints the cache directory. `cache info` shows size, file counts, and each stored commit (`--json` for the same fields). `cache clear` deletes analysis state and graph files and keeps `handles.json`. `cache purge` deletes everything under the cache directory, including contributor emails in `handles.json`. State and graph files are evicted oldest-first when they exceed 256 MiB. `handles.json` is not evicted; purge deletes it.
+`checkowners cache path` prints the cache directory. `cache info` shows size, file counts, and each stored commit (`--json` for the same fields). `handles` is true when any per-repository handle file or a legacy `handles.json` is present. `cache clear` deletes analysis state and graph files and keeps handle files. `cache purge` deletes everything under the cache directory, including handle files and the identity graph. State and graph files are evicted oldest-first when they exceed 256 MiB. Handle files are not evicted; purge deletes them.
 
 ## Configuration
 
@@ -93,6 +93,7 @@ model:
 
 bots:
   exclude: true               # was analysis.exclude_bots; drop dependabot[bot] and similar
+  additional: []              # extra addresses or handles treated as bots
 
 decay:
   threshold_days: 180         # continuity risk when a path has no commit interval
@@ -150,7 +151,7 @@ suppressions: []              # explicit, reason-required; see the adoption guid
 
 github:
   org: ""
-  resolve_handles: true       # noreply emails parse locally; others via search API
+  resolve_handles: true       # overrides, noreply, cache, commit login, then search
   resolve_teams: true         # collapse owner sets to a @org/team when possible
   api_enabled: false          # gate review_weight + topology/suggest API features
 
@@ -165,12 +166,17 @@ git:
 identity:
   mailmap: true               # apply .mailmap in git log and git blame (default; cheapest identity fix)
   mode: handle                # handle | email | hashed
+  negative_cache_ttl_days: 30 # how long a failed lookup is remembered; 0 stores no miss
+  do_not_merge: []            # pairs that stay two owners even when they share a handle
+
+identities: {}                # "@alice": {emails: [], aliases: [], service_account: false}
 
 privacy:
   redact_emails: false        # replace addresses in output with email tokens
 
 contributors:
   exclude: []                 # omit these people from every command and output
+  roster: {}                  # "@bob": former | active | inactive | unknown | bot | external
 
 policy:
   drift:
@@ -196,7 +202,7 @@ security:
   require_active_expert: true
 ```
 
-`decay`, `bus_factor`, `criticality`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `criticality` is an ordered map of path globs to weights in `(0, 1]`. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
+`decay`, `bus_factor`, `criticality`, `risk`, `paths`, `output`, `drift`, `github`, `git`, `identity.mailmap`, `identity.negative_cache_ttl_days`, `identity.do_not_merge`, `identities`, `contributors.roster`, `bots.additional`, and `suppressions` are part of this schema. `bus_factor` is the qualified-owner classifier. `criticality` is an ordered map of path globs to weights in `(0, 1]`. `risk.truck_factor_thresholds` is the three quantiles for `truck_factor_50`, `truck_factor_75`, and `truck_factor_90`. Mailmap is `identity.mailmap`.
 
 Keys with no implementation yet are refused, including `model.signals.historical_depth` and `git.use_mailmap`. `policy` accepts `drift`, `single_expert`, `incomplete_analysis`, `unowned`, and `invalid_owner`, each with `fail` and `severity` (`error` or `warning`). `security` accepts `paths`, `minimum_effective_owners`, `require_declared_owner`, and `require_active_expert`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`. `analysis.review_lookback_days` accepts a positive integer and, when omitted, uses `analysis.lookback_days`. `git.count_co_authors` credits `Co-authored-by` trailers. `git.co_author_weight` is that credit relative to the author's `1`, in `[0, 1]`. `git.merge_strategy` is `auto`, `squash`, `merge`, or `rebase`. `auto` reports the dominant style in the lookback window. An explicit value is reported as given. See [Limitations](limitations.md).
 
@@ -290,14 +296,28 @@ Scoring and lookback are a pure function of the repository, the commit, and the 
 
 Maintaining a `.mailmap` at the repository root is the cheapest, most reliable way to improve checkOwners accuracy. Git already knows how to collapse one person's addresses; checkOwners applies that mapping first, offline, with no token and no rate limit.
 
-Commit emails are then rewritten to GitHub `@handles`, cheapest first:
+Commit emails are then rewritten to GitHub `@handles`, in this order:
 
-1. **`.mailmap`** (default, `identity.mailmap: true`): `git log` and `git blame` emit canonical emails before any later stage sees them. Set `identity.mailmap: false` to keep raw commit addresses.
-2. **Noreply parsing** (no token, no network): `12345+login@users.noreply.github.com` and `login@users.noreply.github.com` become `@login`. On squash-merge repos this resolves most contributors for free.
-3. **Disk cache** at `~/.checkowners/handles.json`, including remembered misses, so the search API is queried at most once per email.
-4. **GitHub user-search API** (needs `GITHUB_TOKEN` and the `github` extra) for the rest.
+1. **Configured identity.** An entry under `identities` wins over noreply parsing, the cache, and both GitHub calls. `emails` lists the addresses for that handle. `aliases` are display names used by `identity audit`. `service_account: true` marks the handle and its emails as bots.
+2. **`.mailmap`** (default, `identity.mailmap: true`): `git log` and `git blame` emit canonical emails before any later stage sees them. Set `identity.mailmap: false` to keep raw commit addresses. There is no second mailmap pass.
+3. **Noreply parsing** (no token, no network): `12345+login@users.noreply.github.com` and `login@users.noreply.github.com` become `@login`. On squash-merge repos this resolves most contributors for free.
+4. **This repository's handle cache** at `~/.checkowners/handles/<repo-digest>.json`. Two checkouts of one origin share the file. A hit is reused. A miss is skipped until `identity.negative_cache_ttl_days` (default 30) has passed. `0` does not store a miss. A legacy `handles.json` is not copied into these files. `cache purge` deletes it.
+5. **Commit author login** (`GET /repos/{owner}/{repo}/commits/{sha}`): `author.login` when GitHub linked the commit to an account. A null author is not a hit. This uses the core rate limit. A core rate-limit gap does not fall through to search.
+6. **GitHub user-search API** (needs `GITHUB_TOKEN` and the `github` extra), and only after the commit read found no login. Search matches a public profile email and can attach the wrong account.
 
-When several emails resolve to the same handle they are merged into one owner: commits are summed and the path's qualified owner count is recomputed over distinct people. Analyze JSON reports `analysis.mailmap_applied` and `analysis.mailmap_file`.
+`--offline`, an empty token, or a missing `github` extra skips the commit read and the search. Overrides, mailmap, noreply parsing, and the cache still run. `github.resolve_handles: false` skips rewriting.
+
+An override, a noreply address, or a commit login may collapse two owners onto one handle. Commits are summed and the path's qualified owner count is recomputed over distinct people. A search hit may relabel that one email and lowers its evidence quality. It does not collapse two owners. Pairs in `identity.do_not_merge`, and pairs split with `identity unmerge`, stay two owners.
+
+`identity merge LEFT RIGHT INTO` records a merge and combines the stored records. `identity unmerge LEFT RIGHT` writes those records back and separates the pair so the next analyze does not merge them again. `identity audit` lists probable duplicates (the same author name, an email local-part equal to another handle, or a shared alias) and writes nothing. Pairs already merged or listed in `do_not_merge` are omitted. Under `output.aggregate_only` the JSON is only `duplicate_count`.
+
+On a fresh analyze, evidence quality is scaled once before the state file is written: `1.0` for a certain link, `0.75` for an unresolved email, and `0.5` for a search hit. A cached load does not scale again. Qualification still uses `ownership_score`.
+
+Each owner has `contributor_status`: `active`, `inactive`, `unknown`, `former`, `bot`, or `external`. JSON uses `contributor_status` so it does not collide with freshness `status`. The roster wins, including an explicit non-bot status. Then a `Bot` account type or a login ending in `[bot]`. Then org membership, only when `github.org` is set, a token exists, and the member list was fetched: a member with a commit inside `decay.threshold_days` is `active`, an older member is `inactive`, and a handle absent from that list is `external`. When the member list was not available, a recent commit is `active` and an older commit is `inactive`. That path never assigns `former`. `former` comes only from `contributors.roster`. Someone with no roster entry, no org list, and no commit time stays `unknown`.
+
+`former_knowledge_share` is the share of `ownership_score` held by owners whose status is `former`, on each risk path and as a criticality-weighted repository figure on the risk summary and the owner distribution. It is `0` when nobody is former. It is a repository figure, so `output.aggregate_only` keeps it and drops `contributor_status` and `former_owners`. The knowledge-risk notice still applies. This is not a performance measure.
+
+Analyze JSON reports `analysis.mailmap_applied` and `analysis.mailmap_file`.
 
 ## Privacy controls
 
@@ -306,12 +326,12 @@ Five settings change what a report may say about a person. They apply to termina
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `output.anonymize` | `false` | Replace each person with a `person-` token. The token is stable for that person in that repository and different in another repository. |
-| `output.aggregate_only` | `false` | Omit per-person fields. Path and repository metrics stay, including `qualified_owner_count`, `load_signal`, and review-load averages. |
+| `output.aggregate_only` | `false` | Omit per-person fields, including `contributor_status` and `former_owners`. Path and repository metrics stay, including `qualified_owner_count`, `load_signal`, `former_knowledge_share`, and review-load averages. |
 | `privacy.redact_emails` and `--redact-emails` | `false` | Replace email addresses in output with `email:` tokens. `--redact-emails` forces this on for one process. With redaction, `generate` skips owners that are still raw addresses. |
 | `identity.mode` | `handle` | `handle` shows a GitHub login when one was resolved. `email` shows the address when the process still has it. `hashed` shows the `email:` token for addresses. |
 | `contributors.exclude` | `[]` | Drop those people from analysis, reports, and graph export. Match a commit email, a `@handle`, or the stored `email:` token. Their address is not sent to the user-search API. |
 
-Email addresses are stored as `email:` tokens in `~/.checkowners` state, the graph cache, and `handles.json`. `@handles` stay. Changing `contributors.exclude` invalidates the analysis cache. The other four settings do not.
+Email addresses are stored as `email:` tokens in `~/.checkowners` state, the graph cache, and the per-repository handle files. `@handles` stay. Changing `contributors.exclude`, `contributors.roster`, `identities`, `identity.do_not_merge`, `identity.negative_cache_ttl_days`, or `bots.additional` invalidates the analysis cache. The other four presentation settings do not.
 
 ## Ownership scoring
 
@@ -399,7 +419,7 @@ This is not truck factor, bus factor, or lottery factor. Those metrics are a rem
 
 ## Departure simulation
 
-`checkowners simulate --remove @alice --remove @bob` answers what breaks if those people leave. It reads the cached ownership map and does not collect new evidence. Repeat `--remove`, or pass `--remove-file` with one identity per line (blank lines and `#` comments are ignored). An identity that is not in the map exits 2. A person who is in the map but authors no file changes nothing.
+`checkowners simulate --remove @alice --remove @bob` answers what breaks if those people leave. It reads the cached ownership map and does not collect new evidence. Repeat `--remove`, or pass `--remove-file` with one identity per line (blank lines and `#` comments are ignored). `--remove-status former` adds every cached owner with that status and can be combined with `--remove`. An unknown status exits 2. Removing nobody exits 2, the same as an empty `--remove`. An identity that is not in the map exits 2. A person who is in the map but authors no file changes nothing.
 
 An author of a path is someone on the untruncated scored list whose ownership score is at or above `analysis.confidence_threshold`. `top_n_owners` does not cap that set. A file loses its only owner when that set had one author and they are removed. A file drops to one when at least two authors remain as exactly one. A directory is fully orphaned when every mapped file under it has no author left; the report keeps the roots of those subtrees.
 
@@ -776,7 +796,7 @@ Human summaries print `analysis completeness: 73%` and one line per gap. A skipp
 
 When a GitHub API call ran in the process, the envelope also includes `github_evidence_collected_at` and `repository_head`. `team_snapshot` is present only when org teams were fetched. Cache-only and noreply-only resolution do not add these fields.
 
-Ownership objects (`owners`, `who`, and each path inside `analyze` and `print`) use `identity`, `ownership_score`, `evidence_quality`, and flat `signals` for available signals only. Unavailable signals are omitted. `explain` names each person with `handle` and keeps its per-signal breakdown.
+Ownership objects (`owners`, `who`, and each path inside `analyze` and `print`) use `identity`, `ownership_score`, `evidence_quality`, `contributor_status`, and flat `signals` for available signals only. Unavailable signals are omitted. `explain` names each person with `handle` and keeps its per-signal breakdown. Risk entries, the risk summary, and the owner distribution include `former_knowledge_share`. Drift entries include `former_owners` when that list is not empty. A continuity-risk warning includes `contributor_status` when the owner is `former`.
 
 Drift entries add a nested `drift` object (`severity`, `type`, `declared_observed_overlap`) and `recommendation`. The flat keys `confidence_delta`, `reason`, `decay`, and `qualified_owner_count` stay beside those objects.
 

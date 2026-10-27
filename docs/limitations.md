@@ -179,10 +179,21 @@ are evidence scores, not a measurement of what a person knows.
 
 - Private emails and accounts that do not appear in the GitHub search API
   stay unresolved.
+- User search matches a public profile email and can attach the wrong account.
+  A search hit may relabel one email. It does not collapse two owners.
 - Two people who share an address, or one person who never listed both
-  addresses in `.mailmap`, can be split or merged incorrectly.
-- Noreply addresses resolve to a login locally. Other addresses need the
-  API, a cache hit, or they remain raw emails.
+  addresses in `.mailmap` or `identities`, can be split or merged incorrectly.
+  `identity.do_not_merge` and `identity unmerge` keep a named pair apart.
+- Noreply addresses resolve to a login locally. A commit linked to an account
+  resolves from `author.login`. Other addresses need a configured identity, a
+  cache hit, search, or they remain raw emails.
+- `former` is roster-only. A person who is not on the roster and is absent
+  from the org is `external` when the member list was fetched, not `former`.
+  Commit dates never assign `former`.
+- A login ending in `[bot]`, an account type of `Bot`, a known dependency
+  address, `bots.additional`, or `identities.*.service_account` is a bot.
+  The substring `bot` in a human name is not. A long run of identical subjects
+  caps frequency credit and does not delete the author.
 
 ## Completeness is reported, not implied
 

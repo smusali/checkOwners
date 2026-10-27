@@ -22,15 +22,24 @@ The default is `%USERPROFILE%\.checkowners`, the same `~/.checkowners` directory
 
 GitHub usernames whenever they can be resolved. Start with a `.mailmap` at the repo root. That is the cheapest accuracy fix and the first identity stage (`identity.mailmap: true` by default).
 
-Git collapses one person's addresses first. CheckOwners then parses GitHub noreply emails (`12345+login@users.noreply.github.com`) to `@login` locally, reads the on-disk cache (`~/.checkowners/handles.json`, misses remembered), or calls the GitHub user-search API when `GITHUB_TOKEN` is set. When resolution misses (private email, no GitHub account, API unavailable) the entry falls back to the raw email so the output stays usable.
+Git collapses one person's addresses first. CheckOwners then applies a configured `identities` entry, parses GitHub noreply emails (`12345+login@users.noreply.github.com`) to `@login` locally, reads this repository's handle cache, reads `author.login` on one local commit, and calls the GitHub user-search API last when `GITHUB_TOKEN` is set. Search runs only after the commit read found no login. When resolution misses (private email, no GitHub account, API unavailable) the entry falls back to the raw email so the output stays usable.
 
-On squash-merge repos most contributors have noreply author emails, so usernames appear even without a token. When two emails resolve to the same username they merge into one owner and the path's qualified owner count is recomputed over distinct people. Set `identity.mailmap: false` to keep raw commit addresses.
+On squash-merge repos most contributors have noreply author emails, so usernames appear even without a token. An override, a noreply address, or a commit login that shares a handle merges into one owner, and the path's qualified owner count is recomputed over distinct people. A search hit relabels that one email and does not merge two owners. `identity.do_not_merge` and `identity unmerge` keep a pair apart. Set `identity.mailmap: false` to keep raw commit addresses.
+
+`contributors.roster` can mark someone `former`. That status is configuration. Org membership and commit dates do not invent it. `checkowners simulate --remove-status former` removes the cached owners with that status.
 
 ```yaml
 identity:
   mailmap: true          # default; set false for raw emails
+  negative_cache_ttl_days: 30
 github:
   resolve_handles: true  # default
+identities:
+  "@alice":
+    emails: [alice@company.example]
+contributors:
+  roster:
+    "@bob": former
 ```
 
 ### Does it handle GitHub teams and subteams?
@@ -49,7 +58,7 @@ Disable `resolve_teams` if you want raw `@username` entries even when a team wou
 
 Yes. `output.anonymize: true` replaces each person with a stable `person-` token for that repository. `output.aggregate_only: true` drops per-person fields and keeps repository metrics. `identity.mode` is `handle` (default), `email`, or `hashed`. `privacy.redact_emails: true` or `--redact-emails` replaces addresses in output with tokens. `contributors.exclude` removes those people from every command, including graph export.
 
-`generate` and `sync` exit 2 under anonymize, aggregate-only, or hashed mode. On disk, state and `handles.json` store email tokens rather than raw addresses. See [Privacy controls](USAGE.md#privacy-controls).
+`generate` and `sync` exit 2 under anonymize, aggregate-only, or hashed mode. On disk, state and the per-repository handle files store email tokens rather than raw addresses. See [Privacy controls](USAGE.md#privacy-controls).
 
 ## GitHub API access
 
@@ -135,7 +144,7 @@ Note that `generate` and `sync` refuse to overwrite a CODEOWNERS that was not ge
 
 ### Where is the state cache?
 
-`~/.checkowners/` (schema 1). `checkowners cache path` prints that directory. State and graph files are named from the normalized `origin` URL, so two checkouts of the same remote share a cache. A repo with no `origin` is keyed by its absolute path, and the stored identity is checked on load, so one repo cannot read another's file. Downstream commands (`qualified-owners`, `decay`, `topology`, `suggest`, `balance`, `onboard`, `expertise`, `graph`) reuse the file when its commit is still `HEAD` and the scoring config hash matches. If not, they apply a usable baseline incrementally, or score the full lookback when the baseline is missing or rejected. A rejected baseline prints the reason on stderr. `--no-incremental` forces the full lookback. `--allow-stale` reuses a map from an older commit. `--max-age SECONDS` refuses a map older than that (`0` expires immediately). `--no-cache` skips the cache for one run. `cache clear` drops analysis files and keeps `handles.json`. `cache purge` deletes the directory contents, including handle tokens. State and graph files are capped at 256 MiB and the oldest files are removed past that cap. `explain` and `owners` do not read this cache. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action uses `~/.checkowners` when `cache` is `"true"`, and `${{ runner.temp }}/checkowners-state` when `cache` is `"false"`. See [docs/USAGE.md](USAGE.md#pipeline).
+`~/.checkowners/` (schema 1). `checkowners cache path` prints that directory. State and graph files are named from the normalized `origin` URL, so two checkouts of the same remote share a cache. A repo with no `origin` is keyed by its absolute path, and the stored identity is checked on load, so one repo cannot read another's file. Downstream commands (`qualified-owners`, `decay`, `topology`, `suggest`, `balance`, `onboard`, `expertise`, `graph`) reuse the file when its commit is still `HEAD` and the scoring config hash matches. If not, they apply a usable baseline incrementally, or score the full lookback when the baseline is missing or rejected. A rejected baseline prints the reason on stderr. `--no-incremental` forces the full lookback. `--allow-stale` reuses a map from an older commit. `--max-age SECONDS` refuses a map older than that (`0` expires immediately). `--no-cache` skips the cache for one run. `cache clear` drops analysis files and keeps handle files. `cache purge` deletes the directory contents, including handle tokens and the identity graph. State and graph files are capped at 256 MiB and the oldest files are removed past that cap. `explain` and `owners` do not read this cache. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action uses `~/.checkowners` when `cache` is `"true"`, and `${{ runner.temp }}/checkowners-state` when `cache` is `"false"`. See [docs/USAGE.md](USAGE.md#pipeline).
 
 ## Inference behavior
 

@@ -27,10 +27,12 @@ from checkowners.analyze import (
     GitRequirementError,
     _aggregate_contributions,
     _author_emails,
+    _author_index,
     _blame_for_path,
     _blame_inputs_token,
     _BlamePass,
     _blob_shas,
+    _cap_mechanical_authors,
     _clamp,
     _classify_freshness,
     _detect_decay,
@@ -2756,3 +2758,37 @@ def test_incremental_edges_cover_rejects_and_reuse(git_repo: GitRepo) -> None:
         ).mode
         == "full"
     )
+
+
+def test_author_index_skips_blank_fields_and_caps_only_mechanical_authors() -> None:
+    indexed = _author_index(
+        [
+            _RawCommit(author="ada@x.com", timestamp=_NOW, files=("a.py",)),
+            _RawCommit(
+                author="ada@x.com",
+                timestamp=_NOW,
+                files=("a.py",),
+                sha="abc",
+                author_name="Ada",
+                subject="bump deps",
+            ),
+        ]
+    )
+    assert indexed.shas == {"ada@x.com": "abc"}
+    assert indexed.names == {"ada@x.com": ("Ada",)}
+    commits = [
+        _RawCommit(author="bot@x.com", timestamp=_NOW, files=("a.py",), subject="bump deps")
+        for _ in range(20)
+    ]
+    commits.append(_RawCommit(author="ada@x.com", timestamp=_NOW, files=("a.py",), subject="fix"))
+    capped = _cap_mechanical_authors(
+        {
+            "a.py": {
+                "bot@x.com": Contribution(commits=20, last_commit=_NOW, credit=20.0),
+                "ada@x.com": Contribution(commits=1, last_commit=_NOW, credit=4.0),
+            }
+        },
+        commits,
+    )
+    assert capped["a.py"]["bot@x.com"].credit == 1.0
+    assert capped["a.py"]["ada@x.com"].credit == 4.0

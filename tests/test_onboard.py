@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 
 from checkowners.models import (
     AnalysisConfig,
@@ -153,7 +155,6 @@ def test_generate_onboarding_complexity_increases() -> None:
         max_steps=6,
     )
     complexities = [step.complexity for step in report.steps]
-    # First third easy, last third hard
     assert complexities[0] == "easy"
     assert complexities[-1] == "hard"
 
@@ -172,10 +173,8 @@ def test_generate_onboarding_bus_factor_one_never_easy() -> None:
     )
     report = generate_onboarding_path(ownership, _config(), target="src/payments/")
     assert report.steps
-    # Every path has qualified_owner_count 1 (deep expertise), so nothing may be 'easy'.
     for step in report.steps:
         assert step.complexity != "easy"
-    # The first third is still the gentlest tier available: medium.
     assert report.steps[0].complexity == "medium"
 
 
@@ -221,6 +220,117 @@ def test_to_markdown_emits_checklist() -> None:
     assert "# Experimental onboarding suggestions for src/payments/" in md
     assert "- [ ] **Step 1**" in md
     assert KNOWLEDGE_RISK_NOTICE in md
+
+
+def test_criticality_and_disk_imports_order_steps(tmp_path: Path) -> None:
+    package = tmp_path / "src" / "payments"
+    package.mkdir(parents=True)
+    (package / "utils.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (package / "ranked.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (package / "billing.py").write_text(
+        "from src.payments.utils import VALUE\nfrom src.payments.ranked import VALUE\n",
+        encoding="utf-8",
+    )
+    owners = (_entry("@alice", 0.9), _entry("@bob", 0.7))
+    ownership = OwnershipMap(
+        paths={
+            "src/payments/utils.py": PathOwnership(
+                owners=owners,
+                qualified_owner_count=2,
+                change_events=4,
+            ),
+            "src/payments/billing.py": PathOwnership(
+                owners=owners,
+                qualified_owner_count=2,
+            ),
+            "src/payments/secret.py": PathOwnership(
+                owners=(_entry("@alice", 0.1),),
+                qualified_owner_count=0,
+            ),
+            "src/payments/ranked.py": PathOwnership(
+                owners=owners,
+                qualified_owner_count=2,
+            ),
+        },
+        last_analyzed=_NOW,
+    )
+    report = generate_onboarding_path(
+        ownership,
+        replace(
+            _config(),
+            criticality=(("src/payments/billing.py", 1.0), ("src/payments/ranked.py", 5.0)),
+        ),
+        target="src/payments/",
+        repo_root=tmp_path,
+        max_steps=2,
+    )
+    assert [step.path for step in report.steps] == [
+        "src/payments/utils.py",
+        "src/payments/ranked.py",
+    ]
+    assert "domain criticality" not in report.unavailable_signals
+    assert "dependency order" not in report.unavailable_signals
+    assert "src/payments/secret.py" not in [step.path for step in report.steps]
+
+
+def test_blocked_path_is_not_called_a_cycle_member() -> None:
+    owners = (_entry("@alice", 0.9),)
+    ownership = _ownership(
+        {
+            "src/payments/a.py": owners,
+            "src/payments/b.py": owners,
+            "src/payments/c.py": owners,
+            "src/payments/d.py": owners,
+            "src/payments/e.py": owners,
+        }
+    )
+    report = generate_onboarding_path(
+        ownership,
+        _config(),
+        target="src/payments/",
+        dependency_edges=(
+            ("src/payments/b.py", "src/payments/a.py"),
+            ("src/payments/c.py", "src/payments/b.py"),
+            ("src/payments/d.py", "src/payments/b.py"),
+            ("src/payments/a.py", "src/payments/d.py"),
+            ("src/payments/c.py", "src/payments/d.py"),
+            ("src/payments/e.py", "src/payments/a.py"),
+        ),
+    )
+    assert "src/payments/e.py" not in report.cycles
+    assert "src/payments/a.py" in report.cycles
+    assert "cycle; path order" not in report.steps[-1].description
+
+
+def test_cycle_walk_revisits_a_dependent() -> None:
+    owners = (_entry("@alice", 0.9),)
+    ownership = _ownership(
+        {
+            "src/payments/a.py": owners,
+            "src/payments/b.py": owners,
+            "src/payments/m.py": owners,
+            "src/payments/z.py": owners,
+        }
+    )
+    report = generate_onboarding_path(
+        ownership,
+        _config(),
+        target="src/payments/",
+        dependency_edges=(
+            ("src/payments/m.py", "src/payments/a.py"),
+            ("src/payments/z.py", "src/payments/m.py"),
+            ("src/payments/b.py", "src/payments/m.py"),
+            ("src/payments/b.py", "src/payments/z.py"),
+            ("src/payments/a.py", "src/payments/z.py"),
+            ("src/payments/z.py", "src/payments/b.py"),
+        ),
+    )
+    assert set(report.cycles) == {
+        "src/payments/a.py",
+        "src/payments/b.py",
+        "src/payments/m.py",
+        "src/payments/z.py",
+    }
 
 
 def test_to_markdown_handles_empty_path() -> None:

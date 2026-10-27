@@ -2,18 +2,30 @@
 
 from __future__ import annotations
 
+import builtins
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import networkx as nx
+
 from checkowners.models import (
     AnalysisConfig,
+    ConfidenceScore,
     Config,
     GithubConfig,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
+    SignalScore,
 )
 from checkowners.topology import (
+    _affiliate,
+    _comparisons,
+    _cover,
+    _jaccard,
+    _levels,
+    _mean_match,
+    _parent_names,
     declared_teams_from_github,
     infer_topology,
 )
@@ -21,8 +33,29 @@ from checkowners.topology import (
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
 
-def _entry(handle: str, confidence: float, commits: int = 5) -> OwnerEntry:
-    return OwnerEntry(handle=handle, ownership_score=confidence, last_commit=_NOW, commits=commits)
+def _entry(
+    handle: str,
+    confidence: float,
+    commits: int = 5,
+    *,
+    review: float | None = None,
+) -> OwnerEntry:
+    breakdown = None
+    if review is not None:
+        breakdown = ConfidenceScore(
+            total=confidence,
+            recency=SignalScore(available=True, score=1.0),
+            frequency=SignalScore(available=True, score=1.0),
+            blame=SignalScore(available=True, score=1.0),
+            review=SignalScore(available=True, score=review),
+        )
+    return OwnerEntry(
+        handle=handle,
+        ownership_score=confidence,
+        last_commit=_NOW,
+        commits=commits,
+        score_breakdown=breakdown,
+    )
 
 
 def _ownership(raw: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
@@ -217,3 +250,147 @@ def test_declared_teams_from_github_success() -> None:
     ):
         result = declared_teams_from_github(config)
     assert result == {"backend": frozenset({"alice", "bob"})}
+
+
+def test_co_review_zero_weight_and_superset_metrics() -> None:
+    reviewed = _ownership(
+        {
+            "src/api.py": (
+                _entry("@bob", 0.9, review=0.4),
+                _entry("@alice", 0.8, review=0.2),
+            ),
+        }
+    )
+    report = infer_topology(reviewed, _config())
+    assert "co_review" in report.signals_used
+    assert "co_review" not in report.signals_unavailable
+    isolated = _ownership({"README": (_entry("@bob", 0.0), _entry("@alice", 0.0))})
+    separate = infer_topology(isolated, _config())
+    assert len(separate.clusters) == 2
+    paired = _ownership(
+        {
+            "api/one.py": (_entry("@alice", 0.9), _entry("@bob", 0.8)),
+            "db/one.py": (_entry("@carol", 0.9), _entry("@dave", 0.8)),
+        }
+    )
+    declared = {
+        "aaa": frozenset({"carol", "dave"}),
+        "all": frozenset({"alice", "bob", "frank"}),
+        "ghost": frozenset(),
+        "zzz": frozenset({"erin"}),
+    }
+    compared = infer_topology(paired, _config(), declared_teams=declared)
+    by_team = {item.team: item for item in compared.comparisons}
+    assert by_team["all"].cross_team == ()
+    assert by_team["all"].jaccard == 0.6667
+    assert "Potential" not in next(line for line in compared.mismatches if "'all'" in line)
+    assert by_team["ghost"].coverage == 0.0
+    assert by_team["zzz"].jaccard == 0.0
+    assert by_team["aaa"].cluster == "aaa"
+    assert _comparisons((), {"solo": frozenset({"alice"})})[0].cluster == ""
+    with patch("checkowners.topology.graph_module._measured", return_value=None):
+        unmeasured = infer_topology(reviewed, _config())
+    assert unmeasured.modularity == 0.0
+    with patch("checkowners.topology.STABILITY_SEEDS", (0,)):
+        stable = infer_topology(reviewed, _config())
+    assert stable.stability_mean == 1.0
+    assert stable.stability_variance == 0.0
+
+
+def test_affiliation_lists_a_person_on_the_other_clique() -> None:
+    pairs = (
+        ("@alice", "@bob", 10.0),
+        ("@bob", "@carol", 10.0),
+        ("@alice", "@carol", 10.0),
+        ("@dave", "@erin", 10.0),
+        ("@erin", "@frank", 10.0),
+        ("@dave", "@frank", 10.0),
+        ("@alice", "@dave", 6.0),
+        ("@alice", "@erin", 6.0),
+    )
+    ownership = _ownership(
+        {
+            f"m{index}/file.py": (_entry(left, weight), _entry(right, weight))
+            for index, (left, right, weight) in enumerate(pairs)
+        }
+    )
+    report = infer_topology(ownership, _config())
+    affiliated = {member for cluster in report.clusters for member in cluster.affiliated_members}
+    assert "@alice" in affiliated
+
+
+def test_finer_level_records_the_coarser_parent() -> None:
+    def two_levels(*_args: object, **_kwargs: object) -> object:
+        yield [{"@alice"}, {"@bob"}]
+        yield [{"@alice", "@carol"}, {"@bob"}]
+
+    ownership = _ownership(
+        {"src/api.py": (_entry("@alice", 0.9), _entry("@bob", 0.8), _entry("@carol", 0.7))}
+    )
+    with patch("networkx.community.louvain_partitions", side_effect=two_levels):
+        report = infer_topology(ownership, _config())
+    parents = {tuple(cluster.members): cluster.parent for cluster in report.clusters}
+    assert parents[("@alice",)] == "parent-0"
+    assert parents[("@bob",)] == ""
+    assert _levels(nx.Graph(), 1.0, 0) == []
+    assert _parent_names(nx.Graph(), 1.0, ()) == {}
+    person = nx.Graph()
+    person.add_edge("@alice", "@bob", weight=1)
+    with patch("networkx.community.louvain_partitions", return_value=iter(())):
+        assert _levels(person, 1.0, 0) == []
+    mixed = nx.Graph()
+    mixed.add_nodes_from(["@alice", "@erin", 1])
+    assert frozenset({"@erin"}) in _cover(mixed, [frozenset({"@alice"})])
+    bridge = nx.Graph()
+    bridge.add_edge("@alice", "@bob", weight=4)
+    bridge.add_edge("@alice", "@carol", weight=4)
+    bridge.add_edge("@alice", "@dave", weight=3)
+    bridge.add_edge("@alice", "@erin", weight=3)
+    bridge.add_edge("@alice", "@frank", weight="nope")
+    bridge.add_edge("@alice", 1, weight=1)
+    bridge.add_node(2)
+    bridge.add_edge("@gina", "@hal", weight=10)
+    bridge.add_edge("@gina", "@ira", weight=1)
+    bridge.add_edge("@gina", "@joe", weight=1)
+    extra = _affiliate(
+        bridge,
+        (
+            frozenset({"@alice", "@bob", "@carol", "@gina", "@hal"}),
+            frozenset({"@dave", "@erin", "@frank", "@ira", "@joe"}),
+        ),
+    )
+    assert "@alice" in extra[1]
+    assert _jaccard(set(), set()) == 1.0
+    assert _mean_match((), ()) == 1.0
+    assert _mean_match((frozenset({"@alice"}),), ()) == 0.0
+    assert (
+        _mean_match(
+            (frozenset({"@alice"}), frozenset({"@bob"}), frozenset({"@carol"})),
+            (frozenset({"@alice", "@bob", "@carol"}),),
+        )
+        > 0
+    )
+
+
+def test_declared_teams_from_github_skips_unavailable_clients() -> None:
+    blank = Config(github=GithubConfig(api_enabled=True, org=""))
+    with patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}):
+        assert declared_teams_from_github(blank) is None
+    enabled = Config(github=GithubConfig(api_enabled=True, org="acme"))
+    with (
+        patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}),
+        patch("checkowners.github.get_github_client", return_value=None),
+    ):
+        assert declared_teams_from_github(enabled) is None
+    real_import = builtins.__import__
+
+    def blocked(name: str, *args: object, **kwargs: object) -> object:
+        if name == "checkowners.github":
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    with (
+        patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}),
+        patch("builtins.__import__", side_effect=blocked),
+    ):
+        assert declared_teams_from_github(enabled) is None

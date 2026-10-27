@@ -36,7 +36,6 @@ class OnboardingPath:
     cycles: tuple[str, ...] = ()
 
     def to_markdown(self) -> str:
-        """Return a Markdown checklist of the suggestions."""
         heading = f"# Experimental onboarding suggestions for {self.target}"
         if not self.steps:
             return f"{heading}\n\nNo learning path could be built.\n\n{KNOWLEDGE_RISK_NOTICE}\n"
@@ -71,7 +70,6 @@ def generate_onboarding_path(
     repo_root: Path | None = None,
     dependency_edges: tuple[tuple[str, str], ...] | None = None,
 ) -> OnboardingPath:
-    """Return suggestions for `target` using `dependency_edges` or `repo_root` imports."""
     threshold = config.analysis.confidence_threshold
     qualified = _qualified(ownership, target, threshold)
     if not qualified:
@@ -206,7 +204,7 @@ def _ranks(
 
 def _reaches_self(start: str, outgoing: dict[str, set[str]]) -> bool:
     seen: set[str] = set()
-    stack = list(outgoing.get(start, ()))
+    stack = sorted(outgoing.get(start, ()))
     while stack:
         node = stack.pop()
         if node == start:
@@ -214,7 +212,7 @@ def _reaches_self(start: str, outgoing: dict[str, set[str]]) -> bool:
         if node in seen:
             continue
         seen.add(node)
-        stack.extend(outgoing.get(node, ()))
+        stack.extend(sorted(outgoing.get(node, ())))
     return False
 
 

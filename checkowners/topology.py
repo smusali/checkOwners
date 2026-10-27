@@ -75,7 +75,6 @@ def infer_topology(
     declared_teams: Mapping[str, frozenset[str]] | None = None,
     resolution: float = DEFAULT_RESOLUTION,
 ) -> TopologyReport:
-    """Return weighted Louvain clusters for `ownership` at `resolution`."""
     threshold = config.analysis.confidence_threshold
     weights, people, review_used = _pair_weights(ownership, threshold)
     used, unavailable = _signal_lists(review_used)
@@ -120,7 +119,6 @@ def infer_topology(
 
 
 def declared_teams_from_github(config: Config) -> dict[str, frozenset[str]] | None:
-    """Fetch declared GitHub team -> members map; None when API is disabled."""
     if not config.github.api_enabled:
         return None
     return _fetch_teams(config.github)
@@ -221,7 +219,8 @@ def _levels(graph: nx.Graph, resolution: float, seed: int) -> list[frozenset[str
     )
     if not partitions:
         return []
-    return [frozenset(community) for community in partitions[-1]]
+    chosen = partitions[-2] if len(partitions) >= 2 else partitions[-1]
+    return [frozenset(community) for community in chosen]
 
 
 def _cover(graph: nx.Graph, communities: Sequence[frozenset[str]]) -> tuple[frozenset[str], ...]:
@@ -253,7 +252,7 @@ def _parent_names(
     )
     if len(raw_levels) < 2:
         return {}
-    coarse = [frozenset(community) for community in raw_levels[-2]]
+    coarse = [frozenset(community) for community in raw_levels[-1]]
     parent_of: dict[frozenset[str], frozenset[str]] = {}
     for community in published:
         for container in coarse:
@@ -319,8 +318,6 @@ def _mean_match(
         if best_index >= 0:
             used.add(best_index)
             scores.append(best_score)
-    if not scores:
-        return 0.0
     return sum(scores) / len(scores)
 
 
@@ -503,8 +500,6 @@ def _jaccard(left: set[str], right: set[str]) -> float:
     if not left and not right:
         return 1.0
     union = left | right
-    if not union:
-        return 0.0
     return _ratio(len(left & right), len(union))
 
 

@@ -71,7 +71,6 @@ class GraphAnalytics:
     transfer_path: tuple[str, ...] = ()
 
     def as_payload(self) -> dict[str, object]:
-        """Return a JSON-ready mapping of the analytics fields."""
         payload: dict[str, object] = {
             "articulation_points": [
                 {"person": item.person, "directories": list(item.directories)}
@@ -119,7 +118,6 @@ def build_graph(
     repo_root: Path | None = None,
     repository: str = "",
 ) -> nx.Graph:
-    """Build an ownership graph from `ownership`, `rules`, and optional `clusters`."""
     nx = _require_networkx()
     graph = nx.Graph()
     if repository:
@@ -147,7 +145,6 @@ def python_dependencies(
     repo_root: Path,
     paths: Collection[str],
 ) -> tuple[tuple[str, str], ...]:
-    """Return local Python import edges whose ends are both in `paths`."""
     known = _python_modules(paths)
     edges: set[tuple[str, str]] = set()
     path_set = set(paths)
@@ -167,7 +164,6 @@ def python_dependencies(
 
 
 def for_display(graph: nx.Graph, config: Config, repo_id: str) -> nx.Graph:
-    """Return `graph` with contributor ids labeled for output."""
     nx = _require_networkx()
     if config.output.aggregate_only:
         kept = [
@@ -192,7 +188,6 @@ def graph_analytics(
     ownership: OwnershipMap,
     config: Config,
 ) -> GraphAnalytics:
-    """Return articulation points, betweenness, and orphan directories for `graph`."""
     knowledge = _knowledge_view(graph)
     return GraphAnalytics(
         articulation_points=_articulation(knowledge),
@@ -203,7 +198,6 @@ def graph_analytics(
 
 
 def transfer_path(graph: nx.Graph, source: str, target: str) -> TransferResult:
-    """Return the shortest ownership path from `source` to `target`."""
     start = resolve_node(graph, source)
     end = resolve_node(graph, target)
     missing = tuple(item for item, node in ((source, start), (target, end)) if node is None)
@@ -222,7 +216,6 @@ def transfer_path(graph: nx.Graph, source: str, target: str) -> TransferResult:
 
 
 def endpoint_is_contributor(graph: nx.Graph, text: str) -> bool:
-    """Return whether `text` resolves to a contributor node in `graph`."""
     node = resolve_node(graph, text)
     if node is None:
         return False
@@ -231,7 +224,6 @@ def endpoint_is_contributor(graph: nx.Graph, text: str) -> bool:
 
 
 def resolve_node(graph: nx.Graph, text: str) -> str | None:
-    """Return the node id for a handle, path, directory, team, or existing id."""
     if text in graph and isinstance(text, str):
         return text
     bare = text[1:] if text.startswith("@") else text
@@ -251,14 +243,12 @@ def resolve_node(graph: nx.Graph, text: str) -> str | None:
 
 
 def to_serializable(graph: nx.Graph) -> dict[str, list[dict[str, object]]]:
-    """Serialize a graph to a plain node/edge dict (JSON-friendly, version-stable)."""
     nodes = [{"id": node, **attrs} for node, attrs in graph.nodes(data=True)]
     edges = [{"source": u, "target": v, **attrs} for u, v, attrs in graph.edges(data=True)]
     return {"nodes": nodes, "edges": edges}
 
 
 def from_serializable(data: Mapping[str, object]) -> nx.Graph:
-    """Rebuild a graph from the dict produced by to_serializable."""
     nx = _require_networkx()
     graph = nx.Graph()
     nodes = data.get("nodes", [])
@@ -286,7 +276,6 @@ def from_serializable(data: Mapping[str, object]) -> nx.Graph:
 
 
 def to_json(graph: nx.Graph, analytics: GraphAnalytics | None = None) -> str:
-    """Return `graph` as JSON, including `analytics` when given."""
     payload: dict[str, object] = dict(to_serializable(graph))
     if analytics is not None:
         payload["analytics"] = analytics.as_payload()
@@ -294,7 +283,6 @@ def to_json(graph: nx.Graph, analytics: GraphAnalytics | None = None) -> str:
 
 
 def to_graphml(graph: nx.Graph) -> str:
-    """Return `graph` as GraphML XML."""
     nx = _require_networkx()
     buffer = io.BytesIO()
     nx.write_graphml(graph, buffer, infer_numeric_types=True)
@@ -302,7 +290,6 @@ def to_graphml(graph: nx.Graph) -> str:
 
 
 def to_gexf(graph: nx.Graph) -> str:
-    """Return `graph` as GEXF XML."""
     nx = _require_networkx()
     buffer = io.BytesIO()
     nx.write_gexf(graph, buffer)
@@ -310,7 +297,6 @@ def to_gexf(graph: nx.Graph) -> str:
 
 
 def to_dot(graph: nx.Graph) -> str:
-    """Serialize an ownership graph to Graphviz DOT format."""
     _require_networkx()
     lines = ["graph checkowners {"]
     for node, attrs in graph.nodes(data=True):
@@ -319,12 +305,7 @@ def to_dot(graph: nx.Graph) -> str:
         )
         attr_str = f" [{attr_pairs}]" if attr_pairs else ""
         lines.append(f'  "{_dot_quote(node)}"{attr_str};')
-    seen: set[frozenset[str]] = set()
     for source, target, attrs in graph.edges(data=True):
-        edge_id = frozenset({source, target})
-        if edge_id in seen:
-            continue
-        seen.add(edge_id)
         attr_pairs = ", ".join(
             f'{key}="{_dot_quote(value)}"' for key, value in sorted(attrs.items())
         )
@@ -335,7 +316,6 @@ def to_dot(graph: nx.Graph) -> str:
 
 
 def from_dot(text: str) -> nx.Graph:
-    """Rebuild a graph from the DOT text produced by to_dot."""
     nx = _require_networkx()
     graph = nx.Graph()
     for raw_line in text.splitlines():
@@ -346,7 +326,7 @@ def from_dot(text: str) -> nx.Graph:
             line = line[:-1].strip()
         if " -- " in line:
             left, right = line.split(" -- ", 1)
-            source, _left_attrs = _dot_endpoint(left)
+            source, _ = _dot_endpoint(left)
             target, attrs = _dot_endpoint(right)
             graph.add_edge(source, target, **attrs)
             continue
@@ -356,7 +336,6 @@ def from_dot(text: str) -> nx.Graph:
 
 
 def format_analytics(analytics: GraphAnalytics) -> str:
-    """Return a text report of `analytics`."""
     lines = ["# analytics"]
     lines.append(f"dependency_graph: {analytics.dependency_graph}")
     lines.append("# articulation points")
@@ -385,14 +364,12 @@ def format_analytics(analytics: GraphAnalytics) -> str:
 
 
 def format_transfer(result: TransferResult) -> str:
-    """Return a one-line transfer path."""
     if not result.nodes:
         return ""
     return " -> ".join(_display_node(node) for node in result.nodes)
 
 
 def label_nodes(nodes: tuple[str, ...], config: Config, repo_id: str) -> tuple[str, ...]:
-    """Return `nodes` with contributor ids passed through the privacy label."""
     labeled: list[str] = []
     for node in nodes:
         if node.startswith("contrib::"):
@@ -404,7 +381,6 @@ def label_nodes(nodes: tuple[str, ...], config: Config, repo_id: str) -> tuple[s
 
 
 def to_text(graph: nx.Graph) -> str:
-    """Render the graph as a simple adjacency listing suitable for the terminal."""
     lines: list[str] = []
     nodes_by_kind: dict[str, list[str]] = {kind: [] for kind in _KIND_ORDER}
     for node, attrs in graph.nodes(data=True):

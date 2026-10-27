@@ -28,7 +28,7 @@ wrong. Observed history is evidence, not authority.
 
 ## What repository evidence cannot prove
 
-- Formal team ownership.
+- Formal team ownership. Inferred clusters are a hypothesis, not an org chart.
 - Architectural decision authority.
 - Organizational accountability.
 - Operational ownership.
@@ -45,6 +45,18 @@ wrong. Observed history is evidence, not authority.
 describe score mass after the confidence threshold and before `top_n_owners`
 truncation. They are not a repository removal simulation. See
 [Methodology](METHODOLOGY.md).
+
+## Inferred clusters are not teams
+
+`checkowners topology` uses weighted Louvain. The result changes with `--resolution` and with the seed. The published run fixes the seed at `0` and reports modularity plus stability across seeds `0` through `4`. A chain of collaborators can still be split or joined for reasons that are not team boundaries. Co-change and temporal overlap are not in the weight. Missing review scores are omitted, not treated as zero. A person can be affiliated with a second cluster. That overlap is a threshold on edge weight, not a survey of the organization. Confirm the hypothesis before acting on it.
+
+## The ownership graph is not a system model
+
+The graph has contributors, files, directories, the repository, teams from CODEOWNERS, and CODEOWNERS rules. It does not have packages, services, commits, pull requests, reviews, incidents, or domains. Python import edges are limited to files already in the ownership map. Articulation points, betweenness, orphan files, and a transfer path describe that graph. They do not identify a service owner or a handover plan.
+
+## Onboarding suggestions are not a curriculum
+
+`checkowners onboard` can order steps from resolved Python imports. It does not know code complexity, test coverage, or documentation coverage, and it says so. A mentor candidate is a qualified owner who is not `former`, `inactive`, or `bot`, ranked by how often someone else also qualifies on the selected steps. The list is not an assignment and it is not a measure of who has time.
 
 ## Git history is incomplete evidence
 

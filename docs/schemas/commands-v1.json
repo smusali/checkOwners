@@ -809,7 +809,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1030,7 +1030,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1118,7 +1118,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1196,7 +1196,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1239,7 +1239,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1343,7 +1343,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1431,7 +1431,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1490,7 +1490,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1594,7 +1594,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1895,7 +1895,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1931,7 +1931,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -1967,7 +1967,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -2053,7 +2053,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -2291,7 +2291,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -2319,6 +2319,36 @@
             "mismatches"
           ],
           "properties": {
+            "algorithm": {
+              "type": "string"
+            },
+            "resolution": {
+              "type": "number"
+            },
+            "seed": {
+              "type": "integer"
+            },
+            "modularity": {
+              "type": "number"
+            },
+            "stability_mean": {
+              "type": "number"
+            },
+            "stability_variance": {
+              "type": "number"
+            },
+            "stability_available": {
+              "type": "boolean"
+            },
+            "signals_used": {
+              "$ref": "#/$defs/stringList"
+            },
+            "signals_unavailable": {
+              "$ref": "#/$defs/stringList"
+            },
+            "experimental": {
+              "type": "boolean"
+            },
             "clusters": {
               "type": "array",
               "items": {
@@ -2337,11 +2367,55 @@
                   "members": {
                     "$ref": "#/$defs/stringList"
                   },
+                  "affiliated_members": {
+                    "$ref": "#/$defs/stringList"
+                  },
                   "primary_paths": {
                     "$ref": "#/$defs/stringList"
                   },
                   "declared": {
                     "type": "boolean"
+                  },
+                  "parent": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "comparisons": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "team",
+                  "cluster",
+                  "jaccard",
+                  "precision",
+                  "recall",
+                  "coverage"
+                ],
+                "properties": {
+                  "team": {
+                    "type": "string"
+                  },
+                  "cluster": {
+                    "type": "string"
+                  },
+                  "jaccard": {
+                    "type": "number"
+                  },
+                  "precision": {
+                    "type": "number"
+                  },
+                  "recall": {
+                    "type": "number"
+                  },
+                  "coverage": {
+                    "type": "number"
+                  },
+                  "cross_team": {
+                    "$ref": "#/$defs/stringList"
                   }
                 }
               }
@@ -2360,13 +2434,24 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
+          "algorithm": "louvain",
+          "resolution": 1,
+          "seed": 0,
+          "modularity": 0,
+          "stability_mean": 0,
+          "stability_variance": 0,
+          "stability_available": false,
+          "signals_used": [],
+          "signals_unavailable": ["co_change", "temporal_collaboration"],
+          "experimental": true,
           "clusters": [],
+          "comparisons": [],
           "mismatches": []
         }
       ]
@@ -2420,6 +2505,21 @@
                   }
                 }
               }
+            },
+            "experimental": {
+              "type": "boolean"
+            },
+            "unavailable_signals": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "mentor_candidates": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
@@ -2432,13 +2532,22 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
           "generated_at": "2026-05-28T12:00:00+00:00",
           "analysis_completeness": 0.75,
           "target": "src/",
+          "experimental": true,
+          "unavailable_signals": [
+            "code complexity",
+            "test coverage",
+            "documentation coverage",
+            "dependency order",
+            "domain criticality"
+          ],
+          "mentor_candidates": [],
           "steps": []
         }
       ]
@@ -2531,7 +2640,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -2598,7 +2707,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -2677,7 +2786,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -2825,7 +2934,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -2886,7 +2995,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -2898,7 +3007,7 @@
             "models": {
               "ownership": "ownership-v1",
               "risk": "risk-v1",
-              "topology": "topology-v1"
+              "topology": "topology-v2"
             },
             "repository": "acme/payments",
             "head_sha": "abc123",
@@ -2946,7 +3055,7 @@
             "models": {
               "ownership": "ownership-v1",
               "risk": "risk-v1",
-              "topology": "topology-v1"
+              "topology": "topology-v2"
             },
             "repository": "acme/payments",
             "head_sha": "abc123",
@@ -2984,7 +3093,7 @@
             "models": {
               "ownership": "ownership-v1",
               "risk": "risk-v1",
-              "topology": "topology-v1"
+              "topology": "topology-v2"
             },
             "repository": "acme/payments",
             "head_sha": "abc123",
@@ -3131,7 +3240,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "drift_detected": false,
           "severity": "low",
@@ -3253,7 +3362,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "distribution": {
             "minimum": 1.0,
@@ -3392,7 +3501,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "counts": {
             "reports": 0
@@ -3558,7 +3667,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",
@@ -3767,7 +3876,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "example/repo",
           "head_sha": "abc123",
@@ -3874,7 +3983,7 @@
           "models": {
             "ownership": "ownership-v1",
             "risk": "risk-v1",
-            "topology": "topology-v1"
+            "topology": "topology-v2"
           },
           "repository": "acme/payments",
           "head_sha": "abc123",

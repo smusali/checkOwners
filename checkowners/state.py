@@ -398,7 +398,7 @@ def write_graph_cache(
     config: Config | None = None,
     analysis_ref: str = "",
 ) -> Path:
-    """Persist a serialized knowledge graph, tagged with the analysis timestamp.
+    """Persist a serialized ownership graph, tagged with the analysis timestamp.
 
     `config` selects the scoring hash stored beside the graph. `analysis_ref`
     is the commit the graph was built from. Returns the cache file path.
@@ -964,6 +964,7 @@ def _stored_names(names: tuple[str, ...]) -> list[str]:
 def _serialize_cluster(cluster: TeamCluster) -> dict[str, Any]:
     payload = asdict(cluster)
     payload["members"] = _stored_names(cluster.members)
+    payload["affiliated_members"] = _stored_names(cluster.affiliated_members)
     return payload
 
 

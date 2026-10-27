@@ -82,7 +82,7 @@ from checkowners.generate import (
     GenerateResult,
 )
 from checkowners.github import PullRequestFilesError, ReconciliationError, set_offline
-from checkowners.graph import GraphExtraMissingError
+from checkowners.graph import GraphExtraMissingError, build_graph
 from checkowners.identity import (
     ContributorRecord,
     HandleHit,
@@ -1521,6 +1521,7 @@ def test_graph_missing_extra_and_bad_export_exit_config() -> None:
         exported = runner.invoke(app, ["graph", "--export", "png"])
     assert exported.exit_code == 2
     assert "png" in exported.stdout
+    assert "supported: dot, graphml, gexf, json" in exported.stdout
 
 
 def test_graph_reports_topology_model() -> None:
@@ -1530,6 +1531,8 @@ def test_graph_reports_topology_model() -> None:
         patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph\n"),
         patch("checkowners.cli.to_dot", return_value="graph {\n}\n"),
+        patch("checkowners.cli.graph_analytics", return_value=None),
+        patch("checkowners.cli.format_analytics", return_value=""),
     ):
         plain = runner.invoke(app, ["graph"])
         exported = runner.invoke(app, ["graph", "--export", "dot"])
@@ -1539,6 +1542,81 @@ def test_graph_reports_topology_model() -> None:
     assert exported.exit_code == 0
     assert "models: topology" in _models_text(exported)
     assert KNOWLEDGE_RISK_NOTICE in _models_text(exported)
+
+
+def test_graph_transfer_path_uses_stderr_for_exports() -> None:
+    pytest.importorskip("networkx")
+    ownership = OwnershipMap(
+        paths={
+            "api/a.py": PathOwnership(
+                owners=(_entry("@alice", 0.9), _entry("@bob", 0.8)),
+                qualified_owner_count=2,
+            ),
+            "db/b.py": PathOwnership(
+                owners=(_entry("@alice", 0.9), _entry("@carol", 0.8)),
+                qualified_owner_count=2,
+            ),
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    separate = OwnershipMap(
+        paths={
+            "api/a.py": PathOwnership(
+                owners=(_entry("@bob", 0.9),),
+                qualified_owner_count=1,
+            ),
+            "db/b.py": PathOwnership(
+                owners=(_entry("@carol", 0.9),),
+                qualified_owner_count=1,
+            ),
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    graph = build_graph(ownership)
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=ownership),
+        patch("checkowners.cli._build_or_load_graph", return_value=graph),
+    ):
+        one_end = runner.invoke(app, ["graph", "--from", "@bob"])
+        unknown = runner.invoke(app, ["graph", "--from", "@bob", "--to", "@nobody"])
+        exported = runner.invoke(
+            app,
+            ["graph", "--export", "dot", "--from", "@bob", "--to", "@carol"],
+        )
+        as_json = runner.invoke(
+            app,
+            ["graph", "--export", "json", "--from", "@bob", "--to", "@carol"],
+        )
+    assert one_end.exit_code == 2
+    assert "--from and --to must both be set" in one_end.stdout
+    assert unknown.exit_code == 2
+    assert "unknown graph endpoint: @nobody" in unknown.stdout
+    assert exported.exit_code == 0
+    assert exported.stdout.lstrip().startswith("graph ")
+    assert "@bob ->" in exported.stderr
+    assert as_json.exit_code == 0
+    payload = json.loads(as_json.stdout)
+    assert payload["analytics"]["transfer_path"][0] == "contrib::@bob"
+    assert "contrib::@alice" in payload["analytics"]["transfer_path"]
+    assert "->" not in as_json.stderr
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=separate),
+        patch("checkowners.cli._build_or_load_graph", return_value=build_graph(separate)),
+    ):
+        none = runner.invoke(app, ["graph", "--from", "@bob", "--to", "@carol"])
+    assert none.exit_code == 0
+    assert "No ownership path." in none.stdout
+    aggregate = Config(output=OutputConfig(aggregate_only=True))
+    with (
+        patch("checkowners.cli._load_config", return_value=aggregate),
+        patch("checkowners.cli._load_or_analyze", return_value=ownership),
+        patch("checkowners.cli._build_or_load_graph", return_value=graph),
+    ):
+        refused = runner.invoke(app, ["graph", "--from", "@bob", "--to", "api/a.py"])
+    assert refused.exit_code == 2
+    assert "aggregate_only" in refused.stdout
 
 
 def test_decay_reports_ownership_and_risk_models() -> None:
@@ -2852,6 +2930,29 @@ def _exit_cases() -> list[object]:
     return cases
 
 
+class _GraphStub:
+    def nodes(self, data: bool = False) -> list[object]:
+        _ = data
+        return []
+
+    def edges(self, data: bool = False) -> list[object]:
+        _ = data
+        return []
+
+    def subgraph(self, nodes: object) -> _GraphStub:
+        _ = nodes
+        return self
+
+    def copy(self) -> _GraphStub:
+        return self
+
+    def remove_edges_from(self, edges: object) -> None:
+        _ = edges
+
+    def number_of_nodes(self) -> int:
+        return 0
+
+
 @pytest.mark.parametrize(("kind", "command", "args", "expected"), _exit_cases())
 def test_exit_code_contract(
     kind: str,
@@ -2955,7 +3056,7 @@ def test_exit_code_contract(
                 why_not=None,
             ),
         ),
-        patch("checkowners.cli._build_or_load_graph", return_value=object()),
+        patch("checkowners.cli._build_or_load_graph", return_value=_GraphStub()),
         patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph"),
         patch(

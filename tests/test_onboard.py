@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from checkowners.models import (
     AnalysisConfig,
     Config,
+    ContributorStatus,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
@@ -17,8 +18,20 @@ from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
 
-def _entry(handle: str, confidence: float, commits: int = 5) -> OwnerEntry:
-    return OwnerEntry(handle=handle, ownership_score=confidence, last_commit=_NOW, commits=commits)
+def _entry(
+    handle: str,
+    confidence: float,
+    commits: int = 5,
+    *,
+    contributor_status: ContributorStatus = "unknown",
+) -> OwnerEntry:
+    return OwnerEntry(
+        handle=handle,
+        ownership_score=confidence,
+        last_commit=_NOW,
+        commits=commits,
+        contributor_status=contributor_status,
+    )
 
 
 def _ownership(raw: dict[str, tuple[OwnerEntry, ...]]) -> OwnershipMap:
@@ -44,16 +57,16 @@ def test_generate_onboarding_no_match_returns_empty_path() -> None:
     assert report.steps == ()
 
 
-def test_generate_onboarding_orders_broad_to_deep() -> None:
+def test_generate_onboarding_orders_by_dependency() -> None:
     ownership = _ownership(
         {
-            "src/payments/utils.py": (
+            "src/payments/secret.py": (
                 _entry("@alice", 0.9),
                 _entry("@bob", 0.7),
                 _entry("@carol", 0.6),
             ),
             "src/payments/billing.py": (_entry("@alice", 0.9), _entry("@bob", 0.7)),
-            "src/payments/secret.py": (_entry("@alice", 0.95),),
+            "src/payments/utils.py": (_entry("@alice", 0.95),),
         }
     )
     report = generate_onboarding_path(
@@ -61,6 +74,10 @@ def test_generate_onboarding_orders_broad_to_deep() -> None:
         _config(),
         target="src/payments/",
         max_steps=3,
+        dependency_edges=(
+            ("src/payments/billing.py", "src/payments/utils.py"),
+            ("src/payments/secret.py", "src/payments/billing.py"),
+        ),
     )
     paths = [step.path for step in report.steps]
     assert paths == [
@@ -68,22 +85,67 @@ def test_generate_onboarding_orders_broad_to_deep() -> None:
         "src/payments/billing.py",
         "src/payments/secret.py",
     ]
+    assert "depends on src/payments/utils.py" in report.steps[1].description
+    assert "3 qualified owners" in report.steps[2].description
+    assert "dependency order" not in report.unavailable_signals
+
+
+def test_onboarding_declares_unavailable_signals_and_skips_former_mentors() -> None:
+    ownership = _ownership(
+        {
+            "src/payments/a.py": (
+                _entry("@alice", 0.9, commits=2, contributor_status="active"),
+                _entry("@bob", 0.8, commits=9, contributor_status="active"),
+                _entry("@carol", 0.95, commits=1, contributor_status="former"),
+            ),
+            "src/payments/b.py": (
+                _entry("@alice", 0.9, commits=2, contributor_status="active"),
+                _entry("@bob", 0.8, commits=9, contributor_status="active"),
+                _entry("@carol", 0.95, commits=1, contributor_status="former"),
+            ),
+        }
+    )
+    report = generate_onboarding_path(ownership, _config(), target="src/payments/")
+    assert report.experimental is True
+    assert report.unavailable_signals == (
+        "code complexity",
+        "test coverage",
+        "documentation coverage",
+        "dependency order",
+        "domain criticality",
+    )
+    assert report.mentor_candidates == ("@alice", "@bob")
+    assert "@carol" not in report.mentor_candidates
+
+
+def test_cycle_falls_back_to_path_order() -> None:
+    owners = (_entry("@alice", 0.9), _entry("@bob", 0.7))
+    ownership = _ownership(
+        {
+            "src/payments/b.py": owners,
+            "src/payments/a.py": owners,
+        }
+    )
+    report = generate_onboarding_path(
+        ownership,
+        _config(),
+        target="src/payments/",
+        dependency_edges=(
+            ("src/payments/a.py", "src/payments/b.py"),
+            ("src/payments/b.py", "src/payments/a.py"),
+        ),
+    )
+    assert [step.path for step in report.steps] == [
+        "src/payments/a.py",
+        "src/payments/b.py",
+    ]
+    assert "cycle; path order" in report.steps[0].description
+    assert "Cycle:" in report.to_markdown()
 
 
 def test_generate_onboarding_complexity_increases() -> None:
-    abc = (_entry("@alice", 0.9), _entry("@bob", 0.7), _entry("@carol", 0.6))
-    ab = (_entry("@alice", 0.9), _entry("@bob", 0.7))
-    solo = (_entry("@alice", 0.95),)
-    ownership = _ownership(
-        {
-            "src/payments/a.py": abc,
-            "src/payments/b.py": abc,
-            "src/payments/c.py": ab,
-            "src/payments/d.py": ab,
-            "src/payments/e.py": solo,
-            "src/payments/f.py": solo,
-        }
-    )
+    owners = (_entry("@alice", 0.9), _entry("@bob", 0.7))
+    ownership = _ownership({f"src/payments/{name}.py": owners for name in "abcdef"})
     report = generate_onboarding_path(
         ownership,
         _config(),
@@ -156,7 +218,7 @@ def test_to_markdown_emits_checklist() -> None:
         max_steps=1,
     )
     md = report.to_markdown()
-    assert "# Onboarding path for src/payments/" in md
+    assert "# Experimental onboarding suggestions for src/payments/" in md
     assert "- [ ] **Step 1**" in md
     assert KNOWLEDGE_RISK_NOTICE in md
 

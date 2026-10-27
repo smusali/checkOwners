@@ -140,13 +140,24 @@ from checkowners.github import (
     set_offline,
 )
 from checkowners.graph import (
+    EXPORT_FORMATS,
     GraphExtraMissingError,
+    TransferResult,
     build_graph,
+    endpoint_is_contributor,
     for_display,
+    format_analytics,
+    format_transfer,
     from_serializable,
+    graph_analytics,
+    label_nodes,
     to_dot,
+    to_gexf,
+    to_graphml,
+    to_json,
     to_serializable,
     to_text,
+    transfer_path,
 )
 from checkowners.identity import (
     HandleHit,
@@ -259,6 +270,8 @@ from checkowners.state import (
     write_state,
 )
 from checkowners.topology import (
+    TOPOLOGY_HYPOTHESIS,
+    TeamComparison,
     TopologyReport,
     declared_teams_from_github,
     infer_topology,
@@ -2417,7 +2430,7 @@ def _decay_report_payload(report: DecayReport) -> dict[str, object]:
 
 
 def _build_or_load_graph(repo_root: Path, ownership: OwnershipMap, config: Config) -> nx.Graph:
-    """Return the knowledge graph, reusing a fresh on-disk cache when available."""
+    """Return the ownership graph, reusing a fresh on-disk cache when available."""
     if not _NO_CACHE.get():
         cached = read_graph_cache(
             repo_root,
@@ -2427,7 +2440,15 @@ def _build_or_load_graph(repo_root: Path, ownership: OwnershipMap, config: Confi
         )
         if cached is not None:
             return from_serializable(cached)
-    graph_obj = build_graph(ownership)
+    rules = _codeowners_rules(find_codeowners_path(repo_root))
+    clusters = infer_topology(ownership, config).clusters
+    graph_obj = build_graph(
+        ownership,
+        clusters=clusters,
+        rules=rules,
+        repo_root=repo_root,
+        repository=_repository_name(repo_root),
+    )
     if not _NO_CACHE.get():
         write_graph_cache(
             repo_root,
@@ -2439,15 +2460,33 @@ def _build_or_load_graph(repo_root: Path, ownership: OwnershipMap, config: Confi
     return graph_obj
 
 
+def _repository_name(repo_root: Path) -> str:
+    try:
+        return github_repository(repo_root)
+    except ReconciliationError:
+        return repository_identity(repo_root)
+
+
 @app.command()
 def graph(
     export: Annotated[
         str | None,
         typer.Option(
             "--export",
-            help="Export the graph in the given format (currently 'dot').",
+            help=(
+                "Export format. The documented default is dot. "
+                f"Supported: {', '.join(EXPORT_FORMATS)}."
+            ),
             case_sensitive=False,
         ),
+    ] = None,
+    source: Annotated[
+        str | None,
+        typer.Option("--from", help="Start of an ownership transfer path."),
+    ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option("--to", help="End of an ownership transfer path."),
     ] = None,
 ) -> None:
     """Render the ownership graph in the terminal."""
@@ -2459,16 +2498,79 @@ def graph(
     except GraphExtraMissingError as exc:
         console.print(f"[red]{exc}[/red]")
         exit_with(ExitCode.CONFIG)
-    if export is not None and export.strip().lower() != "dot":
-        console.print(f"[red]Unsupported export format: {export!r}; supported: dot[/red]")
+    fmt = None if export is None else export.strip().lower()
+    if fmt is not None and fmt not in EXPORT_FORMATS:
+        supported = ", ".join(EXPORT_FORMATS)
+        console.print(f"[red]Unsupported export format: {export!r}; supported: {supported}[/red]")
         exit_with(ExitCode.CONFIG)
     shown = for_display(graph_obj, config, _repo_id())
-    if export is None:
+    transfer = _graph_transfer(graph_obj, config, source, target)
+    if fmt is None:
         typer.echo(to_text(shown))
+        typer.echo(format_analytics(graph_analytics(shown, ownership, config)))
+        _emit_transfer(transfer, config, stream="out")
+    elif fmt == "json":
+        analytics = graph_analytics(shown, ownership, config)
+        if transfer is not None and transfer.nodes:
+            labeled = label_nodes(transfer.nodes, config, _repo_id())
+            analytics = replace(analytics, transfer_path=labeled)
+        typer.echo(to_json(shown, analytics))
+        _emit_transfer(transfer, config, stream="err", empty_only=True)
     else:
-        typer.echo(to_dot(shown))
+        writers = {"dot": to_dot, "graphml": to_graphml, "gexf": to_gexf}
+        typer.echo(writers[fmt](shown))
+        _emit_transfer(transfer, config, stream="err")
     _report_models("topology")
     _finish_analysis(ownership)
+
+
+def _graph_transfer(
+    graph_obj: nx.Graph,
+    config: Config,
+    source: str | None,
+    target: str | None,
+) -> TransferResult | None:
+    if source is None and target is None:
+        return None
+    if source is None or target is None:
+        console.print("[red]--from and --to must both be set[/red]")
+        exit_with(ExitCode.CONFIG)
+    if config.output.aggregate_only and (
+        endpoint_is_contributor(graph_obj, source) or endpoint_is_contributor(graph_obj, target)
+    ):
+        console.print("[red]person endpoints are omitted when aggregate_only is set[/red]")
+        exit_with(ExitCode.CONFIG)
+    try:
+        result = transfer_path(graph_obj, source, target)
+    except GraphExtraMissingError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.CONFIG)
+    if result.missing:
+        console.print(f"[red]unknown graph endpoint: {', '.join(result.missing)}[/red]")
+        exit_with(ExitCode.CONFIG)
+    return result
+
+
+def _emit_transfer(
+    result: TransferResult | None,
+    config: Config,
+    *,
+    stream: Literal["out", "err"],
+    empty_only: bool = False,
+) -> None:
+    if result is None:
+        return
+    if result.nodes and empty_only:
+        return
+    if result.nodes:
+        labeled = TransferResult(nodes=label_nodes(result.nodes, config, _repo_id()))
+        text = format_transfer(labeled)
+    else:
+        text = "No ownership path."
+    if stream == "err":
+        err_console.print(text)
+        return
+    typer.echo(text)
 
 
 def _risk_impl(json_output: bool, baseline: str | None, output_format: str | None) -> None:
@@ -2969,18 +3071,43 @@ def _qualified_owners_payload(report: BusFactorReport, config: Config) -> dict[s
     }
 
 
-def _topology_payload(report: TopologyReport) -> dict[str, Any]:
+def _topology_payload(report: TopologyReport) -> dict[str, object]:
     return {
+        "algorithm": report.algorithm,
+        "resolution": report.resolution,
+        "seed": report.seed,
+        "modularity": report.modularity,
+        "stability_mean": report.stability_mean,
+        "stability_variance": report.stability_variance,
+        "stability_available": report.stability_available,
+        "signals_used": list(report.signals_used),
+        "signals_unavailable": list(report.signals_unavailable),
+        "experimental": report.experimental,
         "clusters": [
             {
                 "name": cluster.name,
                 "members": list(cluster.members),
+                "affiliated_members": list(cluster.affiliated_members),
                 "primary_paths": list(cluster.primary_paths),
                 "declared": cluster.declared,
+                "parent": cluster.parent,
             }
             for cluster in report.clusters
         ],
+        "comparisons": [_comparison_payload(item) for item in report.comparisons],
         "mismatches": list(report.mismatches),
+    }
+
+
+def _comparison_payload(item: TeamComparison) -> dict[str, object]:
+    return {
+        "team": item.team,
+        "cluster": item.cluster,
+        "jaccard": item.jaccard,
+        "precision": item.precision,
+        "recall": item.recall,
+        "coverage": item.coverage,
+        "cross_team": list(item.cross_team),
     }
 
 
@@ -3265,20 +3392,61 @@ def _render_balance_facts(report: BalanceReport) -> None:
 
 
 @app.command()
-def topology(json_output: JsonOption = False) -> None:
-    """Infer exploratory repository topology from co-commits. Clusters are not teams."""
+def topology(
+    json_output: JsonOption = False,
+    resolution: Annotated[
+        float,
+        typer.Option(
+            "--resolution",
+            help="Louvain resolution. Values above 1 favor smaller clusters.",
+        ),
+    ] = 1.0,
+) -> None:
+    """Experimental. Infer exploratory repository topology. Clusters are a hypothesis, not teams."""
+    if resolution <= 0:
+        console.print("[red]resolution must be positive[/red]")
+        exit_with(ExitCode.CONFIG)
     config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
     declared = declared_teams_from_github(config)
-    report = infer_topology(ownership, config, declared_teams=declared)
+    try:
+        report = infer_topology(
+            ownership,
+            config,
+            declared_teams=declared,
+            resolution=resolution,
+        )
+    except GraphExtraMissingError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.CONFIG)
     if json_output:
         _emit_json(_topology_payload(report), ownership)
         _finish_analysis(ownership)
         return
+    _render_topology(report, config)
+    _report_models("topology")
+    _finish_analysis(ownership)
+
+
+def _render_topology(report: TopologyReport, config: Config) -> None:
+    console.print(TOPOLOGY_HYPOTHESIS)
+    console.print(
+        f"Algorithm: {report.algorithm}  resolution: {report.resolution:g}  seed: {report.seed}"
+    )
+    console.print(f"Modularity: {report.modularity:.4f}")
+    if report.stability_available:
+        console.print(
+            "Stability mean: "
+            f"{report.stability_mean:.4f}  variance: {report.stability_variance:.4f}"
+        )
+    else:
+        console.print("Stability unavailable: the person graph has no edges.")
+    if report.signals_used:
+        console.print("Signals used: " + ", ".join(report.signals_used))
+    if report.signals_unavailable:
+        console.print("Signals unavailable: " + ", ".join(report.signals_unavailable))
     if not report.clusters:
         console.print("[yellow]No clusters inferred.[/yellow]")
-        _report_models("topology")
-        _finish_analysis(ownership)
         return
     table = Table(title="Exploratory repository topology")
     table.add_column("Cluster", style="cyan")
@@ -3287,27 +3455,43 @@ def topology(json_output: JsonOption = False) -> None:
     table.add_column("Source")
     for cluster in report.clusters:
         source = "[green]declared[/green]" if cluster.declared else "[yellow]inferred[/yellow]"
+        names = [*cluster.members, *cluster.affiliated_members]
         table.add_row(
             escape(cluster.name),
-            escape(", ".join(_person(member) for member in cluster.members))
-            if not _aggregate()
-            else "-",
+            escape(", ".join(_person(member) for member in names)) if not _aggregate() else "-",
             escape(", ".join(cluster.primary_paths)) or "-",
             source,
         )
     console.print(table)
-    if report.mismatches:
+    if report.comparisons:
+        console.print()
+        console.print("[bold]Declared teams:[/bold]")
+        for item in report.comparisons:
+            _print_comparison(item)
+    elif report.mismatches:
         console.print()
         console.print("[bold]Mismatches:[/bold]")
         for line in report.mismatches:
             console.print(f"  - {scrub_text(line, config, _repo_id())}")
-    _report_models("topology")
-    _finish_analysis(ownership)
 
 
-def _onboarding_payload(report: OnboardingPath) -> dict[str, Any]:
+def _print_comparison(item: TeamComparison) -> None:
+    metrics = (
+        f"Jaccard {item.jaccard:.2f}  precision {item.precision:.2f}  "
+        f"recall {item.recall:.2f}  coverage {item.coverage:.2f}"
+    )
+    console.print(f"{escape(item.team)} vs {escape(item.cluster or '-')}: {metrics}")
+    if item.cross_team and not _aggregate():
+        experts = ", ".join(_person(member) for member in item.cross_team)
+        console.print(f"  Potential cross-team expert: {escape(experts)}")
+
+
+def _onboarding_payload(report: OnboardingPath) -> dict[str, object]:
     return {
         "target": report.target,
+        "experimental": report.experimental,
+        "unavailable_signals": list(report.unavailable_signals),
+        "mentor_candidates": list(report.mentor_candidates),
         "steps": [
             {
                 "order": step.order,
@@ -3330,10 +3514,15 @@ def onboard(
         typer.Option("--markdown", help="Emit a Markdown checklist."),
     ] = False,
 ) -> None:
-    """Generate a structured onboarding path for a codebase area."""
+    """Experimental. List inferred onboarding suggestions for a codebase area."""
     config = _load_config()
     ownership = _load_or_analyze(config, Path.cwd())
-    report = generate_onboarding_path(ownership, config, target=path)
+    report = generate_onboarding_path(
+        ownership,
+        config,
+        target=path,
+        repo_root=Path.cwd(),
+    )
     if json_output:
         _emit_json(_onboarding_payload(report), ownership)
         _finish_analysis(ownership)
@@ -3347,7 +3536,7 @@ def onboard(
         _report_notice()
         _finish_analysis(ownership)
         return
-    table = Table(title=f"Onboarding path: {path}")
+    table = Table(title=f"Experimental onboarding suggestions: {path}")
     table.add_column("#", justify="right")
     table.add_column("Path", style="cyan")
     table.add_column("Reviewer")
@@ -3362,6 +3551,13 @@ def onboard(
             escape(step.description),
         )
     console.print(table)
+    if report.unavailable_signals:
+        console.print("Unavailable signals: " + ", ".join(report.unavailable_signals))
+    if report.cycles:
+        console.print("Cycle: " + ", ".join(report.cycles) + ". Those steps use path order.")
+    if report.mentor_candidates and not _aggregate():
+        names = ", ".join(_person(handle) for handle in report.mentor_candidates)
+        console.print(f"Mentor candidates: {escape(names)}")
     _report_notice()
     _finish_analysis(ownership)
 

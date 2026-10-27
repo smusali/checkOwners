@@ -121,7 +121,7 @@ The composite Action posts that finding as one comment on same-repo pull request
 
 Other reports use that same map. The table below lists them. In CI, the composite Action writes `GITHUB_OUTPUT`, a job summary, and one pull-request comment on same-repo pull requests.
 
-Scoring commands accept `--json`, `--as-of`, and `SOURCE_DATE_EPOCH`. The default instant is the HEAD committer time. `graph` uses `--export dot` instead of `--json`.
+Scoring commands accept `--json`, `--as-of`, and `SOURCE_DATE_EPOCH`. The default instant is the HEAD committer time. `graph` uses `--export` instead of `--json`. The documented default is `dot`. `graphml`, `gexf`, and `json` are also accepted.
 
 The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md).
 
@@ -139,13 +139,13 @@ The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/b
 | `checkowners sync` | Open a pull request proposing CODEOWNERS changes (`--commit` commits locally) |
 | `checkowners expertise <path>` | Evidence ranking for one path from cached analysis |
 | `checkowners risk` | Rank paths by composite knowledge risk. `bus-factor` and `decay` are aliases |
-| `checkowners graph [--export dot]` | Render the ownership graph |
+| `checkowners graph [--export dot\|graphml\|gexf\|json]` | Render the ownership graph |
 | `checkowners qualified-owners [<path>] [--all]` | Per-path qualified owner count (capped by `top_n_owners`) with candidate backup reviewers |
 | `checkowners simulate --remove @alice` | What breaks if those people leave, from the cached map |
-| `checkowners topology` | Exploratory repository topology from commit co-occurrence |
+| `checkowners topology` | Experimental Louvain clustering of repository collaboration, not an org chart |
 | `checkowners suggest` | Recommend a reviewer from expertise and current load. `balance` is an alias. `--diff` and `--pr` scope that recommendation to a change |
 | `checkowners diff <spec>` | Ownership impact for the paths changed in `base...head` |
-| `checkowners onboard <path>` | Learning path from broadly shared paths to concentrated qualified ownership |
+| `checkowners onboard <path>` | Experimental inferred onboarding suggestions |
 | `checkowners trends [--periods N] [--period-days D]` | Historical activity and qualified owner count over time |
 | `checkowners github-action` | Run the full CI flow and write `GITHUB_OUTPUT`; used by the composite Action |
 

@@ -14,7 +14,6 @@ from checkowners.models import (
     PathOwnership,
 )
 from checkowners.topology import (
-    _cluster,
     declared_teams_from_github,
     infer_topology,
 )
@@ -44,14 +43,20 @@ def test_infer_topology_no_owners_returns_empty() -> None:
     report = infer_topology(_ownership({}), _config())
     assert report.clusters == ()
     assert report.mismatches == ()
+    assert report.experimental is True
+    assert report.algorithm == "louvain"
+    assert report.seed == 0
+    assert report.stability_available is False
+    assert "co_change" in report.signals_unavailable
+    assert "temporal_collaboration" in report.signals_unavailable
 
 
 def test_infer_topology_two_independent_clusters() -> None:
     ownership = _ownership(
         {
-            "src/api.py": (_entry("@alice", 0.9), _entry("@bob", 0.8)),
-            "src/auth.py": (_entry("@alice", 0.9), _entry("@bob", 0.7)),
-            "src/db.py": (_entry("@carol", 0.85), _entry("@dave", 0.7)),
+            "api/one.py": (_entry("@alice", 0.9), _entry("@bob", 0.8)),
+            "api/two.py": (_entry("@alice", 0.9), _entry("@bob", 0.7)),
+            "db/one.py": (_entry("@carol", 0.85), _entry("@dave", 0.7)),
         }
     )
     report = infer_topology(ownership, _config())
@@ -63,14 +68,14 @@ def test_infer_topology_two_independent_clusters() -> None:
 def test_infer_topology_primary_paths_assigned() -> None:
     ownership = _ownership(
         {
-            "src/api.py": (_entry("@alice", 0.9), _entry("@bob", 0.8)),
-            "src/db.py": (_entry("@carol", 0.85),),
+            "api/one.py": (_entry("@alice", 0.9), _entry("@bob", 0.8)),
+            "db/one.py": (_entry("@carol", 0.85),),
         }
     )
     report = infer_topology(ownership, _config())
     paths_by_cluster = {tuple(c.members): c.primary_paths for c in report.clusters}
-    assert paths_by_cluster[("@alice", "@bob")] == ("src/api.py",)
-    assert paths_by_cluster[("@carol",)] == ("src/db.py",)
+    assert paths_by_cluster[("@alice", "@bob")] == ("api/one.py",)
+    assert paths_by_cluster[("@carol",)] == ("db/one.py",)
 
 
 def test_infer_topology_matches_declared_team() -> None:
@@ -94,7 +99,13 @@ def test_infer_topology_flags_membership_mismatch() -> None:
     declared = {"backend": frozenset({"alice", "carol"})}
     report = infer_topology(ownership, _config(), declared_teams=declared)
     assert report.clusters[0].declared is False
-    assert any("backend" in m for m in report.mismatches)
+    assert report.comparisons[0].team == "backend"
+    assert report.comparisons[0].jaccard == 0.3333
+    assert report.comparisons[0].precision == 0.5
+    assert report.comparisons[0].recall == 0.5
+    assert report.comparisons[0].coverage == 0.5
+    assert report.comparisons[0].cross_team == ("@bob",)
+    assert any("backend" in line for line in report.mismatches)
 
 
 def test_infer_topology_reports_mismatch_per_overlapping_team() -> None:
@@ -109,26 +120,76 @@ def test_infer_topology_reports_mismatch_per_overlapping_team() -> None:
         "infra": frozenset({"erin"}),
     }
     report = infer_topology(ownership, _config(), declared_teams=declared)
-    # The cluster {alice, bob} overlaps both backend and frontend: one line each.
+    by_team = {item.team: item for item in report.comparisons}
+    assert by_team["backend"].jaccard == 0.3333
+    assert by_team["frontend"].recall == 0.5
+    assert by_team["infra"].jaccard == 0.0
+    assert by_team["infra"].coverage == 0.0
     assert len(report.mismatches) == 2
-    assert any("'backend'" in m for m in report.mismatches)
-    assert any("'frontend'" in m for m in report.mismatches)
-    assert not any("'infra'" in m for m in report.mismatches)
+    assert any("'backend'" in line for line in report.mismatches)
+    assert any("'frontend'" in line for line in report.mismatches)
+    assert not any("'infra'" in line for line in report.mismatches)
 
 
-def test_cluster_disconnected_subgraphs() -> None:
-    adjacency = {
-        "a": {"b"},
-        "b": {"a"},
-        "c": {"d"},
-        "d": {"c"},
-        "e": set(),
-    }
-    clusters = _cluster(adjacency)
-    cluster_sets = list(clusters)
-    assert {"a", "b"} in cluster_sets
-    assert {"c", "d"} in cluster_sets
-    assert {"e"} in cluster_sets
+def test_chain_does_not_form_one_cluster() -> None:
+    ownership = _ownership(
+        {
+            "a/file.py": (_entry("@alice", 0.9), _entry("@bob", 0.9)),
+            "b/file.py": (_entry("@bob", 0.9), _entry("@carol", 0.9)),
+            "c/file.py": (_entry("@carol", 0.9), _entry("@dave", 0.9)),
+        }
+    )
+    report = infer_topology(ownership, _config())
+    assert len(report.clusters) > 1
+    for cluster in report.clusters:
+        union = set(cluster.members) | set(cluster.affiliated_members)
+        assert not {"@alice", "@dave"} <= union
+
+
+def test_dense_community_is_recovered() -> None:
+    owners = tuple(_entry(handle, 0.9) for handle in ("@alice", "@bob", "@carol", "@dave"))
+    ownership = _ownership(
+        {
+            "pay/a.py": owners,
+            "pay/b.py": owners,
+            "pay/c.py": owners,
+            "other/x.py": (_entry("@erin", 0.9), _entry("@frank", 0.9)),
+        }
+    )
+    report = infer_topology(ownership, _config())
+    dense = {"@alice", "@bob", "@carol", "@dave"}
+    assert any(dense <= set(cluster.members) for cluster in report.clusters)
+
+
+def test_topology_is_deterministic_for_a_fixed_seed() -> None:
+    ownership = _ownership(
+        {
+            "a/file.py": (_entry("@alice", 0.9), _entry("@bob", 0.9)),
+            "b/file.py": (_entry("@bob", 0.9), _entry("@carol", 0.9)),
+            "c/file.py": (_entry("@carol", 0.9), _entry("@dave", 0.9)),
+        }
+    )
+    assert infer_topology(ownership, _config()) == infer_topology(ownership, _config())
+
+
+def test_topology_reports_stability_across_seeds() -> None:
+    ownership = _ownership(
+        {
+            "a/file.py": (_entry("@alice", 0.9), _entry("@bob", 0.9)),
+            "b/file.py": (_entry("@bob", 0.9), _entry("@carol", 0.9)),
+            "c/file.py": (_entry("@carol", 0.9), _entry("@dave", 0.9)),
+        }
+    )
+    report = infer_topology(ownership, _config())
+    assert report.stability_available is True
+    assert 0.0 <= report.stability_mean <= 1.0
+    assert report.stability_variance >= 0.0
+    assert report.resolution == 1.0
+    assert "co_ownership" in report.signals_used
+    assert "shared_module" in report.signals_used
+    assert "co_review" in report.signals_unavailable
+    assert "co_change" in report.signals_unavailable
+    assert "temporal_collaboration" in report.signals_unavailable
 
 
 def test_declared_teams_from_github_disabled_returns_none() -> None:

@@ -72,7 +72,7 @@ qualification:
 model:
   ownership: ownership-v1     # pin must match this release, or be omitted
   risk: risk-v1
-  topology: topology-v1
+  topology: topology-v2
   signals:
     recency:
       weight: 0.35
@@ -386,7 +386,7 @@ Analyze JSON includes `analysis.ignore_revs_applied` and `analysis.ignore_revs_f
 
 Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way. Set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
 
-Offline scores are no longer capped at `0.85`. A value of `0.72` means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `models.ownership`, `models.risk`, and `models.topology` (`ownership-v1`, `risk-v1`, `topology-v1`). Per-repo state is schema 1; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. `qualification.strategy: threshold` keeps a commit-count gate and undamped frequency:
+Offline scores are no longer capped at `0.85`. A value of `0.72` means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `models.ownership`, `models.risk`, and `models.topology` (`ownership-v1`, `risk-v1`, `topology-v2`). Per-repo state is schema 1; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. `qualification.strategy: threshold` keeps a commit-count gate and undamped frequency:
 
 ```yaml
 qualification:
@@ -476,6 +476,30 @@ With review history, each person can also carry `reviews_requested`, `reviews_co
 The long text names recommended reviewers with `ownership_score`, `evidence_quality`, the available signal scores, and how recently they touched the files. Someone in the `high` load band is listed under not recommended only when `load_signal` is `github_completed_reviews` or `external`. The authorship proxy does not demote anyone and does not treat commits as review load. The short `diff` text lists the paths, the recommended handles, ownership risks on those paths, CODEOWNERS drift for those paths, and a bus-factor regression when the qualified-owner count falls to the warn threshold. `--json` for these reports is schema `1` (`#/$defs/change`). `suggest --json` without `--diff` or `--pr` stays `#/$defs/balance`.
 
 `--diff-only SPEC` on `analyze`, `drift`, `risk`, `bus-factor`, `decay`, `suggest`, `balance`, `explain`, `owners`, `who`, `expertise`, and `qualified-owners` limits that command to the same path set. A fresh full cache is filtered, so those paths are not blamed again. Otherwise the command scores only those paths and does not write `~/.checkowners`. An empty diff does not analyze the repository. `generate`, `sync`, `baseline`, `validate`, and `github-action` reject the flag.
+
+## Ownership graph
+
+`checkowners graph` prints the ownership graph as text. `--export dot` writes Graphviz DOT, which is the documented default. `--export graphml` writes GraphML, `--export gexf` writes GEXF, and `--export json` writes the node and edge lists plus an `analytics` object. An unknown format exits 2 and lists the supported formats. Install the optional `graph` extra (`networkx`) before using the command. Privacy settings apply to every export. `output.aggregate_only` drops contributor nodes. `output.anonymize` relabels them.
+
+The graph is undirected. One pair of nodes has one edge, and that edge's `relations` attribute lists every relation the sources support. Populated nodes are contributors, files, directories, the repository, teams, and CODEOWNERS rules. Populated relations are `OWNS_OBSERVED`, `AUTHORED` when the owner has commits, `REVIEWS` when a review score exists, `DECAYING_EXPERTISE` when status is `former` or freshness is `inactive` or `departed`, `OWNS_DECLARED` from CODEOWNERS, `MEMBER_OF`, `CONTAINS`, and `DEPENDS_ON` for a Python import that resolves to another analyzed file. Package, Service, Commit, PullRequest, Review, Incident, and Domain are not nodes. `KNOWS`, `MODIFIES`, `REPLACES`, and `REVIEWED_BY` are not edges.
+
+Text and JSON add articulation points, unweighted betweenness for contributors, and orphan files. An orphan is a file with no qualified owner whose status is outside `former` and `inactive` and whose freshness is not `inactive` or `departed`. `unknown` still counts as an expert. A Python file that imports an orphan is listed as a dependent. `--from` and `--to` resolve a handle or a path and print the shortest ownership path. A missing endpoint exits 2. Under `aggregate_only`, a person endpoint is refused. For DOT, GraphML, and GEXF the path is printed on stderr so the export stays valid. No path is a message and exits 0.
+
+## Exploratory repository topology
+
+`checkowners topology` is experimental. The text says the clusters are a hypothesis for a person to confirm, not an org chart. The algorithm is Louvain with seed `0`. `--resolution` defaults to `1`. Values above 1 favor smaller clusters. The report includes modularity and the mean and variance of cluster stability across seeds `0` through `4`.
+
+Edge weight uses co-ownership, co-review when both review scores exist, and shared-module activity. Co-change and temporal collaboration are named as unavailable. A person can appear on a second cluster when their weight into it is at least half their primary weight and they connect to at least two of its members.
+
+Declared teams are compared with Jaccard, precision, recall, and coverage. A cluster is named after a declared team only when the sets match. `--json` is schema `1` (`#/$defs/topology`) and includes `models.topology` `topology-v2`. A config pin of `topology-v1` is refused. Install the optional `graph` extra before running the command.
+
+## Onboarding suggestions
+
+`checkowners onboard <path>` is an experimental list of inferred suggestions, not a curriculum. When Python imports among the matched files resolve to other matched files, steps follow that order, prerequisites first. A cycle is named, and those files fall back to path order. No resolved edges means the report lists dependency order as unavailable and keeps the within-rank sort.
+
+Within one dependency rank, files sort by qualified-owner count, then `change_events` when that value is present, then a matching `criticality` weight when a rule matches, then path. A missing signal stays missing. The `complexity` field stays `easy`, `medium`, or `hard` and is only a position tier. The step text is the reason, for example `depends on src/payments/utils.py, 2 qualified owners`.
+
+The report lists unavailable signals in one place: code complexity, test coverage, documentation coverage, dependency order when no import graph was built, and domain criticality when no rule matches. Mentor candidates are qualified owners on the selected steps whose `contributor_status` is not `former`, `inactive`, or `bot`. They are ranked by how many of those steps have another qualified owner, then by fewer commits, then by handle, and the list is capped at three. `--json` is schema `1` (`#/$defs/onboard`). `output.aggregate_only` drops `mentor_candidates`. `output.anonymize` rewrites the handles.
 
 ## Generated CODEOWNERS
 

@@ -45,7 +45,7 @@ ReportedMergeStrategy = Literal["squash", "merge", "rebase"]
 
 OWNERSHIP_MODEL_VERSION = "ownership-v1"
 RISK_MODEL_VERSION = "risk-v1"
-TOPOLOGY_MODEL_VERSION = "topology-v1"
+TOPOLOGY_MODEL_VERSION = "topology-v2"
 DEFAULT_TRUCK_FACTOR_THRESHOLDS: tuple[float, float, float] = (0.5, 0.75, 0.9)
 _MAJOR_CONTRIBUTOR_SHARE = 0.05
 COMMAND_SCHEMA_VERSION = "1"
@@ -556,12 +556,12 @@ class ExpertiseRank:
 
 @dataclass(frozen=True)
 class TeamCluster:
-    """Inferred team boundary from commit co-occurrence."""
-
     name: str
     members: tuple[str, ...]
     primary_paths: tuple[str, ...]
     declared: bool = False
+    affiliated_members: tuple[str, ...] = ()
+    parent: str = ""
 
 
 @dataclass(frozen=True)

@@ -82,7 +82,7 @@ from checkowners.generate import (
     GenerateResult,
 )
 from checkowners.github import PullRequestFilesError, ReconciliationError, set_offline
-from checkowners.graph import GraphExtraMissingError
+from checkowners.graph import GraphExtraMissingError, build_graph
 from checkowners.identity import (
     ContributorRecord,
     HandleHit,
@@ -127,7 +127,7 @@ from checkowners.state import (
     write_handle_cache,
     write_state,
 )
-from checkowners.topology import TopologyReport
+from checkowners.topology import TeamComparison, TopologyReport
 from checkowners.trends import TrendPoint, TrendReport
 from checkowners.validate import ValidationFinding
 from tests.conftest import git_commit, init_git_repo
@@ -1447,6 +1447,33 @@ def test_onboard_markdown_and_table() -> None:
     assert table.exit_code == 0
     assert "start here" in table.stdout
     assert KNOWLEDGE_RISK_NOTICE in table.stderr
+    detailed = OnboardingPath(
+        target="src",
+        steps=report.steps,
+        unavailable_signals=("dependency order",),
+        cycles=("src/main.py",),
+        mentor_candidates=("@alice",),
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_onboarding_path", return_value=detailed),
+        _MOCK_TOKEN,
+    ):
+        listed = runner.invoke(app, ["onboard", "src"])
+    assert listed.exit_code == 0, listed.output
+    assert "Unavailable signals: dependency order" in listed.stdout
+    assert "Cycle: src/main.py" in listed.stdout
+    assert "Mentor candidates" in listed.stdout
+    aggregate = Config(output=OutputConfig(aggregate_only=True))
+    with (
+        patch("checkowners.cli.load_config", return_value=aggregate),
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.generate_onboarding_path", return_value=detailed),
+        _MOCK_TOKEN,
+    ):
+        hidden = runner.invoke(app, ["onboard", "src"])
+    assert hidden.exit_code == 0, hidden.output
+    assert "Mentor candidates" not in hidden.stdout
 
 
 def test_onboard_json_includes_stamp() -> None:
@@ -1521,6 +1548,7 @@ def test_graph_missing_extra_and_bad_export_exit_config() -> None:
         exported = runner.invoke(app, ["graph", "--export", "png"])
     assert exported.exit_code == 2
     assert "png" in exported.stdout
+    assert "supported: dot, graphml, gexf, json" in exported.stdout
 
 
 def test_graph_reports_topology_model() -> None:
@@ -1530,6 +1558,8 @@ def test_graph_reports_topology_model() -> None:
         patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph\n"),
         patch("checkowners.cli.to_dot", return_value="graph {\n}\n"),
+        patch("checkowners.cli.graph_analytics", return_value=None),
+        patch("checkowners.cli.format_analytics", return_value=""),
     ):
         plain = runner.invoke(app, ["graph"])
         exported = runner.invoke(app, ["graph", "--export", "dot"])
@@ -1539,6 +1569,100 @@ def test_graph_reports_topology_model() -> None:
     assert exported.exit_code == 0
     assert "models: topology" in _models_text(exported)
     assert KNOWLEDGE_RISK_NOTICE in _models_text(exported)
+
+
+def test_graph_transfer_path_uses_stderr_for_exports() -> None:
+    pytest.importorskip("networkx")
+    ownership = OwnershipMap(
+        paths={
+            "api/a.py": PathOwnership(
+                owners=(_entry("@alice", 0.9), _entry("@bob", 0.8)),
+                qualified_owner_count=2,
+            ),
+            "db/b.py": PathOwnership(
+                owners=(_entry("@alice", 0.9), _entry("@carol", 0.8)),
+                qualified_owner_count=2,
+            ),
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    separate = OwnershipMap(
+        paths={
+            "api/a.py": PathOwnership(
+                owners=(_entry("@bob", 0.9),),
+                qualified_owner_count=1,
+            ),
+            "db/b.py": PathOwnership(
+                owners=(_entry("@carol", 0.9),),
+                qualified_owner_count=1,
+            ),
+        },
+        last_analyzed=_NOW,
+        analysis_ref="deadbeef",
+    )
+    graph = build_graph(ownership)
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=ownership),
+        patch("checkowners.cli._build_or_load_graph", return_value=graph),
+    ):
+        one_end = runner.invoke(app, ["graph", "--from", "@bob"])
+        unknown = runner.invoke(app, ["graph", "--from", "@bob", "--to", "@nobody"])
+        exported = runner.invoke(
+            app,
+            ["graph", "--export", "dot", "--from", "@bob", "--to", "@carol"],
+        )
+        as_json = runner.invoke(
+            app,
+            ["graph", "--export", "json", "--from", "@bob", "--to", "@carol"],
+        )
+        plain_json = runner.invoke(app, ["graph", "--export", "json"])
+    assert one_end.exit_code == 2
+    assert "--from and --to must both be set" in one_end.stdout
+    assert unknown.exit_code == 2
+    assert "unknown graph endpoint: @nobody" in unknown.stdout
+    assert exported.exit_code == 0
+    assert exported.stdout.lstrip().startswith("graph ")
+    assert "@bob ->" in exported.stderr
+    assert as_json.exit_code == 0
+    payload = json.loads(as_json.stdout)
+    assert payload["analytics"]["transfer_path"][0] == "contrib::@bob"
+    assert "contrib::@alice" in payload["analytics"]["transfer_path"]
+    assert "->" not in as_json.stderr
+    assert "transfer_path" not in json.loads(plain_json.stdout)["analytics"]
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=separate),
+        patch("checkowners.cli._build_or_load_graph", return_value=build_graph(separate)),
+    ):
+        none = runner.invoke(app, ["graph", "--from", "@bob", "--to", "@carol"])
+        none_json = runner.invoke(
+            app,
+            ["graph", "--export", "json", "--from", "@bob", "--to", "@carol"],
+        )
+    assert none.exit_code == 0
+    assert "No ownership path." in none.stdout
+    assert none_json.exit_code == 0
+    assert "transfer_path" not in json.loads(none_json.stdout)["analytics"]
+    aggregate = Config(output=OutputConfig(aggregate_only=True))
+    with (
+        patch("checkowners.cli._load_config", return_value=aggregate),
+        patch("checkowners.cli._load_or_analyze", return_value=ownership),
+        patch("checkowners.cli._build_or_load_graph", return_value=graph),
+    ):
+        refused = runner.invoke(app, ["graph", "--from", "@bob", "--to", "api/a.py"])
+    assert refused.exit_code == 2
+    assert "aggregate_only" in refused.stdout
+    with (
+        patch("checkowners.cli._load_or_analyze", return_value=ownership),
+        patch("checkowners.cli._build_or_load_graph", return_value=graph),
+        patch(
+            "checkowners.cli.transfer_path",
+            side_effect=GraphExtraMissingError("networkx is required"),
+        ),
+    ):
+        missing = runner.invoke(app, ["graph", "--from", "@bob", "--to", "@carol"])
+    assert missing.exit_code == 2
+    assert "networkx is required" in missing.stdout
 
 
 def test_decay_reports_ownership_and_risk_models() -> None:
@@ -1747,6 +1871,87 @@ def test_topology_reports_topology_model() -> None:
     assert "models: topology" in _models_text(listed)
     assert matched.exit_code == 0
     assert "models: topology" in _models_text(matched)
+
+
+def test_topology_renders_metrics_and_rejects_bad_input() -> None:
+    rich = TopologyReport(
+        clusters=(
+            TeamCluster(
+                name="platform",
+                members=("@alice",),
+                primary_paths=("src/a.py",),
+                affiliated_members=("@bob",),
+            ),
+        ),
+        mismatches=(),
+        stability_available=True,
+        stability_mean=0.8,
+        stability_variance=0.1,
+        signals_used=("co_ownership",),
+        signals_unavailable=(),
+        comparisons=(
+            TeamComparison(
+                team="core",
+                cluster="platform",
+                jaccard=0.5,
+                precision=0.5,
+                recall=1.0,
+                coverage=1.0,
+                cross_team=("@bob",),
+            ),
+            TeamComparison(
+                team="empty",
+                cluster="",
+                jaccard=0.0,
+                precision=0.0,
+                recall=0.0,
+                coverage=0.0,
+            ),
+        ),
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.infer_topology", return_value=rich),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        shown = runner.invoke(app, ["topology"])
+        payload = runner.invoke(app, ["topology", "--json"])
+    assert shown.exit_code == 0, shown.output
+    assert "Stability mean" in shown.stdout
+    assert "Signals used: co_ownership" in shown.stdout
+    assert "Declared teams" in shown.stdout
+    assert "Potential cross-team expert" in shown.stdout
+    assert "empty vs -" in shown.stdout
+    assert payload.exit_code == 0, payload.output
+    data = json.loads(payload.stdout)
+    assert data["comparisons"][0]["cross_team"] == ["@bob"]
+    aggregate = Config(output=OutputConfig(aggregate_only=True))
+    with (
+        patch("checkowners.cli.load_config", return_value=aggregate),
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.infer_topology", return_value=rich),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        hidden = runner.invoke(app, ["topology"])
+    assert hidden.exit_code == 0, hidden.output
+    assert "Potential cross-team expert" not in hidden.stdout
+    refused = runner.invoke(app, ["topology", "--resolution", "0"])
+    assert refused.exit_code == 2
+    assert "resolution must be positive" in refused.stdout
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch(
+            "checkowners.cli.infer_topology",
+            side_effect=GraphExtraMissingError("networkx is required"),
+        ),
+        patch("checkowners.cli.declared_teams_from_github", return_value={}),
+        _MOCK_TOKEN,
+    ):
+        missing = runner.invoke(app, ["topology"])
+    assert missing.exit_code == 2
+    assert "networkx is required" in missing.stdout
 
 
 def test_expertise_reports_ownership_model() -> None:
@@ -2852,6 +3057,29 @@ def _exit_cases() -> list[object]:
     return cases
 
 
+class _GraphStub:
+    def nodes(self, data: bool = False) -> list[object]:
+        _ = data
+        return []
+
+    def edges(self, data: bool = False) -> list[object]:
+        _ = data
+        return []
+
+    def subgraph(self, nodes: object) -> _GraphStub:
+        _ = nodes
+        return self
+
+    def copy(self) -> _GraphStub:
+        return self
+
+    def remove_edges_from(self, edges: object) -> None:
+        _ = edges
+
+    def number_of_nodes(self) -> int:
+        return 0
+
+
 @pytest.mark.parametrize(("kind", "command", "args", "expected"), _exit_cases())
 def test_exit_code_contract(
     kind: str,
@@ -2955,7 +3183,7 @@ def test_exit_code_contract(
                 why_not=None,
             ),
         ),
-        patch("checkowners.cli._build_or_load_graph", return_value=object()),
+        patch("checkowners.cli._build_or_load_graph", return_value=_GraphStub()),
         patch("checkowners.cli.for_display", side_effect=lambda graph, *_args: graph),
         patch("checkowners.cli.to_text", return_value="graph"),
         patch(

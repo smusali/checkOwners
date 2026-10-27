@@ -108,7 +108,7 @@ Three model ids are stamped on JSON output and on human reports:
 | --- | --- | --- |
 | `ownership-v1` | `model.ownership` | The renormalized score in this page |
 | `risk-v1` | `model.risk` | Inverse-Herfindahl concentration and the qualified-owner classifier |
-| `topology-v1` | `model.topology` | Co-occurrence clusters |
+| `topology-v2` | `model.topology` | Weighted Louvain clusters |
 
 A formula change, a classifier change, or a topology-algorithm change bumps the matching id. That bump is a breaking change for anyone gating CI on a threshold, even when the JSON shape is unchanged. A config pin must equal the id this release implements, or be omitted. Cached analyze state and the graph cache are reused only when all three ids match.
 
@@ -266,6 +266,38 @@ inferred knowledge is gone. The repository truck factor, reported by
 covered files drop below the first `risk.truck_factor_thresholds` value
 (default `0.50`). That coverage line is the one in Avelino et al. Ties break
 by identity so the count is stable.
+
+## Exploratory repository topology
+
+`checkowners topology` is experimental. It is a hypothesis about repository collaboration, not an org chart and not a team assignment.
+
+The person graph is weighted. Co-ownership adds `min(confidence)` for each shared path where both people clear `analysis.confidence_threshold`. Co-review adds `min(review score)` only when both review signals are available. A missing review is left out, not stored as zero. Shared-module activity adds `0.25` for each parent directory where both people qualify on at least one file. Co-change and temporal collaboration are not available: `cochange_degree` counts files that change together, and `last_commit` is not a shared time window. The report names those signals as unavailable. Co-review is unavailable when no shared path has a review score.
+
+Clusters come from Louvain (`networkx.community.louvain_partitions`), seed `0`, resolution `1.0` unless `--resolution` is set. Values above 1 favor smaller clusters. Modularity uses that same resolution and the primary partition. Stability is the mean and population variance of greedy Jaccard matches across seeds `0` through `4`. Stability is unavailable when the person graph has no edges.
+
+Louvain returns a partition. A person is also listed on another cluster when their edge weight into it is at least half their weight into the primary cluster and they connect to at least two of its members. One bridge edge does not affiliate. `members` is the primary partition. `affiliated_members` is the extra membership. When Louvain emits more than one level, a finer cluster records the coarser community as `parent`.
+
+Each declared team is compared with the closest inferred cluster, using primary and affiliated members. Jaccard is `|intersection| / |union|`. Precision is `|intersection| / |inferred|`. Recall is `|intersection| / |declared|`. Coverage is the share of declared members who appear in any cluster. A cluster takes a declared name only when that Jaccard is 1. People in the inferred cluster who are not on the declared team are reported as potential cross-team experts.
+
+`networkx` stays an optional extra and is imported only when the run has qualified owners.
+
+## Ownership graph
+
+The ownership graph is undirected. Several relations between the same pair are one edge whose `relations` value is a sorted list of names. Attribute values are strings, integers, floats, or booleans.
+
+Populated nodes are contributors, files, directories, the repository, teams, and CODEOWNERS rules. Populated edges are `OWNS_OBSERVED`, `AUTHORED` when `commits > 0`, `REVIEWS` when a review score exists, `DECAYING_EXPERTISE` when contributor status is `former` or freshness is `inactive` or `departed`, `OWNS_DECLARED` from parsed CODEOWNERS, `MEMBER_OF`, `CONTAINS`, and `DEPENDS_ON` for a Python `import` or `from ... import` that resolves to a file already in the ownership map. Installed packages are not followed. Zero resolved edges means the dependency graph is unavailable.
+
+Not populated, because this repository has no source for them: Package, Service, Commit, PullRequest, Review, Incident, Domain, and the edges `KNOWS`, `MODIFIES`, `REPLACES`, and `REVIEWED_BY`.
+
+Articulation points and betweenness use the unweighted ownership edges between contributors and files. Weight is a strength, so betweenness does not treat it as distance. Orphan files are those with no qualified owner outside `former` and `inactive` and whose freshness is not `inactive` or `departed`. A missing roster (`unknown`) does not mark the repository orphaned. A file that imports an orphan is recorded on that orphan. `--from` and `--to` print a shortest path across people and files.
+
+## Onboarding suggestions
+
+`checkowners onboard` is experimental. The steps are inferred suggestions. Dependency order comes from the Python edges above, prerequisites first. A cycle is named and those members use path order. When no edge resolves, dependency order is listed as unavailable.
+
+Within a rank the sort is qualified-owner count, then `change_events` when present, then a matching `criticality` weight when present, then path. Missing values are not filled with zero. `easy`, `medium`, and `hard` record position in the list. The sentence on each step is the claim. Code complexity, test coverage, and documentation coverage are always named as unavailable. Domain criticality is unavailable when no configured rule matches a selected path.
+
+Mentor candidates are qualified owners on the selected steps except `former`, `inactive`, and `bot`. Rank is the number of those steps that have another qualified owner, then fewer commits, then handle. The list is capped at three and labeled as candidates.
 
 ## Terminology
 

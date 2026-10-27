@@ -271,6 +271,12 @@ def test_manual_rule_shadow_is_a_review_note(tmp_path: Path) -> None:
                     owners=("@platform",),
                     observed_owners=("@platform", "@ghost"),
                 ),
+                DriftEntry(
+                    path="docs/",
+                    confidence_delta=1.0,
+                    owners=(),
+                    observed_owners=("@ghost",),
+                ),
             ),
             drift_detected=True,
         ),
@@ -282,6 +288,9 @@ def test_manual_rule_shadow_is_a_review_note(tmp_path: Path) -> None:
         "\n"
         "Consider adding @ghost while retaining @platform. "
         "@ghost has 0.00 observed expertise and is not currently represented.\n"
+        "\n"
+        "-docs/\n"
+        "+docs/ @ghost\n"
     )
 
 
@@ -666,6 +675,25 @@ def test_reconciliation_body_states_evidence_when_owners_agree() -> None:
 
 def test_reconciliation_body_includes_scores_severity_and_direction() -> None:
     assert _signal_evidence(_owner("@ghost")) == ""
+    partial = ConfidenceScore(
+        total=0.0,
+        recency=SignalScore(available=False),
+        frequency=SignalScore(available=True, score=0.7),
+        blame=SignalScore(available=False),
+        review=SignalScore(available=True, score=0.2),
+    )
+    assert (
+        _signal_evidence(
+            OwnerEntry(
+                handle="@ghost",
+                ownership_score=0.0,
+                last_commit=None,
+                commits=0,
+                score_breakdown=partial,
+            )
+        )
+        == "frequency 0.70, review 0.20"
+    )
     breakdown = ConfidenceScore(
         total=0.9,
         recency=SignalScore(available=True, score=0.8),

@@ -1157,14 +1157,12 @@ class TeamDirectory:
     teams: tuple[TeamRecord, ...]
 
     def membership_for(self, owner: str) -> TeamMembership | None:
-        """Return expanded membership for CODEOWNERS `owner`, or None when it is not a team."""
         slug = team_slug(owner, self.org)
         if slug is None:
             return None
         return self.membership(slug)
 
     def membership(self, slug: str) -> TeamMembership:
-        """Return members of `slug`, including descendant teams."""
         index = {team.slug.casefold(): team for team in self.teams}
         seen: set[str] = set()
 
@@ -1194,7 +1192,6 @@ class TeamDirectory:
 
 
 def team_slug(owner: str, org: str) -> str | None:
-    """Return the team slug from a CODEOWNERS `owner` in `org`, or None."""
     if not owner.startswith("@") or "/" not in owner:
         return None
     team_org, sep, slug = owner[1:].partition("/")
@@ -1206,7 +1203,6 @@ def team_slug(owner: str, org: str) -> str | None:
 
 
 def load_team_directory(token: str, org: str) -> TeamDirectory | None:
-    """Return teams visible to `token` in `org`, or None when the API cannot answer."""
     if offline_enabled() or not token or not org:
         return None
     client = get_github_client(token)
@@ -1748,7 +1744,6 @@ def fetch_codeowners_errors(
     repository: str,
     ref: str = "",
 ) -> tuple[RemoteCodeownersError, ...] | None:
-    """Return CODEOWNERS errors for `repository` at `ref`, or None when unavailable."""
     payload = _codeowners_api(
         token,
         repository,
@@ -1840,7 +1835,6 @@ def repository_visibility(token: str, repository: str) -> tuple[bool, str] | Non
 
 
 def api_status(token: str) -> tuple[bool, tuple[str, ...]]:
-    """Return whether `token` reached the API and its OAuth scopes."""
     if offline_enabled() or not token:
         return False, ()
     root = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")

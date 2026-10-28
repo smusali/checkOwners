@@ -1,11 +1,10 @@
-"""Tests for CODEOWNERS doctor and audit."""
-
 from __future__ import annotations
 
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NoReturn
 from unittest.mock import patch
 
 import pytest
@@ -52,7 +51,7 @@ from tests.test_cli import _EMPTY_OWNERSHIP, _MOCK_TOKEN, app, runner
 
 def _facts(tmp_path: Path, text: str = "* @alice\n") -> AuditFacts:
     path = tmp_path / "CODEOWNERS"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
     return AuditFacts(
         repo_root=tmp_path,
         config=Config(),
@@ -619,7 +618,7 @@ def test_audit_command_uses_github_baseline_and_sarif(
     monkeypatch.setattr("checkowners.cli.run_git", lambda *_args, **_kwargs: _Head())
     assert _branch_name(tmp_path) == ""
 
-    def _fail_git(*_args: object, **_kwargs: object) -> object:
+    def _fail_git(*_args: object, **_kwargs: object) -> NoReturn:
         raise OSError("no git")
 
     monkeypatch.setattr("checkowners.cli.run_git", _fail_git)

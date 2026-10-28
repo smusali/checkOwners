@@ -671,12 +671,6 @@ def _recommendation_action(kind: DriftKind) -> RecommendationAction:
 
 
 def compute_severity(result: DriftResult, config: Config | None = None) -> Severity:
-    """Return the worst tier for `result` using `config` thresholds.
-
-    The score mixes identity overlap, the confidence gap, path criticality,
-    decay, and a small concentration bump. A qualified-owner count of 1 does
-    not force `critical`.
-    """
     entries = (*result.stale, *result.missing, *result.changed)
     if not entries:
         return "info"
@@ -812,7 +806,6 @@ def drift_entry_payload(
 
 
 def team_comparison_payload(row: TeamComparison) -> TeamComparisonJson:
-    """Return the machine-readable team comparison for `row`."""
     return {
         "team": row.team,
         "pattern": row.pattern,
@@ -827,7 +820,6 @@ def team_comparison_payload(row: TeamComparison) -> TeamComparisonJson:
 
 
 def format_team_line(row: TeamComparison) -> str:
-    """Return one text line for team comparison `row`."""
     parts = [row.team, row.status]
     if row.team_coverage is not None:
         parts.append(f"coverage {row.team_coverage:.2f}")

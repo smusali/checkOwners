@@ -433,8 +433,7 @@ def _path_signals(
     seen: set[str] = set()
     for _path, path_ownership in covered:
         count = path_ownership.qualified_owner_count
-        if count is not None:
-            qualified = count if qualified is None else min(qualified, count)
+        qualified = count if qualified is None else min(qualified, count)
         decay = decay or bool(path_ownership.decay_warnings)
         for owner in path_ownership.owners:
             key = owner.handle.casefold()

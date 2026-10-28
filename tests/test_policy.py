@@ -69,6 +69,16 @@ def _write_config(root: Path, content: str) -> Path:
     return root
 
 
+def test_audit_rules_use_the_existing_policy_checks() -> None:
+    assert check_of("owner-permission") == "invalid_owner"
+    assert check_of("invisible-team") == "invalid_owner"
+    assert check_of("empty-team") == "invalid_owner"
+    assert check_of("file-size") == "invalid_owner"
+    assert check_of("unowned-file") == "unowned"
+    assert check_of("observed-unowned") == "unowned"
+    assert check_of("duplicate-rule") is None
+
+
 def test_policy_without_a_fail_flag_stays_off(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
     omitted = tmp_path / "omitted"

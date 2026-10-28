@@ -21,8 +21,10 @@ from checkowners.drift import (
     drift_entry_payload,
     evidence_gaps,
     format_fix_plan,
+    format_team_line,
     owner_overlap,
     reconciliation_body,
+    team_comparison_payload,
     write_github_output,
 )
 from checkowners.github import TeamDirectory, TeamRecord, clear_api_evidence, note_api_call
@@ -42,6 +44,7 @@ from checkowners.models import (
     OwnershipMap,
     PathOwnership,
     SignalScore,
+    TeamComparison,
 )
 from checkowners.patterns import match_path, rules_with_source
 from tests.conftest import (
@@ -1296,3 +1299,77 @@ def test_former_owners_appear_in_drift_payload_and_reconciliation() -> None:
         Config(),
     )
     assert "Former contributors: @carol" in body
+
+
+def test_manual_team_edges_and_severity_weights(tmp_path: Path) -> None:
+    _write_codeowners(
+        tmp_path,
+        "# checkowners:manual:start\n"
+        "/pay/ @org/pay @alice\n"
+        "/at/ @org/at\n"
+        "# checkowners:manual:end\n",
+    )
+    former = OwnerEntry(
+        handle="@alice",
+        ownership_score=0.4,
+        last_commit=_NOW,
+        commits=1,
+        contributor_status="former",
+    )
+    ownership = OwnershipMap(
+        paths={
+            "pay/a.py": PathOwnership(owners=(_owner("@dave"),), qualified_owner_count=1),
+            "at/a.py": PathOwnership(owners=(former,), qualified_owner_count=2),
+            "at/b.py": PathOwnership(owners=(_owner("@alice", 0.9),), qualified_owner_count=1),
+            "at/c.py": PathOwnership(owners=(_owner("@alice", 0.2),), qualified_owner_count=1),
+        },
+        last_analyzed=_NOW,
+    )
+    directory = _directory(
+        TeamRecord(slug="pay", members=frozenset({"bob"}), parent="", children=(), visible=True),
+        TeamRecord(slug="at", members=frozenset({"@alice"}), parent="", children=(), visible=True),
+    )
+    with patch(_MOCK_LS_FILES, return_value=("pay/a.py", "at/a.py", "at/b.py", "at/c.py")):
+        result = detect_drift(tmp_path, ownership, _config(), teams=directory)
+    assert result.changed == ()
+    at = next(entry for entry in result.reviews if entry.path == "/at/")
+    assert at.confidence_delta == 0.0
+    assert at.former_owners == ("@alice",)
+    pay = next(row for row in result.teams if row.team == "@org/pay")
+    assert pay.observed_outside_team == ("@dave",)
+    assert (
+        format_team_line(
+            TeamComparison(team="@org/empty", pattern="*", line_number=1, status="empty")
+        )
+        == "@org/empty empty"
+    )
+    assert "outside @dave" in format_team_line(pay)
+    assert "team_membership_requires_github_api" in format_team_line(
+        TeamComparison(
+            team="@org/x",
+            pattern="*",
+            line_number=2,
+            status="unverifiable",
+            reason="team_membership_requires_github_api",
+        )
+    )
+    assert team_comparison_payload(pay)["status"] == "partial-drift"
+    scored = compute_severity(
+        DriftResult(
+            stale=(),
+            missing=(),
+            changed=(
+                DriftEntry(path="quiet", confidence_delta=0.2),
+                DriftEntry(
+                    path="src/a.py",
+                    confidence_delta=0.2,
+                    owners=("@a",),
+                    observed_owners=("@b",),
+                    team_coverage=0.0,
+                ),
+            ),
+            drift_detected=True,
+        ),
+        Config(criticality=(("src/", 2.0), ("docs/", 0.2))),
+    )
+    assert scored == "high"

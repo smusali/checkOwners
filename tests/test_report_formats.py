@@ -26,6 +26,7 @@ from checkowners.report_formats import (
     baseline_identity,
     check_annotations,
     combine_findings,
+    finding_for_audit,
     findings_for_bus,
     findings_for_drift,
     findings_for_gaps,
@@ -353,3 +354,32 @@ def test_format_edges() -> None:
     assert "%25" in command
     xml = junit_document(weird, command="drift")
     assert "No period" in xml
+
+
+def test_finding_for_audit_skips_rules_without_a_sarif_id() -> None:
+    assert (
+        finding_for_audit(
+            "not-a-rule",
+            level="warning",
+            message="no",
+            path="CODEOWNERS",
+            owners=(),
+            status="warn",
+            uri="CODEOWNERS",
+            start_line=1,
+        )
+        is None
+    )
+    assert (
+        finding_for_audit(
+            "incomplete-analysis",
+            level="note",
+            message="gap",
+            path="CODEOWNERS",
+            owners=(),
+            status="warn",
+            uri="",
+            start_line=1,
+        )
+        is None
+    )

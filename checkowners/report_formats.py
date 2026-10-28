@@ -266,8 +266,10 @@ def finding_for_audit(
     uri: str,
     start_line: int,
 ) -> ReportFinding | None:
+    if not _is_baseline_rule(rule):
+        return None
     rule_id = _AUDIT_RULES.get(rule)
-    if rule_id is None or not _is_baseline_rule(rule):
+    if rule_id is None:
         return None
     return ReportFinding(
         rule_id=rule_id,

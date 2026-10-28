@@ -813,3 +813,22 @@ def test_identity_config_rejects_invalid_values(tmp_path: Path, content: str, ma
     root = _write_config(tmp_path, content)
     with pytest.raises(ValueError, match=match):
         load_config(repo_root=root)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "drift:\n  severity_thresholds: 1\n",
+        "drift:\n  severity_thresholds: [0.1, 0.2]\n",
+        "drift:\n  severity_thresholds: [true, 0.2, 0.3, 0.4]\n",
+        "drift:\n  severity_thresholds: ['a', 0.2, 0.3, 0.4]\n",
+        "drift:\n  severity_thresholds: [-0.1, 0.2, 0.3, 0.4]\n",
+        "drift:\n  severity_thresholds: [0.1, 0.2, 0.3, 1.1]\n",
+        "drift:\n  severity_thresholds: [0.4, 0.3, 0.2, 0.1]\n",
+        "drift:\n  severity_thresholds: [0.2, 0.2, 0.3, 0.4]\n",
+    ],
+)
+def test_severity_thresholds_must_be_four_ascending_numbers(tmp_path: Path, content: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match="four ascending numbers"):
+        load_config(repo_root=root)

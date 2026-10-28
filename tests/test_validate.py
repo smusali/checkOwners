@@ -9,7 +9,11 @@ import pytest
 from checkowners.validate import (
     ConformanceCase,
     RemoteCodeownersError,
+    ValidationFinding,
+    _validate_entry,
+    compare_codeowners_syntax,
     conformance_report,
+    syntax_classes,
     validate_codeowners,
 )
 from tests.conftest import GitRepo
@@ -223,3 +227,27 @@ def test_conformance_excludes_private_branch_silence() -> None:
     assert report["excluded"] == 1
     assert report["pass_rate"] is None
     assert report["divergences"] == []
+
+
+def test_syntax_classes_cover_remote_wording_and_blank_entries() -> None:
+    assert _validate_entry(1, "") == []
+    assert syntax_classes((ValidationFinding(1, "", "CODEOWNERS file not found"),)) == ()
+    remote = (
+        RemoteCodeownersError(1, 1, "Negation", "", "", ""),
+        RemoteCodeownersError(2, 1, "pattern", "character range", "", ""),
+        RemoteCodeownersError(3, 1, "Invalid owner", "no", "src/[a].py @alice", "CODEOWNERS"),
+        RemoteCodeownersError(4, 1, "", "mystery", "", ""),
+        RemoteCodeownersError(5, 1, "Unknown owner", "no", "* @alice", "CODEOWNERS"),
+    )
+    compared = compare_codeowners_syntax(
+        "src/[a].py @alice\n* bad\n",
+        remote,
+        private=False,
+        ref="main",
+        default_branch="main",
+    )
+    kinds = {kind for _line, kind in compared.remote}
+    assert {"negation", "brackets"} <= kinds
+    assert "Unknown owner" in compared.other_kinds
+    assert "Negation" not in compared.other_kinds
+    assert compared.agrees is False

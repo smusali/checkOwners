@@ -68,6 +68,7 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.drift.min_confidence_delta == 0.2
     assert cfg.drift.hysteresis_runs == 1
     assert cfg.drift.baseline_file == ""
+    assert cfg.drift.severity_thresholds == (0.15, 0.35, 0.55, 0.75)
     assert cfg.suppressions == ()
     assert cfg.scoring.recency_half_life_days == 90
     assert cfg.scoring.recency_weight == 0.35
@@ -168,6 +169,7 @@ drift:
   mode: repo
   min_confidence_delta: 0.4
   hysteresis_runs: 3
+  severity_thresholds: [0.2, 0.4, 0.6, 0.8]
 github:
   org: myorg
   resolve_handles: false
@@ -216,6 +218,7 @@ identity:
     assert cfg.drift.min_confidence_delta == 0.4
     assert cfg.drift.hysteresis_runs == 3
     assert cfg.drift.baseline_file == ""
+    assert cfg.drift.severity_thresholds == (0.2, 0.4, 0.6, 0.8)
     assert cfg.suppressions == ()
     assert cfg.github.org == "myorg"
     assert cfg.github.resolve_handles is False

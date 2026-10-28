@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from itertools import islice
 from pathlib import Path
@@ -31,10 +31,13 @@ from checkowners.models import (
 from checkowners.privacy import email_token, is_email
 from checkowners.state import (
     HandleCacheEntry,
+    cache_directory,
     read_handle_cache,
     repository_identity,
     write_handle_cache,
+    write_json_file,
 )
+from checkowners.validate import RemoteCodeownersError
 
 _HandleCacheValue = HandleCacheEntry | str
 
@@ -1130,6 +1133,182 @@ def _get_org_teams(
         return {}
 
 
+@dataclass(frozen=True)
+class TeamRecord:
+    slug: str
+    members: frozenset[str]
+    parent: str
+    children: tuple[str, ...]
+    visible: bool
+
+
+@dataclass(frozen=True)
+class TeamMembership:
+    members: frozenset[str]
+    nested: bool
+    visible: bool
+    found: bool
+
+
+@dataclass(frozen=True)
+class TeamDirectory:
+    org: str
+    fetched_at: str
+    teams: tuple[TeamRecord, ...]
+
+    def membership_for(self, owner: str) -> TeamMembership | None:
+        """Return expanded membership for CODEOWNERS `owner`, or None when it is not a team."""
+        slug = team_slug(owner, self.org)
+        if slug is None:
+            return None
+        return self.membership(slug)
+
+    def membership(self, slug: str) -> TeamMembership:
+        """Return members of `slug`, including descendant teams."""
+        index = {team.slug.casefold(): team for team in self.teams}
+        seen: set[str] = set()
+
+        def walk(key: str) -> tuple[set[str], bool, bool, bool]:
+            folded = key.casefold()
+            if folded in seen:
+                return set(), False, True, True
+            record = index.get(folded)
+            if record is None:
+                return set(), False, False, False
+            if not record.visible:
+                return set(), False, False, True
+            seen.add(folded)
+            members = set(record.members)
+            nested = bool(record.children)
+            visible = True
+            for child in record.children:
+                child_members, child_nested, child_visible, child_found = walk(child)
+                if not child_found or not child_visible:
+                    visible = False
+                members.update(child_members)
+                nested = nested or child_nested
+            return members, nested, visible, True
+
+        members, nested, visible, found = walk(slug)
+        return TeamMembership(frozenset(members), nested, visible, found)
+
+
+def team_slug(owner: str, org: str) -> str | None:
+    """Return the team slug from a CODEOWNERS `owner` in `org`, or None."""
+    if not owner.startswith("@") or "/" not in owner:
+        return None
+    team_org, sep, slug = owner[1:].partition("/")
+    if not sep or not slug or not team_org:
+        return None
+    if org and team_org.casefold() != org.casefold():
+        return None
+    return slug
+
+
+def load_team_directory(token: str, org: str) -> TeamDirectory | None:
+    """Return teams visible to `token` in `org`, or None when the API cannot answer."""
+    if offline_enabled() or not token or not org:
+        return None
+    client = get_github_client(token)
+    if client is None:
+        return None
+    try:
+        listed = _list_team_records(client, org)
+    except Exception:
+        note_api_call()
+        logger.warning("Failed to fetch teams for org %s", org)
+        return None
+    directory = TeamDirectory(
+        org=org,
+        fetched_at=collection_timestamp(),
+        teams=tuple(_with_children(listed)),
+    )
+    _store_team_directory(directory)
+    note_api_call({team.slug: team.members for team in directory.teams if team.visible})
+    return directory
+
+
+def _list_team_records(client: Github, org: str) -> list[TeamRecord]:
+    records: list[TeamRecord] = []
+    for team in client.get_organization(org).get_teams():
+        slug = getattr(team, "slug", None)
+        if not isinstance(slug, str) or not slug:
+            continue
+        members, visible = _member_logins(team)
+        records.append(
+            TeamRecord(
+                slug=slug,
+                members=members,
+                parent=_parent_slug(team),
+                children=(),
+                visible=visible,
+            )
+        )
+    return records
+
+
+def _member_logins(team: object) -> tuple[frozenset[str], bool]:
+    get_members = getattr(team, "get_members", None)
+    if not callable(get_members):
+        return frozenset(), False
+    try:
+        found: set[str] = set()
+        for member in get_members():
+            login = getattr(member, "login", None)
+            if isinstance(login, str) and login:
+                found.add(login)
+        return frozenset(found), True
+    except Exception as exc:
+        status = getattr(exc, "status", None)
+        if status in {403, 404}:
+            return frozenset(), False
+        raise
+
+
+def _parent_slug(team: object) -> str:
+    parent = getattr(team, "parent", None)
+    if parent is None:
+        return ""
+    slug = getattr(parent, "slug", None)
+    if isinstance(slug, str):
+        return slug
+    return ""
+
+
+def _with_children(records: list[TeamRecord]) -> list[TeamRecord]:
+    grouped: dict[str, list[str]] = {}
+    for record in records:
+        if record.parent:
+            grouped.setdefault(record.parent.casefold(), []).append(record.slug)
+    built: list[TeamRecord] = []
+    for record in records:
+        children = tuple(grouped.get(record.slug.casefold(), ()))
+        built.append(replace(record, children=children))
+    return built
+
+
+def _store_team_directory(directory: TeamDirectory) -> None:
+    payload = {
+        "org": directory.org,
+        "fetched_at": directory.fetched_at,
+        "teams": [
+            {
+                "slug": team.slug,
+                "members": sorted(team.members),
+                "parent": team.parent,
+                "children": list(team.children),
+                "visible": team.visible,
+            }
+            for team in directory.teams
+        ],
+    }
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in directory.org)
+    try:
+        write_json_file(cache_directory() / "teams" / f"{safe}.json", payload)
+    except OSError:
+        logger.warning("Failed to cache team snapshot for org %s", directory.org)
+
+
 class ReconciliationError(Exception):
     """Raised when a reconciliation pull request cannot be opened or updated."""
 
@@ -1562,3 +1741,246 @@ def _exchange(
 def _notice_check_skipped() -> None:
     if os.environ.get("GITHUB_ACTIONS"):
         print("::notice::checkOwners check run was not created.", file=sys.stderr)
+
+
+def fetch_codeowners_errors(
+    token: str,
+    repository: str,
+    ref: str = "",
+) -> tuple[RemoteCodeownersError, ...] | None:
+    """Return CODEOWNERS errors for `repository` at `ref`, or None when unavailable."""
+    payload = _codeowners_api(
+        token,
+        repository,
+        f"codeowners/errors?ref={_quote(ref)}" if ref else "codeowners/errors",
+    )
+    mapped = _mapping(payload)
+    if mapped is None:
+        return None
+    raw = mapped.get("errors")
+    if not isinstance(raw, list):
+        return None
+    errors: list[RemoteCodeownersError] = []
+    for item in raw:
+        row = _mapping(item)
+        if row is None:
+            return None
+        line = row.get("line")
+        if isinstance(line, bool) or not isinstance(line, int):
+            return None
+        errors.append(
+            RemoteCodeownersError(
+                line=line,
+                column=_int_field(row.get("column")),
+                kind=_str_field(row.get("kind")),
+                message=_str_field(row.get("message")),
+                source=_str_field(row.get("source")),
+                path=_str_field(row.get("path")),
+            )
+        )
+    return tuple(errors)
+
+
+def _codeowners_api(token: str, repository: str, suffix: str) -> object | None:
+    if offline_enabled() or not token or not _is_slug(repository):
+        return None
+    try:
+        owner, name = _split_repository(repository)
+        return _github_request("GET", f"/repos/{_quote(owner)}/{_quote(name)}/{suffix}", token)
+    except ReconciliationError:
+        return None
+
+
+def _int_field(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value
+
+
+def _str_field(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+AccessState = Literal["write", "read", "invisible", "unknown"]
+ReviewState = Literal["required", "disabled", "unknown"]
+_WRITE_PERMISSIONS = frozenset({"admin", "maintain", "write"})
+
+
+def owner_access(token: str, repository: str, owner: str) -> AccessState:
+    if offline_enabled() or not token or not _is_slug(repository) or not owner:
+        return "unknown"
+    if "/" in owner:
+        return _team_repo_access(token, repository, owner)
+    return _user_access(token, repository, owner.lstrip("@"))
+
+
+def code_owner_review_required(token: str, repository: str, branch: str) -> ReviewState:
+    if offline_enabled() or not token or not _is_slug(repository):
+        return "unknown"
+    ruleset = _ruleset_review(token, repository)
+    protection = _protection_review(token, repository, branch)
+    if ruleset == "required" or protection == "required":
+        return "required"
+    if ruleset == "unknown" or protection == "unknown":
+        return "unknown"
+    return "disabled"
+
+
+def repository_visibility(token: str, repository: str) -> tuple[bool, str] | None:
+    """Return `(private, default_branch)` for `repository`, or None when unavailable."""
+    mapped = _mapping(_codeowners_api(token, repository, ""))
+    if mapped is None:
+        return None
+    branch = mapped.get("default_branch")
+    if not isinstance(branch, str) or not branch:
+        return None
+    return mapped.get("private") is True, branch
+
+
+def api_status(token: str) -> tuple[bool, tuple[str, ...]]:
+    """Return whether `token` reached the API and its OAuth scopes."""
+    if offline_enabled() or not token:
+        return False, ()
+    root = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    req = urllib.request.Request(  # noqa: S310  # scheme restricted below
+        f"{root}/user",
+        method="GET",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": _API_VERSION,
+        },
+    )
+    parsed = urllib.parse.urlparse(req.full_url)
+    if parsed.scheme not in {"http", "https"}:
+        return False, ()
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            header = resp.headers.get("X-OAuth-Scopes", "")
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False, ()
+    if not isinstance(header, str):
+        return True, ()
+    scopes = tuple(part.strip() for part in header.split(",") if part.strip())
+    return True, scopes
+
+
+def _user_access(token: str, repository: str, login: str) -> AccessState:
+    if not login:
+        return "unknown"
+    try:
+        owner, name = _split_repository(repository)
+        payload = _github_request(
+            "GET",
+            f"/repos/{_quote(owner)}/{_quote(name)}/collaborators/{_quote(login)}/permission",
+            token,
+        )
+    except ReconciliationError as exc:
+        if exc.status == 404:
+            return "invisible"
+        return "unknown"
+    mapped = _mapping(payload)
+    if mapped is None:
+        return "unknown"
+    permission = mapped.get("permission")
+    if permission in _WRITE_PERMISSIONS:
+        return "write"
+    if isinstance(permission, str):
+        return "read"
+    return "unknown"
+
+
+def _team_repo_access(token: str, repository: str, owner: str) -> AccessState:
+    org, _, slug = owner.lstrip("@").partition("/")
+    if not org or not slug:
+        return "unknown"
+    try:
+        repo_owner, name = _split_repository(repository)
+        payload = _github_request(
+            "GET",
+            f"/orgs/{_quote(org)}/teams/{_quote(slug)}/repos/{_quote(repo_owner)}/{_quote(name)}",
+            token,
+        )
+    except ReconciliationError as exc:
+        if exc.status == 404:
+            return "invisible"
+        return "unknown"
+    mapped = _mapping(payload)
+    if mapped is None:
+        return "unknown"
+    permissions = mapped.get("permissions")
+    if not isinstance(permissions, dict):
+        return "unknown"
+    if any(permissions.get(name) is True for name in ("admin", "maintain", "push")):
+        return "write"
+    return "read"
+
+
+def _ruleset_review(token: str, repository: str) -> ReviewState:
+    try:
+        owner, name = _split_repository(repository)
+        payload = _github_request("GET", f"/repos/{_quote(owner)}/{_quote(name)}/rulesets", token)
+    except ReconciliationError:
+        return "unknown"
+    if not isinstance(payload, list):
+        return "unknown"
+    for item in payload:
+        row = _mapping(item)
+        if row is None:
+            continue
+        ruleset_id = row.get("id")
+        if isinstance(ruleset_id, bool) or not isinstance(ruleset_id, int):
+            continue
+        if _ruleset_has_codeowners(token, repository, ruleset_id):
+            return "required"
+    return "disabled"
+
+
+def _ruleset_has_codeowners(token: str, repository: str, ruleset_id: int) -> bool:
+    try:
+        owner, name = _split_repository(repository)
+        payload = _github_request(
+            "GET",
+            f"/repos/{_quote(owner)}/{_quote(name)}/rulesets/{ruleset_id}",
+            token,
+        )
+    except ReconciliationError:
+        return False
+    mapped = _mapping(payload)
+    if mapped is None:
+        return False
+    rules = mapped.get("rules")
+    if not isinstance(rules, list):
+        return False
+    for rule in rules:
+        row = _mapping(rule)
+        if row is not None and row.get("type") == "code_owner_review":
+            return True
+    return False
+
+
+def _protection_review(token: str, repository: str, branch: str) -> ReviewState:
+    if not branch:
+        return "unknown"
+    try:
+        owner, name = _split_repository(repository)
+        payload = _github_request(
+            "GET",
+            f"/repos/{_quote(owner)}/{_quote(name)}/branches/{_quote(branch)}/protection",
+            token,
+        )
+    except ReconciliationError as exc:
+        if exc.status == 404:
+            return "disabled"
+        return "unknown"
+    mapped = _mapping(payload)
+    if mapped is None:
+        return "unknown"
+    reviews = mapped.get("required_pull_request_reviews")
+    if not isinstance(reviews, dict):
+        return "disabled"
+    if reviews.get("require_code_owner_reviews") is True:
+        return "required"
+    return "disabled"

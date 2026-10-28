@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from checkowners.validate import validate_codeowners
+from checkowners.validate import (
+    ConformanceCase,
+    RemoteCodeownersError,
+    conformance_report,
+    validate_codeowners,
+)
 from tests.conftest import GitRepo
 
 
@@ -162,3 +167,59 @@ def test_validate_committed_relative_patterns(git_repo: GitRepo) -> None:
     assert len(errors) == 1
     assert "character ranges" in errors[0].message
     assert "[a-z]" in errors[0].line
+
+
+def _remote(line: int, source: str, kind: str = "Invalid pattern") -> RemoteCodeownersError:
+    return RemoteCodeownersError(
+        line=line,
+        column=1,
+        kind=kind,
+        message=kind,
+        source=source,
+        path=".github/CODEOWNERS",
+    )
+
+
+def test_conformance_agrees_and_ignores_unknown_owners() -> None:
+    case = ConformanceCase(
+        repo="example/widgets",
+        ref="main",
+        default_branch="main",
+        private=False,
+        text="* @ghost\n",
+        api_errors=(_remote(1, "* @ghost", "Invalid owner"),),
+    )
+    report = conformance_report((case,))
+    assert report["pass_rate"] == 1.0
+    assert report["compared"] == 1
+    assert report["divergences"] == []
+
+
+def test_conformance_reports_a_syntax_divergence() -> None:
+    case = ConformanceCase(
+        repo="example/widgets",
+        ref="main",
+        default_branch="main",
+        private=False,
+        text="!build @alice\n",
+        api_errors=(),
+    )
+    report = conformance_report((case,))
+    assert report["pass_rate"] == 0.0
+    assert report["divergences"]
+
+
+def test_conformance_excludes_private_branch_silence() -> None:
+    case = ConformanceCase(
+        repo="example/private",
+        ref="feature",
+        default_branch="main",
+        private=True,
+        text="!secret @alice\n",
+        api_errors=(),
+    )
+    report = conformance_report((case,))
+    assert report["compared"] == 0
+    assert report["excluded"] == 1
+    assert report["pass_rate"] is None
+    assert report["divergences"] == []

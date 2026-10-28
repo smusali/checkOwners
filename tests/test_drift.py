@@ -25,7 +25,7 @@ from checkowners.drift import (
     reconciliation_body,
     write_github_output,
 )
-from checkowners.github import clear_api_evidence, note_api_call
+from checkowners.github import TeamDirectory, TeamRecord, clear_api_evidence, note_api_call
 from checkowners.models import (
     IDENTITY_COMPARISON_REASON,
     TEAM_MEMBERSHIP_REASON,
@@ -344,14 +344,15 @@ def test_repo_mode_compares_rule_owners(tmp_path: Path) -> None:
     assert result.missing == ()
 
 
-def test_team_rules_skipped_with_note(tmp_path: Path) -> None:
+def test_team_rules_are_unverifiable_without_a_directory(tmp_path: Path) -> None:
     _write_codeowners(tmp_path, "src/ @org/backend-team\n")
     ownership = _ownership({"src/main.py": (_owner("@alice"),)})
     with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
         result = detect_drift(tmp_path, ownership, _config())
     assert result.changed == ()
     assert result.drift_detected is False
-    assert any("team" in note for note in result.notes)
+    assert result.teams[0].status == "unverifiable"
+    assert result.teams[0].reason == "team_membership_requires_github_api"
     assert any(gap.code == "team_membership" for gap in evidence_gaps(result))
 
 
@@ -514,6 +515,25 @@ def test_empty_ownership_and_no_codeowners(tmp_path: Path) -> None:
     assert not result.drift_detected
 
 
+def _scored(
+    *,
+    owners: tuple[str, ...],
+    observed: tuple[str, ...],
+    delta: float,
+    qualified_owner_count: int | None = None,
+    decay: bool = False,
+) -> DriftResult:
+    entry = DriftEntry(
+        path="src/a.py",
+        confidence_delta=delta,
+        owners=owners,
+        observed_owners=observed,
+        qualified_owner_count=qualified_owner_count,
+        decay=decay,
+    )
+    return DriftResult(stale=(), missing=(), changed=(entry,), drift_detected=True)
+
+
 def _drift_with(
     *,
     delta: float = 1.0,
@@ -533,18 +553,36 @@ def _drift_with(
     return DriftResult(stale=(entry,), missing=(), changed=(), drift_detected=True)
 
 
-def test_compute_severity_low_medium_high_critical() -> None:
-    assert compute_severity(_drift_with(delta=0.1)) == "low"
-    assert compute_severity(_drift_with(delta=0.3)) == "medium"
-    assert compute_severity(_drift_with(delta=0.4)) == "medium"
-    assert compute_severity(_drift_with(delta=0.7)) == "high"
-    assert compute_severity(_drift_with(delta=0.8)) == "high"
-    assert compute_severity(_drift_with(delta=0.8, qualified_owner_count=1)) == "critical"
-    assert compute_severity(_drift_with(delta=0.1, decay=True)) == "critical"
+def test_compute_severity_uses_overlap_not_bus_factor() -> None:
+    superset = _scored(
+        owners=("@alice", "@bob"),
+        observed=("@alice", "@bob", "@carol"),
+        delta=0.5,
+    )
+    disjoint = _scored(owners=("@alice", "@bob"), observed=("@dave", "@erin"), delta=0.5)
+    assert compute_severity(superset) == "low"
+    assert compute_severity(disjoint) == "medium"
+    solo = _scored(owners=("@alice",), observed=("@bob",), delta=0.4, qualified_owner_count=1)
+    assert compute_severity(solo) == "high"
+    critical = _scored(
+        owners=("@alice",),
+        observed=("@bob",),
+        delta=1.0,
+        qualified_owner_count=1,
+        decay=True,
+    )
+    assert compute_severity(critical) == "critical"
 
 
-def test_compute_severity_no_drift_is_low() -> None:
-    assert compute_severity(_drift_with(detected=False)) == "low"
+def test_compute_severity_no_drift_is_info() -> None:
+    assert compute_severity(_drift_with(detected=False)) == "info"
+
+
+def test_compute_severity_uses_configured_thresholds() -> None:
+    loose = Config(drift=DriftConfig(severity_thresholds=(0.5, 0.6, 0.7, 0.8)))
+    disjoint = _scored(owners=("@alice", "@bob"), observed=("@dave", "@erin"), delta=0.5)
+    assert compute_severity(disjoint) == "medium"
+    assert compute_severity(disjoint, loose) == "low"
 
 
 def test_hysteresis_default_reports_raw() -> None:
@@ -599,13 +637,6 @@ def test_hysteresis_pending_resets_when_severity_changes() -> None:
         "high", 0.35, config, ("low", "medium", 2)
     )
     assert (reported, pending, streak) == ("low", "high", 1)
-
-
-def test_compute_severity_uses_configured_critical_threshold() -> None:
-    config = Config(bus_factor=BusFactorConfig(critical_threshold=2, warn_threshold=3))
-    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=2), config) == "critical"
-    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=2)) == "low"
-    assert compute_severity(_drift_with(delta=0.1, qualified_owner_count=1)) == "critical"
 
 
 def _canonical_analysis(ownership: OwnershipMap) -> str:
@@ -667,7 +698,7 @@ def test_reconciliation_body_states_evidence_when_owners_agree() -> None:
         "\n"
         "Inferred ownership is evidence, not accountability.\n"
         "\n"
-        "Severity: low\n"
+        "Severity: info\n"
         "\n"
         "The generated file changed without an owner-set disagreement.\n"
     )
@@ -771,12 +802,12 @@ def test_reconciliation_body_includes_scores_severity_and_direction() -> None:
         "\n"
         "Inferred ownership is evidence, not accountability.\n"
         "\n"
-        "Severity: critical\n"
+        "Severity: high\n"
         "\n"
         "## /old/\n"
         "\n"
         "Direction: stale rule\n"
-        "Severity: critical\n"
+        "Severity: info\n"
         "Why: matches nothing\n"
         "\n"
         "## src/a.py\n"
@@ -945,6 +976,137 @@ def test_email_inference_without_rules_is_not_an_identity_gap(tmp_path: Path) ->
     assert evidence_gaps(result) == ()
 
 
+def _directory(*records: TeamRecord, org: str = "org") -> TeamDirectory:
+    return TeamDirectory(org=org, fetched_at="2026-01-01T00:00:00+00:00", teams=records)
+
+
+def test_aligned_team_is_not_drift(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "/payments/ @org/payments\n")
+    ownership = _ownership({"payments/a.py": (_owner("@alice"), _owner("@bob"))})
+    directory = _directory(
+        TeamRecord(
+            slug="payments",
+            members=frozenset({"alice", "bob", "carol"}),
+            parent="",
+            children=(),
+            visible=True,
+        )
+    )
+    with patch(_MOCK_LS_FILES, return_value=("payments/a.py",)):
+        result = detect_drift(tmp_path, ownership, _config(), teams=directory)
+    assert result.changed == ()
+    assert result.drift_detected is False
+    row = result.teams[0]
+    assert row.status == "aligned"
+    assert row.team_coverage == 1.0
+    assert row.inactive_members == ("@carol",)
+    assert row.observed_outside_team == ()
+    assert row.team_snapshot == "2026-01-01T00:00:00+00:00"
+    assert evidence_gaps(result) == ()
+
+
+def test_partial_team_drift_names_outsiders(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "/payments/ @org/payments\n")
+    ownership = _ownership({"payments/a.py": (_owner("@alice"), _owner("@dave"))})
+    directory = _directory(
+        TeamRecord(
+            slug="payments",
+            members=frozenset({"alice", "bob", "carol"}),
+            parent="",
+            children=(),
+            visible=True,
+        )
+    )
+    with patch(_MOCK_LS_FILES, return_value=("payments/a.py",)):
+        result = detect_drift(tmp_path, ownership, _config(), teams=directory)
+    assert result.drift_detected is True
+    assert result.changed[0].drift_type == "organizational_mismatch"
+    row = result.teams[0]
+    assert row.status == "partial-drift"
+    assert row.team_coverage == 0.5
+    assert row.observed_outside_team == ("@dave",)
+    payload = drift_entry_payload(result.changed[0], 3)
+    assert payload["team_coverage"] == 0.5
+    assert payload["observed_outside_team"] == ["@dave"]
+    assert payload["inactive_members"] == ["@bob", "@carol"]
+
+
+def test_invisible_empty_and_nested_teams_are_distinct(tmp_path: Path) -> None:
+    _write_codeowners(
+        tmp_path,
+        "/secret/ @org/secret\n/empty/ @org/empty\n/parent/ @org/parent\n",
+    )
+    ownership = _ownership(
+        {
+            "secret/a.py": (_owner("@alice"),),
+            "empty/a.py": (_owner("@alice"),),
+            "parent/a.py": (_owner("@dave"),),
+        }
+    )
+    directory = _directory(
+        TeamRecord(
+            slug="secret",
+            members=frozenset(),
+            parent="",
+            children=(),
+            visible=False,
+        ),
+        TeamRecord(
+            slug="empty",
+            members=frozenset(),
+            parent="",
+            children=(),
+            visible=True,
+        ),
+        TeamRecord(
+            slug="parent",
+            members=frozenset({"alice"}),
+            parent="",
+            children=("child",),
+            visible=True,
+        ),
+        TeamRecord(
+            slug="child",
+            members=frozenset({"dave"}),
+            parent="parent",
+            children=(),
+            visible=True,
+        ),
+    )
+    with patch(_MOCK_LS_FILES, return_value=("secret/a.py", "empty/a.py", "parent/a.py")):
+        result = detect_drift(tmp_path, ownership, _config(), teams=directory)
+    statuses = {row.team: row.status for row in result.teams}
+    assert statuses == {
+        "@org/secret": "invisible",
+        "@org/empty": "empty",
+        "@org/parent": "nested",
+    }
+    nested = result.teams[2]
+    assert nested.team_coverage == 1.0
+    assert nested.observed_outside_team == ()
+    assert result.changed == ()
+    assert result.drift_detected is False
+
+
+def test_individual_rules_ignore_the_team_directory(tmp_path: Path) -> None:
+    _write_codeowners(tmp_path, "src/ @alice\n")
+    ownership = _ownership({"src/main.py": (_owner("@bob", 0.4),)})
+    directory = _directory(
+        TeamRecord(
+            slug="payments",
+            members=frozenset({"alice", "bob"}),
+            parent="",
+            children=(),
+            visible=True,
+        )
+    )
+    with patch(_MOCK_LS_FILES, return_value=("src/main.py",)):
+        result = detect_drift(tmp_path, ownership, _config(), teams=directory)
+    assert result.teams == ()
+    assert result.changed[0].drift_type == "complete_ownership_replacement"
+    assert result.changed[0].owners == ("@alice",)
+
+
 def test_team_rules_record_the_membership_gap(tmp_path: Path) -> None:
     _write_codeowners(tmp_path, "src/ @acme/backend\nlib/ @bob\n")
     ownership = _ownership(
@@ -957,9 +1119,9 @@ def test_team_rules_record_the_membership_gap(tmp_path: Path) -> None:
         result = detect_drift(tmp_path, ownership, _config())
     assert [entry.path for entry in result.changed] == ["lib/"]
     assert result.changed[0].owners == ("@bob",)
-    assert result.notes == (
-        "rules owned by teams (@org/team) are not compared against inferred individuals.",
-    )
+    assert result.notes == ()
+    assert result.teams[0].status == "unverifiable"
+    assert result.teams[0].team == "@acme/backend"
     gaps = evidence_gaps(result)
     assert len(gaps) == 1
     assert gaps[0].code == "team_membership"
@@ -1004,7 +1166,7 @@ def test_drift_entry_payload_uses_stable_keys() -> None:
         "declared": {"owners": ["@alice", "@bob"]},
         "observed": {"owners": ["@carol"], "teams": ["@acme/web"]},
         "drift": {
-            "severity": "critical",
+            "severity": "medium",
             "type": "owner_mismatch",
             "declared_observed_overlap": 0.0,
         },
@@ -1089,12 +1251,12 @@ def test_github_output_writes_the_sorted_summary(tmp_path: Path) -> None:
             assert payload["notes"] == ["watch the emails"]
             assert payload["stale"][0]["path"] == "/old/"
             assert payload["stale"][0]["qualified_owner_count_cap"] == 3
-            assert payload["stale"][0]["drift"]["severity"] == "critical"
+            assert payload["stale"][0]["drift"]["severity"] == "medium"
             assert payload["changed"][0]["qualified_owner_count_cap"] == 3
-            assert payload["changed"][0]["drift"]["severity"] == "critical"
+            assert payload["changed"][0]["drift"]["severity"] == "high"
             assert payload["missing"][0]["path"] == "src/a.py"
             assert payload["missing"][0]["qualified_owner_count_cap"] == 3
-            assert payload["missing"][0]["drift"]["severity"] == "critical"
+            assert payload["missing"][0]["drift"]["severity"] == "medium"
             assert payload["changed"][0]["path"] == "src/"
             assert payload["head_sha"] == "abc123"
             assert payload["generated_at"] == "2020-01-02T00:00:00+00:00"

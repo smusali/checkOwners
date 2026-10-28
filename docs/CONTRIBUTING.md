@@ -157,6 +157,8 @@ These survivors leave behavior unchanged:
 
 A rewritten module gets this baseline recorded again. The workflow summary and the open issue titled `Mutation scores` show the latest run. This table is the snapshot for the tree that produced it, and the two can diverge until the baseline is recorded again.
 
+The weekly `CODEOWNERS conformance` workflow (`.github/workflows/codeowners-conformance.yml`) reruns `python tools/build_codeowners_corpus.py conformance --check`. It opens or updates an issue titled `CODEOWNERS conformance pass rate` when the recorded rate drops. It does not commit from CI. Refresh `corpus/codeowners_errors.jsonl` and `corpus/conformance.json` locally when the recorded cases change.
+
 ## Dependencies
 
 Runtime dependencies are capped at the next untested major (`typer>=0.9.0,<1`, `rich>=13.0.0,<16`, and so on). Bump a ceiling when CI proves the new major. CI installs third-party test and lint deps from `requirements-dev.lock` with hashes across Python 3.11–3.14, so interpreter-specific pins (today `pyyaml-ft`) must keep environment markers. The composite Action installs runtime extras from `requirements.lock` with hashes.

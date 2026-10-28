@@ -38,6 +38,7 @@ from checkowners.github import (
     get_github_client,
     get_github_token,
     github_repository,
+    load_team_directory,
     note_api_call,
     note_collection_gap,
     open_or_update_reconciliation,
@@ -64,7 +65,12 @@ from checkowners.models import (
     completeness_score,
 )
 from checkowners.privacy import email_token
-from checkowners.state import HandleCacheEntry, read_handle_cache, write_handle_cache
+from checkowners.state import (
+    HandleCacheEntry,
+    cache_directory,
+    read_handle_cache,
+    write_handle_cache,
+)
 
 
 def test_get_github_token_present() -> None:
@@ -907,6 +913,47 @@ def test_create_team_resolver_no_token() -> None:
 
 def test_create_team_resolver_no_org() -> None:
     assert create_team_resolver("ghp_test", "") is None
+
+
+def test_load_team_directory_links_children_and_caches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    parent = MagicMock()
+    parent.slug = "platform"
+    parent.parent = None
+    parent.get_members.return_value = [MagicMock(login="alice")]
+    child = MagicMock()
+    child.slug = "backend"
+    child.parent = parent
+    child.get_members.return_value = [MagicMock(login="dave")]
+    secret = MagicMock()
+    secret.slug = "secret"
+    secret.parent = None
+
+    class _ForbiddenError(Exception):
+        status = 403
+
+    secret.get_members.side_effect = _ForbiddenError("hidden")
+    mock_org = MagicMock()
+    mock_org.get_teams.return_value = [parent, child, secret]
+    mock_client = MagicMock()
+    mock_client.get_organization.return_value = mock_org
+    with patch("checkowners.github.get_github_client", return_value=mock_client):
+        directory = load_team_directory("ghp_test", "myorg")
+    assert directory is not None
+    by_slug = {team.slug: team for team in directory.teams}
+    assert by_slug["platform"].children == ("backend",)
+    assert by_slug["secret"].visible is False
+    expanded = directory.membership("platform")
+    assert expanded.nested is True
+    assert expanded.members == frozenset({"alice", "dave"})
+    cached = json.loads((cache_directory() / "teams" / "myorg.json").read_text(encoding="utf-8"))
+    assert cached["org"] == "myorg"
+    assert cached["fetched_at"] == directory.fetched_at
+
+
+def test_load_team_directory_offline_is_none() -> None:
+    with patch("checkowners.github.offline_enabled", return_value=True):
+        assert load_team_directory("ghp_test", "myorg") is None
 
 
 def test_resolve_noreply_handle_current_form() -> None:

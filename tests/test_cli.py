@@ -659,7 +659,7 @@ def test_drift_detected_shows_severity() -> None:
     ):
         result = runner.invoke(app, ["drift"])
     assert result.exit_code == 3
-    assert "CRITICAL" in result.stdout
+    assert "MEDIUM" in result.stdout
     assert "stale" in result.stdout
 
 
@@ -779,7 +779,7 @@ def test_drift_json_includes_severity() -> None:
     assert result.exit_code == 3
     data = json.loads(result.stdout)
     assert data["drift_detected"] is True
-    assert data["severity"] == "critical"
+    assert data["severity"] == "medium"
     assert data["max_confidence_delta"] == 1.0
     assert data["head_sha"] == "deadbeef"
 
@@ -931,7 +931,7 @@ def test_github_action_no_fail_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert exit_code == 0
     data = json.loads(stdout)
     assert data["drift_summary"]["drift_detected"] is True
-    assert data["drift_summary"]["severity"] == "critical"
+    assert data["drift_summary"]["severity"] == "medium"
     assert data["drift_summary"]["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert "entries" in data["bus_factor_summary"]

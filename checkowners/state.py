@@ -946,6 +946,8 @@ def load_hysteresis(repo_root: Path) -> tuple[Severity | None, Severity | None, 
 
 
 def _read_severity(raw: object) -> Severity | None:
+    if raw == "info":
+        return "info"
     if raw == "low":
         return "low"
     if raw == "medium":

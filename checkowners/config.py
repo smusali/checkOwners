@@ -153,7 +153,7 @@ _V2_OUTPUT: frozenset[str] = frozenset(
     }
 )
 _V2_DRIFT: frozenset[str] = frozenset(
-    {"mode", "min_confidence_delta", "hysteresis_runs", "baseline_file"}
+    {"mode", "min_confidence_delta", "hysteresis_runs", "baseline_file", "severity_thresholds"}
 )
 _V2_GITHUB: frozenset[str] = frozenset(
     {"org", "resolve_handles", "resolve_teams", "api_enabled", "token"}
@@ -1016,7 +1016,29 @@ def _build_drift_config(data: dict[str, Any]) -> DriftConfig:
         kwargs["hysteresis_runs"] = runs
     if "baseline_file" in data:
         kwargs["baseline_file"] = str(data["baseline_file"])
+    if "severity_thresholds" in data:
+        kwargs["severity_thresholds"] = _severity_thresholds(data["severity_thresholds"])
     return DriftConfig(**kwargs)
+
+
+def _severity_thresholds(value: object) -> tuple[float, float, float, float]:
+    if not isinstance(value, list) or len(value) != 4:
+        msg = "drift.severity_thresholds must be four ascending numbers"
+        raise ValueError(msg)
+    numbers: list[float] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            msg = "drift.severity_thresholds must be four ascending numbers"
+            raise ValueError(msg)
+        numbers.append(float(item))
+    if any(number < 0 or number > 1 for number in numbers):
+        msg = "drift.severity_thresholds must be four ascending numbers"
+        raise ValueError(msg)
+    low, medium, high, critical = numbers
+    if not low < medium < high < critical:
+        msg = "drift.severity_thresholds must be four ascending numbers"
+        raise ValueError(msg)
+    return (low, medium, high, critical)
 
 
 def _build_suppressions(raw: object) -> tuple[Suppression, ...]:

@@ -146,6 +146,7 @@ drift:
   min_confidence_delta: 0.2   # suppress small-delta drift
   hysteresis_runs: 1          # severity flips on first observation; raise to require N runs
   baseline_file: ""           # accepted-findings file; fail only on new findings
+  severity_thresholds: [0.15, 0.35, 0.55, 0.75]  # info, low, medium, high, critical
 
 suppressions: []              # explicit, reason-required; see the adoption guide
 
@@ -206,7 +207,7 @@ security:
 
 Keys with no implementation yet are refused, including `model.signals.historical_depth` and `git.use_mailmap`. `policy` accepts `drift`, `single_expert`, `incomplete_analysis`, `unowned`, and `invalid_owner`, each with `fail` and `severity` (`error` or `warning`). `security` accepts `paths`, `minimum_effective_owners`, `require_declared_owner`, and `require_active_expert`. `risk` accepts only `truck_factor_thresholds`. `analysis.lookback_days` accepts an integer or `adaptive`. `analysis.review_lookback_days` accepts a positive integer and, when omitted, uses `analysis.lookback_days`. `git.count_co_authors` credits `Co-authored-by` trailers. `git.co_author_weight` is that credit relative to the author's `1`, in `[0, 1]`. `git.merge_strategy` is `auto`, `squash`, `merge`, or `rebase`. `auto` reports the dominant style in the lookback window. An explicit value is reported as given. See [Limitations](limitations.md).
 
-`drift` covers `stale` and `changed`. `unowned` covers `missing`. `single_expert` covers `single-expert`. `invalid_owner` covers `invalid-owner`. `severity: error` blocks when `fail` is omitted. `severity: warning` does not. When both are set, `fail` decides the exit and `severity` is what the report shows. `drift` and `github-action` JSON include `policy` (the resolved checks plus `security`) and `blocking` (the novel findings that failed). A path under `security.paths` blocks when its effective owner count is below `minimum_effective_owners`, when `require_declared_owner` is true and the path has no owner, or when `require_active_expert` is true and every owner with freshness is other than `stable`. Paths outside that list, including `docs/**`, keep the global check. The Action `fail_on_drift` input overrides `policy.drift.fail` for that run. An empty input uses the file. The reported `policy.drift.fail` is the value the run used.
+`drift` covers `stale` and `changed`. `unowned` covers `missing`, `unowned-file`, and `observed-unowned`. `single_expert` covers `single-expert`. `invalid_owner` covers `invalid-owner`, `owner-permission`, `invisible-team`, `empty-team`, and `file-size`. `severity: error` blocks when `fail` is omitted. `severity: warning` does not. When both are set, `fail` decides the exit and `severity` is what the report shows. `drift` and `github-action` JSON include `policy` (the resolved checks plus `security`) and `blocking` (the novel findings that failed). A path under `security.paths` blocks when its effective owner count is below `minimum_effective_owners`, when `require_declared_owner` is true and the path has no owner, or when `require_active_expert` is true and every owner with freshness is other than `stable`. Paths outside that list, including `docs/**`, keep the global check. The Action `fail_on_drift` input overrides `policy.drift.fail` for that run. An empty input uses the file. The reported `policy.drift.fail` is the value the run used.
 
 | Also accepted | Same setting |
 | --- | --- |
@@ -580,7 +581,20 @@ The comparison uses real CODEOWNERS pattern semantics (gitignore-style: `*` with
 | `stale` | A rule whose pattern matches no tracked file (dead rule) |
 | `changed` | A rule whose owners disagree with the inferred owners of files it covers, aggregated per rule and ranked by the worst per-file delta |
 
-Owner comparison is case-insensitive, and owner-less rules (GitHub's exemption mechanism) count as intentional coverage. When comparison would be meaningless, drift emits a `note` instead of false positives: raw-email inference vs `@handle` rules (set `GITHUB_TOKEN` to resolve handles), and rules owned by `@org/team` (individual inference cannot be compared to a team).
+Owner comparison is case-insensitive, and owner-less rules (GitHub's exemption mechanism) count as intentional coverage. When comparison would be meaningless, drift emits a `note` instead of false positives: raw-email inference vs `@handle` rules (set `GITHUB_TOKEN` to resolve handles).
+
+A rule whose owners contain `/` is a team rule. With a token, `github.resolve_teams`, and `github.org`, drift loads one org team list, records each slug, parent, and member login, and builds child links in memory. The snapshot is `teams/{org}.json` under the cache root. A run with no directory does not read that file.
+
+| Team status | Meaning |
+|-------------|---------|
+| `aligned` | Every inferred handle is in the team or its descendants. `team_coverage` is 1. This is not drift. |
+| `partial-drift` | Some inferred handles are outside that set. Reported as `changed` with direction `organizational_mismatch`. |
+| `unverifiable` | No directory. Reason `team_membership_requires_github_api`. The `team_membership` gap stays. |
+| `invisible` | The slug is missing or its member list is forbidden. |
+| `empty` | The team has no members and no children. |
+| `nested` | The team has children. Coverage uses the union of the team and its descendants. Cycles are ignored. |
+
+`team_coverage` is the share of inferred handles who are members, not Jaccard. `inactive_members` are members who were not inferred. `observed_outside_team` lists inferred handles outside the set. `team_snapshot` is the directory's `fetched_at`. Individual rules keep the previous comparison.
 
 A manual rule whose owners differ from observed expertise is not `changed`. Drift prints `declared ownership without observed expertise` and asks for a review. A generated rule with the same disagreement stays `changed`.
 
@@ -593,16 +607,31 @@ A manual rule whose owners differ from observed expertise is not `changed`. Drif
 
 When the declared owners should stay and someone observed is missing, the plan is a sentence: `Consider adding @alice while retaining @platform. @alice has 0.91 observed expertise and is not currently represented.` A manual rule is named for review and is not shown as a deletion. `--json` includes the same text as `fix_plan`.
 
-Drift severity maps the max confidence delta plus qualified-owner / decay flags to a tier:
+Drift severity scores each entry, then takes the worst tier. The weights are `0.40 * (1 - overlap)`, `0.25 *` the confidence delta capped at 1, `0.15 *` path criticality (0 when the path matches no `criticality` pattern), `0.15` when the entry is decayed, and `0.05` when `qualified_owner_count` is 1. Overlap for a team rule is `team_coverage`. Otherwise it is the Jaccard `owner_overlap`. A superset of the declared owners therefore scores below a disjoint set when the delta is the same. A qualified-owner count of 1, or decay, does not by itself force `critical`.
 
-| Severity | Trigger |
-|----------|---------|
-| `critical` | Any drift entry at or below `bus_factor.critical_threshold` (applied to `qualified_owner_count`), or `decay = true` |
-| `high` | `max_confidence_delta >= 0.7` |
-| `medium` | `max_confidence_delta >= 0.3` |
-| `low` | otherwise |
+`drift.severity_thresholds` is four ascending numbers in `[0, 1]`. The default is `0.15 / 0.35 / 0.55 / 0.75`. A score below the first cutoff is `info`. Then `low`, `medium`, `high`, and `critical`. No entries is `info`. The command severity is the max entry tier. Hysteresis compares these tier names.
 
-`--json` always includes the `severity` field. The composite Action publishes the same field on `drift_summary`.
+Direction stays on `drift_type`:
+
+| Direction | When |
+|-----------|------|
+| `missing_observed_expert` | An inferred path has no rule |
+| `stale_declared_owner` | Declared owners are decayed and the sets still overlap |
+| `complete_ownership_replacement` | Overlap is 0 and both sides are non-empty |
+| `organizational_mismatch` | An inferred handle is outside the resolved team |
+| `owner_mismatch` | The partial individual case that is none of those four |
+
+`--json` always includes the `severity` field. The composite Action publishes the same field on `drift_summary`. `info` is SARIF `note`.
+
+## Doctor and audit
+
+`checkowners doctor` reports configuration rows: the branch the file was read from against the branch GitHub consults, file size against 3 MiB, syntax, write access, empty and invisible teams, shadowed rules, declared coverage, dead patterns, and bus factor 1. `checkowners doctor --env` adds git, history, token, scopes, the CODEOWNERS path, API reachability, team visibility, review history, `.git-blame-ignore-revs`, cache writability, the package version, and whether config parsed.
+
+Syntax uses GitHub's CODEOWNERS errors endpoint when that response is conclusive, and records `source` as `github`. Offline, or when the endpoint is unavailable, the source is `local`. A private repository whose non-default branch returns an empty error list while local syntax findings exist is `unverifiable`. It is not a clean pass. Unknown-owner and missing-access kinds from that endpoint are not syntax failures.
+
+`checkowners audit` runs every doctor row plus inference: duplicate patterns, broad patterns (at least half of tracked files), CODEOWNERS self-protection, required code-owner review, drift, concentration, decayed declared owners, orphaned former experts, and paths with no confident observed expert. Bare `checkowners` prints that text summary. `checkowners audit --json`, `--format sarif`, and `--baseline` stay on the subcommand, so `--json` is not applied to every other command.
+
+Audit rows that fail and whose policy check fails exit 3. `policy.invalid_owner.fail` is true, so syntax, file size, missing write access, an invisible team, and an empty team fail closed. `policy.drift.fail` and `policy.unowned.fail` stay false, so a first audit is not a red X. Warning-only rules do not block. No token, a 404, or a missing roster is `unverifiable`, never `ok`. The runtime bound is `analysis.max_runtime_seconds` (default 300). Audit does not start a second analysis when doctor already ran one.
 
 ## Exit codes
 
@@ -755,7 +784,7 @@ Advanced install inputs:
 
 `drift`, `risk`, and `validate` accept `--format text`, `--format json`, `--format sarif`, and `--format junit`. `--json` is still `--format json`. If both are set and they disagree, the command exits 2. SARIF and JUnit write only that document to stdout. Exit codes are unchanged: blocking findings still exit 3 after the document is printed. `drift` still writes `GITHUB_OUTPUT`.
 
-The SARIF rules are `checkowners/unowned-path`, `checkowners/stale-owner`, `checkowners/ownership-drift`, `checkowners/invalid-owner`, `checkowners/shadowed-rule`, `checkowners/single-expert-risk`, and `checkowners/incomplete-analysis`. Every run lists all seven. `critical`, `high`, and policy `error` are SARIF `error`. `medium` and policy `warning` are `warning`. `low` is `note`. The fingerprint is the baseline identity of rule, path, and owners, so a later severity change does not open a new alert. Shadowed rules are reported in SARIF and JUnit only. The default `validate` text stays syntax-only.
+The SARIF rules are `checkowners/unowned-path`, `checkowners/stale-owner`, `checkowners/ownership-drift`, `checkowners/invalid-owner`, `checkowners/shadowed-rule`, `checkowners/single-expert-risk`, and `checkowners/incomplete-analysis`, plus the audit ids `owner-permission`, `invisible-team`, `empty-team`, `file-size`, `unowned-file`, `observed-unowned`, `duplicate-rule`, `broad-rule`, `self-protection`, `ruleset`, `decayed-owner`, and `orphaned-owner`. Every run lists the full set. `critical`, `high`, and policy `error` are SARIF `error`. `medium` and policy `warning` are `warning`. `low` and `info` are `note`. The fingerprint is the baseline identity of rule, path, and owners, so a later severity change does not open a new alert. Shadowed rules are reported in SARIF and JUnit only. The default `validate` text stays syntax-only.
 
 The composite action writes `checkowners.sarif` and `checkowners.junit.xml` next to the JSON reports. `upload_sarif` defaults to `"false"`. Set it to `"true"` and grant `security-events: write` to upload the file with category `checkowners`. Fork and Dependabot pull requests skip that upload, because their token cannot be given the scope, and the job stays green. The artifact is still uploaded. A privileged `workflow_run` workflow can download that artifact and upload it for fork pull requests. That workflow file has to be on the default branch before GitHub will run it. This repository ships `.github/workflows/checkowners-sarif-upload.yml` for the dogfood workflow.
 
@@ -816,7 +845,7 @@ Shared fields on every command:
 
 `analyze` keeps ignore-revs, mailmap, exclusion counts, `merge_strategy`, and `co_author_count` on `analysis`, next to per-path `completeness` and `signals_available`. `merge_strategy` is `squash`, `merge`, or `rebase`. `co_author_count` is how many trailers added a person. Per-path `completeness` is still the fraction of scored `(owner, signal)` pairs. The envelope `analysis_completeness` is the run score, not that fraction and not the flag object.
 
-Human summaries print `analysis completeness: 73%` and one line per gap. A skipped team rule or an unresolved email comparison stays a note: it does not become a drift finding. Exhausting `max_runtime_seconds`, `max_api_requests`, or the GitHub rate limit records a gap and does not present the truncated run as complete. When review collection is rate limited before any pull is read, the gap reason is `Review evidence omitted: GitHub API budget insufficient.` When the request budget stops the review window after at least one pull, the reason starts with `Review window truncated:`.
+Human summaries print `analysis completeness: 73%` and one line per gap. An unresolved email comparison stays a note: it does not become a drift finding. A team rule without a directory is `unverifiable` and keeps the `team_membership` gap. It is not omitted and it is not `aligned`. Exhausting `max_runtime_seconds`, `max_api_requests`, or the GitHub rate limit records a gap and does not present the truncated run as complete. When review collection is rate limited before any pull is read, the gap reason is `Review evidence omitted: GitHub API budget insufficient.` When the request budget stops the review window after at least one pull, the reason starts with `Review window truncated:`.
 
 When a GitHub API call ran in the process, the envelope also includes `github_evidence_collected_at` and `repository_head`. `team_snapshot` is present only when org teams were fetched. Cache-only and noreply-only resolution do not add these fields.
 

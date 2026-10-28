@@ -31,6 +31,19 @@ _RULES: dict[str, FindingRule] = {
     "shadow-maintainer": "shadow-maintainer",
     "ownership-review-divergence": "ownership-review-divergence",
     "invalid-owner": "invalid-owner",
+    "owner-permission": "owner-permission",
+    "invisible-team": "invisible-team",
+    "empty-team": "empty-team",
+    "file-size": "file-size",
+    "unowned-file": "unowned-file",
+    "observed-unowned": "observed-unowned",
+    "duplicate-rule": "duplicate-rule",
+    "shadowed-rule": "shadowed-rule",
+    "broad-rule": "broad-rule",
+    "self-protection": "self-protection",
+    "ruleset": "ruleset",
+    "decayed-owner": "decayed-owner",
+    "orphaned-owner": "orphaned-owner",
 }
 
 
@@ -251,6 +264,7 @@ def _rebuild_drift(
         drift_detected=bool(stale or missing or changed),
         notes=result.notes,
         reviews=result.reviews,
+        teams=result.teams,
     )
 
 

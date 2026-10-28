@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeGuard, get_args
 from xml.sax.saxutils import escape
 
 from checkowners import __version__
@@ -28,6 +28,18 @@ RuleId = Literal[
     "checkowners/shadowed-rule",
     "checkowners/single-expert-risk",
     "checkowners/incomplete-analysis",
+    "checkowners/owner-permission",
+    "checkowners/invisible-team",
+    "checkowners/empty-team",
+    "checkowners/file-size",
+    "checkowners/unowned-file",
+    "checkowners/observed-unowned",
+    "checkowners/duplicate-rule",
+    "checkowners/broad-rule",
+    "checkowners/self-protection",
+    "checkowners/ruleset",
+    "checkowners/decayed-owner",
+    "checkowners/orphaned-owner",
 ]
 SarifLevel = Literal["note", "warning", "error"]
 AnnotationLevel = Literal["notice", "warning", "failure"]
@@ -39,6 +51,18 @@ _BaselineRule = Literal[
     "single-expert",
     "shadowed-rule",
     "incomplete-analysis",
+    "owner-permission",
+    "invisible-team",
+    "empty-team",
+    "file-size",
+    "unowned-file",
+    "observed-unowned",
+    "duplicate-rule",
+    "broad-rule",
+    "self-protection",
+    "ruleset",
+    "decayed-owner",
+    "orphaned-owner",
 ]
 
 RULE_IDS: tuple[RuleId, ...] = (
@@ -49,6 +73,18 @@ RULE_IDS: tuple[RuleId, ...] = (
     "checkowners/shadowed-rule",
     "checkowners/single-expert-risk",
     "checkowners/incomplete-analysis",
+    "checkowners/owner-permission",
+    "checkowners/invisible-team",
+    "checkowners/empty-team",
+    "checkowners/file-size",
+    "checkowners/unowned-file",
+    "checkowners/observed-unowned",
+    "checkowners/duplicate-rule",
+    "checkowners/broad-rule",
+    "checkowners/self-protection",
+    "checkowners/ruleset",
+    "checkowners/decayed-owner",
+    "checkowners/orphaned-owner",
 )
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 SARIF_VERSION = "2.1.0"
@@ -108,6 +144,78 @@ _RULES: tuple[_Rule, ...] = (
         "A source of ownership evidence was not collected.",
         "warning",
     ),
+    _Rule(
+        "checkowners/owner-permission",
+        "Owner permission",
+        "An owner exists but cannot approve changes.",
+        "error",
+    ),
+    _Rule(
+        "checkowners/invisible-team",
+        "Invisible team",
+        "A team owner is missing or its membership cannot be read.",
+        "error",
+    ),
+    _Rule(
+        "checkowners/empty-team",
+        "Empty team",
+        "A team owner has no members and no child teams.",
+        "error",
+    ),
+    _Rule(
+        "checkowners/file-size",
+        "File size",
+        "CODEOWNERS is larger than 3 MiB.",
+        "error",
+    ),
+    _Rule(
+        "checkowners/unowned-file",
+        "Unowned file",
+        "A tracked file matches no CODEOWNERS rule.",
+        "warning",
+    ),
+    _Rule(
+        "checkowners/observed-unowned",
+        "Observed unowned",
+        "A path has history and no confident observed expert.",
+        "warning",
+    ),
+    _Rule(
+        "checkowners/duplicate-rule",
+        "Duplicate rule",
+        "The same pattern appears on more than one CODEOWNERS line.",
+        "warning",
+    ),
+    _Rule(
+        "checkowners/broad-rule",
+        "Broad rule",
+        "A pattern matches at least half of the tracked files.",
+        "warning",
+    ),
+    _Rule(
+        "checkowners/self-protection",
+        "Self protection",
+        "The CODEOWNERS file is matched by no rule.",
+        "warning",
+    ),
+    _Rule(
+        "checkowners/ruleset",
+        "Ruleset",
+        "Required code owner review is absent from rulesets and branch protection.",
+        "warning",
+    ),
+    _Rule(
+        "checkowners/decayed-owner",
+        "Decayed owner",
+        "A declared owner is past the decay threshold.",
+        "warning",
+    ),
+    _Rule(
+        "checkowners/orphaned-owner",
+        "Orphaned owner",
+        "A former contributor is the top observed expert.",
+        "warning",
+    ),
 )
 _RULE_INDEX = {rule.rule_id: index for index, rule in enumerate(_RULES)}
 
@@ -123,6 +231,59 @@ class ReportFinding:
     path: str
     owners: tuple[str, ...]
     properties: Mapping[str, object]
+
+
+_AUDIT_RULES: dict[str, RuleId] = {
+    "invalid-owner": "checkowners/invalid-owner",
+    "missing": "checkowners/unowned-path",
+    "stale": "checkowners/stale-owner",
+    "changed": "checkowners/ownership-drift",
+    "single-expert": "checkowners/single-expert-risk",
+    "shadowed-rule": "checkowners/shadowed-rule",
+    "owner-permission": "checkowners/owner-permission",
+    "invisible-team": "checkowners/invisible-team",
+    "empty-team": "checkowners/empty-team",
+    "file-size": "checkowners/file-size",
+    "unowned-file": "checkowners/unowned-file",
+    "observed-unowned": "checkowners/observed-unowned",
+    "duplicate-rule": "checkowners/duplicate-rule",
+    "broad-rule": "checkowners/broad-rule",
+    "self-protection": "checkowners/self-protection",
+    "ruleset": "checkowners/ruleset",
+    "decayed-owner": "checkowners/decayed-owner",
+    "orphaned-owner": "checkowners/orphaned-owner",
+}
+
+
+def finding_for_audit(
+    rule: str,
+    *,
+    level: SarifLevel,
+    message: str,
+    path: str,
+    owners: tuple[str, ...],
+    status: str,
+    uri: str,
+    start_line: int,
+) -> ReportFinding | None:
+    rule_id = _AUDIT_RULES.get(rule)
+    if rule_id is None or not _is_baseline_rule(rule):
+        return None
+    return ReportFinding(
+        rule_id=rule_id,
+        level=level,
+        message=message,
+        uri=uri or path,
+        start_line=start_line,
+        baseline_rule=rule,
+        path=path,
+        owners=owners,
+        properties={"status": status},
+    )
+
+
+def _is_baseline_rule(rule: str) -> TypeGuard[_BaselineRule]:
+    return rule in get_args(_BaselineRule)
 
 
 def sarif_level(severity: str) -> SarifLevel:

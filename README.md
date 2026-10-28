@@ -10,16 +10,12 @@
 **Keep CODEOWNERS aligned with reality.**
 
 ```text
-$ checkowners --offline drift
+$ checkowners audit
 
-severity: HIGH (Δmax=1.00)
-                                CODEOWNERS Drift
-┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Category ┃ Path       ┃    Δ ┃ Reason                                        ┃
-┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ changed  │ /payments/ │ 1.00 │ owners diverge on 2 of 2 covered path(s)      │
-│          │            │      │ (line 1)                                      │
-└──────────┴────────────┴──────┴───────────────────────────────────────────────┘
+ok: branch: CODEOWNERS was read from main.
+ok: file-size: CODEOWNERS is 128 bytes.
+unverifiable: owner-permission: Write access requires a GitHub token.
+warn: unowned-file: 12 of 40 tracked files match a rule.
 ```
 
 CheckOwners analyzes git and review history to infer who actually knows each part of your repository, then compares that evidence with your CODEOWNERS policy. Use it to detect stale or incorrect rules, find code with dangerously concentrated knowledge, recommend knowledgeable reviewers, and discover ownership gaps before they become operational risk.
@@ -29,7 +25,7 @@ Local-first. Git-native. No source-code upload. No LLM required. The core instal
 > This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful.
 
 ```bash
-uvx checkowners drift
+uvx checkowners audit
 ```
 
 ## Install
@@ -46,7 +42,7 @@ pip install "checkowners[all]"        # everything
 ## Run
 
 ```bash
-checkowners --offline drift
+checkowners audit
 ```
 
 Exit status is the same for every command: 0 clean, 1 internal error, 2 configuration or usage, 3 findings, 4 git or GitHub failure. `checkowners --exit-zero` hides findings only. See [Exit codes](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md#exit-codes).
@@ -127,6 +123,8 @@ The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/b
 
 | Command | What it does |
 |---------|--------------|
+| `checkowners` / `checkowners audit` | Run the CODEOWNERS audit. Flags such as `--json` stay on the subcommand |
+| `checkowners doctor` | Check the file, syntax, access, teams, coverage, and bus factor. `--env` adds the environment |
 | `checkowners analyze` | Infer ownership scores, qualified owner count, and continuity-risk warnings |
 | `checkowners generate` | Write CODEOWNERS, ordered by ownership score; optional inline annotations |
 | `checkowners explain-path <path>` | Show which CODEOWNERS rule owns a path, and the full match chain |

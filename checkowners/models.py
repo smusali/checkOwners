@@ -11,7 +11,7 @@ from typing import Literal, NotRequired, TypedDict, TypeGuard, get_args
 
 from checkowners import __version__
 
-Severity = Literal["low", "medium", "high", "critical"]
+Severity = Literal["info", "low", "medium", "high", "critical"]
 DriftMode = Literal["commit", "repo", "both"]
 BlockOrder = Literal["manual-first", "generated-first"]
 QualificationStrategy = Literal["adaptive", "threshold"]
@@ -28,6 +28,19 @@ FindingRule = Literal[
     "shadow-maintainer",
     "ownership-review-divergence",
     "invalid-owner",
+    "owner-permission",
+    "invisible-team",
+    "empty-team",
+    "file-size",
+    "unowned-file",
+    "observed-unowned",
+    "duplicate-rule",
+    "shadowed-rule",
+    "broad-rule",
+    "self-protection",
+    "ruleset",
+    "decayed-owner",
+    "orphaned-owner",
 ]
 PolicyLevel = Literal["error", "warning"]
 PolicyCheck = Literal[
@@ -67,6 +80,15 @@ DriftKind = Literal[
     "owner_mismatch",
     "organizational_mismatch",
 ]
+TeamStatus = Literal[
+    "aligned",
+    "partial-drift",
+    "unverifiable",
+    "invisible",
+    "empty",
+    "nested",
+]
+DEFAULT_SEVERITY_THRESHOLDS: tuple[float, float, float, float] = (0.15, 0.35, 0.55, 0.75)
 RecommendationAction = Literal["review_codeowners_rule", "remove_stale_rule"]
 OwnershipSignal = Literal["recency", "frequency", "blame", "review"]
 OWNERSHIP_SIGNALS: tuple[OwnershipSignal, ...] = ("recency", "frequency", "blame", "review")
@@ -170,6 +192,7 @@ class DriftConfig:
     min_confidence_delta: float = 0.2
     hysteresis_runs: int = 1
     baseline_file: str = ""
+    severity_thresholds: tuple[float, float, float, float] = DEFAULT_SEVERITY_THRESHOLDS
 
 
 @dataclass(frozen=True)
@@ -585,6 +608,24 @@ class DriftEntry:
     drift_type: DriftKind = "owner_mismatch"
     line_number: int | None = None
     former_owners: tuple[str, ...] = ()
+    team_status: TeamStatus | None = None
+    team_coverage: float | None = None
+    inactive_members: tuple[str, ...] = ()
+    observed_outside_team: tuple[str, ...] = ()
+    team_snapshot: str = ""
+
+
+@dataclass(frozen=True)
+class TeamComparison:
+    team: str
+    pattern: str
+    line_number: int
+    status: TeamStatus
+    reason: str = ""
+    team_coverage: float | None = None
+    inactive_members: tuple[str, ...] = ()
+    observed_outside_team: tuple[str, ...] = ()
+    team_snapshot: str = ""
 
 
 @dataclass(frozen=True)
@@ -598,6 +639,7 @@ class DriftResult:
     #: impossible without handle resolution).
     notes: tuple[str, ...] = ()
     reviews: tuple[DriftEntry, ...] = ()
+    teams: tuple[TeamComparison, ...] = ()
 
     @property
     def max_confidence_delta(self) -> float:
@@ -753,6 +795,23 @@ class DriftEntryJson(TypedDict):
     qualified_owner_count_cap: NotRequired[int]
     decay: NotRequired[bool]
     former_owners: NotRequired[list[str]]
+    team_status: NotRequired[TeamStatus]
+    team_coverage: NotRequired[float]
+    inactive_members: NotRequired[list[str]]
+    observed_outside_team: NotRequired[list[str]]
+    team_snapshot: NotRequired[str]
+
+
+class TeamComparisonJson(TypedDict):
+    team: str
+    pattern: str
+    line_number: int
+    status: TeamStatus
+    reason: str
+    team_coverage: float | None
+    inactive_members: list[str]
+    observed_outside_team: list[str]
+    team_snapshot: str
 
 
 class ModelVersionsJson(TypedDict):

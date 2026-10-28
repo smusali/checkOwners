@@ -114,6 +114,9 @@ from checkowners.models import (
     TeamCluster,
     models_payload,
 )
+from checkowners.models import (
+    TeamComparison as OwnershipTeam,
+)
 from checkowners.onboard import OnboardingPath, OnboardingStep
 from checkowners.privacy import KNOWLEDGE_RISK_NOTICE, email_token
 from checkowners.report_formats import findings_for_gaps
@@ -638,6 +641,37 @@ def test_validate_json_when_git_metadata_unavailable() -> None:
 # --- drift ---
 
 
+def test_drift_text_prints_team_comparisons() -> None:
+    compared = DriftResult(
+        stale=(),
+        missing=(),
+        changed=(),
+        drift_detected=False,
+        teams=(
+            OwnershipTeam(
+                team="@acme/core",
+                pattern="src/",
+                line_number=1,
+                status="aligned",
+                team_coverage=1.0,
+                inactive_members=("@erin",),
+                team_snapshot="2026-01-01T00:00:00+00:00",
+            ),
+        ),
+    )
+    with (
+        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
+        patch("checkowners.cli.detect_drift", return_value=compared),
+        _MOCK_PATH,
+        _MOCK_TOKEN,
+    ):
+        result = runner.invoke(app, ["drift"])
+    assert result.exit_code == 0, result.output
+    assert "@acme/core" in result.stdout
+    assert "coverage 1.00" in result.stdout
+    assert "inactive @erin" in result.stdout
+
+
 def test_drift_no_drift() -> None:
     with (
         patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
@@ -659,7 +693,7 @@ def test_drift_detected_shows_severity() -> None:
     ):
         result = runner.invoke(app, ["drift"])
     assert result.exit_code == 3
-    assert "CRITICAL" in result.stdout
+    assert "MEDIUM" in result.stdout
     assert "stale" in result.stdout
 
 
@@ -779,7 +813,7 @@ def test_drift_json_includes_severity() -> None:
     assert result.exit_code == 3
     data = json.loads(result.stdout)
     assert data["drift_detected"] is True
-    assert data["severity"] == "critical"
+    assert data["severity"] == "medium"
     assert data["max_confidence_delta"] == 1.0
     assert data["head_sha"] == "deadbeef"
 
@@ -931,7 +965,7 @@ def test_github_action_no_fail_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert exit_code == 0
     data = json.loads(stdout)
     assert data["drift_summary"]["drift_detected"] is True
-    assert data["drift_summary"]["severity"] == "critical"
+    assert data["drift_summary"]["severity"] == "medium"
     assert data["drift_summary"]["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert "entries" in data["bus_factor_summary"]

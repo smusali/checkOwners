@@ -473,6 +473,20 @@ as a calibrated probability until that evidence exists.
 
 **Observed expertise is evidence, not authority.**
 
+## Team comparison
+
+Drift expands a team rule to people. `generate` does the reverse and is unchanged: it collapses people to a team.
+
+One org team list supplies slug, parent slug, and member logins. Child links are built in memory. There is no per-team child request. A forbidden member listing marks that team invisible. A successful listing with no members and no children is empty. No token, an offline run, or a failed org list is no directory. A cached snapshot is not reread to turn that run into `aligned`.
+
+Coverage for a nested team is the union of the team and its descendants. Cycles are ignored. `team_coverage` is the share of inferred handles who are in that set. `aligned` means every inferred handle is in the set. Anyone inferred outside it is `partial-drift` and `organizational_mismatch`. Members who were not inferred are `inactive_members`. The record stores `team_snapshot` from the directory timestamp.
+
+## CODEOWNERS errors endpoint
+
+GitHub's syntax source is `GET /repos/{owner}/{repo}/codeowners/errors?ref=`. The body is `{errors: [{line, column, kind, source, suggestion, message, path}]}`. The local validator checks syntax and token shape. The endpoint also reports unknown users and missing access. Those owner kinds are not validator bugs.
+
+The diff compares the syntax classes both sides own: a leading `!`, a pattern containing `[` or `]`, and a malformed owner token. Other GitHub kinds are listed beside the pass rate and are not failures. A private repository, a `ref` other than the default branch, an empty API error list, and local syntax findings is inconclusive. That case is dropped from the pass-rate denominator. It is not counted as agreement. Doctor and audit use the same fetch and the same inconclusive check. Offline, they use the local validator and set `source` to `local`.
+
 ## Pattern semantics
 
 CODEOWNERS rules are matched in file order. The last match wins. A pattern assigns owners only when it is a supported glob:

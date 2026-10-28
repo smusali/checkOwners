@@ -21,13 +21,18 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from checkowners.analyze import run_git
 from checkowners.busfactor import qualified_owner_count_fields
-from checkowners.github import RECONCILE_MARKER, external_evidence_payload
+from checkowners.github import (
+    RECONCILE_MARKER,
+    TeamDirectory,
+    external_evidence_payload,
+)
 from checkowners.models import (
+    DEFAULT_SEVERITY_THRESHOLDS,
     IDENTITY_COMPARISON_REASON,
     TEAM_MEMBERSHIP_REASON,
     AnalysisGap,
@@ -43,6 +48,8 @@ from checkowners.models import (
     PathOwnership,
     RecommendationAction,
     Severity,
+    TeamComparison,
+    TeamComparisonJson,
     repository_label,
     stamp_json,
 )
@@ -72,8 +79,9 @@ _IDENTITY_NOTE = (
     "owner comparison skipped. Set GITHUB_TOKEN (github.resolve_handles) "
     "to compare owner sets."
 )
-_TEAM_NOTE = "rules owned by teams (@org/team) are not compared against inferred individuals."
 _POLICY_NOTE = "declared ownership without observed expertise"
+_TEAM_UNVERIFIABLE = "team_membership_requires_github_api"
+_SEVERITY_ORDER: tuple[Severity, ...] = ("info", "low", "medium", "high", "critical")
 
 
 def evidence_gaps(result: DriftResult) -> tuple[AnalysisGap, ...]:
@@ -81,7 +89,7 @@ def evidence_gaps(result: DriftResult) -> tuple[AnalysisGap, ...]:
     gaps: list[AnalysisGap] = []
     if _IDENTITY_NOTE in result.notes:
         gaps.append(AnalysisGap("ambiguous_identity", IDENTITY_COMPARISON_REASON))
-    if _TEAM_NOTE in result.notes:
+    if any(row.status == "unverifiable" for row in result.teams):
         gaps.append(AnalysisGap("team_membership", TEAM_MEMBERSHIP_REASON))
     return tuple(gaps)
 
@@ -92,8 +100,12 @@ def detect_drift(
     config: Config,
     *,
     codeowners_path: Path | None = None,
+    teams: TeamDirectory | None = None,
 ) -> DriftResult:
-    """Compare inferred ownership against current CODEOWNERS."""
+    """Compare inferred ownership against current CODEOWNERS.
+
+    `teams` is the org directory for this run. None leaves team rules unverifiable.
+    """
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     rules = _load_rules(target)
     tracked = _tracked_files(repo_root)
@@ -103,6 +115,7 @@ def detect_drift(
         tracked,
         config.drift.mode,
         config.drift.min_confidence_delta,
+        teams,
     )
 
 
@@ -124,23 +137,29 @@ def _compare(
     tracked: tuple[str, ...],
     mode: DriftMode,
     min_delta: float,
+    teams: TeamDirectory | None,
 ) -> DriftResult:
     stale: list[DriftEntry] = []
     missing: list[DriftEntry] = []
     changed: list[DriftEntry] = []
     notes: list[str] = []
     reviews: tuple[DriftEntry, ...] = ()
+    team_rows: tuple[TeamComparison, ...] = ()
 
     coverage = {path: match_path(rules, path.lstrip("/")) for path in inferred}
 
     if mode in ("commit", "both"):
         missing = _find_missing(inferred, coverage)
-        changed, notes, reviews = _find_changed(rules, inferred, coverage, min_delta)
+        changed, notes, reviews, team_rows = _find_changed(
+            rules, inferred, coverage, min_delta, teams
+        )
 
     if mode in ("repo", "both"):
         stale = _find_stale(rules, tracked)
         if mode == "repo":
-            changed, notes, reviews = _find_changed(rules, inferred, coverage, min_delta)
+            changed, notes, reviews, team_rows = _find_changed(
+                rules, inferred, coverage, min_delta, teams
+            )
 
     stale_sorted = _sort_by_delta(stale)
     missing_sorted = _sort_by_delta(missing)
@@ -152,6 +171,7 @@ def _compare(
         drift_detected=bool(stale_sorted or missing_sorted or changed_sorted),
         notes=tuple(notes),
         reviews=reviews,
+        teams=team_rows,
     )
 
 
@@ -222,11 +242,12 @@ def _find_changed(
     inferred: dict[str, PathOwnership],
     coverage: dict[str, CodeownersRule | None],
     min_delta: float,
-) -> tuple[list[DriftEntry], list[str], tuple[DriftEntry, ...]]:
+    teams: TeamDirectory | None,
+) -> tuple[list[DriftEntry], list[str], tuple[DriftEntry, ...], tuple[TeamComparison, ...]]:
     """Per-rule owner disagreement, aggregated over the files the rule covers."""
     notes: list[str] = []
     if identities_incomparable(rules, inferred):
-        return [], [_IDENTITY_NOTE], ()
+        return [], [_IDENTITY_NOTE], (), ()
 
     per_rule: dict[CodeownersRule, list[tuple[str, PathOwnership]]] = {}
     for path, rule in coverage.items():
@@ -235,10 +256,19 @@ def _find_changed(
 
     entries: list[DriftEntry] = []
     reviews: list[DriftEntry] = []
-    team_rules_skipped = False
+    team_rows: list[TeamComparison] = []
     for rule, covered in per_rule.items():
         if any("/" in owner for owner in rule.owners):
-            team_rules_skipped = True
+            compared = _compare_team_rule(rule, covered, teams)
+            team_rows.extend(compared)
+            partial = _worst_partial(compared)
+            if partial is None:
+                continue
+            entry = _team_drift_entry(rule, covered, partial)
+            if rule.source == "manual":
+                reviews.append(entry)
+            else:
+                entries.append(entry)
             continue
         measured = _measure_divergence(rule, covered)
         if measured is None or measured.worst_delta < min_delta:
@@ -267,9 +297,180 @@ def _find_changed(
         )
     sorted_reviews = _sort_by_delta(reviews)
     notes.extend(entry.reason for entry in sorted_reviews)
-    if team_rules_skipped:
-        notes.append(_TEAM_NOTE)
-    return entries, notes, sorted_reviews
+    return entries, notes, sorted_reviews, tuple(team_rows)
+
+
+def _compare_team_rule(
+    rule: CodeownersRule,
+    covered: list[tuple[str, PathOwnership]],
+    teams: TeamDirectory | None,
+) -> tuple[TeamComparison, ...]:
+    observed = _observed_handles(covered)
+    inferred = {_login(handle) for handle in observed}
+    rows: list[TeamComparison] = []
+    for owner in rule.owners:
+        if "/" not in owner:
+            continue
+        rows.append(_one_team(owner, rule, observed, inferred, teams))
+    return tuple(rows)
+
+
+def _one_team(
+    owner: str,
+    rule: CodeownersRule,
+    observed: tuple[str, ...],
+    inferred: set[str],
+    teams: TeamDirectory | None,
+) -> TeamComparison:
+    team = owner if owner.startswith("@") else f"@{owner}"
+    if teams is None:
+        return TeamComparison(
+            team=team,
+            pattern=rule.pattern,
+            line_number=rule.line_number,
+            status="unverifiable",
+            reason=_TEAM_UNVERIFIABLE,
+        )
+    membership = teams.membership_for(owner)
+    snapshot = teams.fetched_at
+    if membership is None or not membership.found or not membership.visible:
+        return TeamComparison(
+            team=team,
+            pattern=rule.pattern,
+            line_number=rule.line_number,
+            status="invisible",
+            team_snapshot=snapshot,
+        )
+    individuals = {_login(item) for item in rule.owners if "/" not in item}
+    member_names = {login.casefold() for login in membership.members}
+    declared = member_names | individuals
+    coverage, inactive, outside = _team_sets(observed, inferred, membership.members, declared)
+    base = TeamComparison(
+        team=team,
+        pattern=rule.pattern,
+        line_number=rule.line_number,
+        status="aligned",
+        team_coverage=coverage,
+        inactive_members=inactive,
+        observed_outside_team=outside,
+        team_snapshot=snapshot,
+    )
+    if membership.nested:
+        return replace(base, status="nested")
+    if not membership.members:
+        return replace(base, status="empty")
+    if outside:
+        return replace(base, status="partial-drift")
+    return base
+
+
+def _team_sets(
+    observed: tuple[str, ...],
+    inferred: set[str],
+    members: frozenset[str],
+    declared: set[str],
+) -> tuple[float, tuple[str, ...], tuple[str, ...]]:
+    outside = tuple(handle for handle in observed if _login(handle) not in declared)
+    inactive = tuple(
+        _at(login)
+        for login in sorted(members, key=str.casefold)
+        if login.casefold() not in inferred
+    )
+    coverage = 1.0 if not inferred else round(len(inferred & declared) / len(inferred), 4)
+    return coverage, inactive, outside
+
+
+def _worst_partial(rows: tuple[TeamComparison, ...]) -> TeamComparison | None:
+    partials = [row for row in rows if row.status == "partial-drift"]
+    if not partials:
+        return None
+    partials.sort(
+        key=lambda row: (
+            row.team_coverage if row.team_coverage is not None else 1.0,
+            row.team,
+        )
+    )
+    return partials[0]
+
+
+def _team_drift_entry(
+    rule: CodeownersRule,
+    covered: list[tuple[str, PathOwnership]],
+    row: TeamComparison,
+) -> DriftEntry:
+    qualified, decay, observed, former = _path_signals(covered)
+    outside = set(row.observed_outside_team)
+    inside = tuple(handle for handle in observed if handle not in outside)
+    declared = (*row.inactive_members, *inside)
+    observed_entries = _merged_owners(covered)
+    delta = _confidence_delta(declared, observed_entries)
+    return DriftEntry(
+        path=rule.pattern,
+        confidence_delta=delta,
+        reason=f"observed owners outside {row.team} on line {rule.line_number}",
+        qualified_owner_count=qualified,
+        decay=decay,
+        owners=rule.owners,
+        observed_owners=observed,
+        drift_type="organizational_mismatch",
+        line_number=rule.line_number,
+        former_owners=former,
+        team_status=row.status,
+        team_coverage=row.team_coverage,
+        inactive_members=row.inactive_members,
+        observed_outside_team=row.observed_outside_team,
+        team_snapshot=row.team_snapshot,
+    )
+
+
+def _path_signals(
+    covered: list[tuple[str, PathOwnership]],
+) -> tuple[int | None, bool, tuple[str, ...], tuple[str, ...]]:
+    qualified: int | None = None
+    decay = False
+    observed: list[str] = []
+    former: list[str] = []
+    seen: set[str] = set()
+    for _path, path_ownership in covered:
+        count = path_ownership.qualified_owner_count
+        qualified = count if qualified is None else min(qualified, count)
+        decay = decay or bool(path_ownership.decay_warnings)
+        for owner in path_ownership.owners:
+            key = owner.handle.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            observed.append(owner.handle)
+            if owner.contributor_status == "former":
+                former.append(owner.handle)
+    return qualified, decay, tuple(observed), tuple(former)
+
+
+def _merged_owners(covered: list[tuple[str, PathOwnership]]) -> tuple[OwnerEntry, ...]:
+    best: dict[str, OwnerEntry] = {}
+    for _path, path_ownership in covered:
+        for owner in path_ownership.owners:
+            key = owner.handle.casefold()
+            current = best.get(key)
+            if current is None or owner.confidence > current.confidence:
+                best[key] = owner
+    return tuple(best.values())
+
+
+def _observed_handles(covered: list[tuple[str, PathOwnership]]) -> tuple[str, ...]:
+    _qualified, _decay, observed, _former = _path_signals(covered)
+    return observed
+
+
+def _login(handle: str) -> str:
+    token = handle[1:] if handle.startswith("@") else handle
+    return token.casefold()
+
+
+def _at(login: str) -> str:
+    if login.startswith("@"):
+        return login
+    return f"@{login}"
 
 
 def _measure_divergence(
@@ -425,6 +626,7 @@ def write_github_output(
                 "stale": [drift_entry_payload(e, cap, config) for e in result.stale],
                 "missing": [drift_entry_payload(e, cap, config) for e in result.missing],
                 "changed": [drift_entry_payload(e, cap, config) for e in result.changed],
+                "teams": [team_comparison_payload(row) for row in result.teams],
                 "notes": list(result.notes),
             },
             repository=repository_label(Path.cwd()),
@@ -469,20 +671,65 @@ def _recommendation_action(kind: DriftKind) -> RecommendationAction:
 
 
 def compute_severity(result: DriftResult, config: Config | None = None) -> Severity:
-    """Map `result` and optional `config` to `low`, `medium`, `high`, or `critical`.
+    entries = (*result.stale, *result.missing, *result.changed)
+    if not entries:
+        return "info"
+    cuts = _thresholds(config)
+    worst: Severity = "info"
+    for entry in entries:
+        tier = _tier(_entry_score(entry, config), cuts)
+        if _SEVERITY_ORDER.index(tier) > _SEVERITY_ORDER.index(worst):
+            worst = tier
+    return worst
 
-    `config.bus_factor.critical_threshold` sets the critical qualified-owner
-    cutoff. Without `config` the cutoff is 1.
-    """
-    critical_threshold = config.bus_factor.critical_threshold if config is not None else 1
-    if _has_critical_signal(result, critical_threshold):
-        return "critical"
-    delta = result.max_confidence_delta
-    if delta >= 0.7:
-        return "high"
-    if delta >= 0.3:
+
+def _thresholds(config: Config | None) -> tuple[float, float, float, float]:
+    if config is None:
+        return DEFAULT_SEVERITY_THRESHOLDS
+    return config.drift.severity_thresholds
+
+
+def _entry_score(entry: DriftEntry, config: Config | None) -> float:
+    overlap = entry.team_coverage if entry.team_coverage is not None else _plain_overlap(entry)
+    delta = min(1.0, abs(entry.confidence_delta))
+    activity = 0.15 if entry.decay else 0.0
+    concentration = 0.05 if entry.qualified_owner_count == 1 else 0.0
+    return (
+        0.40 * (1.0 - overlap)
+        + 0.25 * delta
+        + 0.15 * _criticality(entry, config)
+        + activity
+        + concentration
+    )
+
+
+def _plain_overlap(entry: DriftEntry) -> float:
+    if not entry.owners and not entry.observed_owners:
+        return 1.0
+    return owner_overlap(entry.owners, entry.observed_owners)
+
+
+def _criticality(entry: DriftEntry, config: Config | None) -> float:
+    if config is None or not config.criticality:
+        return 0.0
+    best = 0.0
+    for pattern, weight in config.criticality:
+        if pattern_matches(pattern, entry.path):
+            best = max(best, weight)
+    return min(1.0, best)
+
+
+def _tier(score: float, cuts: tuple[float, float, float, float]) -> Severity:
+    low, medium, high, critical = cuts
+    if score < low:
+        return "info"
+    if score < medium:
+        return "low"
+    if score < high:
         return "medium"
-    return "low"
+    if score < critical:
+        return "high"
+    return "critical"
 
 
 def apply_severity_hysteresis(
@@ -515,19 +762,6 @@ def apply_severity_hysteresis(
     return reported, pending, streak
 
 
-def _has_critical_signal(result: DriftResult, critical_threshold: int) -> bool:
-    for entries in (result.stale, result.missing, result.changed):
-        for entry in entries:
-            if (
-                entry.qualified_owner_count is not None
-                and entry.qualified_owner_count <= critical_threshold
-            ):
-                return True
-            if entry.decay:
-                return True
-    return False
-
-
 def drift_entry_payload(
     entry: DriftEntry,
     cap: int,
@@ -558,7 +792,46 @@ def drift_entry_payload(
         payload["decay"] = True
     if entry.former_owners:
         payload["former_owners"] = list(entry.former_owners)
+    if entry.team_status is not None:
+        payload["team_status"] = entry.team_status
+    if entry.team_coverage is not None:
+        payload["team_coverage"] = entry.team_coverage
+    if entry.inactive_members:
+        payload["inactive_members"] = list(entry.inactive_members)
+    if entry.observed_outside_team:
+        payload["observed_outside_team"] = list(entry.observed_outside_team)
+    if entry.team_snapshot:
+        payload["team_snapshot"] = entry.team_snapshot
     return payload
+
+
+def team_comparison_payload(row: TeamComparison) -> TeamComparisonJson:
+    return {
+        "team": row.team,
+        "pattern": row.pattern,
+        "line_number": row.line_number,
+        "status": row.status,
+        "reason": row.reason,
+        "team_coverage": row.team_coverage,
+        "inactive_members": list(row.inactive_members),
+        "observed_outside_team": list(row.observed_outside_team),
+        "team_snapshot": row.team_snapshot,
+    }
+
+
+def format_team_line(row: TeamComparison) -> str:
+    parts = [row.team, row.status]
+    if row.team_coverage is not None:
+        parts.append(f"coverage {row.team_coverage:.2f}")
+    if row.inactive_members:
+        parts.append("inactive " + " ".join(row.inactive_members))
+    if row.observed_outside_team:
+        parts.append("outside " + " ".join(row.observed_outside_team))
+    if row.reason:
+        parts.append(row.reason)
+    if row.team_snapshot:
+        parts.append(row.team_snapshot)
+    return " ".join(parts)
 
 
 def reconciliation_body(result: DriftResult, ownership: OwnershipMap, config: Config) -> str:

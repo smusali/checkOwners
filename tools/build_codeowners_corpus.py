@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import http.client
 import json
 import re
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from itertools import product
 from pathlib import Path
@@ -21,6 +23,11 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from checkowners.patterns import parse_rules  # noqa: E402
+from checkowners.validate import (  # noqa: E402
+    ConformanceCase,
+    RemoteCodeownersError,
+    conformance_report,
+)
 from tests.codeowners_reference import reference_matches  # noqa: E402
 
 _COMPATIBILITY = _ROOT / "corpus" / "compatibility.jsonl"
@@ -143,8 +150,16 @@ def _github_rows() -> list[MatchRow]:
     return rows
 
 
+def _open_https(url: str) -> http.client.HTTPResponse:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise SystemExit("URL must be http or https")
+    request = urllib.request.Request(url, method="GET")  # noqa: S310
+    return urllib.request.urlopen(request, timeout=30)  # noqa: S310
+
+
 def _hmarr_rows() -> list[MatchRow]:
-    with urllib.request.urlopen(_HMARR_PATTERNS, timeout=30) as response:
+    with _open_https(_HMARR_PATTERNS) as response:
         payload = json.load(response)
     if not isinstance(payload, list):
         raise SystemExit("hmarr patterns.json is not a list")
@@ -603,13 +618,72 @@ def harvest_realworld(limit: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("compatibility", "realworld"))
+    parser.add_argument("command", choices=("compatibility", "realworld", "conformance"))
     parser.add_argument("--limit", type=int, default=_REALWORLD_TARGET)
+    parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     if args.command == "compatibility":
         _write_compatibility()
         return
+    if args.command == "conformance":
+        _check_conformance(args.check)
+        return
     harvest_realworld(args.limit)
+
+
+def _check_conformance(check: bool) -> None:
+    cases: list[ConformanceCase] = []
+    corpus = _ROOT / "corpus" / "codeowners_errors.jsonl"
+    for line in corpus.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        raw = json.loads(line)
+        errors = tuple(
+            RemoteCodeownersError(
+                line=item["line"],
+                column=item.get("column", 0),
+                kind=item.get("kind", ""),
+                message=item.get("message", ""),
+                source=item.get("source", ""),
+                path=item.get("path", ""),
+            )
+            for item in raw["api_errors"]
+        )
+        cases.append(
+            ConformanceCase(
+                repo=raw["repo"],
+                ref=raw["ref"],
+                default_branch=raw["default_branch"],
+                private=raw["private"],
+                text=raw["text"],
+                api_errors=errors,
+            )
+        )
+    report = conformance_report(cases)
+    published = {
+        "pass_rate": report["pass_rate"],
+        "compared": report["compared"],
+        "agreed": report["agreed"],
+        "excluded": report["excluded"],
+        "syntax_classes": report["syntax_classes"],
+    }
+    target = _ROOT / "corpus" / "conformance.json"
+    if not check:
+        target.write_text(json.dumps(published, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(published))
+        return
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    previous = stored.get("pass_rate")
+    current = published["pass_rate"]
+    divergences = report["divergences"]
+    if divergences or (
+        isinstance(previous, (int, float))
+        and isinstance(current, (int, float))
+        and current < previous
+    ):
+        print(json.dumps({"previous": previous, "current": published, "divergences": divergences}))
+        raise SystemExit(1)
+    print(json.dumps(published))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,45 @@
+name: CODEOWNERS conformance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Compare the local validator with recorded CODEOWNERS errors
+        id: harness
+        run: python tools/build_codeowners_corpus.py conformance --check
+
+      - name: Publish a pass-rate regression
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="CODEOWNERS conformance pass rate"
+          body="The conformance harness reported a pass-rate regression. See the workflow log."
+          number="$(gh issue list --state open --limit 20 --search "CODEOWNERS conformance pass rate in:title" \
+            --json number,title \
+            --jq '[.[] | select(.title == "CODEOWNERS conformance pass rate") | .number][0] // empty')"
+          if [ -z "$number" ]; then
+            gh issue create --title "$title" --body "$body"
+          else
+            gh issue comment "$number" --body "$body"
+          fi

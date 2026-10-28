@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from email.message import Message
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,6 +21,8 @@ from checkowners.github import (
     _REVIEW_PAGE_SIZE,
     PullRequestFilesError,
     ReconciliationError,
+    TeamDirectory,
+    TeamRecord,
     _graphql,
     _GraphqlResult,
     _mapping,
@@ -27,30 +30,37 @@ from checkowners.github import (
     _require_mapping,
     _require_sha,
     _span_days,
+    api_status,
     begin_api_budget,
     build_review_coverage,
     clear_api_budget,
     clear_api_evidence,
+    code_owner_review_required,
     collection_gaps,
     collection_timestamp,
     create_team_resolver,
     external_evidence_payload,
+    fetch_codeowners_errors,
     get_github_client,
     get_github_token,
     github_repository,
+    load_team_directory,
     note_api_call,
     note_collection_gap,
     open_or_update_reconciliation,
     organization_members,
+    owner_access,
     publish_check_run,
     pull_request_base,
     pull_request_paths,
+    repository_visibility,
     resolve_handle_details,
     resolve_handles,
     resolve_noreply_handle,
     review_was_omitted,
     review_window,
     set_offline,
+    team_slug,
     team_snapshot_hash,
 )
 from checkowners.models import (
@@ -64,7 +74,12 @@ from checkowners.models import (
     completeness_score,
 )
 from checkowners.privacy import email_token
-from checkowners.state import HandleCacheEntry, read_handle_cache, write_handle_cache
+from checkowners.state import (
+    HandleCacheEntry,
+    cache_directory,
+    read_handle_cache,
+    write_handle_cache,
+)
 
 
 def test_get_github_token_present() -> None:
@@ -907,6 +922,47 @@ def test_create_team_resolver_no_token() -> None:
 
 def test_create_team_resolver_no_org() -> None:
     assert create_team_resolver("ghp_test", "") is None
+
+
+def test_load_team_directory_links_children_and_caches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    parent = MagicMock()
+    parent.slug = "platform"
+    parent.parent = None
+    parent.get_members.return_value = [MagicMock(login="alice")]
+    child = MagicMock()
+    child.slug = "backend"
+    child.parent = parent
+    child.get_members.return_value = [MagicMock(login="dave")]
+    secret = MagicMock()
+    secret.slug = "secret"
+    secret.parent = None
+
+    class _ForbiddenError(Exception):
+        status = 403
+
+    secret.get_members.side_effect = _ForbiddenError("hidden")
+    mock_org = MagicMock()
+    mock_org.get_teams.return_value = [parent, child, secret]
+    mock_client = MagicMock()
+    mock_client.get_organization.return_value = mock_org
+    with patch("checkowners.github.get_github_client", return_value=mock_client):
+        directory = load_team_directory("ghp_test", "myorg")
+    assert directory is not None
+    by_slug = {team.slug: team for team in directory.teams}
+    assert by_slug["platform"].children == ("backend",)
+    assert by_slug["secret"].visible is False
+    expanded = directory.membership("platform")
+    assert expanded.nested is True
+    assert expanded.members == frozenset({"alice", "dave"})
+    cached = json.loads((cache_directory() / "teams" / "myorg.json").read_text(encoding="utf-8"))
+    assert cached["org"] == "myorg"
+    assert cached["fetched_at"] == directory.fetched_at
+
+
+def test_load_team_directory_offline_is_none() -> None:
+    with patch("checkowners.github.offline_enabled", return_value=True):
+        assert load_team_directory("ghp_test", "myorg") is None
 
 
 def test_resolve_noreply_handle_current_form() -> None:
@@ -1804,3 +1860,315 @@ def test_string_cache_and_exhausted_core_budget_skip_lookup(tmp_path: Path) -> N
     finally:
         clear_api_budget()
     assert skipped == {}
+
+
+class _HeaderView:
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    def get(self, _name: str, default: object = "") -> object:
+        del default
+        return self._value
+
+
+class _ScopedResponse(_Response):
+    def __init__(self, scopes: object) -> None:
+        super().__init__(b"{}", 200)
+        self.headers = _HeaderView(scopes)
+
+
+def _json_response(payload: object) -> _Response:
+    return _Response(json.dumps(payload).encode(), 200)
+
+
+def test_codeowners_errors_visibility_and_api_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    set_offline(False)
+    clear_api_budget()
+    try:
+        set_offline(True)
+        assert fetch_codeowners_errors("tok", "acme/app", "main") is None
+        assert repository_visibility("tok", "acme/app") is None
+        assert owner_access("tok", "acme/app", "@alice") == "unknown"
+        assert code_owner_review_required("tok", "acme/app", "main") == "unknown"
+        assert api_status("tok") == (False, ())
+        set_offline(False)
+        assert fetch_codeowners_errors("", "acme/app") is None
+        assert fetch_codeowners_errors("tok", "not-a-repo") is None
+        assert api_status("") == (False, ())
+        monkeypatch.setenv("GITHUB_API_URL", "ftp://example.test")
+        assert fetch_codeowners_errors("tok", "acme/app") is None
+        assert api_status("tok") == (False, ())
+        monkeypatch.delenv("GITHUB_API_URL", raising=False)
+        seen: list[str] = []
+
+        def open_url(req: urllib.request.Request, timeout: int = 30) -> _Response:
+            del timeout
+            seen.append(req.full_url)
+            if req.full_url.endswith("/user"):
+                return _ScopedResponse(" repo, , read:org ")
+            return _json_response({"errors": []})
+
+        with patch("checkowners.github.urllib.request.urlopen", side_effect=open_url):
+            assert fetch_codeowners_errors("tok", "acme/app", "feature branch") == ()
+            reached, scopes = api_status("tok")
+        assert reached is True
+        assert scopes == ("repo", "read:org")
+        assert any("feature%20branch" in url for url in seen)
+        rejected: tuple[object, ...] = (
+            [],
+            {"errors": {}},
+            {"errors": [1]},
+            {"errors": [{"line": True}]},
+            {"errors": [{"line": "1"}]},
+        )
+        for payload in rejected:
+            with patch(
+                "checkowners.github.urllib.request.urlopen",
+                return_value=_json_response(payload),
+            ):
+                assert fetch_codeowners_errors("tok", "acme/app") is None
+        accepted = {
+            "errors": [
+                {
+                    "line": 4,
+                    "column": True,
+                    "kind": 1,
+                    "message": None,
+                    "source": "x",
+                    "path": [],
+                },
+                {
+                    "line": 5,
+                    "column": 8,
+                    "kind": "pattern",
+                    "message": "text",
+                    "source": "",
+                    "path": "CODEOWNERS",
+                },
+            ]
+        }
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            return_value=_json_response(accepted),
+        ):
+            parsed = fetch_codeowners_errors("tok", "acme/app")
+        assert parsed is not None
+        assert (parsed[0].column, parsed[0].kind, parsed[0].source) == (0, "", "x")
+        assert (parsed[1].column, parsed[1].kind, parsed[1].message) == (8, "pattern", "text")
+        with patch("checkowners.github.urllib.request.urlopen", side_effect=_http_error(404)):
+            assert fetch_codeowners_errors("tok", "acme/app") is None
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("down"),
+        ):
+            assert repository_visibility("tok", "acme/app") is None
+        for body, want in (
+            ({"private": 1, "default_branch": ""}, None),
+            ({"private": False, "default_branch": 1}, None),
+            ({"private": True, "default_branch": "main"}, (True, "main")),
+            ({"private": False, "default_branch": "dev"}, (False, "dev")),
+        ):
+            with patch(
+                "checkowners.github.urllib.request.urlopen",
+                return_value=_json_response(body),
+            ):
+                assert repository_visibility("tok", "acme/app") == want
+        with patch("checkowners.github.urllib.request.urlopen", side_effect=TimeoutError()):
+            assert api_status("tok") == (False, ())
+        with patch(
+            "checkowners.github.urllib.request.urlopen",
+            return_value=_ScopedResponse(["repo"]),
+        ):
+            assert api_status("tok") == (True, ())
+    finally:
+        set_offline(False)
+        clear_api_budget()
+        monkeypatch.delenv("GITHUB_API_URL", raising=False)
+
+
+def test_owner_access_and_review_requirement() -> None:
+    set_offline(False)
+    clear_api_budget()
+    answers: dict[str, object] = {}
+
+    def open_url(req: urllib.request.Request, timeout: int = 30) -> _Response:
+        del timeout
+        matched = sorted(
+            (fragment for fragment in answers if fragment in req.full_url),
+            key=len,
+            reverse=True,
+        )
+        if not matched:
+            raise AssertionError(req.full_url)
+        body = answers[matched[0]]
+        if isinstance(body, BaseException):
+            raise body
+        return _json_response(body)
+
+    try:
+        with patch("checkowners.github.urllib.request.urlopen", side_effect=open_url):
+            assert owner_access("tok", "acme/app", "") == "unknown"
+            assert owner_access("tok", "acme/app", "@") == "unknown"
+            assert owner_access("tok", "acme/app", "@acme/") == "unknown"
+            for permission, state in (
+                ("admin", "write"),
+                ("maintain", "write"),
+                ("write", "write"),
+                ("triage", "read"),
+                (1, "unknown"),
+            ):
+                answers["collaborators/alice/permission"] = {"permission": permission}
+                assert owner_access("tok", "acme/app", "@alice") == state
+            answers["collaborators/alice/permission"] = []
+            assert owner_access("tok", "acme/app", "@alice") == "unknown"
+            answers["collaborators/alice/permission"] = _http_error(404)
+            assert owner_access("tok", "acme/app", "@alice") == "invisible"
+            answers["collaborators/alice/permission"] = _http_error(500)
+            assert owner_access("tok", "acme/app", "@alice") == "unknown"
+            for permissions, state in (
+                ({"push": True}, "write"),
+                ({"admin": True}, "write"),
+                ({"maintain": True}, "write"),
+                ({"pull": True}, "read"),
+                ("no", "unknown"),
+            ):
+                answers["teams/backend/repos/acme/app"] = {"permissions": permissions}
+                assert owner_access("tok", "acme/app", "@acme/backend") == state
+            answers["teams/backend/repos/acme/app"] = []
+            assert owner_access("tok", "acme/app", "@acme/backend") == "unknown"
+            answers["teams/backend/repos/acme/app"] = _http_error(404)
+            assert owner_access("tok", "acme/app", "@acme/backend") == "invisible"
+            answers["teams/backend/repos/acme/app"] = _http_error(500)
+            assert owner_access("tok", "acme/app", "@acme/backend") == "unknown"
+            answers.clear()
+            answers["/rulesets/9"] = {"rules": [{"type": "code_owner_review"}]}
+            answers["/rulesets"] = [{"id": True}, "x", {"id": 9}]
+            answers["/branches/main/protection"] = {
+                "required_pull_request_reviews": {"require_code_owner_reviews": False}
+            }
+            assert code_owner_review_required("tok", "acme/app", "main") == "required"
+            answers["/rulesets"] = []
+            answers["/branches/main/protection"] = {
+                "required_pull_request_reviews": {"require_code_owner_reviews": True}
+            }
+            assert code_owner_review_required("tok", "acme/app", "main") == "required"
+            answers["/branches/main/protection"] = {}
+            assert code_owner_review_required("tok", "acme/app", "main") == "disabled"
+            answers["/branches/main/protection"] = []
+            assert code_owner_review_required("tok", "acme/app", "main") == "unknown"
+            answers["/branches/main/protection"] = {"required_pull_request_reviews": []}
+            assert code_owner_review_required("tok", "acme/app", "main") == "disabled"
+            answers["/branches/main/protection"] = _http_error(404)
+            assert code_owner_review_required("tok", "acme/app", "main") == "disabled"
+            answers["/branches/main/protection"] = _http_error(500)
+            assert code_owner_review_required("tok", "acme/app", "main") == "unknown"
+            answers["/rulesets"] = _http_error(500)
+            answers["/branches/main/protection"] = {}
+            assert code_owner_review_required("tok", "acme/app", "main") == "unknown"
+            answers["/rulesets"] = {"id": 1}
+            assert code_owner_review_required("tok", "acme/app", "main") == "unknown"
+            answers["/rulesets"] = [1, {"id": "no"}, {"id": 3}]
+            answers["/rulesets/3"] = _http_error(404)
+            assert code_owner_review_required("tok", "acme/app", "") == "unknown"
+            answers["/rulesets"] = [{"id": 4}]
+            answers["/rulesets/4"] = []
+            assert code_owner_review_required("tok", "acme/app", "main") == "disabled"
+            answers["/rulesets/4"] = {"rules": "no"}
+            assert code_owner_review_required("tok", "acme/app", "main") == "disabled"
+            answers["/rulesets/4"] = {"rules": [1, {"type": "pull_request"}]}
+            assert code_owner_review_required("tok", "acme/app", "main") == "disabled"
+    finally:
+        set_offline(False)
+        clear_api_budget()
+
+
+def test_team_directory_hides_unknown_and_failed_lookups() -> None:
+    directory = TeamDirectory(
+        org="acme",
+        fetched_at="2026-01-01T00:00:00+00:00",
+        teams=(
+            TeamRecord("parent", frozenset({"ann"}), "", ("child", "missing"), True),
+            TeamRecord("child", frozenset({"beau"}), "parent", ("parent",), True),
+            TeamRecord("secret", frozenset(), "", (), False),
+            TeamRecord("holder", frozenset({"ann"}), "", ("secret",), True),
+        ),
+    )
+    assert directory.membership_for("alice") is None
+    assert directory.membership_for("@other/parent") is None
+    parent = directory.membership("parent")
+    assert parent.members == frozenset({"ann", "beau"})
+    assert parent.visible is False
+    assert directory.membership("holder").visible is False
+    assert team_slug("alice", "acme") is None
+    assert team_slug("@acme/", "acme") is None
+    assert team_slug("@/backend", "acme") is None
+    assert team_slug("@other/backend", "acme") is None
+    assert team_slug("@acme/backend", "") == "backend"
+    set_offline(False)
+    try:
+        with patch("checkowners.github.get_github_client", return_value=None):
+            assert load_team_directory("tok", "acme") is None
+        failing = MagicMock()
+        failing.get_organization.side_effect = RuntimeError("down")
+        with patch("checkowners.github.get_github_client", return_value=failing):
+            assert load_team_directory("tok", "acme") is None
+
+        class _BoomError(Exception):
+            status = 500
+
+        class _Parent:
+            slug = object()
+
+        class _Empty:
+            slug = ""
+            parent = None
+
+        class _Bare:
+            slug = "bare"
+            parent = None
+
+        class _Weird:
+            slug = "weird"
+            parent = _Parent()
+
+            def get_members(self) -> list[object]:
+                return [
+                    SimpleNamespace(login=None),
+                    SimpleNamespace(login=""),
+                    SimpleNamespace(login="ann"),
+                ]
+
+        class _Denied:
+            slug = "denied"
+            parent = None
+
+            def get_members(self) -> list[object]:
+                raise _BoomError("no")
+
+        client = MagicMock()
+        client.get_organization.return_value.get_teams.return_value = [
+            _Empty(),
+            _Bare(),
+            _Weird(),
+            _Denied(),
+        ]
+        with patch("checkowners.github.get_github_client", return_value=client):
+            assert load_team_directory("tok", "acme") is None
+
+        class _Listed:
+            slug = "core"
+            parent = None
+
+            def get_members(self) -> list[object]:
+                return [SimpleNamespace(login="ann")]
+
+        client.get_organization.return_value.get_teams.return_value = [_Listed()]
+        with (
+            patch("checkowners.github.get_github_client", return_value=client),
+            patch("checkowners.github.write_json_file", side_effect=OSError("full")),
+        ):
+            saved = load_team_directory("tok", "a/b")
+        assert saved is not None
+        assert saved.teams[0].members == frozenset({"ann"})
+    finally:
+        set_offline(False)

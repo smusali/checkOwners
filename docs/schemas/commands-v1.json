@@ -487,6 +487,60 @@
         }
       }
     },
+    "teamComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "team",
+        "pattern",
+        "line_number",
+        "status",
+        "reason",
+        "team_coverage",
+        "inactive_members",
+        "observed_outside_team",
+        "team_snapshot"
+      ],
+      "properties": {
+        "team": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "line_number": {
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "aligned",
+            "partial-drift",
+            "unverifiable",
+            "invisible",
+            "empty",
+            "nested"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "team_coverage": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "inactive_members": {
+          "$ref": "#/$defs/stringList"
+        },
+        "observed_outside_team": {
+          "$ref": "#/$defs/stringList"
+        },
+        "team_snapshot": {
+          "type": "string"
+        }
+      }
+    },
     "driftEntry": {
       "type": "object",
       "additionalProperties": false,
@@ -542,6 +596,7 @@
           "properties": {
             "severity": {
               "enum": [
+                "info",
                 "low",
                 "medium",
                 "high",
@@ -582,6 +637,28 @@
         },
         "former_owners": {
           "$ref": "#/$defs/stringList"
+        },
+        "team_status": {
+          "enum": [
+            "aligned",
+            "partial-drift",
+            "unverifiable",
+            "invisible",
+            "empty",
+            "nested"
+          ]
+        },
+        "team_coverage": {
+          "type": "number"
+        },
+        "inactive_members": {
+          "$ref": "#/$defs/stringList"
+        },
+        "observed_outside_team": {
+          "$ref": "#/$defs/stringList"
+        },
+        "team_snapshot": {
+          "type": "string"
         },
         "recommendation": {
           "type": "object",
@@ -914,6 +991,7 @@
         },
         "severity": {
           "enum": [
+            "info",
             "low",
             "medium",
             "high",
@@ -925,6 +1003,12 @@
         },
         "notes": {
           "$ref": "#/$defs/stringList"
+        },
+        "teams": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/teamComparison"
+          }
         },
         "baselined": {
           "type": "integer"
@@ -983,6 +1067,7 @@
             },
             "severity": {
               "enum": [
+                "info",
                 "low",
                 "medium",
                 "high",
@@ -994,6 +1079,12 @@
             },
             "notes": {
               "$ref": "#/$defs/stringList"
+            },
+            "teams": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/teamComparison"
+              }
             },
             "fix_plan": {
               "type": "string"
@@ -3159,6 +3250,7 @@
         },
         "severity": {
           "enum": [
+            "info",
             "low",
             "medium",
             "high",
@@ -3999,6 +4091,97 @@
                 "alice@company.example"
               ],
               "reason": "same author name"
+            }
+          ]
+        }
+      ]
+    },
+    "auditRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "status", "summary", "path", "owners", "source"],
+      "properties": {
+        "rule": {"type": "string"},
+        "status": {"enum": ["ok", "warn", "fail", "unverifiable"]},
+        "summary": {"type": "string"},
+        "path": {"type": "string"},
+        "owners": {"$ref": "#/$defs/stringList"},
+        "source": {"type": "string"}
+      }
+    },
+    "doctor": {
+      "allOf": [
+        {"$ref": "#/$defs/envelope"},
+        {
+          "type": "object",
+          "required": ["rows"],
+          "properties": {
+            "rows": {"type": "array", "items": {"$ref": "#/$defs/auditRow"}},
+            "env": {"type": "array", "items": {"$ref": "#/$defs/auditRow"}}
+          }
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.6.0",
+          "models": {
+            "ownership": "ownership-v1",
+            "risk": "risk-v1",
+            "topology": "topology-v2"
+          },
+          "repository": "acme/payments",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": null,
+          "rows": [
+            {
+              "rule": "file-size",
+              "status": "ok",
+              "summary": "CODEOWNERS is 12 bytes.",
+              "path": "",
+              "owners": [],
+              "source": ""
+            }
+          ]
+        }
+      ]
+    },
+    "audit": {
+      "allOf": [
+        {"$ref": "#/$defs/envelope"},
+        {
+          "type": "object",
+          "required": ["rows"],
+          "properties": {
+            "rows": {"type": "array", "items": {"$ref": "#/$defs/auditRow"}},
+            "env": {"type": "array", "items": {"$ref": "#/$defs/auditRow"}}
+          }
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.6.0",
+          "models": {
+            "ownership": "ownership-v1",
+            "risk": "risk-v1",
+            "topology": "topology-v2"
+          },
+          "repository": "acme/payments",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": null,
+          "rows": [
+            {
+              "rule": "changed",
+              "status": "ok",
+              "summary": "No ownership drift.",
+              "path": "",
+              "owners": [],
+              "source": ""
             }
           ]
         }

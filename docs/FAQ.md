@@ -54,6 +54,8 @@ github:
 
 Disable `resolve_teams` if you want raw `@username` entries even when a team would match.
 
+Drift asks the opposite question. A token, `github.resolve_teams`, and `github.org` expand `@org/team` to members, including child teams. Without that directory the team rule is `unverifiable`. It is not reported as aligned. See [Drift and severity](USAGE.md#drift-and-severity).
+
 ### Can a report omit people's names?
 
 Yes. `output.anonymize: true` replaces each person with a stable `person-` token for that repository. `output.aggregate_only: true` drops per-person fields and keeps repository metrics. `identity.mode` is `handle` (default), `email`, or `hashed`. `privacy.redact_emails: true` or `--redact-emails` replaces addresses in output with tokens. `contributors.exclude` removes those people from every command, including graph export.
@@ -195,16 +197,9 @@ Four filters can drop a path: `.gitattributes` marks it `linguist-generated` or 
 
 ### What does drift "severity" mean in CI?
 
-Drift severity maps the max confidence delta plus qualified-owner / decay flags to a tier:
+Severity is the worst entry score. The score mixes overlap, the confidence delta, path criticality, decay, and a bump when one qualified owner remains. The default cutoffs are `0.15 / 0.35 / 0.55 / 0.75`, stored as `drift.severity_thresholds`. Below `0.15` the tier is `info`. A solo repository is not uniformly `critical`. `policy.drift.fail` stays false unless you set it.
 
-| Severity | Trigger |
-|----------|---------|
-| `critical` | Any drift entry has `qualified_owner_count <= 1` or is `decay = true` |
-| `high` | `max_confidence_delta >= 0.7` |
-| `medium` | `max_confidence_delta >= 0.3` |
-| `low` | otherwise |
-
-`--json` and the Action output `drift_summary` include the severity field so a workflow can branch on it.
+`checkowners` with no subcommand runs `checkowners audit`. `checkowners doctor` stops at configuration, plus the bus-factor row. `doctor --env` reports the environment and does not treat a missing token as a pass. `--json` and the Action output `drift_summary` include the severity field so a workflow can branch on it.
 
 ### How do I turn checkOwners on without failing on every existing finding?
 

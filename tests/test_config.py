@@ -68,6 +68,7 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.drift.min_confidence_delta == 0.2
     assert cfg.drift.hysteresis_runs == 1
     assert cfg.drift.baseline_file == ""
+    assert cfg.drift.severity_thresholds == (0.15, 0.35, 0.55, 0.75)
     assert cfg.suppressions == ()
     assert cfg.scoring.recency_half_life_days == 90
     assert cfg.scoring.recency_weight == 0.35
@@ -168,6 +169,7 @@ drift:
   mode: repo
   min_confidence_delta: 0.4
   hysteresis_runs: 3
+  severity_thresholds: [0.2, 0.4, 0.6, 0.8]
 github:
   org: myorg
   resolve_handles: false
@@ -216,6 +218,7 @@ identity:
     assert cfg.drift.min_confidence_delta == 0.4
     assert cfg.drift.hysteresis_runs == 3
     assert cfg.drift.baseline_file == ""
+    assert cfg.drift.severity_thresholds == (0.2, 0.4, 0.6, 0.8)
     assert cfg.suppressions == ()
     assert cfg.github.org == "myorg"
     assert cfg.github.resolve_handles is False
@@ -809,4 +812,23 @@ contributors:
 def test_identity_config_rejects_invalid_values(tmp_path: Path, content: str, match: str) -> None:
     root = _write_config(tmp_path, content)
     with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "drift:\n  severity_thresholds: 1\n",
+        "drift:\n  severity_thresholds: [0.1, 0.2]\n",
+        "drift:\n  severity_thresholds: [true, 0.2, 0.3, 0.4]\n",
+        "drift:\n  severity_thresholds: ['a', 0.2, 0.3, 0.4]\n",
+        "drift:\n  severity_thresholds: [-0.1, 0.2, 0.3, 0.4]\n",
+        "drift:\n  severity_thresholds: [0.1, 0.2, 0.3, 1.1]\n",
+        "drift:\n  severity_thresholds: [0.4, 0.3, 0.2, 0.1]\n",
+        "drift:\n  severity_thresholds: [0.2, 0.2, 0.3, 0.4]\n",
+    ],
+)
+def test_severity_thresholds_must_be_four_ascending_numbers(tmp_path: Path, content: str) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match="four ascending numbers"):
         load_config(repo_root=root)

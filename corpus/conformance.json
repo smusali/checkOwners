@@ -1,0 +1,11 @@
+{
+  "pass_rate": 1.0,
+  "compared": 3,
+  "agreed": 3,
+  "excluded": 1,
+  "syntax_classes": [
+    "negation",
+    "brackets",
+    "malformed_owner"
+  ]
+}

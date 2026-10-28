@@ -48,6 +48,18 @@ from checkowners.analyze import (
     review_window_start,
     run_git,
 )
+from checkowners.audit import (
+    AuditFacts,
+    AuditReport,
+    EnvironmentFacts,
+    audit_body,
+    audit_report_findings,
+    build_audit,
+    environment_rows,
+    fail_findings,
+    format_audit,
+    without_hidden,
+)
 from checkowners.balance import RECOMMENDATION_REASON, BalanceReport, ReviewLoad, analyze_balance
 from checkowners.baseline import (
     DEFAULT_BASELINE_PATH,
@@ -93,7 +105,9 @@ from checkowners.drift import (
     drift_entry_payload,
     evidence_gaps,
     format_fix_plan,
+    format_team_line,
     reconciliation_body,
+    team_comparison_payload,
     write_github_output,
 )
 from checkowners.expertise import rank_expertise
@@ -119,23 +133,32 @@ from checkowners.generate import (
     generate_codeowners,
 )
 from checkowners.github import (
+    AccessState,
     PullRequestFilesError,
     ReconciliationError,
     ReconciliationResult,
+    ReviewState,
+    TeamDirectory,
+    api_status,
     begin_api_budget,
     build_review_coverage,
     clear_api_evidence,
+    code_owner_review_required,
     collection_gaps,
     create_team_resolver,
     external_evidence_payload,
+    fetch_codeowners_errors,
     get_github_token,
     github_repository,
+    load_team_directory,
     offline_enabled,
     open_or_update_reconciliation,
     organization_members,
+    owner_access,
     publish_check_run,
     pull_request_base,
     pull_request_paths,
+    repository_visibility,
     resolve_handle_details,
     set_offline,
 )
@@ -294,7 +317,7 @@ app = typer.Typer(
     name="checkowners",
     help="Infer and maintain CODEOWNERS from git history.",
     rich_markup_mode="rich",
-    no_args_is_help=True,
+    invoke_without_command=True,
 )
 baseline_app = typer.Typer(help="Manage the accepted-findings baseline.")
 app.add_typer(baseline_app, name="baseline")
@@ -349,6 +372,8 @@ _DIFF_COMMANDS = frozenset(
         "who",
         "expertise",
         "qualified-owners",
+        "audit",
+        "doctor",
     }
 )
 
@@ -521,13 +546,203 @@ def _detect_drift(
     codeowners_path: Path,
 ) -> DriftResult:
     try:
-        return detect_drift(repo_root, ownership, config, codeowners_path=codeowners_path)
+        return detect_drift(
+            repo_root,
+            ownership,
+            config,
+            codeowners_path=codeowners_path,
+            teams=_load_teams(config),
+        )
     except CodeownersMarkerError as exc:
         console.print(f"[red]{exc}[/red]")
         exit_with(ExitCode.CONFIG)
     except (subprocess.CalledProcessError, OSError) as exc:
         console.print(f"[red]Git command failed:[/red] {exc}")
         exit_with(ExitCode.INTEGRATION)
+
+
+def _load_teams(config: Config) -> TeamDirectory | None:
+    if not config.github.resolve_teams or offline_enabled():
+        return None
+    token = get_github_token()
+    org = config.github.org.strip()
+    if not token or not org:
+        return None
+    return load_team_directory(token, org)
+
+
+def _try_analyze(config: Config, repo_root: Path) -> OwnershipMap | None:
+    try:
+        return _run_analyze(config, repo_root)
+    except (typer.Exit, ValueError, subprocess.CalledProcessError, OSError):
+        return None
+
+
+def _branch_name(repo_root: Path) -> str:
+    try:
+        result = run_git(repo_root, ["git", "rev-parse", "--abbrev-ref", "HEAD"], check=True)
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return ""
+    name = result.stdout.strip()
+    if name == "HEAD":
+        return ""
+    return name
+
+
+def _cache_writable() -> bool:
+    root = cache_directory()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        probe = root / ".write-probe"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+    except OSError:
+        return False
+    return True
+
+
+def _audit_report(
+    config: Config,
+    *,
+    include_inference: bool,
+    env: bool,
+) -> tuple[AuditReport, OwnershipMap | None, tuple[CodeownersRule, ...]]:
+    repo_root = Path.cwd()
+    codeowners_path = find_codeowners_path(repo_root)
+    text = codeowners_path.read_text(encoding="utf-8") if codeowners_path.is_file() else ""
+    rules = _codeowners_rules(codeowners_path)
+    tracked = _tracked_paths(repo_root)
+    head = _branch_name(repo_root)
+    token = "" if offline_enabled() else get_github_token()
+    repository = _repository_name(repo_root)
+    private = False
+    default_branch = head
+    if token and repository:
+        visible = repository_visibility(token, repository)
+        if visible is not None:
+            private, default_branch = visible
+    base = os.environ.get("GITHUB_BASE_REF", "").strip() or default_branch
+    remote = None
+    access: dict[str, AccessState] = {}
+    review: ReviewState = "unknown"
+    if token and repository:
+        remote = fetch_codeowners_errors(token, repository, head)
+        for owner in {owner for rule in rules for owner in rule.owners}:
+            access[owner] = owner_access(token, repository, owner)
+        review = code_owner_review_required(token, repository, base or head)
+    ownership = _try_analyze(config, repo_root)
+    analysis_error = "" if ownership is not None else "Analysis did not run."
+    drift = None
+    if include_inference and ownership is not None:
+        try:
+            drift = _detect_drift(repo_root, ownership, config, codeowners_path)
+        except typer.Exit:
+            drift = None
+            analysis_error = "Drift was not compared."
+    file_bytes = codeowners_path.stat().st_size if codeowners_path.is_file() else 0
+    facts = AuditFacts(
+        repo_root=repo_root,
+        config=config,
+        codeowners_path=codeowners_path,
+        text=text,
+        rules=rules,
+        tracked=tracked,
+        head_branch=head,
+        base_branch=base,
+        file_bytes=file_bytes,
+        teams=_load_teams(config),
+        ownership=ownership,
+        analysis_error=analysis_error,
+        errors=tuple(validate_codeowners(repo_root, codeowners_path=codeowners_path)),
+        remote_errors=remote,
+        private=private,
+        ref=head,
+        default_branch=default_branch,
+        access=access,
+        review=review,
+        token_present=bool(token),
+        include_inference=include_inference,
+        drift=drift,
+    )
+    report = build_audit(facts)
+    if env:
+        report = replace(report, env=environment_rows(_environment_facts(facts, token)))
+    return report, ownership, rules
+
+
+def _environment_facts(facts: AuditFacts, token: str) -> EnvironmentFacts:
+    repo_root = facts.repo_root
+    git_repo = True
+    full_history = False
+    try:
+        run_git(repo_root, ["git", "rev-parse", "--is-inside-work-tree"], check=True)
+        shallow = run_git(repo_root, ["git", "rev-parse", "--is-shallow-repository"], check=True)
+        full_history = shallow.stdout.strip() == "false"
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        git_repo = False
+    reachable: bool | None = None
+    scopes: tuple[str, ...] = ()
+    if token:
+        reached, scopes = api_status(token)
+        reachable = reached
+    visibility = "unverifiable"
+    if facts.teams is not None:
+        hidden = any(not team.visible for team in facts.teams.teams)
+        visibility = "invisible" if hidden else "visible"
+    history = "available" if reachable else "unverifiable"
+    return EnvironmentFacts(
+        git_repo=git_repo,
+        full_history=full_history,
+        token_present=facts.token_present,
+        token_scopes=scopes,
+        codeowners_path=_repo_relative(repo_root, facts.codeowners_path),
+        api_reachable=reachable,
+        team_visibility=visibility,
+        review_history=history,
+        blame_ignore_revs=(repo_root / ".git-blame-ignore-revs").is_file(),
+        cache_writable=_cache_writable(),
+        version=__version__,
+        config_parsed=True,
+    )
+
+
+def _apply_audit_baseline(report: AuditReport, config: Config, baseline: Path) -> AuditReport:
+    structural = tuple(finding for row in report.rows for finding in row.findings)
+    outcome = _ratchet_or_exit(
+        DriftResult(stale=(), missing=(), changed=(), drift_detected=False),
+        config,
+        as_of=_policy_as_of(Path.cwd()),
+        baseline=baseline,
+        structural=structural,
+    )
+    visible = {item.identity() for item in outcome.new}
+    return without_hidden(report, visible)
+
+
+def _finish_audit(
+    *,
+    include_inference: bool,
+    json_output: bool,
+    output_format: str | None,
+    baseline: str | None,
+    env: bool,
+) -> None:
+    fmt = _output_format(json_output, output_format)
+    config = _load_config()
+    report, ownership, rules = _audit_report(config, include_inference=include_inference, env=env)
+    if include_inference:
+        path = _resolve_baseline(baseline, config)
+        if path is not None:
+            report = _apply_audit_baseline(report, config, path)
+    blocking = blocking_findings(fail_findings(report), config, ownership, rules)
+    if fmt == "json":
+        _emit_json(audit_body(report), ownership)
+    elif _is_machine(fmt):
+        _emit_machine(fmt, audit_report_findings(report), command="audit", ownership=ownership)
+    else:
+        typer.echo(_scrubbed(format_audit(report)), nl=False)
+    if blocking:
+        exit_with(ExitCode.FINDINGS)
 
 
 def _version_callback(value: bool) -> None:
@@ -650,6 +865,8 @@ def _app_callback(
     if offline:
         for line in _OFFLINE_LINES:
             err_console.print(line, highlight=False, markup=False)
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(audit)
 
 
 def _analysis_stamp(ownership: OwnershipMap) -> dict[str, str]:
@@ -1562,6 +1779,37 @@ def validate(
 
 
 @app.command()
+def doctor(
+    json_output: JsonOption = False,
+    env: Annotated[bool, typer.Option("--env", help="Include environment checks.")] = False,
+) -> None:
+    """Check CODEOWNERS configuration. Inference is limited to the bus-factor row."""
+    _finish_audit(
+        include_inference=False,
+        json_output=json_output,
+        output_format=None,
+        baseline=None,
+        env=env,
+    )
+
+
+@app.command()
+def audit(
+    json_output: JsonOption = False,
+    output_format: FormatOption = None,
+    baseline: BaselineOption = None,
+) -> None:
+    """Audit CODEOWNERS configuration, drift, and ownership risk."""
+    _finish_audit(
+        include_inference=True,
+        json_output=json_output,
+        output_format=output_format,
+        baseline=baseline,
+        env=False,
+    )
+
+
+@app.command()
 def explain_path(
     path: Annotated[str, typer.Argument(help="Repo-relative path to resolve against CODEOWNERS.")],
     json_output: JsonOption = False,
@@ -1888,6 +2136,7 @@ def drift(
             "stale": [drift_entry_payload(e, cap, config) for e in result.stale],
             "missing": [drift_entry_payload(e, cap, config) for e in result.missing],
             "changed": [drift_entry_payload(e, cap, config) for e in result.changed],
+            "teams": [team_comparison_payload(row) for row in result.teams],
             "drift_detected": result.drift_detected,
             "severity": severity,
             "max_confidence_delta": round(result.max_confidence_delta, 4),
@@ -1906,6 +2155,8 @@ def drift(
         )
         _emit_machine(fmt, findings, command="drift", ownership=ownership)
     else:
+        for row in result.teams:
+            console.print(f"[yellow]team:[/yellow] {escape(format_team_line(row))}")
         for note in result.notes:
             console.print(f"[yellow]note:[/yellow] {escape(note)}")
         _render_ratchet_summary(outcome)
@@ -1928,7 +2179,9 @@ def drift(
 
 
 def _severity_style(severity: str) -> str:
-    return {"critical": "red", "high": "red", "medium": "yellow", "low": "green"}[severity]
+    return {"critical": "red", "high": "red", "medium": "yellow", "low": "green", "info": "green"}[
+        severity
+    ]
 
 
 @app.command()
@@ -2340,6 +2593,7 @@ def github_action(
         "stale": [drift_entry_payload(e, cap, config) for e in result.stale],
         "missing": [drift_entry_payload(e, cap, config) for e in result.missing],
         "changed": [drift_entry_payload(e, cap, config) for e in result.changed],
+        "teams": [team_comparison_payload(row) for row in result.teams],
         "notes": list(result.notes),
         **ratchet,
         **_policy_payload(config, blocking),

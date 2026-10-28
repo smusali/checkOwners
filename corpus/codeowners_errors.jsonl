@@ -1,0 +1,4 @@
+{"repo":"example/widgets","ref":"main","default_branch":"main","private":false,"text":"* @alice\n","api_errors":[]}
+{"repo":"example/widgets","ref":"main","default_branch":"main","private":false,"text":"!build @alice\n","api_errors":[{"line":1,"column":1,"kind":"Invalid pattern","message":"negation is not supported","source":"!build @alice","path":".github/CODEOWNERS"}]}
+{"repo":"example/widgets","ref":"main","default_branch":"main","private":false,"text":"* @ghost\n","api_errors":[{"line":1,"column":3,"kind":"Invalid owner","message":"unknown user","source":"* @ghost","path":".github/CODEOWNERS"}]}
+{"repo":"example/private","ref":"feature","default_branch":"main","private":true,"text":"!secret @alice\n","api_errors":[]}

@@ -78,11 +78,16 @@ Parser fixtures harvested from public repositories. Each row:
 
 `parse_sha256` is the hex digest of the UTF-8 JSON array of objects `{"pattern", "owners", "line_number"}`, with no extra whitespace. Pattern text, comments, and escapes are unchanged. The corpus has at least 500 files.
 
+## `conformance.json`
+
+`codeowners_errors.jsonl` records CODEOWNERS text beside the errors endpoint payload. `conformance.json` is the pass rate from `python tools/build_codeowners_corpus.py conformance`. It counts agreement on negation, brackets, and malformed owner tokens. A private non-default branch with an empty API error list and local syntax findings is excluded. `--check` exits 1 when the stored rate drops or a recorded case diverges. The weekly `CODEOWNERS conformance` workflow runs that check and opens or updates an issue. It does not commit.
+
 ## Regenerating
 
 ```bash
 python tools/build_codeowners_corpus.py compatibility
 python tools/build_codeowners_corpus.py realworld
+python tools/build_codeowners_corpus.py conformance
 ```
 
 `realworld` needs the GitHub CLI logged in. It searches for files named CODEOWNERS, keeps the SPDX allowlist above, and rewrites the file.

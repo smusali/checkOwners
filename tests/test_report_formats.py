@@ -26,6 +26,7 @@ from checkowners.report_formats import (
     baseline_identity,
     check_annotations,
     combine_findings,
+    finding_for_audit,
     findings_for_bus,
     findings_for_drift,
     findings_for_gaps,
@@ -52,6 +53,18 @@ def test_rule_ids_stay_stable() -> None:
         "checkowners/shadowed-rule",
         "checkowners/single-expert-risk",
         "checkowners/incomplete-analysis",
+        "checkowners/owner-permission",
+        "checkowners/invisible-team",
+        "checkowners/empty-team",
+        "checkowners/file-size",
+        "checkowners/unowned-file",
+        "checkowners/observed-unowned",
+        "checkowners/duplicate-rule",
+        "checkowners/broad-rule",
+        "checkowners/self-protection",
+        "checkowners/ruleset",
+        "checkowners/decayed-owner",
+        "checkowners/orphaned-owner",
     )
 
 
@@ -165,8 +178,8 @@ def test_sarif_document_matches_schema_and_locations() -> None:
     assert isinstance(results, list)
     by_rule = {item["ruleId"]: item for item in results}
     expected = {
-        "checkowners/unowned-path": ("warning", "src/new.py", 1),
-        "checkowners/stale-owner": ("note", "CODEOWNERS", 4),
+        "checkowners/unowned-path": ("note", "src/new.py", 1),
+        "checkowners/stale-owner": ("warning", "CODEOWNERS", 4),
         "checkowners/ownership-drift": ("error", "CODEOWNERS", 9),
         "checkowners/invalid-owner": ("error", "CODEOWNERS", 3),
         "checkowners/shadowed-rule": ("warning", "CODEOWNERS", 2),
@@ -227,8 +240,8 @@ def test_junit_shape_and_annotations() -> None:
     assert clean_case.attrib["name"] == "no findings"
     assert clean.find("testsuite/testcase/failure") is None
     notes = workflow_annotations(findings)
-    assert notes.startswith("::warning file=src/new.py,line=1::")
-    assert check_annotations(findings)[0]["annotation_level"] == "warning"
+    assert notes.startswith("::notice file=src/new.py,line=1::")
+    assert check_annotations(findings)[0]["annotation_level"] == "notice"
 
 
 def test_annotation_cap_names_the_remainder() -> None:
@@ -341,3 +354,32 @@ def test_format_edges() -> None:
     assert "%25" in command
     xml = junit_document(weird, command="drift")
     assert "No period" in xml
+
+
+def test_finding_for_audit_skips_rules_without_a_sarif_id() -> None:
+    assert (
+        finding_for_audit(
+            "not-a-rule",
+            level="warning",
+            message="no",
+            path="CODEOWNERS",
+            owners=(),
+            status="warn",
+            uri="CODEOWNERS",
+            start_line=1,
+        )
+        is None
+    )
+    assert (
+        finding_for_audit(
+            "incomplete-analysis",
+            level="note",
+            message="gap",
+            path="CODEOWNERS",
+            owners=(),
+            status="warn",
+            uri="",
+            start_line=1,
+        )
+        is None
+    )

@@ -56,6 +56,8 @@ _COMMANDS: tuple[tuple[list[str], str], ...] = (
     (["simulate", "--remove", "alice@example.com", "--json"], "simulate"),
     (["identity", "audit", "--json"], "identity-audit"),
     (["diff", "HEAD", "--json"], "change"),
+    (["doctor", "--json"], "doctor"),
+    (["audit", "--json"], "audit"),
 )
 
 
@@ -69,7 +71,7 @@ def _invoke(tmp_path: Path, args: list[str]) -> dict[str, object]:
         email="test@example.com",
         date="2026-05-28T12:00:00+00:00",
     )
-    if args[0] == "explain-path":
+    if args[0] in {"explain-path", "doctor", "audit"}:
         (tmp_path / "CODEOWNERS").write_text("* @alice\n", encoding="utf-8")
     if args[0] == "simulate":
         write_state(

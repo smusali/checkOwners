@@ -55,8 +55,16 @@ def check_of(rule: FindingRule) -> PolicyCheck | None:
         return "unowned"
     if rule == "single-expert":
         return "single_expert"
-    if rule == "invalid-owner":
+    if rule in {
+        "invalid-owner",
+        "owner-permission",
+        "invisible-team",
+        "empty-team",
+        "file-size",
+    }:
         return "invalid_owner"
+    if rule in {"unowned-file", "observed-unowned"}:
+        return "unowned"
     return None
 
 

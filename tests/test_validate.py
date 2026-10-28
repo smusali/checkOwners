@@ -6,7 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from checkowners.validate import validate_codeowners
+from checkowners.validate import (
+    ConformanceCase,
+    RemoteCodeownersError,
+    ValidationFinding,
+    _validate_entry,
+    compare_codeowners_syntax,
+    conformance_report,
+    syntax_classes,
+    validate_codeowners,
+)
 from tests.conftest import GitRepo
 
 
@@ -162,3 +171,83 @@ def test_validate_committed_relative_patterns(git_repo: GitRepo) -> None:
     assert len(errors) == 1
     assert "character ranges" in errors[0].message
     assert "[a-z]" in errors[0].line
+
+
+def _remote(line: int, source: str, kind: str = "Invalid pattern") -> RemoteCodeownersError:
+    return RemoteCodeownersError(
+        line=line,
+        column=1,
+        kind=kind,
+        message=kind,
+        source=source,
+        path=".github/CODEOWNERS",
+    )
+
+
+def test_conformance_agrees_and_ignores_unknown_owners() -> None:
+    case = ConformanceCase(
+        repo="example/widgets",
+        ref="main",
+        default_branch="main",
+        private=False,
+        text="* @ghost\n",
+        api_errors=(_remote(1, "* @ghost", "Invalid owner"),),
+    )
+    report = conformance_report((case,))
+    assert report["pass_rate"] == 1.0
+    assert report["compared"] == 1
+    assert report["divergences"] == []
+
+
+def test_conformance_reports_a_syntax_divergence() -> None:
+    case = ConformanceCase(
+        repo="example/widgets",
+        ref="main",
+        default_branch="main",
+        private=False,
+        text="!build @alice\n",
+        api_errors=(),
+    )
+    report = conformance_report((case,))
+    assert report["pass_rate"] == 0.0
+    assert report["divergences"]
+
+
+def test_conformance_excludes_private_branch_silence() -> None:
+    case = ConformanceCase(
+        repo="example/private",
+        ref="feature",
+        default_branch="main",
+        private=True,
+        text="!secret @alice\n",
+        api_errors=(),
+    )
+    report = conformance_report((case,))
+    assert report["compared"] == 0
+    assert report["excluded"] == 1
+    assert report["pass_rate"] is None
+    assert report["divergences"] == []
+
+
+def test_syntax_classes_cover_remote_wording_and_blank_entries() -> None:
+    assert _validate_entry(1, "") == []
+    assert syntax_classes((ValidationFinding(1, "", "CODEOWNERS file not found"),)) == ()
+    remote = (
+        RemoteCodeownersError(1, 1, "Negation", "", "", ""),
+        RemoteCodeownersError(2, 1, "pattern", "character range", "", ""),
+        RemoteCodeownersError(3, 1, "Invalid owner", "no", "src/[a].py @alice", "CODEOWNERS"),
+        RemoteCodeownersError(4, 1, "", "mystery", "", ""),
+        RemoteCodeownersError(5, 1, "Unknown owner", "no", "* @alice", "CODEOWNERS"),
+    )
+    compared = compare_codeowners_syntax(
+        "src/[a].py @alice\n* bad\n",
+        remote,
+        private=False,
+        ref="main",
+        default_branch="main",
+    )
+    kinds = {kind for _line, kind in compared.remote}
+    assert {"negation", "brackets"} <= kinds
+    assert "Unknown owner" in compared.other_kinds
+    assert "Negation" not in compared.other_kinds
+    assert compared.agrees is False

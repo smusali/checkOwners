@@ -27,15 +27,23 @@ from checkowners.analyze import (
     Contribution,
     GitRequirementError,
     _aggregate_contributions,
+    _apply_copy,
+    _apply_renames,
+    _author_counts,
     _author_emails,
     _author_index,
     _blame_for_path,
     _blame_inputs_token,
     _BlamePass,
     _blob_shas,
+    _blobs_at_revision,
+    _bounded_priors,
     _cap_mechanical_authors,
     _clamp,
     _classify_freshness,
+    _collapse_directory_moves,
+    _CommitHistory,
+    _common_directory,
     _current_commits,
     _detect_decay,
     _display_ignore_revs_path,
@@ -56,18 +64,26 @@ from checkowners.analyze import (
     _is_excluded,
     _is_shallow_repository,
     _linguist_excluded_paths,
+    _logical_id,
     _mass_shas,
+    _parent_dir,
     _parse_blame_detail,
     _parse_blame_output,
     _parse_gitattributes,
     _parse_log_output,
+    _parse_status_paths,
     _qualify_authors,
     _RawCommit,
     _recency_score,
+    _remap_contributions,
     _rename_commit_shas,
     _reused_fraction,
+    _scale_lineage_confidence,
+    _status_score,
     _stdout_has_rename,
+    _survival_by_path,
     _window_has_renames,
+    _with_lineage,
     analysis_epoch,
     analyze_ownership,
     apply_completeness,
@@ -107,7 +123,7 @@ from checkowners.models import (
     QualificationConfig,
     ScoringConfig,
 )
-from checkowners.state import BlameLines, HistoryBaseline, _state_path, write_state
+from checkowners.state import BlameLines, HistoryBaseline, PathMove, _state_path, write_state
 from tests.conftest import GitRepo, git_commit, init_git_repo
 
 
@@ -1195,14 +1211,15 @@ def test_directory_rename_keeps_every_file(git_repo: GitRepo) -> None:
 
 
 def test_copy_inherits_history_only_when_the_source_changes(git_repo: GitRepo) -> None:
+    body = "".join(f"line = {index}\n" for index in range(20))
     git_repo.commit_files(
-        {"src.py": "line = 1\n"},
+        {"src.py": body},
         "create",
         author="Alice",
         email="alice@example.com",
         date="2026-05-01T12:00:00+00:00",
     )
-    git_repo.write("src.py", "line = 1\nline = 2\n")
+    git_repo.write("src.py", body + "line = extra\n")
     git_repo.copy("src.py", "copied.py")
     git_repo.commit(
         "copy and edit source",
@@ -1222,6 +1239,198 @@ def test_copy_inherits_history_only_when_the_source_changes(git_repo: GitRepo) -
     assert contributions["copied.py"]["alice@example.com"].commits >= 1
     assert contributions["src.py"]["alice@example.com"].commits >= 1
     assert "alice@example.com" not in contributions["plain.py"]
+
+
+def test_lineage_edges_cover_scores_copies_and_survival(tmp_path: Path) -> None:
+    assert _status_score("R") == 100
+    assert _status_score("R120") == 100
+    assert _status_score("C0") == 0
+    files, moves = _parse_status_paths(
+        "\nplain.py\nR100\told.py\tnew.py\nC080\tsrc.py\tcopied.py\nM\tedited.py\nX\tweird\n"
+    )
+    assert "plain.py" in files
+    assert "X\tweird" in files
+    assert {move.kind for move in moves} == {"R", "C"}
+    first = _logical_id("a.py", set(), "n")
+    assert _logical_id("a.py", {first}, "n") != first
+    assert _parent_dir("file.py") == ""
+    assert _common_directory([]) == ""
+    assert _common_directory(["file.py", "a/b.py"]) == ""
+    assert _common_directory(["a/b.py", "c/d.py"]) == ""
+    assert _common_directory(["/a/file.py", "/b/file.py"]) == ""
+    assert _common_directory(["a/b/c.py", "a/b/d.py"]) == "a/b"
+    single = (PathMove(kind="R", score=100, source="a.py", dest="b.py"),)
+    assert _collapse_directory_moves(single, {}) == single
+    roots = (
+        PathMove(kind="R", score=100, source="a.py", dest="b.py"),
+        PathMove(kind="R", score=100, source="c.py", dest="d.py"),
+    )
+    assert _collapse_directory_moves(roots, {}) == roots
+    same_prefix = (
+        PathMove(kind="R", score=90, source="old/a.py", dest="old/b.py"),
+        PathMove(kind="R", score=90, source="old/c.py", dest="old/d.py"),
+    )
+    assert _collapse_directory_moves(same_prefix, {}) == same_prefix
+    mismatch = (
+        PathMove(kind="R", score=90, source="old/a.py", dest="new/a.py"),
+        PathMove(kind="R", score=90, source="old/b.py", dest="new/c.py"),
+    )
+    living = {"old/a.py": "1", "old/b.py": "2"}
+    assert _collapse_directory_moves(mismatch, living) == mismatch
+    left_behind = (
+        PathMove(kind="R", score=90, source="old/a.py", dest="new/a.py"),
+        PathMove(kind="R", score=90, source="old/b.py", dest="new/b.py"),
+    )
+    assert _collapse_directory_moves(left_behind, {**living, "old/c.py": "3"}) == left_behind
+    collapsed = _collapse_directory_moves(
+        (
+            PathMove(kind="R", score=80, source="old/a.py", dest="new/a.py"),
+            PathMove(kind="C", score=70, source="old/a.py", dest="copy.py"),
+            PathMove(kind="R", score=90, source="old/b.py", dest="new/b.py"),
+        ),
+        living,
+    )
+    assert {move.kind for move in collapsed} == {"C", "D"}
+
+    names: dict[str, str] = {}
+    origin: dict[str, str] = {}
+    priors: dict[str, list[str]] = {}
+    confidence: dict[str, int] = {}
+    _apply_renames(
+        names,
+        origin,
+        priors,
+        confidence,
+        (PathMove(kind="R", score=60, source="old.py", dest="new.py"),),
+        "nonce",
+    )
+    logical = names["new.py"]
+    assert priors[logical] == ["old.py"]
+    assert confidence[logical] == 60
+    assert (
+        _apply_copy(
+            names,
+            origin,
+            priors,
+            confidence,
+            PathMove(kind="C", score=70, source="absent.py", dest="copy.py"),
+            "nonce",
+        )
+        is None
+    )
+    assert "copy.py" in names
+    assert _bounded_priors(["old.py", "older.py", "old.py"], "new.py") == ("old.py", "older.py")
+    assert _bounded_priors(["old.py", "new.py"], "new.py") == ("old.py",)
+
+    earlier = "a" * 40
+    later = "b" * 40
+    history = _with_lineage(
+        _CommitHistory(
+            commits=[
+                _RawCommit("bob@example.com", _NOW, ("src.py", "copied.py"), sha=later),
+                _RawCommit(
+                    "alice@example.com",
+                    _NOW - timedelta(days=1),
+                    ("src.py",),
+                    sha=earlier,
+                ),
+            ],
+            merge_strategy="rebase",
+            co_author_count=0,
+            moves={
+                later: (PathMove(kind="C", score=80, source="src.py", dest="copied.py"),),
+            },
+        )
+    )
+    assert history.logical_ids["copied.py"]
+    assert "src.py" in history.priors["copied.py"]
+    unlinked = _with_lineage(
+        _CommitHistory(
+            commits=[_RawCommit("bob@example.com", _NOW, ("copied.py",), sha=later)],
+            merge_strategy="rebase",
+            co_author_count=0,
+            moves={
+                later: (PathMove(kind="C", score=80, source="missing.py", dest="copied.py"),),
+            },
+        )
+    )
+    assert unlinked.priors["copied.py"] == ("missing.py",)
+    assert unlinked.confidence["copied.py"] == pytest.approx(0.8)
+    seeded = _current_commits(history)
+    assert any("copied.py" in commit.files and commit.sha == earlier for commit in seeded)
+    orphan = {"missing": {"alice@example.com": Contribution(1, _NOW, credit=1.0)}}
+    assert _remap_contributions(orphan, {}) is orphan
+    assert _remap_contributions(orphan, {"other": "kept.py"}) == {}
+
+    owner = OwnerEntry("alice@example.com", 0.8, _NOW, 1, evidence_quality=0.8)
+    other = OwnerEntry("bob@example.com", 0.4, _NOW, 1)
+    ownership = OwnershipMap(
+        paths={
+            "a.py": PathOwnership(
+                owners=(owner,),
+                qualified_owner_count=1,
+                candidates=(owner,),
+                scored_owners=(owner,),
+            ),
+            "b.py": PathOwnership(owners=(other,), qualified_owner_count=1),
+        },
+        last_analyzed=_NOW,
+    )
+    assert _scale_lineage_confidence(ownership, {"b.py": 1.0}) is ownership
+    scaled = _scale_lineage_confidence(ownership, {"a.py": 0.5, "b.py": 1.0})
+    assert scaled.paths["a.py"].owners[0].evidence_quality == pytest.approx(0.4)
+    assert scaled.paths["b.py"].owners[0].evidence_quality == 1.0
+
+    assert _author_counts({"gone": 3, "zero": 0, later: 2}, {later: "bob@example.com"}) == {
+        "bob@example.com": 2
+    }
+    assert _blobs_at_revision(tmp_path, "", ["a.py"]) == {}
+    assert _blobs_at_revision(tmp_path, later, ["a.py\n"]) == {}
+    failed = subprocess.CompletedProcess(args=["git"], returncode=1, stdout="", stderr="")
+    blob = "c" * 40
+    found = subprocess.CompletedProcess(
+        args=["git"],
+        returncode=0,
+        stdout=f"missing missing\n{blob} blob 4\n",
+        stderr="",
+    )
+    with patch("checkowners.analyze.run_git", side_effect=[failed, found]):
+        assert _blobs_at_revision(tmp_path, later, ["a.py"]) == {}
+        assert _blobs_at_revision(tmp_path, later, ["gone.py", "a.py"]) == {"a.py": blob}
+
+    empty = Contribution(1, _NOW, credit=1.0, last_sha="")
+    present = Contribution(1, _NOW, credit=1.0, last_sha=later)
+    ratios = _survival_by_path(
+        {
+            "skip.py": {"bob@example.com": present},
+            "kept.py": {"gone@example.com": empty, "bob@example.com": present},
+        },
+        {"kept.py"},
+        {"kept.py": {"bob@example.com": 1}},
+        {},
+        tmp_path,
+        GitConfig(),
+        (),
+    )
+    assert "skip.py" not in ratios
+    assert ratios["kept.py"]["gone@example.com"] is None
+    with (
+        patch("checkowners.analyze._blobs_at_revision", return_value={"kept.py": blob}),
+        patch(
+            "checkowners.analyze.gather_blame_coverage",
+            return_value=_BlamePass(lines={"kept.py": {}}),
+        ),
+    ):
+        zero = _survival_by_path(
+            {"kept.py": {"bob@example.com": present}},
+            {"kept.py"},
+            {"kept.py": {"bob@example.com": 1}},
+            {},
+            tmp_path,
+            GitConfig(),
+            (),
+        )
+    assert zero["kept.py"]["bob@example.com"] is None
 
 
 def test_follow_renames_false_keeps_literal_paths(git_repo: GitRepo) -> None:
@@ -3030,6 +3239,15 @@ def test_incremental_edges_cover_rejects_and_reuse(git_repo: GitRepo) -> None:
     )
     assert "no analyzed ref" in _git_baseline_reason(git_repo.path, _baseline(""), head)
     assert "missing" in _git_baseline_reason(git_repo.path, _baseline("d" * 40), head)
+    assert (
+        _git_baseline_reason(
+            git_repo.path,
+            _baseline(head),
+            head,
+            Config(analysis=AnalysisConfig(rename_similarity=40)),
+        )
+        == "lineage settings changed"
+    )
     assert not _is_ancestor(git_repo.path, "", head)
     assert _rename_commit_shas(git_repo.path, None, _NOW) == frozenset()
     assert _mass_shas({}, 0, 0.5) == ()

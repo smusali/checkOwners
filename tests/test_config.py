@@ -126,6 +126,12 @@ def test_rename_similarity_stays_between_1_and_100(tmp_path: Path) -> None:
     invalid = _write_config(tmp_path, "analysis:\n  rename_similarity: 0\n")
     with pytest.raises(ValueError, match=r"analysis\.rename_similarity"):
         load_config(repo_root=invalid)
+    too_high = _write_config(tmp_path, "analysis:\n  rename_similarity: 101\n")
+    with pytest.raises(ValueError, match=r"1 to 100"):
+        load_config(repo_root=too_high)
+    bad_flag = _write_config(tmp_path, "analysis:\n  follow_renames: 1\n")
+    with pytest.raises(ValueError, match=r"analysis\.follow_renames must be a boolean"):
+        load_config(repo_root=bad_flag)
 
 
 def test_load_config_partial_override(tmp_path: Path) -> None:
@@ -398,10 +404,16 @@ def test_load_config_github_token_rejected(tmp_path: Path) -> None:
 
 
 def test_load_config_scoring_section(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "scoring:\n  recency_weight: 0.5\n")
+    root = _write_config(
+        tmp_path,
+        "scoring:\n  recency_weight: 0.5\n  change_survival_weight: 0.1\n"
+        "  change_survival_reliability: 0.4\n",
+    )
     cfg = load_config(repo_root=root)
     assert cfg.scoring.recency_weight == 0.5
     assert cfg.scoring.frequency_weight == 0.20
+    assert cfg.scoring.change_survival_weight == 0.1
+    assert cfg.scoring.change_survival_reliability == 0.4
 
 
 def test_load_config_qualification_section(tmp_path: Path) -> None:

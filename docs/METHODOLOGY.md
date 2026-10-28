@@ -448,7 +448,7 @@ same change.
 
 ## Benchmark and calibration
 
-Runtimes are measured by [benchmarks/harness.py](../benchmarks/harness.py). A result records cold runtime, warm runtime, peak resident memory, git command count, GitHub API request count, cache size, and incremental runtime after one new commit. Peak resident memory comes from `time -l` on macOS and `time -v` on Linux. Two runs on the same commit must match the git command count exactly and stay within 15% on wall time. A run fails the regression check when its cold time is above the recorded baseline times 1.15. The procedure and the current `ci` baseline are in [benchmarks/README.md](../benchmarks/README.md).
+Runtimes are measured by [benchmarks/harness.py](../benchmarks/harness.py). A result records cold runtime, warm runtime, peak resident memory, git command count, GitHub API request count, cache size, and incremental runtime after one new commit. Peak resident memory comes from `time -l` on macOS and `time -v` on Linux. Two runs on the same commit must match the git command count exactly. Wall time within 15% is checked unless `--counts-only` is set. The pull-request job passes `--counts-only` because a hosted runner does not hold that band. A run fails the regression check when its cold time is above the recorded baseline times 1.15. The procedure and the current `ci` baseline are in [benchmarks/README.md](../benchmarks/README.md).
 
 The J1 incremental measurement, from one development machine on 2026-10-24, used 600 one-line Python files added across 20 commits, then one commit that changed two of those files. The cold pass took 1.99 seconds and ran git blame on all 600 files. The warm pass took 0.34 seconds and ran git blame on the two changed files.
 

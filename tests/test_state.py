@@ -38,15 +38,18 @@ from checkowners.state import (
     HandleCacheEntry,
     HistoryBaseline,
     _as_gap_code,
+    _blame_line_counts,
     _evict,
     _file_size,
     _history_payload,
     _parse_blame_map,
     _parse_count_map,
     _parse_history,
+    _parse_moves,
     _parse_path_lists,
     _parse_string_set,
     _state_path,
+    blame_cache_path,
     cache_clear,
     cache_directory,
     cache_info,
@@ -1238,6 +1241,24 @@ def test_cache_info_reports_the_current_repository(repo: Path) -> None:
     assert Path(present["current_state_path"]).is_file()
 
 
+def test_blame_cache_rejects_a_bad_digest_and_a_bad_payload() -> None:
+    with pytest.raises(ValueError, match="digest"):
+        blame_cache_path("nope")
+    assert _blame_line_counts([]) is None
+    assert _blame_line_counts({}) is None
+    assert _blame_line_counts({"lines": []}) is None
+    assert _blame_line_counts({"lines": {1: 1}}) is None
+    assert _blame_line_counts({"lines": {"a": True}}) is None
+    assert _blame_line_counts({"lines": {"a": -1}}) is None
+    assert _blame_line_counts({"lines": {"a": 2}}) == {"a": 2}
+    digest = "ab" + ("cd" * 31)
+    write_blame_cache(digest, {"a": 1})
+    blame_cache_path(digest).write_text("{", encoding="utf-8")
+    assert read_blame_cache(digest) is None
+    blame_cache_path(digest).write_text("[]", encoding="utf-8")
+    assert read_blame_cache(digest) is None
+
+
 def test_concurrent_blame_cache_writes_stay_intact() -> None:
     digest = "ab" + ("cd" * 31)
     lines = {"alice@example.com": 4, "bob@example.com": 2}
@@ -1414,6 +1435,32 @@ def test_history_baseline_rejects_bad_fields(repo: Path) -> None:
     legacy = _parse_history(valid)
     assert legacy is not None
     assert legacy.rename_similarity == -1
+    rejected = (
+        {"follow_renames": "yes", "rename_similarity": 50, "moves": {}},
+        {"follow_renames": True, "rename_similarity": True, "moves": {}},
+        {"follow_renames": True, "rename_similarity": 0, "moves": {}},
+        {"follow_renames": True, "rename_similarity": 101, "moves": {}},
+        {"follow_renames": True, "rename_similarity": 50, "moves": []},
+    )
+    for extra in rejected:
+        assert _parse_history({**valid, **extra}) is None
+    kept = _parse_history(
+        {**valid, "follow_renames": False, "rename_similarity": 80, "moves": {}},
+    )
+    assert kept is not None
+    assert kept.follow_renames is False
+    assert kept.rename_similarity == 80
+    assert _parse_moves([]) is None
+    assert _parse_moves({1: []}) is None
+    assert _parse_moves({"abc": "nope"}) is None
+    assert _parse_moves({"abc": ["nope"]}) is None
+    assert _parse_moves({"abc": [{"kind": "X", "score": 1, "source": "a", "dest": "b"}]}) is None
+    assert _parse_moves({"abc": [{"kind": "R", "score": True, "source": "a", "dest": "b"}]}) is None
+    assert _parse_moves({"abc": [{"kind": "R", "score": 1, "source": 1, "dest": "b"}]}) is None
+    assert _parse_moves({"abc": [{"kind": "R", "score": 101, "source": "a", "dest": "b"}]}) is None
+    parsed_moves = _parse_moves({"abc": [{"kind": "C", "score": 80, "source": "a", "dest": "b"}]})
+    assert parsed_moves is not None
+    assert parsed_moves["abc"][0].dest == "b"
     assert _parse_history([]) is None
     assert _parse_history({**valid, "analysis_ref": 1}) is None
     assert _parse_history({**valid, "files": []}) is None

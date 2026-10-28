@@ -1904,9 +1904,7 @@ def _coverage_with_reuse(
     coverage = {**reused, **fresh.coverage}
     lines = {path: dict(counts) for path, counts in fresh.lines.items()}
     for path in reused:
-        stored = saved.get(path)
-        if stored is not None:
-            lines[path] = _author_counts(stored.lines, emails)
+        lines[path] = _author_counts(saved[path].lines, emails)
     passed = _BlamePass(
         coverage=dict(sorted(coverage.items())),
         ignore_revs_file=fresh.ignore_revs_file or display,

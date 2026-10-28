@@ -55,6 +55,7 @@ from checkowners.cli import (
     _merge_identities,
     _owner_payload,
     _ownership_for_spec,
+    _print_cache_info,
     _pull_request_change,
     _render_explained_owner,
     _render_explanation,
@@ -2867,6 +2868,10 @@ def test_render_explained_owner_without_optional_signals() -> None:
         why_not=None,
     )
     _render_explanation(explanation, _NOW)
+    _render_explanation(
+        replace(explanation, logical_file_id="abcdef", lineage=("old.py",), rename_confidence=0.5),
+        _NOW,
+    )
 
 
 @pytest.mark.parametrize(
@@ -3494,6 +3499,33 @@ def test_cache_commands(tmp_path: Path) -> None:
     assert after.exit_code == 1, after.output
     assert "handles: no" in after.stdout
     assert "current_state_exists: no" in after.stdout
+
+
+def test_cache_info_rejects_a_negative_work_tree_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    answered = subprocess.CompletedProcess(args=["git"], returncode=0, stdout="false\n", stderr="")
+    with patch("checkowners.cli.run_git", return_value=answered):
+        result = runner.invoke(app, ["cache", "info"])
+    assert result.exit_code == 2, result.output
+    assert "Not a git repository." in result.stdout
+    _print_cache_info(
+        {
+            "path": str(tmp_path),
+            "schema_version": 1,
+            "bytes": 0,
+            "state_files": 0,
+            "graph_files": 0,
+            "blame_files": 0,
+            "handles": False,
+            "limit_bytes": 1,
+            "entries": [],
+        }
+    )
+    assert "current_repo_id" not in capsys.readouterr().out
 
 
 def test_cache_info_rejects_a_directory_that_is_not_a_repository(

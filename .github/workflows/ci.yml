@@ -370,5 +370,5 @@ jobs:
           set -euo pipefail
           python benchmarks/harness.py run --tier ci --output /tmp/bench-a.json
           python benchmarks/harness.py run --tier ci --output /tmp/bench-b.json
-          python benchmarks/harness.py compare --left /tmp/bench-a.json --right /tmp/bench-b.json
+          python benchmarks/harness.py compare --counts-only --left /tmp/bench-a.json --right /tmp/bench-b.json
           python benchmarks/harness.py self-check

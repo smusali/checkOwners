@@ -141,11 +141,14 @@ def variance_failures(
     right: dict[str, object],
     *,
     variance: float,
+    counts_only: bool = False,
 ) -> list[str]:
     failures: list[str] = []
     for key in _COUNT_KEYS:
         if _require_int(left, key) != _require_int(right, key):
             failures.append(f"{key} differs")
+    if counts_only:
+        return failures
     for key in _WALL_KEYS:
         first = _require_float(left, key)
         second = _require_float(right, key)
@@ -408,6 +411,7 @@ def _compare(args: argparse.Namespace) -> int:
                 _read_object(args.left),
                 _read_object(args.right),
                 variance=variance,
+                counts_only=args.counts_only,
             )
         )
     if args.baseline is not None or args.sample is not None:
@@ -441,6 +445,11 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("--right", type=Path)
     compare.add_argument("--baseline", type=Path)
     compare.add_argument("--sample", type=Path)
+    compare.add_argument(
+        "--counts-only",
+        action="store_true",
+        help="Compare git and API counts and skip wall time.",
+    )
     commands.add_parser("self-check")
     public = commands.add_parser("public")
     public.add_argument("--output", required=True, type=Path)

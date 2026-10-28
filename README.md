@@ -108,7 +108,7 @@ The composite Action posts that finding as one comment on same-repo pull request
 
 ## How it works
 
-`analyze` reads `git log` and `git blame` and caches an ownership map per repo under `~/.checkowners/`. Measured runtimes are in [benchmarks/README.md](benchmarks/README.md).
+`analyze` reads `git log` and `git blame` and caches an ownership map per repo under `~/.checkowners/`. Measured runtimes are in [benchmarks/README.md](https://github.com/smusali/checkowners/blob/main/benchmarks/README.md).
 
 - Noreply addresses become GitHub `@handles` locally. Other addresses use the GitHub API when a token is set.
 - One person with several emails counts once.

@@ -10,7 +10,7 @@ Each result has cold runtime, warm runtime, peak RSS, git command count, GitHub 
 
 ## Variance
 
-Two runs on the same commit must match git command count exactly, and wall time within 15%. `compare --baseline` fails when cold time exceeds the recorded `ci` baseline times 1.15.
+Two runs on the same commit must match git command count exactly. `compare` also checks wall time within 15% unless `--counts-only` is set. The pull-request job passes `--counts-only` because a hosted runner does not hold that band. `compare --baseline` fails when cold time exceeds the recorded `ci` baseline times 1.15.
 
 ```text
 python benchmarks/harness.py run --tier ci --output /tmp/bench-a.json

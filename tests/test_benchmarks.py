@@ -32,6 +32,7 @@ def test_variance_rejects_a_different_command_count_and_a_slow_run() -> None:
     left = _sample()
     assert variance_failures(left, _sample(git_commands=11), variance=0.15)
     assert variance_failures(left, _sample(cold_seconds=3.0), variance=0.15)
+    assert variance_failures(left, _sample(cold_seconds=9.0), variance=0.15, counts_only=True) == []
 
 
 def test_slowed_sample_fails_the_regression_check() -> None:

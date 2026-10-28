@@ -940,7 +940,7 @@ def flat_signal_scores(owner: OwnerEntry) -> SignalScores:
             scores["blame"] = round(signal.score, 4)
         elif name == "review":
             scores["review"] = round(signal.score, 4)
-        elif name == "change_survival":
+        else:
             scores["change_survival"] = round(signal.score, 4)
     return scores
 

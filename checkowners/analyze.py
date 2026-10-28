@@ -2137,8 +2137,6 @@ def _collapse_directory_moves(
     new_root = f"{new_prefix}/"
     sources: set[str] = set()
     for move in renames:
-        if not move.source.startswith(old_root) or not move.dest.startswith(new_root):
-            return moves
         if move.source[len(old_root) :] != move.dest[len(new_root) :]:
             return moves
         sources.add(move.source)

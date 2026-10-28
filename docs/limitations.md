@@ -98,11 +98,13 @@ Blame does not split lines across co-authors.
 - Unmapped emails stay distinct. `.mailmap` (on by default) collapses
   addresses the repository already listed; anything left unmapped is still
   two identities until handle resolution merges them.
-- Rename lineage across history is not followed. `-M` and `-C` on blame
-  preserve line attribution when content moves in one commit; they do not
-  rebuild a file's identity across later renames. `explain` on a single file
-  may list prior names from `git log --follow`; that is a name list, not a
-  logical file identity used for scoring.
+- History follows renames when `analysis.follow_renames` is true (the default),
+  using `-M` and `-C` at `analysis.rename_similarity` (default 50). A copy of
+  an unmodified file is not linked, because finding those copies compares the
+  new file with every unchanged file. `analysis.follow_renames: false` scores
+  each literal path on its own. `-M` and `-C` on blame still only attribute
+  lines moved inside one commit. `explain` lists the prior names used for
+  scoring when follow is on, and the `git log --follow` name list when it is off.
 
 ## Blame corrections have limits
 
@@ -171,7 +173,9 @@ recorded reviews exist.
 `trends` reconstructs each period from `git log` only. The series is
 `historical_activity_confidence` (`model_version` `historical-v1`, signals
 recency and frequency). `avg_qualified_owner_count` uses those same scores.
-`ownership_score` is `ownership-v1` and can include blame and review. The two
+`ownership_score` is `ownership-v2` and can include blame, review, and change
+survival. Change survival compares blame line counts at the current blob and
+at that person's last commit. It is not an AST comparison. The two
 numbers are not the same metric. The command prints that limitation. Naming
 `ownership_score` in the same report requires `--compare-ownership` and
 `--acknowledge-different-metrics`, and still does not plot `ownership_score`

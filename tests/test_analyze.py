@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from collections.abc import Iterable
+import time
+from collections.abc import Callable, Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,12 +36,14 @@ from checkowners.analyze import (
     _cap_mechanical_authors,
     _clamp,
     _classify_freshness,
+    _current_commits,
     _detect_decay,
     _display_ignore_revs_path,
     _elapsed_days,
     _existing_file,
     _filter_excluded,
     _filter_nonexistent,
+    _follow_path,
     _frequency_score,
     _gather_review_coverage,
     _get_commit_history,
@@ -84,6 +87,8 @@ from checkowners.analyze import (
     resolve_as_of,
     run_git,
     score_owners,
+    set_blame_cache_enabled,
+    set_blame_verbose,
     signal_reliabilities,
     signal_weights,
 )
@@ -291,7 +296,7 @@ def test_analyze_lookback_days() -> None:
     ):
         analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
 
-    args = next(call.args[0] for call in mock.call_args_list if "--name-only" in call.args[0])
+    args = next(call.args[0] for call in mock.call_args_list if "--name-status" in call.args[0])
     since = _NOW - timedelta(days=90)
     assert f"--since={since.isoformat()}" in args
     assert f"--until={_NOW.isoformat()}" in args
@@ -667,8 +672,8 @@ def test_analyze_score_scale_with_and_without_review_provider() -> None:
     )
     assert offline[0].ownership_score == pytest.approx(1.0)
     assert online[0].ownership_score == pytest.approx(1.0)
-    assert offline[0].evidence_quality == pytest.approx(0.85)
-    assert online[0].evidence_quality == pytest.approx(1.0)
+    assert offline[0].evidence_quality == pytest.approx(0.70)
+    assert online[0].evidence_quality == pytest.approx(0.85)
     assert offline[0].evidence_quality != online[0].evidence_quality
 
 
@@ -680,13 +685,14 @@ def test_combine_available_signals_recency_only_is_unit_scale() -> None:
             "frequency": (0.0, False),
             "blame": (0.0, False),
             "review": (0.0, False),
+            "change_survival": (0.0, False),
         },
         signal_weights(scoring),
         signal_reliabilities(scoring),
     )
     assert score == pytest.approx(1.0)
     assert 0.0 <= score <= 1.0
-    assert quality == pytest.approx(0.35)
+    assert quality == pytest.approx(0.30)
 
 
 def test_recency_score_decays_exponentially() -> None:
@@ -738,6 +744,7 @@ def test_freshness_uses_exact_boundaries_and_status_names() -> None:
         *,
         days: int,
         path_last: datetime = _NOW,
+        survival: float | None = None,
     ) -> str:
         return _classify_freshness(
             contrib,
@@ -746,10 +753,15 @@ def test_freshness_uses_exact_boundaries_and_status_names() -> None:
             path_last=path_last,
             ceiling_days=30,
             threshold_days=180,
+            survival=survival,
         )
 
     assert status(tied, days=0) == "stable"
     assert status(superseded, days=0) == "superseded"
+    assert status(superseded, days=0, survival=0.0) == "superseded"
+    assert status(superseded, days=0, survival=0.19) == "superseded"
+    assert status(superseded, days=0, survival=0.2) == "stable"
+    assert status(quiet, days=0, survival=1.0) == "stable"
     assert status(quiet, days=180) == "stable"
     assert status(quiet, days=181) == "inactive"
     assert status(recent, days=10) == "stable"
@@ -828,6 +840,7 @@ def test_score_owners_locks_defaults_and_unavailable_signals() -> None:
         frequency_weight=0.25,
         blame_weight=0.25,
         review_weight=0.25,
+        change_survival_weight=0.0,
         recency_reliability=0.5,
         frequency_reliability=0.5,
         blame_reliability=0.5,
@@ -966,7 +979,7 @@ def test_adaptive_freshness_keeps_stable_owner(tmp_path: Path) -> None:
     ):
         result = analyze_ownership(tmp_path, config, as_of=_NOW, analysis_ref="deadbeef")
         drift = detect_drift(tmp_path, result, config, codeowners_path=codeowners)
-    log_args = next(call.args[0] for call in mock.call_args_list if "--name-only" in call.args[0])
+    log_args = next(call.args[0] for call in mock.call_args_list if "--name-status" in call.args[0])
     assert not any(arg.startswith("--since=") for arg in log_args)
     stable_owner = result.paths["crypto.py"].owners[0]
     assert stable_owner.handle == "alice@example.com"
@@ -1002,6 +1015,370 @@ def test_aggregate_contributions_takes_latest_timestamp() -> None:
     assert result["a.py"]["alice@example.com"].commits == 2
     assert result["a.py"]["alice@example.com"].last_commit == _RECENT
     assert result["a.py"]["bob@example.com"].commits == 1
+
+
+def test_rename_keeps_history_on_the_current_path(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"src/api/billing.py": "amount = 1\n"},
+        "create",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    git_repo.write("src/api/billing.py", "amount = 2\n")
+    git_repo.commit(
+        "edit",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-02T12:00:00+00:00",
+    )
+    git_repo.rename("src/api/billing.py", "services/payments/billing.py")
+    git_repo.commit(
+        "rename",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-03T12:00:00+00:00",
+    )
+    git_repo.write("services/payments/billing.py", "amount = 3\n")
+    git_repo.commit(
+        "edit again",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-04T12:00:00+00:00",
+    )
+    ownership = analyze_ownership(
+        git_repo.path,
+        _score_config(),
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    handles = {owner.handle for owner in ownership.paths["services/payments/billing.py"].owners}
+    assert "alice@example.com" in handles
+    assert "src/api/billing.py" not in ownership.paths
+
+
+def _owner(ownership: OwnershipMap, path: str, handle: str) -> OwnerEntry:
+    return next(owner for owner in ownership.paths[path].owners if owner.handle == handle)
+
+
+def test_full_rewrite_supersedes_the_original_author(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"src/pay.py": "a = 1\nb = 2\n"},
+        "create",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    git_repo.write("src/pay.py", "x = 9\ny = 8\n")
+    git_repo.commit(
+        "replace",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-02T12:00:00+00:00",
+    )
+    ownership = analyze_ownership(
+        git_repo.path,
+        Config(
+            analysis=AnalysisConfig(confidence_threshold=0.0, min_commits=1),
+            git=GitConfig(mass_refactor_file_fraction=0.0),
+        ),
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    alice = _owner(ownership, "src/pay.py", "alice@example.com")
+    breakdown = alice.score_breakdown
+    freshness = alice.freshness
+    assert breakdown is not None
+    assert freshness is not None
+    assert breakdown.change_survival.available
+    assert breakdown.change_survival.score == pytest.approx(0.0, abs=0.05)
+    assert freshness.status == "superseded"
+
+
+def test_untouched_file_keeps_full_survival(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"src/stay.py": "a = 1\n"},
+        "create",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    ownership = analyze_ownership(
+        git_repo.path,
+        Config(
+            analysis=AnalysisConfig(confidence_threshold=0.0, min_commits=1),
+            git=GitConfig(mass_refactor_file_fraction=0.0),
+        ),
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    alice = _owner(ownership, "src/stay.py", "alice@example.com")
+    breakdown = alice.score_breakdown
+    freshness = alice.freshness
+    assert breakdown is not None
+    assert freshness is not None
+    assert breakdown.change_survival.score == pytest.approx(1.0, abs=0.05)
+    assert freshness.status == "stable"
+
+
+def test_rename_keeps_change_survival(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"src/old.py": "a = 1\nb = 2\n"},
+        "create",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-20T12:00:00+00:00",
+    )
+    git_repo.rename("src/old.py", "src/new.py")
+    git_repo.commit(
+        "rename",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-21T12:00:00+00:00",
+    )
+    git_repo.write("src/new.py", "a = 1\nb = 2\nc = 3\n")
+    git_repo.commit(
+        "append",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-22T12:00:00+00:00",
+    )
+    ownership = analyze_ownership(
+        git_repo.path,
+        Config(
+            analysis=AnalysisConfig(confidence_threshold=0.0, min_commits=1),
+            git=GitConfig(mass_refactor_file_fraction=0.0),
+        ),
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    alice = _owner(ownership, "src/new.py", "alice@example.com")
+    breakdown = alice.score_breakdown
+    freshness = alice.freshness
+    assert breakdown is not None
+    assert freshness is not None
+    assert breakdown.change_survival.score == pytest.approx(1.0, abs=0.05)
+    assert freshness.status == "stable"
+
+
+def test_directory_rename_keeps_every_file(git_repo: GitRepo) -> None:
+    for index in range(300):
+        git_repo.write(f"old/file_{index}.py", f"value = {index}\n")
+    git_repo.commit(
+        "seed directory",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    git_repo.rename("old", "new")
+    git_repo.commit(
+        "rename directory",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-02T12:00:00+00:00",
+    )
+    started = time.perf_counter()
+    history = _get_commit_history(
+        git_repo.path,
+        None,
+        _NOW,
+        follow_renames=True,
+        rename_similarity=50,
+    )
+    elapsed = time.perf_counter() - started
+    assert elapsed < 10
+    assert any(move.kind == "D" for moves in history.moves.values() for move in moves)
+    contributions = _aggregate_contributions(_current_commits(history))
+    for index in range(300):
+        authors = contributions[f"new/file_{index}.py"]
+        assert authors["alice@example.com"].commits >= 1
+
+
+def test_copy_inherits_history_only_when_the_source_changes(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"src.py": "line = 1\n"},
+        "create",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    git_repo.write("src.py", "line = 1\nline = 2\n")
+    git_repo.copy("src.py", "copied.py")
+    git_repo.commit(
+        "copy and edit source",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-02T12:00:00+00:00",
+    )
+    git_repo.copy("src.py", "plain.py")
+    git_repo.commit(
+        "copy untouched source",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-03T12:00:00+00:00",
+    )
+    history = _get_commit_history(git_repo.path, None, _NOW, follow_renames=True)
+    contributions = _aggregate_contributions(_current_commits(history))
+    assert contributions["copied.py"]["alice@example.com"].commits >= 1
+    assert contributions["src.py"]["alice@example.com"].commits >= 1
+    assert "alice@example.com" not in contributions["plain.py"]
+
+
+def test_follow_renames_false_keeps_literal_paths(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"foo.py": "value = 1\n"},
+        "create",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    git_repo.rename("foo.py", "bar.py")
+    git_repo.commit(
+        "rename",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-02T12:00:00+00:00",
+    )
+    config = Config(
+        analysis=AnalysisConfig(follow_renames=False, min_commits=1, confidence_threshold=0.0)
+    )
+    calls: list[list[str]] = []
+    with patch("checkowners.analyze.run_git", _record_git(calls)):
+        ownership = analyze_ownership(
+            git_repo.path,
+            config,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+        )
+    assert any("--name-only" in argv for argv in calls)
+    assert all(not any(arg.startswith("--find-renames=") for arg in argv) for argv in calls)
+    handles = {owner.handle for owner in ownership.paths["bar.py"].owners}
+    assert handles == {"bob@example.com"}
+
+
+@given(
+    st.lists(
+        st.text(alphabet="abc", min_size=1, max_size=3),
+        min_size=1,
+        max_size=6,
+        unique=True,
+    )
+)
+def test_lineage_follow_stops(names: list[str]) -> None:
+    forward = {names[index]: names[index + 1] for index in range(len(names) - 1)}
+    assert _follow_path(names[0], forward) == names[-1]
+    if len(names) > 1:
+        forward[names[-1]] = names[0]
+        assert _follow_path(names[0], forward) in set(names)
+
+
+def _record_git(
+    calls: list[list[str]],
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    def spy(
+        repo: Path,
+        args: list[str],
+        *,
+        check: bool,
+        paths: bool = False,
+        stdin: str | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        return run_git(repo, args, check=check, paths=paths, stdin=stdin)
+
+    return spy
+
+
+def test_blame_cache_matches_an_uncached_blame(
+    git_repo: GitRepo,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    git_repo.commit_files(
+        {"a.py": "def alpha():\n    return 1\n"},
+        "add",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    paths = ["a.py"]
+    first = gather_blame_coverage(paths, git_repo.path, git=GitConfig())
+    calls: list[list[str]] = []
+    set_blame_verbose(True)
+    try:
+        with patch("checkowners.analyze.run_git", _record_git(calls)):
+            second = gather_blame_coverage(paths, git_repo.path, git=GitConfig())
+        err = capsys.readouterr().err
+    finally:
+        set_blame_verbose(False)
+    set_blame_cache_enabled(False)
+    try:
+        third = gather_blame_coverage(paths, git_repo.path, git=GitConfig())
+    finally:
+        set_blame_cache_enabled(True)
+    assert first.coverage == second.coverage == third.coverage
+    assert first.coverage
+    assert _blamed_paths(calls) == []
+    assert "blame cache: hits=1 misses=0" in err
+
+
+def test_rejected_baseline_reuses_the_blame_cache(git_repo: GitRepo) -> None:
+    config = _score_config()
+    git_repo.commit_files(
+        {"a.py": "def alpha():\n    return 1\n"},
+        "add",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    _store(git_repo, config)
+    narrowed = Config(
+        analysis=AnalysisConfig(
+            follow_renames=False,
+            confidence_threshold=0.0,
+            min_commits=1,
+        )
+    )
+    calls: list[list[str]] = []
+    with patch("checkowners.analyze.run_git", _record_git(calls)):
+        outcome = collect_analysis(
+            git_repo.path,
+            narrowed,
+            as_of=_NOW,
+            analysis_ref=git_repo.head_sha(),
+        )
+    assert outcome.mode == "full"
+    assert outcome.fallback
+    assert _blamed_paths(calls) == []
+
+
+def test_blame_cache_misses_when_the_key_changes(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"a.py": "def alpha():\n    return 1\n"},
+        "add",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    gather_blame_coverage(["a.py"], git_repo.path, git=GitConfig())
+
+    def blamed(git: GitConfig | None = None) -> list[str]:
+        calls: list[list[str]] = []
+        chosen = GitConfig() if git is None else git
+        with patch("checkowners.analyze.run_git", _record_git(calls)):
+            gather_blame_coverage(["a.py"], git_repo.path, git=chosen)
+        return _blamed_paths(calls)
+
+    (git_repo.path / ".git-blame-ignore-revs").write_text(
+        f"{git_repo.head_sha()}\n",
+        encoding="utf-8",
+    )
+    assert blamed() == ["a.py"]
+    (git_repo.path / ".mailmap").write_text(
+        "Alias <alias@example.com> <alice@example.com>\n",
+        encoding="utf-8",
+    )
+    assert blamed() == ["a.py"]
+    assert blamed(GitConfig(detect_moves=False)) == ["a.py"]
 
 
 def test_filter_excluded_removes_paths() -> None:
@@ -1253,7 +1630,7 @@ def test_adaptive_single_commit_full_blame_is_owner() -> None:
     assert owner.handle == "alice@example.com"
     assert owner.ownership_score > 0.3
     assert owner.evidence_quality == pytest.approx(
-        0.85 * (result.analysis_completeness.score or 1.0)
+        0.70 * (result.analysis_completeness.score or 1.0)
     )
     reasons = {gap.code: gap.reason for gap in result.analysis_completeness.gaps}
     assert reasons["missing_mailmap"] == "Missing .mailmap."
@@ -1486,7 +1863,7 @@ def test_adaptive_low_blame_scores_below_high_blame() -> None:
     )
     assert low[0].ownership_score < high[0].ownership_score
     assert high[0].ownership_score > 0.3
-    assert high[0].evidence_quality == pytest.approx(0.85)
+    assert high[0].evidence_quality == pytest.approx(0.70)
 
 
 @pytest.mark.parametrize("commits", [1, 2, 3, 4, 5])
@@ -1628,8 +2005,21 @@ def test_same_as_of_is_byte_identical() -> None:
         patch(_MOCK_BLAME, side_effect=_no_blame),
     ):
         first = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
-        second = analyze_ownership(Path("/fake"), config, as_of=_NOW, analysis_ref="deadbeef")
-    assert _ownership_json(first) == _ownership_json(second)
+        second = analyze_ownership(
+            Path("/fake"),
+            config,
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+            max_workers=1,
+        )
+        third = analyze_ownership(
+            Path("/fake"),
+            config,
+            as_of=_NOW,
+            analysis_ref="deadbeef",
+            max_workers=16,
+        )
+    assert _ownership_json(first) == _ownership_json(second) == _ownership_json(third)
     later = _NOW + timedelta(days=30)
     with (
         patch(_MOCK_GIT, return_value=_mock_run(stdout)),
@@ -2456,9 +2846,13 @@ def test_incremental_matches_full_analysis_and_blames_only_new_paths(git_repo: G
     )
     _assert_same_ownership(incremental.ownership, full)
     assert _blamed_paths(calls) == ["b.py"]
-    name_only = [argv for argv in calls if "--name-only" in argv]
-    assert name_only
-    assert all("--no-walk" in argv for argv in name_only)
+    named = [
+        argv
+        for argv in calls
+        if any(arg == "--name-only" or arg.startswith("--find-renames=") for arg in argv)
+    ]
+    assert named
+    assert all("--no-walk" in argv for argv in named)
 
 
 def test_incremental_handles_rename_deletion_and_window_expiry(git_repo: GitRepo) -> None:
@@ -2731,7 +3125,7 @@ def test_incremental_edges_cover_rejects_and_reuse(git_repo: GitRepo) -> None:
         )
     assert truncated.baseline.truncated
     assert truncated.baseline.blame == {}
-    with patch("checkowners.analyze._fetch_commit_files", return_value={}):
+    with patch("checkowners.analyze._fetch_commit_files", return_value=({}, {})):
         unfetched = collect_analysis(
             git_repo.path,
             config,

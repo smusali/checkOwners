@@ -162,6 +162,7 @@ class GitRepo:
         return self.commit(message, author=author, email=email, date=date)
 
     def rename(self, src: str, dst: str) -> None:
+        (self.path / dst).parent.mkdir(parents=True, exist_ok=True)
         _git(self.path, ["git", "mv", src, dst])
 
     def copy(self, src: str, dst: str) -> None:

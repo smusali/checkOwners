@@ -47,6 +47,8 @@ from checkowners.analyze import (
     resolve_as_of,
     review_window_start,
     run_git,
+    set_blame_cache_enabled,
+    set_blame_verbose,
 )
 from checkowners.audit import (
     AuditFacts,
@@ -816,6 +818,13 @@ def _app_callback(
             help="Do not read or write the analysis cache.",
         ),
     ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            help="Print blame cache hits and misses.",
+        ),
+    ] = False,
     no_incremental: Annotated[
         bool,
         typer.Option(
@@ -856,6 +865,8 @@ def _app_callback(
     _ALLOW_STALE.set(allow_stale)
     _MAX_AGE.set(max_age)
     _NO_CACHE.set(no_cache)
+    set_blame_cache_enabled(not no_cache)
+    set_blame_verbose(verbose)
     _NO_INCREMENTAL.set(no_incremental)
     _REDACT_EMAILS.set(redact_emails)
     _DIFF_ONLY.set(diff_only)
@@ -3859,7 +3870,12 @@ def _declared_owners(repo_root: Path, target: str) -> tuple[str, ...]:
 
 
 def _signal_label(name: str, score: float, available: bool) -> str:
-    title = "Reviews" if name == "review" else name.capitalize()
+    if name == "review":
+        title = "Reviews"
+    elif name == "change_survival":
+        title = "Change survival"
+    else:
+        title = name.capitalize()
     if not available:
         return f"{title} n/a"
     return f"{title} {score:.2f}"
@@ -3927,8 +3943,12 @@ def _render_explanation(explanation: PathExplanation, as_of: datetime) -> None:
     team = ", ".join(explanation.team_resolution) if explanation.team_resolution else "unavailable"
     console.print(f"Team resolution:              {escape(team)}")
     console.print(f"Assessment:                   {explanation.assessment}")
+    if explanation.logical_file_id:
+        console.print(f"Logical file:                 {escape(explanation.logical_file_id)}")
     if explanation.lineage:
         console.print(f"Prior names:                  {escape(', '.join(explanation.lineage))}")
+    if explanation.rename_confidence < 1.0:
+        console.print(f"Rename confidence:            {explanation.rename_confidence:.2f}")
     if explanation.knobs:
         console.print("Would change the result:")
         for knob in explanation.knobs:
@@ -4158,14 +4178,33 @@ def trends(
     _render_trends(report, cap, compared=compare_ownership)
 
 
+def _current_git_repo() -> Path:
+    repo_root = Path.cwd()
+    try:
+        result = run_git(repo_root, ["git", "rev-parse", "--is-inside-work-tree"], check=True)
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        console.print("[red]Not a git repository.[/red]")
+        exit_with(ExitCode.CONFIG)
+    if result.stdout.strip() != "true":
+        console.print("[red]Not a git repository.[/red]")
+        exit_with(ExitCode.CONFIG)
+    return repo_root
+
+
 def _print_cache_info(info: CacheInfo) -> None:
     typer.echo(f"path: {info['path']}")
     typer.echo(f"schema_version: {info['schema_version']}")
     typer.echo(f"bytes: {info['bytes']}")
     typer.echo(f"state_files: {info['state_files']}")
     typer.echo(f"graph_files: {info['graph_files']}")
+    typer.echo(f"blame_files: {info['blame_files']}")
     typer.echo(f"handles: {'yes' if info['handles'] else 'no'}")
     typer.echo(f"limit_bytes: {info['limit_bytes']}")
+    if "current_repo_id" in info:
+        typer.echo(f"current_repo_id: {info['current_repo_id']}")
+        typer.echo(f"current_state_path: {info['current_state_path']}")
+        exists = "yes" if info["current_state_exists"] else "no"
+        typer.echo(f"current_state_exists: {exists}")
     for entry in info["entries"]:
         typer.echo(
             f"{entry['repo_id']}\t{entry['analysis_ref']}\t"
@@ -4175,12 +4214,14 @@ def _print_cache_info(info: CacheInfo) -> None:
 
 @cache_app.command("info")
 def cache_info_command(json_output: JsonOption = False) -> None:
-    """Show cache location, size, and stored analysis refs."""
-    info = cache_info()
+    """Show cache location, size, stored refs, and this repository's state file."""
+    info = cache_info(_current_git_repo())
     if json_output:
         typer.echo(json.dumps(info, indent=2, sort_keys=True))
-        return
-    _print_cache_info(info)
+    else:
+        _print_cache_info(info)
+    if not info["current_state_exists"]:
+        exit_with(ExitCode.INTERNAL)
 
 
 @cache_app.command("clear")

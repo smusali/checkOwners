@@ -1,4 +1,4 @@
-"""Judgment checks for ownership-v1 on pinned git histories."""
+"""Judgment checks for ownership-v2 on pinned git histories."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _HOME = "alice@home.example"
 _OLD = "alice@old.example"
 
 _GOLDEN: dict[str, dict[str, str]] = {
-    "ownership-v1": {
+    "ownership-v2": {
         "formatting": (
             "Alice remains the primary expert on foo.py; "
             "Bob's formatting commit has no blame and a lower score."
@@ -41,7 +41,7 @@ _GOLDEN: dict[str, dict[str, str]] = {
         "missing_signals": (
             "When blame and review are unavailable, the ownership score stays inside (0, 1]."
         ),
-        "rename": "The author of the rename commit is the scored owner of the new path.",
+        "rename": "A rename keeps the earlier author on the new path.",
         "cadence": "A path last touched 18 months earlier has no scored owner.",
         "coauthor": (
             "A Co-authored-by trailer adds a scored owner. Blame stays with the commit author."
@@ -436,8 +436,7 @@ def test_golden_rename(git_repo: GitRepo) -> None:
     )
     ownership = _analyze(git_repo, "rename", _AS_OF)
     handles = tuple(owner.handle for owner in _ranked(ownership, "bar.py"))
-    _check("rename", _primary(ownership, "bar.py") == _BOB)
-    _check("rename", _ALICE not in handles)
+    _check("rename", _ALICE in handles)
     _check("rename", "foo.py" not in ownership.paths)
 
 

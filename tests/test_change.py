@@ -107,6 +107,7 @@ def test_scoped_blame_follows_the_diff(tmp_path: Path, monkeypatch: pytest.Monke
         path: str,
         _argv: list[str],
         _sink: object = None,
+        _digest: str | None = None,
     ) -> dict[str, float]:
         blamed.append(path)
         return {}

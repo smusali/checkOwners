@@ -56,7 +56,7 @@ _CONTRIBUTOR_STATUSES = frozenset(get_args(ContributorStatus))
 ConfiguredMergeStrategy = Literal["auto", "squash", "merge", "rebase"]
 ReportedMergeStrategy = Literal["squash", "merge", "rebase"]
 
-OWNERSHIP_MODEL_VERSION = "ownership-v1"
+OWNERSHIP_MODEL_VERSION = "ownership-v2"
 RISK_MODEL_VERSION = "risk-v1"
 TOPOLOGY_MODEL_VERSION = "topology-v2"
 DEFAULT_TRUCK_FACTOR_THRESHOLDS: tuple[float, float, float] = (0.5, 0.75, 0.9)
@@ -90,8 +90,14 @@ TeamStatus = Literal[
 ]
 DEFAULT_SEVERITY_THRESHOLDS: tuple[float, float, float, float] = (0.15, 0.35, 0.55, 0.75)
 RecommendationAction = Literal["review_codeowners_rule", "remove_stale_rule"]
-OwnershipSignal = Literal["recency", "frequency", "blame", "review"]
-OWNERSHIP_SIGNALS: tuple[OwnershipSignal, ...] = ("recency", "frequency", "blame", "review")
+OwnershipSignal = Literal["recency", "frequency", "blame", "review", "change_survival"]
+OWNERSHIP_SIGNALS: tuple[OwnershipSignal, ...] = (
+    "recency",
+    "frequency",
+    "blame",
+    "review",
+    "change_survival",
+)
 _SIGNAL_NAMES = OWNERSHIP_SIGNALS
 
 
@@ -107,6 +113,8 @@ class AnalysisConfig:
     max_runtime_seconds: int = 300
     max_git_workers: int = 16
     max_api_requests: int = 2000
+    follow_renames: bool = True
+    rename_similarity: int = 50
 
 
 @dataclass(frozen=True)
@@ -119,14 +127,16 @@ class QualificationConfig:
 @dataclass(frozen=True)
 class ScoringConfig:
     recency_half_life_days: int = 90
-    recency_weight: float = 0.35
-    frequency_weight: float = 0.25
-    blame_weight: float = 0.25
+    recency_weight: float = 0.30
+    frequency_weight: float = 0.20
+    blame_weight: float = 0.20
     review_weight: float = 0.15
+    change_survival_weight: float = 0.15
     recency_reliability: float = 1.0
     frequency_reliability: float = 1.0
     blame_reliability: float = 1.0
     review_reliability: float = 1.0
+    change_survival_reliability: float = 1.0
     recency_strategy: RecencyStrategy = "adaptive"
     recency_half_life_floor_days: int = 14
     recency_half_life_ceiling_days: int = 730
@@ -490,6 +500,7 @@ class ConfidenceScore:
     frequency: SignalScore
     blame: SignalScore
     review: SignalScore
+    change_survival: SignalScore = field(default=SignalScore(available=False))
 
     def signals_payload(self) -> dict[str, dict[str, bool | float]]:
         return {
@@ -497,6 +508,7 @@ class ConfidenceScore:
             "frequency": self.frequency.as_payload(),
             "blame": self.blame.as_payload(),
             "review": self.review.as_payload(),
+            "change_survival": self.change_survival.as_payload(),
         }
 
 
@@ -654,6 +666,7 @@ class SignalScores(TypedDict, total=False):
     frequency: float
     blame: float
     review: float
+    change_survival: float
 
 
 class FreshnessJson(TypedDict):
@@ -906,6 +919,7 @@ def _signal_pairs(breakdown: ConfidenceScore) -> tuple[tuple[str, SignalScore], 
         ("frequency", breakdown.frequency),
         ("blame", breakdown.blame),
         ("review", breakdown.review),
+        ("change_survival", breakdown.change_survival),
     )
 
 
@@ -924,13 +938,15 @@ def flat_signal_scores(owner: OwnerEntry) -> SignalScores:
             scores["frequency"] = round(signal.score, 4)
         elif name == "blame":
             scores["blame"] = round(signal.score, 4)
-        else:
+        elif name == "review":
             scores["review"] = round(signal.score, 4)
+        elif name == "change_survival":
+            scores["change_survival"] = round(signal.score, 4)
     return scores
 
 
 def signal_completeness(owners: tuple[OwnerEntry, ...]) -> tuple[float, list[str]]:
-    """Return `(fraction available, signal names)` across `owners` and the four signals."""
+    """Return `(fraction available, signal names)` across `owners` and the ownership signals."""
     if not owners:
         return 0.0, []
     available: list[str] = []

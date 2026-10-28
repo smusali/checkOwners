@@ -19,6 +19,7 @@ from checkowners.analyze import (
     gather_blame_coverage,
     lookback_start,
     mailmap_flag,
+    path_lineage,
     run_git,
     score_owners,
     signal_weights,
@@ -88,6 +89,8 @@ class PathExplanation:
     knobs: tuple[str, ...]
     weights: dict[str, float]
     why_not: WhyNotResult | None
+    logical_file_id: str = ""
+    rename_confidence: float = 1.0
 
 
 def identities_match(handle: str, query: str) -> bool:
@@ -144,7 +147,13 @@ def build_explanation(
     if owner:
         inferred = tuple(item for item in inferred if identities_match(item.entry.handle, owner))
     kind = _target_kind(repo_root, target, files)
-    lineage = rename_lineage(repo_root, target) if kind == "file" else ()
+    lineage, logical_file_id, rename_confidence = _explanation_lineage(
+        repo_root,
+        target,
+        config,
+        as_of,
+        kind=kind,
+    )
     team_resolution = _team_resolution(inferred, declared, team_members)
     assessment = _assess(inferred, declared, team_members)
     quality = inferred[0].entry.evidence_quality if inferred else _fallback_quality(candidates)
@@ -176,6 +185,8 @@ def build_explanation(
         knobs=knobs,
         weights=signal_weights(config.scoring),
         why_not=why,
+        logical_file_id=logical_file_id,
+        rename_confidence=rename_confidence,
     )
 
 
@@ -237,6 +248,21 @@ def commit_shas(
         use_mailmap=config.git.use_mailmap,
         count_co_authors=config.git.count_co_authors,
     )
+
+
+def _explanation_lineage(
+    repo_root: Path,
+    target: str,
+    config: Config,
+    as_of: datetime,
+    *,
+    kind: TargetKind,
+) -> tuple[tuple[str, ...], str, float]:
+    if kind != "file":
+        return (), "", 1.0
+    if config.analysis.follow_renames:
+        return path_lineage(repo_root, target, config, as_of)
+    return rename_lineage(repo_root, target), "", 1.0
 
 
 def rename_lineage(repo_root: Path, target: str) -> tuple[str, ...]:
@@ -348,7 +374,8 @@ def path_knobs(
         f"recency {config.scoring.recency_weight:.2f}, "
         f"frequency {config.scoring.frequency_weight:.2f}, "
         f"blame {config.scoring.blame_weight:.2f}, "
-        f"review {config.scoring.review_weight:.2f}"
+        f"review {config.scoring.review_weight:.2f}, "
+        f"change survival {config.scoring.change_survival_weight:.2f}"
     )
     knobs.append(f"scoring.recency_strategy is {config.scoring.recency_strategy}")
     knobs.append(f"scoring.recency_half_life_days is {config.scoring.recency_half_life_days}")
@@ -409,6 +436,8 @@ def explanation_payload(explanation: PathExplanation) -> dict[str, object]:
         "team_resolution": list(explanation.team_resolution),
         "assessment": explanation.assessment,
         "lineage": list(explanation.lineage),
+        "logical_file_id": explanation.logical_file_id,
+        "rename_confidence": round(explanation.rename_confidence, 4),
         "knobs": list(explanation.knobs),
         "weights": {name: round(weight, 4) for name, weight in explanation.weights.items()},
     }
@@ -426,12 +455,17 @@ def signal_tuples(entry: OwnerEntry) -> dict[str, tuple[float, bool]]:
             "frequency": (0.0, True),
             "blame": (0.0, False),
             "review": (0.0, False),
+            "change_survival": (0.0, False),
         }
     return {
         "recency": (breakdown.recency.score, breakdown.recency.available),
         "frequency": (breakdown.frequency.score, breakdown.frequency.available),
         "blame": (breakdown.blame.score, breakdown.blame.available),
         "review": (breakdown.review.score, breakdown.review.available),
+        "change_survival": (
+            breakdown.change_survival.score,
+            breakdown.change_survival.available,
+        ),
     }
 
 
@@ -510,6 +544,7 @@ def _signals_for(
     frequency = breakdown.frequency if breakdown else SignalScore(available=True, score=0.0)
     blame = breakdown.blame if breakdown else SignalScore(available=False)
     review = breakdown.review if breakdown else SignalScore(available=False)
+    change_survival = breakdown.change_survival if breakdown else SignalScore(available=False)
     recency_shas = shas[:1]
     return (
         SignalEvidence(
@@ -543,6 +578,14 @@ def _signals_for(
             available=review.available,
             commits=(),
             detail=_review_detail(review),
+        ),
+        SignalEvidence(
+            name="change_survival",
+            score=change_survival.score,
+            weight=weights["change_survival"],
+            available=change_survival.available,
+            commits=(),
+            detail=_survival_detail(change_survival),
         ),
     )
 
@@ -647,6 +690,14 @@ def _never_contributed(handle: str, config: Config) -> WhyNotResult:
         SignalEvidence("frequency", 0.0, weights["frequency"], True, (), "0 commits"),
         SignalEvidence("blame", 0.0, weights["blame"], True, (), "0% current blame"),
         SignalEvidence("review", 0.0, weights["review"], False, (), "reviews unavailable"),
+        SignalEvidence(
+            "change_survival",
+            0.0,
+            weights["change_survival"],
+            False,
+            (),
+            "change survival was not collected",
+        ),
     )
     return WhyNotResult(
         handle=handle,
@@ -950,6 +1001,12 @@ def _review_detail(signal: SignalScore) -> str:
     if signal.score <= 0.0:
         return "no reviews in observation window"
     return f"review share {signal.score:.2f}"
+
+
+def _survival_detail(signal: SignalScore) -> str:
+    if not signal.available:
+        return "change survival was not collected"
+    return f"{signal.score:.0%} of lines from the last commit remain"
 
 
 def _sha_detail(shas: tuple[str, ...]) -> str:

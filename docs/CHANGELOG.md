@@ -11,6 +11,12 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183).
 
 ### Added
+- `cache info` reports the current repository id, its state file path, and whether that file exists. A repository with no state file exits 1. A directory that is not a git repository exits 2.
+- A benchmark harness records cold, warm, and incremental analyze runs. Pull-request CI runs the synthetic tier. Public repositories stay on a manual workflow until their commit is pinned.
+- Blame coverage is cached by blob SHA, path, blame flags, ignore-revs, mass-refactor revisions, and `.mailmap`. `cache info` counts those files. `cache clear` removes them. `--verbose` prints hit and miss counts. `--no-cache` skips the cache.
+- Blame stays one `git blame` process per path. `owners`, `explain`, and `change` blame only the path they were asked about.
+- Ownership scoring is `ownership-v2`. Change survival is current blame lines divided by that person's lines at their last commit. Default weights are recency `0.30`, frequency `0.20`, blame `0.20`, review `0.15`, and change survival `0.15`. A survival below `0.2` with a later commit from someone else is `superseded`. At or above `0.2`, later commits no longer mark the owner `superseded`. A pin of `ownership-v1` is rejected. The `ci` benchmark tier records the cold and warm cost.
+- History follows renames and same-commit copies by default (`analysis.follow_renames`, `analysis.rename_similarity`). `explain` shows the prior names, logical file id, and rename confidence. `analysis.follow_renames: false` keeps each literal path separate.
 - `checkowners audit` is the command run when no subcommand is given. `checkowners --help` still prints help. `checkowners doctor` and `checkowners doctor --env` report configuration and environment rows. A missing token or a failed API row is `unverifiable`.
 - Drift compares a team rule with the expanded member set. Statuses are `aligned`, `partial-drift`, `unverifiable`, `invisible`, `empty`, and `nested`. Each team record carries the snapshot timestamp. An offline run does not read the cache into `aligned`.
 - The local syntax validator is diffed against GitHub's CODEOWNERS errors endpoint. `corpus/conformance.json` publishes the pass rate. A private non-default branch that returns no errors is excluded. A weekly workflow opens or updates an issue when the rate drops and does not commit.

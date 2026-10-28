@@ -127,6 +127,7 @@ from checkowners.state import (
     load_ownership,
     read_graph_cache,
     read_handle_cache,
+    repository_identity,
     write_handle_cache,
     write_state,
 )
@@ -260,6 +261,10 @@ def _explain_run(ownership: OwnershipMap = _EXPLAIN_OWNERSHIP) -> Iterator[None]
         patch("checkowners.cli.load_config", return_value=Config()),
         patch("checkowners.explain.commit_shas", return_value={"@alice": ("abc1234def56",)}),
         patch("checkowners.explain.rename_lineage", return_value=("src/old_main.py",)),
+        patch(
+            "checkowners.explain.path_lineage",
+            return_value=(("src/old_main.py",), "0123456789abcdef", 1.0),
+        ),
         patch("checkowners.explain.last_contribution", return_value=None),
         patch("checkowners.explain.blame_shares", return_value={}),
         _MOCK_TOKEN,
@@ -320,14 +325,14 @@ def test_analyze_json() -> None:
     path_data = data["inferred"]["src/main.py"]
     assert path_data["qualified_owner_count"] == 2
     assert path_data["qualified_owner_count_cap"] == 3
-    assert path_data["analysis"]["completeness"] == 0.75
+    assert path_data["analysis"]["completeness"] == 0.6
     assert path_data["risk"]["truck_factor_50"] == 1
     assert data["models"]["ownership"] == OWNERSHIP_MODEL_VERSION
     assert data["models"] == models_payload()
     assert data["schema_version"] == COMMAND_SCHEMA_VERSION
     assert data["head_sha"] == "deadbeef"
     assert data["generated_at"] == _NOW.isoformat()
-    assert data["analysis_completeness"] == 0.75
+    assert data["analysis_completeness"] == 0.6
     assert data["analysis"]["ignore_revs_applied"] is False
     assert data["analysis"]["ignore_revs_file"] == ""
     assert data["analysis"]["mailmap_applied"] is False
@@ -401,7 +406,7 @@ def test_analyze_table() -> None:
     assert "Mailmap: not found" in result.stdout
     assert "Exclusions: 0 gitattributes, 0 static" in result.stdout
     assert "Git history: merge strategy rebase, 0 co-authors" in result.stdout
-    assert "analysis completeness: 75%" in result.stdout
+    assert "analysis completeness: 60%" in result.stdout
 
     applied = replace(
         _OWNERSHIP,
@@ -503,6 +508,7 @@ def test_fail_on_incomplete_stays_zero_when_signals_are_complete() -> None:
                         score_breakdown=replace(
                             breakdown,
                             review=SignalScore(available=True, score=1.0),
+                            change_survival=SignalScore(available=True, score=1.0),
                         ),
                     ),
                 ),
@@ -1232,8 +1238,14 @@ def test_trends_json() -> None:
     assert named.exit_code == 0
     named_data = json.loads(named.stdout)
     assert named_data["compared_to"]["metric"] == "ownership_score"
-    assert named_data["compared_to"]["model_version"] == "ownership-v1"
-    assert named_data["compared_to"]["signals"] == ["recency", "frequency", "blame", "review"]
+    assert named_data["compared_to"]["model_version"] == "ownership-v2"
+    assert named_data["compared_to"]["signals"] == [
+        "recency",
+        "frequency",
+        "blame",
+        "review",
+        "change_survival",
+    ]
     assert "ownership_score" not in named_data["points"][1]
     assert "historical_activity_confidence" not in named_data["compared_to"]
     validate_instance("trends", named_data)
@@ -2663,6 +2675,7 @@ def test_explain_and_owners_scope_analyze_to_the_path() -> None:
         patch("checkowners.cli.load_config", return_value=Config()),
         patch("checkowners.explain.commit_shas", return_value={}),
         patch("checkowners.explain.rename_lineage", return_value=()),
+        patch("checkowners.explain.path_lineage", return_value=((), "", 1.0)),
         patch("checkowners.explain.last_contribution", return_value=None),
         patch("checkowners.explain.blame_shares", return_value={}),
         _MOCK_TOKEN,
@@ -3452,23 +3465,44 @@ def test_cache_commands(tmp_path: Path) -> None:
     assert text.exit_code == 0, text.output
     assert f"schema_version: {SCHEMA_VERSION}" in text.stdout
     assert "handles: yes" in text.stdout
+    assert f"current_repo_id: {repository_identity(Path.cwd())}" in text.stdout
+    assert "current_state_exists: yes" in text.stdout
     info = runner.invoke(app, ["cache", "info", "--json"])
     assert info.exit_code == 0, info.output
     payload = json.loads(info.stdout)
     assert payload["state_files"] == 1
+    assert payload["blame_files"] == 0
     assert payload["handles"] is True
     assert payload["schema_version"] == SCHEMA_VERSION
+    assert payload["current_repo_id"] == repository_identity(Path.cwd())
+    assert payload["current_state_exists"] is True
+    assert payload["current_state_path"].endswith(".json")
+    assert "alice@example.com" not in info.stdout
     cleared = runner.invoke(app, ["cache", "clear"])
     assert cleared.exit_code == 0, cleared.output
     assert read_handle_cache(Path.cwd())[email_token("alice@example.com")].handle == "@alice"
-    assert json.loads(runner.invoke(app, ["cache", "info", "--json"]).stdout)["state_files"] == 0
+    missing = runner.invoke(app, ["cache", "info", "--json"])
+    assert missing.exit_code == 1, missing.output
+    missing_payload = json.loads(missing.stdout)
+    assert missing_payload["state_files"] == 0
+    assert missing_payload["current_state_exists"] is False
     purged = runner.invoke(app, ["cache", "purge"])
     assert purged.exit_code == 0, purged.output
     assert "purged" in purged.stdout
     assert read_handle_cache(Path.cwd()) == {}
     after = runner.invoke(app, ["cache", "info"])
-    assert after.exit_code == 0, after.output
+    assert after.exit_code == 1, after.output
     assert "handles: no" in after.stdout
+    assert "current_state_exists: no" in after.stdout
+
+
+def test_cache_info_rejects_a_directory_that_is_not_a_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["cache", "info"])
+    assert result.exit_code == 2, result.output
+    assert "Not a git repository." in result.stdout
 
 
 def test_offline_analyze_makes_no_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:

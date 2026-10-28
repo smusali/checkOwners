@@ -11,13 +11,15 @@ qualification:
 model:
   signals:
     recency:
-      weight: 0.35
+      weight: 0.30
       half_life_days: 90
     frequency:
-      weight: 0.25
+      weight: 0.20
     blame:
-      weight: 0.25
+      weight: 0.20
     reviews:
+      weight: 0.15
+    change_survival:
       weight: 0.15
 
 decay:

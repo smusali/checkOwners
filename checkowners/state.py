@@ -23,10 +23,10 @@ import threading
 import urllib.parse
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any, TypedDict, TypeGuard, get_args
+from typing import IO, Any, NotRequired, TypedDict, TypeGuard, get_args
 
 from checkowners import __version__
 from checkowners.busfactor import (
@@ -69,6 +69,14 @@ class BlameLines:
 
 
 @dataclass(frozen=True)
+class PathMove:
+    kind: str
+    score: int
+    source: str
+    dest: str
+
+
+@dataclass(frozen=True)
 class HistoryBaseline:
     analysis_ref: str
     files: dict[str, tuple[str, ...]]
@@ -78,6 +86,9 @@ class HistoryBaseline:
     blame_inputs: str
     rename_detection: str
     truncated: bool
+    follow_renames: bool = True
+    rename_similarity: int = 50
+    moves: dict[str, tuple[PathMove, ...]] = field(default_factory=dict)
 
 
 _STATE_DIR = Path.home() / ".checkowners"
@@ -113,6 +124,10 @@ class CacheInfo(TypedDict):
     handles: bool
     limit_bytes: int
     entries: list[CacheEntry]
+    blame_files: int
+    current_repo_id: NotRequired[str]
+    current_state_path: NotRequired[str]
+    current_state_exists: NotRequired[bool]
 
 
 def cache_directory() -> Path:
@@ -356,8 +371,15 @@ def _json_files(subdir: str) -> list[Path]:
     return sorted(path for path in directory.glob("*.json") if path.is_file())
 
 
+def _blame_cache_files() -> list[Path]:
+    root = _base_dir() / "blame"
+    if not root.is_dir():
+        return []
+    return sorted(path for path in root.rglob("*.json") if path.is_file())
+
+
 def _bounded_files() -> list[Path]:
-    return _json_files(_STATE_SUBDIR) + _json_files(_GRAPH_CACHE_SUBDIR)
+    return _json_files(_STATE_SUBDIR) + _json_files(_GRAPH_CACHE_SUBDIR) + _blame_cache_files()
 
 
 def _file_size(path: Path) -> int:
@@ -510,6 +532,20 @@ def _serialize_history(baseline: HistoryBaseline) -> dict[str, object]:
         "blame_inputs": baseline.blame_inputs,
         "rename_detection": baseline.rename_detection,
         "truncated": baseline.truncated,
+        "follow_renames": baseline.follow_renames,
+        "rename_similarity": baseline.rename_similarity,
+        "moves": {
+            sha: [
+                {
+                    "kind": move.kind,
+                    "score": move.score,
+                    "source": move.source,
+                    "dest": move.dest,
+                }
+                for move in moves
+            ]
+            for sha, moves in baseline.moves.items()
+        },
     }
 
 
@@ -535,6 +571,27 @@ def _parse_history(raw: object) -> HistoryBaseline | None:
         or not isinstance(truncated, bool)
     ):
         return None
+    if "follow_renames" not in raw or "rename_similarity" not in raw:
+        follow_renames = True
+        rename_similarity = -1
+        moves: dict[str, tuple[PathMove, ...]] = {}
+    else:
+        follow_renames_raw = raw.get("follow_renames")
+        similarity_raw = raw.get("rename_similarity")
+        parsed_moves = _parse_moves(raw.get("moves", {}))
+        if (
+            not isinstance(follow_renames_raw, bool)
+            or isinstance(similarity_raw, bool)
+            or not isinstance(similarity_raw, int)
+            or parsed_moves is None
+            or similarity_raw < -1
+            or similarity_raw == 0
+            or similarity_raw > 100
+        ):
+            return None
+        follow_renames = follow_renames_raw
+        rename_similarity = similarity_raw
+        moves = parsed_moves
     return HistoryBaseline(
         analysis_ref=ref,
         files=files,
@@ -544,7 +601,36 @@ def _parse_history(raw: object) -> HistoryBaseline | None:
         blame_inputs=blame_inputs,
         rename_detection=rename_detection,
         truncated=truncated,
+        follow_renames=follow_renames,
+        rename_similarity=rename_similarity,
+        moves=moves,
     )
+
+
+def _parse_moves(raw: object) -> dict[str, tuple[PathMove, ...]] | None:
+    if not isinstance(raw, dict):
+        return None
+    moves: dict[str, tuple[PathMove, ...]] = {}
+    for sha, items in raw.items():
+        if not isinstance(sha, str) or not isinstance(items, list):
+            return None
+        parsed: list[PathMove] = []
+        for item in items:
+            if not isinstance(item, dict):
+                return None
+            kind = item.get("kind")
+            score = item.get("score")
+            source = item.get("source")
+            dest = item.get("dest")
+            if kind not in {"R", "C", "D"} or isinstance(score, bool) or not isinstance(score, int):
+                return None
+            if not isinstance(source, str) or not isinstance(dest, str):
+                return None
+            if score < 0 or score > 100:
+                return None
+            parsed.append(PathMove(kind=kind, score=score, source=source, dest=dest))
+        moves[sha] = tuple(parsed)
+    return moves
 
 
 def _parse_path_lists(raw: object) -> dict[str, tuple[str, ...]] | None:
@@ -872,12 +958,15 @@ def _age_seconds(last_analyzed: datetime) -> float:
     return (datetime.now(tz=UTC) - aware.astimezone(UTC)).total_seconds()
 
 
-def cache_info() -> CacheInfo:
-    """Return path, size, file counts, and one entry per state file."""
+def cache_info(repo_root: Path | None = None) -> CacheInfo:
+    """Return cache totals and, when `repo_root` is set, that repository's state file."""
     state_files = _json_files(_STATE_SUBDIR)
     graph_files = _json_files(_GRAPH_CACHE_SUBDIR)
+    blame_files = _blame_cache_files()
     handle_files = _handle_cache_files()
-    total = sum(_file_size(path) for path in (*state_files, *graph_files, *handle_files))
+    total = sum(
+        _file_size(path) for path in (*state_files, *graph_files, *blame_files, *handle_files)
+    )
     entries: list[CacheEntry] = []
     for path in state_files:
         data = _read_json(path)
@@ -889,21 +978,28 @@ def cache_info() -> CacheInfo:
                 "bytes": _file_size(path),
             }
         )
-    return {
+    info: CacheInfo = {
         "path": str(_base_dir()),
         "schema_version": SCHEMA_VERSION,
         "bytes": total,
         "state_files": len(state_files),
         "graph_files": len(graph_files),
+        "blame_files": len(blame_files),
         "handles": bool(handle_files),
         "limit_bytes": CACHE_LIMIT_BYTES,
         "entries": entries,
     }
+    if repo_root is not None:
+        state_path = _state_path(repo_root)
+        info["current_repo_id"] = repository_identity(repo_root)
+        info["current_state_path"] = str(state_path)
+        info["current_state_exists"] = state_path.is_file()
+    return info
 
 
 def cache_clear() -> int:
-    """Delete state and graph JSON files. Return how many files were removed."""
-    return _unlink_json(_STATE_SUBDIR) + _unlink_json(_GRAPH_CACHE_SUBDIR)
+    """Delete state, graph, and blame JSON files. Return how many files were removed."""
+    return _unlink_json(_STATE_SUBDIR) + _unlink_json(_GRAPH_CACHE_SUBDIR) + _clear_blame_cache()
 
 
 def cache_purge() -> int:
@@ -923,6 +1019,64 @@ def cache_purge() -> int:
             child.unlink()
             removed += 1
     return removed
+
+
+_DIGEST = re.compile(r"[0-9a-f]{64}")
+
+
+def blame_cache_path(digest: str) -> Path:
+    if _DIGEST.fullmatch(digest) is None:
+        msg = "blame cache id is not a digest"
+        raise ValueError(msg)
+    return _base_dir() / "blame" / digest[:2] / f"{digest}.json"
+
+
+def _blame_line_counts(raw: object) -> dict[str, int] | None:
+    if not isinstance(raw, dict):
+        return None
+    lines = raw.get("lines")
+    if not isinstance(lines, dict):
+        return None
+    counts: dict[str, int] = {}
+    for key, value in lines.items():
+        if not isinstance(key, str) or isinstance(value, bool) or not isinstance(value, int):
+            return None
+        if value < 0:
+            return None
+        counts[key] = value
+    return counts
+
+
+def read_blame_cache(digest: str) -> dict[str, int] | None:
+    path = blame_cache_path(digest)
+    with _locked(path):
+        if not path.is_file():
+            return None
+        try:
+            payload: object = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+    return _blame_line_counts(payload)
+
+
+def write_blame_cache(digest: str, lines: Mapping[str, int]) -> None:
+    path = blame_cache_path(digest)
+    text = json.dumps(
+        {"lines": dict(sorted(lines.items()))},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    with _locked(path):
+        _atomic_write(path, text)
+    _evict(path)
+
+
+def _clear_blame_cache() -> int:
+    files = _blame_cache_files()
+    root = _base_dir() / "blame"
+    if root.is_dir():
+        shutil.rmtree(root)
+    return len(files)
 
 
 def _unlink_json(subdir: str) -> int:
@@ -1251,12 +1405,17 @@ def _deserialize_signals(raw: object, total: float) -> ConfidenceScore | None:
     review = _read_signal(raw.get("review"))
     if recency is None or frequency is None or blame is None or review is None:
         return None
+    parsed_survival = _read_signal(raw.get("change_survival"))
+    change_survival = (
+        parsed_survival if parsed_survival is not None else SignalScore(available=False)
+    )
     return ConfidenceScore(
         total=total,
         recency=recency,
         frequency=frequency,
         blame=blame,
         review=review,
+        change_survival=change_survival,
     )
 
 

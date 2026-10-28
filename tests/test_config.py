@@ -71,14 +71,16 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.drift.severity_thresholds == (0.15, 0.35, 0.55, 0.75)
     assert cfg.suppressions == ()
     assert cfg.scoring.recency_half_life_days == 90
-    assert cfg.scoring.recency_weight == 0.35
-    assert cfg.scoring.frequency_weight == 0.25
-    assert cfg.scoring.blame_weight == 0.25
+    assert cfg.scoring.recency_weight == 0.30
+    assert cfg.scoring.frequency_weight == 0.20
+    assert cfg.scoring.blame_weight == 0.20
     assert cfg.scoring.review_weight == 0.15
+    assert cfg.scoring.change_survival_weight == 0.15
     assert cfg.scoring.recency_reliability == 1.0
     assert cfg.scoring.frequency_reliability == 1.0
     assert cfg.scoring.blame_reliability == 1.0
     assert cfg.scoring.review_reliability == 1.0
+    assert cfg.scoring.change_survival_reliability == 1.0
     assert cfg.decay.threshold_days == 180
     assert cfg.decay.alert_on_decay is True
     assert cfg.bus_factor.critical_threshold == 1
@@ -111,6 +113,19 @@ def test_load_config_empty_file(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "")
     cfg = load_config(repo_root=root)
     assert cfg == Config()
+
+
+def test_rename_similarity_stays_between_1_and_100(tmp_path: Path) -> None:
+    root = _write_config(
+        tmp_path,
+        "analysis:\n  follow_renames: false\n  rename_similarity: 80\n",
+    )
+    cfg = load_config(repo_root=root)
+    assert cfg.analysis.follow_renames is False
+    assert cfg.analysis.rename_similarity == 80
+    invalid = _write_config(tmp_path, "analysis:\n  rename_similarity: 0\n")
+    with pytest.raises(ValueError, match=r"analysis\.rename_similarity"):
+        load_config(repo_root=invalid)
 
 
 def test_load_config_partial_override(tmp_path: Path) -> None:
@@ -386,7 +401,7 @@ def test_load_config_scoring_section(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "scoring:\n  recency_weight: 0.5\n")
     cfg = load_config(repo_root=root)
     assert cfg.scoring.recency_weight == 0.5
-    assert cfg.scoring.frequency_weight == 0.25
+    assert cfg.scoring.frequency_weight == 0.20
 
 
 def test_load_config_qualification_section(tmp_path: Path) -> None:
@@ -565,7 +580,7 @@ def test_missing_config_does_not_warn(tmp_path: Path) -> None:
 
 
 def test_model_pin_must_match_implementation(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\nmodel:\n  ownership: ownership-v2\n")
+    root = _write_config(tmp_path, "version: 1\nmodel:\n  ownership: ownership-v1\n")
     with pytest.raises(ValueError, match=r"model\.ownership"):
         load_config(repo_root=root)
 

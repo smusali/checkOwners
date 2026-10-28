@@ -146,7 +146,7 @@ def test_signal_completeness_skips_missing_breakdowns() -> None:
         (_owner("@bare", breakdown=False), _owner("@alice", review=0.25))
     )
     assert names == ["review"]
-    assert fraction == round(1 / 8, 4)
+    assert fraction == round(1 / 10, 4)
 
 
 def test_risk_from_scores_without_positive_mass() -> None:

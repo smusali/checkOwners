@@ -134,7 +134,18 @@ def test_stamp_json_merges_external_evidence() -> None:
 
 
 def test_flat_signal_scores_keep_available_review() -> None:
-    assert flat_signal_scores(_owner("@alice", review=0.25)) == {"review": 0.25}
+    reviewed = _owner("@alice", review=0.25)
+    assert flat_signal_scores(reviewed) == {"review": 0.25}
+    breakdown = reviewed.score_breakdown
+    assert breakdown is not None
+    survived = replace(
+        reviewed,
+        score_breakdown=replace(
+            breakdown,
+            change_survival=SignalScore(available=True, score=0.4),
+        ),
+    )
+    assert flat_signal_scores(survived)["change_survival"] == 0.4
 
 
 def test_signal_completeness_is_zero_without_owners() -> None:
@@ -146,7 +157,7 @@ def test_signal_completeness_skips_missing_breakdowns() -> None:
         (_owner("@bare", breakdown=False), _owner("@alice", review=0.25))
     )
     assert names == ["review"]
-    assert fraction == round(1 / 8, 4)
+    assert fraction == round(1 / 10, 4)
 
 
 def test_risk_from_scores_without_positive_mass() -> None:

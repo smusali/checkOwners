@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from checkowners.analyze import _BODY_END, _BODY_START, _BlamePass
+from checkowners.analyze import _BODY_END, _BODY_START, _BlamePass, analyze_ownership
 from checkowners.explain import (
     ExplainedOwner,
     PathExplanation,
@@ -58,6 +58,7 @@ from checkowners.models import (
     SignalScore,
     models_payload,
 )
+from tests.conftest import GitRepo
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 _ISO = "2026-05-28T12:00:00+00:00"
@@ -231,7 +232,7 @@ def test_build_explanation_filters_owner_and_collects_evidence(tmp_path: Path) -
         explanation = build_explanation(
             ownership,
             "src/a.py",
-            Config(),
+            Config(analysis=AnalysisConfig(follow_renames=False)),
             tmp_path,
             as_of=_NOW,
             owner="@alice",
@@ -275,7 +276,7 @@ def test_build_explanation_why_not_and_team_assessment(tmp_path: Path) -> None:
         explanation = build_explanation(
             ownership,
             "src/a.py",
-            Config(),
+            Config(analysis=AnalysisConfig(follow_renames=False)),
             tmp_path,
             as_of=_NOW,
             declared=("@org/platform",),
@@ -486,6 +487,37 @@ def test_rename_lineage_keeps_unseen_old_names() -> None:
         assert rename_lineage(Path(), "src/a.py") == ("old/a.py", "first/a.py")
 
 
+def test_explain_shows_scoring_lineage_after_a_rename(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"src/old.py": "value = 1\n"},
+        "create",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-05-01T12:00:00+00:00",
+    )
+    git_repo.rename("src/old.py", "src/new.py")
+    git_repo.commit(
+        "rename",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-05-02T12:00:00+00:00",
+    )
+    config = Config(analysis=AnalysisConfig(min_commits=1, confidence_threshold=0.0))
+    ownership = analyze_ownership(
+        git_repo.path,
+        config,
+        as_of=_NOW,
+        analysis_ref=git_repo.head_sha(),
+    )
+    explanation = build_explanation(ownership, "src/new.py", config, git_repo.path, as_of=_NOW)
+    assert explanation.lineage == ("src/old.py",)
+    assert explanation.logical_file_id
+    assert explanation.rename_confidence == 1.0
+    payload = explanation_payload(explanation)
+    assert payload["logical_file_id"] == explanation.logical_file_id
+    assert payload["rename_confidence"] == 1.0
+
+
 def test_last_contribution_matches_identity() -> None:
     stdout = "\n".join(
         (
@@ -621,6 +653,7 @@ def test_signal_tuples_with_and_without_breakdown() -> None:
         "frequency": (0.0, True),
         "blame": (0.0, False),
         "review": (0.0, False),
+        "change_survival": (0.0, False),
     }
     scored = _entry("@alice", 0.8, review=0.2)
     assert signal_tuples(scored)["review"] == (0.2, True)

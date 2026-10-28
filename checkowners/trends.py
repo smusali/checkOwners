@@ -10,6 +10,7 @@ from typing import Literal, NotRequired, TypedDict
 from checkowners.analyze import (
     Contribution,
     _aggregate_contributions,
+    _current_commits,
     _frequency_score,
     _get_commit_history,
     _is_excluded,
@@ -42,7 +43,7 @@ OWNERSHIP_METRIC: Literal["ownership_score"] = "ownership_score"
 HISTORICAL_SIGNALS: tuple[HistoricalSignal, ...] = ("recency", "frequency")
 HISTORICAL_LIMITATION = (
     "historical_activity_confidence and avg_qualified_owner_count use recency and "
-    "frequency only (historical-v1). They are not ownership_score (ownership-v1)."
+    "frequency only (historical-v1). They are not ownership_score (ownership-v2)."
 )
 SHARED_AXIS_REFUSAL = (
     "Pass --acknowledge-different-metrics to name ownership_score next to "
@@ -157,9 +158,11 @@ def analyze_trends(
         use_mailmap=config.git.use_mailmap,
         count_co_authors=config.git.count_co_authors,
         merge_strategy=config.git.merge_strategy,
+        follow_renames=config.analysis.follow_renames,
+        rename_similarity=config.analysis.rename_similarity,
     )
     return build_trends(
-        history.commits,
+        _current_commits(history),
         config,
         periods=periods,
         period_days=period_days,
@@ -266,6 +269,7 @@ def _two_factor_confidence(
             "frequency": (frequency, True),
             "blame": (0.0, False),
             "review": (0.0, False),
+            "change_survival": (0.0, False),
         },
         signal_weights(scoring),
         signal_reliabilities(scoring),

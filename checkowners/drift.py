@@ -921,6 +921,7 @@ def _signal_evidence(owner: OwnerEntry) -> str:
         ("frequency", breakdown.frequency),
         ("blame", breakdown.blame),
         ("review", breakdown.review),
+        ("change_survival", breakdown.change_survival),
     ):
         if signal.available:
             parts.append(f"{name} {signal.score:.2f}")

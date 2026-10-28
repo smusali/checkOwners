@@ -122,6 +122,9 @@
         },
         "review": {
           "type": "number"
+        },
+        "change_survival": {
+          "type": "number"
         }
       }
     },
@@ -884,7 +887,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1119,7 +1122,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1207,7 +1210,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1285,7 +1288,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1328,7 +1331,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1432,7 +1435,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1520,7 +1523,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1579,7 +1582,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1683,7 +1686,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -1984,7 +1987,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2020,7 +2023,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2056,7 +2059,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2142,7 +2145,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2380,7 +2383,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2523,7 +2526,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2621,7 +2624,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2708,6 +2711,12 @@
             "lineage": {
               "$ref": "#/$defs/stringList"
             },
+            "logical_file_id": {
+              "type": "string"
+            },
+            "rename_confidence": {
+              "type": "number"
+            },
             "knobs": {
               "$ref": "#/$defs/stringList"
             },
@@ -2729,7 +2738,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2796,7 +2805,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2875,7 +2884,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -2936,7 +2945,7 @@
               "items": false
             },
             "limitation": {
-              "const": "historical_activity_confidence and avg_qualified_owner_count use recency and frequency only (historical-v1). They are not ownership_score (ownership-v1)."
+              "const": "historical_activity_confidence and avg_qualified_owner_count use recency and frequency only (historical-v1). They are not ownership_score (ownership-v2)."
             },
             "compared_to": {
               "type": "object",
@@ -2951,7 +2960,7 @@
                   "const": "ownership_score"
                 },
                 "model_version": {
-                  "const": "ownership-v1"
+                  "const": "ownership-v2"
                 },
                 "signals": {
                   "type": "array",
@@ -2967,10 +2976,13 @@
                     },
                     {
                       "const": "review"
+                    },
+                    {
+                      "const": "change_survival"
                     }
                   ],
-                  "minItems": 4,
-                  "maxItems": 4,
+                  "minItems": 5,
+                  "maxItems": 5,
                   "items": false
                 }
               }
@@ -3023,7 +3035,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -3040,7 +3052,7 @@
             "recency",
             "frequency"
           ],
-          "limitation": "historical_activity_confidence and avg_qualified_owner_count use recency and frequency only (historical-v1). They are not ownership_score (ownership-v1).",
+          "limitation": "historical_activity_confidence and avg_qualified_owner_count use recency and frequency only (historical-v1). They are not ownership_score (ownership-v2).",
           "points": [
             {
               "period_end": "2026-05-28",
@@ -3084,7 +3096,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -3096,7 +3108,7 @@
             "schema_version": "1",
             "checkowners_version": "0.5.1",
             "models": {
-              "ownership": "ownership-v1",
+              "ownership": "ownership-v2",
               "risk": "risk-v1",
               "topology": "topology-v2"
             },
@@ -3144,7 +3156,7 @@
             "schema_version": "1",
             "checkowners_version": "0.5.1",
             "models": {
-              "ownership": "ownership-v1",
+              "ownership": "ownership-v2",
               "risk": "risk-v1",
               "topology": "topology-v2"
             },
@@ -3182,7 +3194,7 @@
             "schema_version": "1",
             "checkowners_version": "0.5.1",
             "models": {
-              "ownership": "ownership-v1",
+              "ownership": "ownership-v2",
               "risk": "risk-v1",
               "topology": "topology-v2"
             },
@@ -3330,7 +3342,7 @@
         {
           "schema_version": 1,
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -3452,7 +3464,7 @@
         {
           "schema_version": 1,
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -3591,7 +3603,7 @@
         {
           "schema_version": 1,
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -3757,7 +3769,7 @@
           "schema_version": "1",
           "checkowners_version": "0.6.0",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -3966,7 +3978,7 @@
           "schema_version": "1",
           "checkowners_version": "0.6.0",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -4073,7 +4085,7 @@
           "schema_version": "1",
           "checkowners_version": "0.5.1",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -4127,7 +4139,7 @@
           "schema_version": "1",
           "checkowners_version": "0.6.0",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },
@@ -4166,7 +4178,7 @@
           "schema_version": "1",
           "checkowners_version": "0.6.0",
           "models": {
-            "ownership": "ownership-v1",
+            "ownership": "ownership-v2",
             "risk": "risk-v1",
             "topology": "topology-v2"
           },

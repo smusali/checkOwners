@@ -1,0 +1,37 @@
+{
+  "variance": 0.15,
+  "regression_factor": 1.15,
+  "tiers": {
+    "ci": {
+      "kind": "synthetic",
+      "files": 80,
+      "commits": 8
+    },
+    "1k": {
+      "kind": "public",
+      "repository": null,
+      "candidate": "a small library",
+      "sha": null
+    },
+    "10k": {
+      "kind": "public",
+      "repository": "django/django",
+      "sha": null
+    },
+    "100k": {
+      "kind": "public",
+      "repository": "torvalds/linux",
+      "sha": null
+    },
+    "monorepo": {
+      "kind": "public",
+      "repository": "kubernetes/kubernetes",
+      "sha": null
+    },
+    "deep": {
+      "kind": "public",
+      "repository": "git/git",
+      "sha": null
+    }
+  }
+}

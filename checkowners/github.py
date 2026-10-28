@@ -171,8 +171,20 @@ def _budget() -> _ApiBudget:
     return current
 
 
+def note_metric(kind: str) -> None:
+    path = os.environ.get("CHECKOWNERS_METRICS_PATH")
+    if not path:
+        return
+    fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
+    try:
+        os.write(fd, f"{kind}\n".encode())
+    finally:
+        os.close(fd)
+
+
 def take_api_request() -> bool:
     """Consume one request. Return false when the budget is already spent."""
+    note_metric("api")
     budget = _API_BUDGET.get()
     if budget is None:
         return True

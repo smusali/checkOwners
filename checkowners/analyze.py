@@ -9,6 +9,7 @@ import os
 import re
 import statistics
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -26,6 +27,7 @@ from typing import Literal
 from checkowners.expertise import fnmatch_posix, path_matches_glob
 from checkowners.github import (
     collection_gaps,
+    note_metric,
     reset_review_window,
     review_was_omitted,
     review_window,
@@ -52,7 +54,14 @@ from checkowners.models import (
     merge_gaps,
     with_gaps,
 )
-from checkowners.state import BlameLines, HistoryBaseline, read_history_baseline
+from checkowners.state import (
+    BlameLines,
+    HistoryBaseline,
+    PathMove,
+    read_blame_cache,
+    read_history_baseline,
+    write_blame_cache,
+)
 
 _COMMIT_SENTINEL = "COMMIT_START"
 _BODY_START = "BODY_START"
@@ -95,6 +104,7 @@ class Contribution:
     credit: float
     later_commits: int = 0
     cadence_days: float | None = None
+    last_sha: str = ""
 
 
 @dataclass(frozen=True)
@@ -121,6 +131,7 @@ class _ParsedCommit:
     squash_subject: bool
     author_name: str = ""
     subject: str = ""
+    moves: tuple[PathMove, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -140,6 +151,11 @@ class _CommitHistory:
     commits: list[_RawCommit]
     merge_strategy: ReportedMergeStrategy
     co_author_count: int
+    moves: dict[str, tuple[PathMove, ...]] = field(default_factory=dict)
+    id_to_path: dict[str, str] = field(default_factory=dict)
+    confidence: dict[str, float] = field(default_factory=dict)
+    priors: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    logical_ids: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -148,6 +164,8 @@ class _BlamePass:
     ignore_revs_file: str = ""
     ignore_revs_applied: bool = False
     truncated: bool = False
+    lines: dict[str, dict[str, int]] = field(default_factory=dict)
+    mass: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -155,6 +173,7 @@ class _BlameDetail:
     fractions: dict[str, float]
     commits: dict[str, int]
     reusable: bool
+    lines: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -175,6 +194,8 @@ _SHA_BATCH = 40
 
 
 _BLAME_DEADLINE: ContextVar[float | None] = ContextVar("checkowners_blame_deadline", default=None)
+_USE_BLAME_CACHE: ContextVar[bool] = ContextVar("checkowners_blame_cache", default=True)
+_BLAME_VERBOSE: ContextVar[bool] = ContextVar("checkowners_blame_verbose", default=False)
 
 
 @dataclass(frozen=True)
@@ -357,13 +378,19 @@ def _analyze_ownership(
             count_co_authors=config.git.count_co_authors,
             merge_strategy=config.git.merge_strategy,
             tip=revision,
+            follow_renames=config.analysis.follow_renames,
+            rename_similarity=config.analysis.rename_similarity,
         )
     commits = history.commits
     _AUTHOR_INDEX.set(_author_index(commits))
-    contributions = _aggregate_contributions(
-        commits,
-        co_author_weight=config.git.co_author_weight,
+    contributions = _remap_contributions(
+        _aggregate_contributions(
+            commits,
+            co_author_weight=config.git.co_author_weight,
+        ),
+        history.id_to_path,
     )
+    commits = _current_commits(history)
     if pathspec:
         contributions = _filter_to_pathspec(contributions, pathspec)
     linguist = (
@@ -418,7 +445,18 @@ def _analyze_ownership(
         activity=activity,
         review_available=review_provider is not None and not review_omitted,
         retain_all=retain_all,
+        blame_lines=blame_pass.lines,
+        priors=history.priors,
+        repo_root=repo_root,
+        mass_revs=blame_pass.mass,
     )
+    if renamed is None and config.analysis.follow_renames:
+        detected = _rename_commit_shas(
+            repo_root,
+            lookback_start(config.analysis.lookback_days, when),
+            when,
+        )
+        renamed = any(sha not in history.moves for sha in detected)
     completeness = _run_completeness(
         repo_root,
         config,
@@ -436,7 +474,7 @@ def _analyze_ownership(
         renamed=renamed,
     )
     sample = review_window()
-    return apply_completeness(
+    ownership = apply_completeness(
         OwnershipMap(
             paths=dict(sorted(paths.items())),
             last_analyzed=when,
@@ -448,6 +486,7 @@ def _analyze_ownership(
         completeness,
         config.scoring,
     )
+    return _scale_lineage_confidence(ownership, history.confidence)
 
 
 def _run_completeness(
@@ -511,6 +550,10 @@ def apply_completeness(
                 "frequency": (breakdown.frequency.score, breakdown.frequency.available),
                 "blame": (breakdown.blame.score, breakdown.blame.available),
                 "review": (breakdown.review.score, breakdown.review.available),
+                "change_survival": (
+                    breakdown.change_survival.score,
+                    breakdown.change_survival.available,
+                ),
             },
             weights,
             reliabilities,
@@ -537,6 +580,7 @@ def run_git(
     paths: bool = False,
     stdin: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    note_metric("git")
     argv = args
     if paths and args and args[0] == "git":
         argv = ["git", *_PATH_GIT_CONFIG, *args[1:]]
@@ -670,10 +714,23 @@ def _build_path_ownerships(
     activity: dict[str, tuple[int, float | None, float | None]],
     review_available: bool,
     retain_all: bool = False,
+    blame_lines: Mapping[str, Mapping[str, int]] | None = None,
+    priors: Mapping[str, tuple[str, ...]] | None = None,
+    repo_root: Path | None = None,
+    mass_revs: tuple[str, ...] = (),
 ) -> dict[str, PathOwnership]:
     """Compute scored owners + qualified owner count + decay per path."""
     result: dict[str, PathOwnership] = {}
     frequency_prior = frequency_prior_for(config.qualification.strategy)
+    survival_by_path = _survival_by_path(
+        contributions,
+        set(blame_coverage),
+        blame_lines or {},
+        priors or {},
+        repo_root,
+        config.git,
+        mass_revs,
+    )
     for path, authors in contributions.items():
         path_blame = blame_coverage.get(path, {})
         qualified = _qualify_authors(
@@ -698,6 +755,7 @@ def _build_path_ownerships(
             review_available=review_available,
             frequency_prior=frequency_prior,
             threshold_days=config.decay.threshold_days,
+            survival=survival_by_path.get(path),
         )
         filtered = tuple(e for e in entries if e.confidence >= config.analysis.confidence_threshold)
         if not filtered and not retain_all:
@@ -753,6 +811,7 @@ def signal_weights(scoring: ScoringConfig) -> dict[str, float]:
         "frequency": scoring.frequency_weight,
         "blame": scoring.blame_weight,
         "review": scoring.review_weight,
+        "change_survival": scoring.change_survival_weight,
     }
 
 
@@ -762,6 +821,7 @@ def signal_reliabilities(scoring: ScoringConfig) -> dict[str, float]:
         "frequency": scoring.frequency_reliability,
         "blame": scoring.blame_reliability,
         "review": scoring.review_reliability,
+        "change_survival": scoring.change_survival_reliability,
     }
 
 
@@ -800,6 +860,7 @@ def score_owners(
     review_available: bool,
     frequency_prior: float = 0.0,
     threshold_days: int = 180,
+    survival: Mapping[str, float | None] | None = None,
 ) -> tuple[OwnerEntry, ...]:
     """Return owners of `qualified` scored at `now`."""
     if not qualified:
@@ -814,11 +875,15 @@ def score_owners(
         frequency = _frequency_score(frequency_credit(contrib), max_commits, frequency_prior)
         blame = path_blame.get(author, 0.0) if blame_available else 0.0
         review = _clamp(path_review.get(author, 0.0)) if review_available else 0.0
+        ratio = None if survival is None else survival.get(author)
+        survival_available = blame_available and ratio is not None
+        survival_score = 0.0 if ratio is None else ratio
         signals = {
             "recency": (recency, True),
             "frequency": (frequency, True),
             "blame": (blame, blame_available),
             "review": (review, review_available),
+            "change_survival": (survival_score, survival_available),
         }
         total, quality = combine_available_signals(signals, weights, reliabilities)
         breakdown = ConfidenceScore(
@@ -827,6 +892,7 @@ def score_owners(
             frequency=SignalScore(available=True, score=frequency),
             blame=SignalScore(available=blame_available, score=blame),
             review=SignalScore(available=review_available, score=review),
+            change_survival=SignalScore(available=survival_available, score=survival_score),
         )
         days = _elapsed_days(contrib.last_commit, now)
         scored.append(
@@ -850,6 +916,7 @@ def score_owners(
                         path_last=path_last,
                         ceiling_days=scoring.recency_half_life_ceiling_days,
                         threshold_days=threshold_days,
+                        survival=ratio if survival_available else None,
                     ),
                     half_life_days=half_life,
                 ),
@@ -906,6 +973,9 @@ def _historical_expertise(commits: int, later_commits: int) -> float:
     return _clamp(commits / total)
 
 
+_SURVIVAL_SUPERSEDED = 0.2
+
+
 def _classify_freshness(
     contrib: Contribution,
     *,
@@ -914,8 +984,12 @@ def _classify_freshness(
     path_last: datetime,
     ceiling_days: int,
     threshold_days: int,
+    survival: float | None = None,
 ) -> FreshnessStatus:
-    if contrib.later_commits > contrib.commits:
+    if survival is None:
+        if contrib.later_commits > contrib.commits:
+            return "superseded"
+    elif survival < _SURVIVAL_SUPERSEDED and contrib.later_commits > 0:
         return "superseded"
     if contrib.cadence_days is None:
         if days > threshold_days:
@@ -955,6 +1029,77 @@ def _frequency_score(commits: float, max_commits: float, prior: float = 0.0) -> 
 
 def _clamp(value: float) -> float:
     return max(0.0, min(1.0, value))
+
+
+def _survival_by_path(
+    contributions: Mapping[str, Mapping[str, Contribution]],
+    blamed: set[str],
+    blame_lines: Mapping[str, Mapping[str, int]],
+    priors: Mapping[str, tuple[str, ...]],
+    repo_root: Path | None,
+    git: GitConfig,
+    mass_revs: tuple[str, ...],
+) -> dict[str, dict[str, float | None]]:
+    if repo_root is None or not blamed:
+        return {}
+    pending: list[tuple[str, str, str, str]] = []
+    misses: list[tuple[str, str]] = []
+    grouped: dict[str, dict[str, str]] = {}
+    rows_by_rev: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {}
+    for path, authors in contributions.items():
+        if path not in blamed:
+            continue
+        for author, contrib in authors.items():
+            if not contrib.last_sha:
+                misses.append((path, author))
+                continue
+            rows_by_rev.setdefault(contrib.last_sha, []).append(
+                (path, author, priors.get(path, ()))
+            )
+    for revision, rows in rows_by_rev.items():
+        candidates: list[str] = []
+        for path, _author, prior in rows:
+            for candidate in (path, *reversed(prior)):
+                if candidate not in candidates:
+                    candidates.append(candidate)
+        blobs = _blobs_at_revision(repo_root, revision, candidates)
+        for path, author, prior in rows:
+            located: tuple[str, str] | None = None
+            for candidate in (path, *reversed(prior)):
+                blob = blobs.get(candidate)
+                if blob:
+                    located = (candidate, blob)
+                    break
+            if located is None:
+                misses.append((path, author))
+                continue
+            historical, blob = located
+            pending.append((path, author, revision, historical))
+            grouped.setdefault(revision, {})[historical] = blob
+    looked: dict[tuple[str, str], Mapping[str, int]] = {}
+    for revision, blobs in grouped.items():
+        passed = gather_blame_coverage(
+            blobs,
+            repo_root,
+            git=git,
+            mass_revs=mass_revs,
+            revision=revision,
+            blobs=blobs,
+            report_cache=False,
+        )
+        for historical in blobs:
+            looked[(revision, historical)] = passed.lines.get(historical, {})
+    ratios: dict[str, dict[str, float | None]] = {}
+    for path, author in misses:
+        ratios.setdefault(path, {})[author] = None
+    for path, author, revision, historical in pending:
+        past = looked.get((revision, historical), {})
+        denominator = past.get(author, 0)
+        current = blame_lines.get(path, {}).get(author, 0)
+        ratios.setdefault(path, {})[author] = (
+            None if denominator <= 0 else _clamp(current / denominator)
+        )
+    return ratios
 
 
 def _detect_decay(
@@ -1132,6 +1277,8 @@ def _get_commit_history(
     count_co_authors: bool = True,
     merge_strategy: ConfiguredMergeStrategy = "auto",
     tip: str | None = None,
+    follow_renames: bool = True,
+    rename_similarity: int = 50,
 ) -> _CommitHistory:
     """Return parsed commits from `since` until `as_of`. `since` None omits the lower bound."""
     records = _parsed_commits(
@@ -1139,17 +1286,20 @@ def _get_commit_history(
         since,
         as_of,
         use_mailmap=use_mailmap,
-        name_only=True,
+        name_only=not follow_renames,
         pathspec=pathspec,
         tip=tip,
+        track_renames=follow_renames,
+        rename_similarity=rename_similarity,
     )
-    return _history_from_records(
+    history = _history_from_records(
         repo_root,
         records,
         use_mailmap=use_mailmap,
         count_co_authors=count_co_authors,
         merge_strategy=merge_strategy,
     )
+    return _finish_history(history, follow_renames=follow_renames)
 
 
 def _history_log_format(use_mailmap: bool) -> str:
@@ -1178,9 +1328,23 @@ def _parsed_commits(
     pathspec: tuple[str, ...] | None = None,
     revisions: tuple[str, ...] = (),
     tip: str | None = None,
+    track_renames: bool = False,
+    rename_similarity: int = 50,
 ) -> list[_ParsedCommit]:
     argv = ["git", "log", mailmap_flag(use_mailmap), _history_log_format(use_mailmap)]
-    if name_only:
+    if track_renames and pathspec is not None and len(pathspec) == 1 and not revisions:
+        argv.append("--follow")
+    if track_renames:
+        argv.extend(
+            [
+                "--name-status",
+                "-M",
+                "-C",
+                f"--find-renames={rename_similarity}%",
+                f"--find-copies={rename_similarity}%",
+            ]
+        )
+    elif name_only:
         argv.append("--name-only")
     if revisions:
         argv.append("--no-walk")
@@ -1194,7 +1358,7 @@ def _parsed_commits(
         if pathspec:
             argv.append("--")
             argv.extend(pathspec)
-    result = run_git(repo_root, argv, check=True, paths=name_only)
+    result = run_git(repo_root, argv, check=True, paths=name_only or track_renames)
     return _parse_log(result.stdout)
 
 
@@ -1226,10 +1390,12 @@ def _history_from_records(
         )
         for record, coauthors in zip(file_records, credited, strict=True)
     ]
+    moves = {record.sha: record.moves for record in records if record.sha and record.moves}
     return _CommitHistory(
         commits=commits,
         merge_strategy=_applied_strategy(merge_strategy, _detect_strategy(records)),
         co_author_count=sum(len(coauthors) for coauthors in credited),
+        moves=moves,
     )
 
 
@@ -1292,7 +1458,7 @@ def _collect_analysis(
         if rejection:
             fallback = rejection
         elif loaded is not None:
-            git_reason = _git_baseline_reason(repo_root, loaded, ref)
+            git_reason = _git_baseline_reason(repo_root, loaded, ref, config)
             if git_reason:
                 fallback = git_reason
             else:
@@ -1347,7 +1513,11 @@ def _collect_analysis(
         deadline=deadline,
         prepared_history=history,
         blame_runner=blame_runner,
-        renamed=bool(renames),
+        renamed=(
+            any(sha not in history.moves for sha in renames)
+            if config.analysis.follow_renames
+            else bool(renames)
+        ),
     )
     baseline = HistoryBaseline(
         analysis_ref=ref,
@@ -1358,6 +1528,9 @@ def _collect_analysis(
         blame_inputs=saved.inputs,
         rename_detection=_rename_detection(repo_root),
         truncated=saved.truncated,
+        follow_renames=config.analysis.follow_renames,
+        rename_similarity=config.analysis.rename_similarity,
+        moves=history.moves,
     )
     return AnalysisOutcome(
         ownership=ownership,
@@ -1386,14 +1559,19 @@ def _full_window(
         since,
         when,
         use_mailmap=config.git.use_mailmap,
-        name_only=True,
+        name_only=not config.analysis.follow_renames,
+        track_renames=config.analysis.follow_renames,
+        rename_similarity=config.analysis.rename_similarity,
     )
-    history = _history_from_records(
-        repo_root,
-        records,
-        use_mailmap=config.git.use_mailmap,
-        count_co_authors=config.git.count_co_authors,
-        merge_strategy=config.git.merge_strategy,
+    history = _finish_history(
+        _history_from_records(
+            repo_root,
+            records,
+            use_mailmap=config.git.use_mailmap,
+            count_co_authors=config.git.count_co_authors,
+            merge_strategy=config.git.merge_strategy,
+        ),
+        follow_renames=config.analysis.follow_renames,
     )
     files = {record.sha: record.files for record in records}
     return history, files, _modified_counts(repo_root), _rename_commit_shas(repo_root, since, when)
@@ -1416,15 +1594,18 @@ def _replay_window(
     )
     missing = [record.sha for record in records if record.sha not in baseline.files]
     fetched: dict[str, tuple[str, ...]] = {}
+    fetched_moves: dict[str, tuple[PathMove, ...]] = {}
     if missing:
         ancestors = _ancestor_shas(repo_root, baseline.analysis_ref)
         if any(sha in ancestors for sha in missing):
             raise _ReplayError("incremental baseline does not cover this lookback window")
-        fetched = _fetch_commit_files(
+        fetched, fetched_moves = _fetch_commit_files(
             repo_root,
             missing,
             use_mailmap=config.git.use_mailmap,
             as_of=when,
+            follow_renames=config.analysis.follow_renames,
+            rename_similarity=config.analysis.rename_similarity,
         )
         if any(sha not in fetched for sha in missing):
             raise _ReplayError("incremental baseline does not cover this lookback window")
@@ -1434,13 +1615,19 @@ def _replay_window(
         paths = baseline.files.get(record.sha, fetched.get(record.sha, ()))
         files[record.sha] = paths
         attached.append(replace(record, files=paths))
-    history = _history_from_records(
-        repo_root,
-        attached,
-        use_mailmap=config.git.use_mailmap,
-        count_co_authors=config.git.count_co_authors,
-        merge_strategy=config.git.merge_strategy,
+    combined_moves = dict(baseline.moves)
+    combined_moves.update(fetched_moves)
+    history = replace(
+        _history_from_records(
+            repo_root,
+            attached,
+            use_mailmap=config.git.use_mailmap,
+            count_co_authors=config.git.count_co_authors,
+            merge_strategy=config.git.merge_strategy,
+        ),
+        moves=combined_moves,
     )
+    history = _finish_history(history, follow_renames=config.analysis.follow_renames)
     revision = f"{baseline.analysis_ref}..{head}"
     modified = dict(baseline.modified)
     modified.update(_modified_counts(repo_root, revision))
@@ -1456,8 +1643,11 @@ def _fetch_commit_files(
     *,
     use_mailmap: bool,
     as_of: datetime,
-) -> dict[str, tuple[str, ...]]:
+    follow_renames: bool = False,
+    rename_similarity: int = 50,
+) -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[PathMove, ...]]]:
     found: dict[str, tuple[str, ...]] = {}
+    moves: dict[str, tuple[PathMove, ...]] = {}
     for start in range(0, len(shas), _SHA_BATCH):
         batch = tuple(shas[start : start + _SHA_BATCH])
         records = _parsed_commits(
@@ -1465,12 +1655,16 @@ def _fetch_commit_files(
             None,
             as_of,
             use_mailmap=use_mailmap,
-            name_only=True,
+            name_only=not follow_renames,
             revisions=batch,
+            track_renames=follow_renames,
+            rename_similarity=rename_similarity,
         )
         for record in records:
             found[record.sha] = record.files
-    return found
+            if record.moves:
+                moves[record.sha] = record.moves
+    return found, moves
 
 
 def _rename_detection(repo_root: Path) -> str:
@@ -1498,7 +1692,12 @@ def _ancestor_shas(repo_root: Path, ref: str) -> set[str]:
     return set(result.stdout.split())
 
 
-def _git_baseline_reason(repo_root: Path, baseline: HistoryBaseline, head: str) -> str:
+def _git_baseline_reason(
+    repo_root: Path,
+    baseline: HistoryBaseline,
+    head: str,
+    config: Config | None = None,
+) -> str:
     if baseline.truncated:
         return "incremental baseline is incomplete"
     if not baseline.analysis_ref:
@@ -1509,6 +1708,12 @@ def _git_baseline_reason(repo_root: Path, baseline: HistoryBaseline, head: str) 
         return "cached ref is not an ancestor of HEAD"
     if baseline.rename_detection != _rename_detection(repo_root):
         return "rename detection changed"
+    active = config if config is not None else Config()
+    if (
+        baseline.follow_renames != active.analysis.follow_renames
+        or baseline.rename_similarity != active.analysis.rename_similarity
+    ):
+        return "lineage settings changed"
     return ""
 
 
@@ -1548,6 +1753,36 @@ def _blob_shas(repo_root: Path, paths: list[str]) -> dict[str, str]:
     if len(hashes) != len(safe):
         return {}
     return dict(zip(safe, hashes, strict=True))
+
+
+def _blobs_at_revision(repo_root: Path, revision: str, paths: list[str]) -> dict[str, str]:
+    safe = [path for path in paths if "\n" not in path and "\x00" not in path]
+    if not safe or not revision:
+        return {}
+    result = run_git(
+        repo_root,
+        ["git", "cat-file", "--batch-check"],
+        check=False,
+        stdin="".join(f"{revision}:{path}\n" for path in safe),
+    )
+    if result.returncode != 0:
+        return {}
+    found: dict[str, str] = {}
+    for path, line in zip(safe, result.stdout.splitlines(), strict=False):
+        blob, _separator, kind = line.partition(" ")
+        if kind.startswith("blob") and _FULL_SHA_RE.fullmatch(blob):
+            found[path] = blob
+    return found
+
+
+def _author_counts(commit_lines: Mapping[str, int], emails: Mapping[str, str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for sha, count in commit_lines.items():
+        email = emails.get(sha)
+        if email is None or count <= 0:
+            continue
+        counts[email] = counts.get(email, 0) + count
+    return dict(sorted(counts.items()))
 
 
 def _author_emails(repo_root: Path, shas: Iterable[str], *, use_mailmap: bool) -> dict[str, str]:
@@ -1660,17 +1895,23 @@ def _coverage_with_reuse(
             max_workers=max_workers,
             mass_revs=mass,
             detail_sink=sink,
+            blobs=blobs,
         )
     else:
         fresh = _BlamePass(ignore_revs_file=display, ignore_revs_applied=ignore is not None)
         if on_progress is not None and path_list:
             on_progress(len(path_list), len(path_list))
     coverage = {**reused, **fresh.coverage}
+    lines = {path: dict(counts) for path, counts in fresh.lines.items()}
+    for path in reused:
+        lines[path] = _author_counts(saved[path].lines, emails)
     passed = _BlamePass(
         coverage=dict(sorted(coverage.items())),
         ignore_revs_file=fresh.ignore_revs_file or display,
         ignore_revs_applied=fresh.ignore_revs_applied or ignore is not None,
         truncated=fresh.truncated,
+        lines=lines,
+        mass=fresh.mass,
     )
     if fresh.truncated:
         return passed, {}, inputs, True
@@ -1722,7 +1963,7 @@ def _parse_commit_chunk(chunk: str) -> _ParsedCommit | None:
     if timestamp is None or not author or _FULL_SHA_RE.fullmatch(sha) is None:
         return None
     subject = lines[4] if len(lines) > 4 else ""
-    files = tuple(line.strip() for line in files_blob.splitlines() if line.strip())
+    files, moves = _parse_status_paths(files_blob)
     return _ParsedCommit(
         sha=sha,
         author=author,
@@ -1733,6 +1974,7 @@ def _parse_commit_chunk(chunk: str) -> _ParsedCommit | None:
         squash_subject=_SQUASH_SUBJECT.search(subject) is not None,
         author_name=author_name,
         subject=subject,
+        moves=moves,
     )
 
 
@@ -1811,13 +2053,323 @@ def _parse_timestamp(raw: str) -> datetime | None:
         return None
 
 
+def _status_score(status: str) -> int:
+    digits = "".join(char for char in status if char.isdigit())
+    if not digits:
+        return 100
+    return max(0, min(100, int(digits)))
+
+
+def _parse_status_paths(blob: str) -> tuple[tuple[str, ...], tuple[PathMove, ...]]:
+    files: list[str] = []
+    moves: list[PathMove] = []
+    for raw in blob.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if "\t" not in line:
+            files.append(line)
+            continue
+        status, remainder = line.split("\t", 1)
+        kind = status[:1]
+        if kind in {"R", "C"} and "\t" in remainder:
+            source, dest = remainder.split("\t", 1)
+            files.append(dest)
+            moves.append(PathMove(kind=kind, score=_status_score(status), source=source, dest=dest))
+            continue
+        if kind in {"A", "M", "D", "T", "U"}:
+            files.append(remainder.split("\t")[-1])
+            continue
+        files.append(line)
+    return tuple(files), tuple(moves)
+
+
+def _logical_id(path: str, taken: set[str], nonce: str) -> str:
+    digest = hashlib.sha256(path.encode()).hexdigest()[:16]
+    if digest not in taken:
+        return digest
+    return hashlib.sha256(f"{path}\n{nonce}".encode()).hexdigest()[:16]
+
+
+def _follow_path(path: str, forward: Mapping[str, str]) -> str:
+    seen: set[str] = set()
+    while path in forward and path not in seen:
+        seen.add(path)
+        path = forward[path]
+    return path
+
+
+def _parent_dir(path: str) -> str:
+    slash = path.rfind("/")
+    if slash < 0:
+        return ""
+    return path[:slash]
+
+
+def _common_directory(paths: list[str]) -> str:
+    parents = [_parent_dir(path) for path in paths]
+    if not parents or any(parent == "" for parent in parents):
+        return ""
+    common = parents[0]
+    for parent in parents[1:]:
+        while parent != common and not parent.startswith(f"{common}/"):
+            slash = common.rfind("/")
+            if slash < 0:
+                return ""
+            common = common[:slash]
+        if not common:
+            return ""
+    return common
+
+
+def _collapse_directory_moves(
+    moves: tuple[PathMove, ...],
+    living: Mapping[str, str],
+) -> tuple[PathMove, ...]:
+    renames = [move for move in moves if move.kind == "R"]
+    if len(renames) < 2:
+        return moves
+    old_prefix = _common_directory([move.source for move in renames])
+    new_prefix = _common_directory([move.dest for move in renames])
+    if not old_prefix or not new_prefix or old_prefix == new_prefix:
+        return moves
+    old_root = f"{old_prefix}/"
+    new_root = f"{new_prefix}/"
+    sources: set[str] = set()
+    for move in renames:
+        if move.source[len(old_root) :] != move.dest[len(new_root) :]:
+            return moves
+        sources.add(move.source)
+    for path in living:
+        if path.startswith(old_root) and path not in sources:
+            return moves
+    others = tuple(move for move in moves if move.kind != "R")
+    score = min(move.score for move in renames)
+    return (*others, PathMove(kind="D", score=score, source=old_prefix, dest=new_prefix))
+
+
+def _apply_renames(
+    living: dict[str, str],
+    origin: dict[str, str],
+    priors: dict[str, list[str]],
+    confidence: dict[str, int],
+    moves: tuple[PathMove, ...],
+    nonce: str,
+) -> None:
+    sources: dict[str, str] = {}
+    for move in moves:
+        if move.kind == "R" and move.source in living:
+            sources[move.source] = living.pop(move.source)
+    for move in moves:
+        if move.kind != "R":
+            continue
+        logical = sources.get(move.source)
+        if logical is None:
+            taken = set(origin)
+            logical = _logical_id(move.source, taken, nonce)
+            origin[logical] = move.source
+            confidence[logical] = 100
+        priors.setdefault(logical, []).append(move.source)
+        confidence[logical] = min(confidence.get(logical, 100), move.score)
+        living[move.dest] = logical
+
+
+def _apply_directory_move(
+    living: dict[str, str],
+    priors: dict[str, list[str]],
+    confidence: dict[str, int],
+    move: PathMove,
+) -> None:
+    prefix = f"{move.source}/"
+    dest_prefix = f"{move.dest}/"
+    matched = [path for path in living if path.startswith(prefix)]
+    for path in matched:
+        logical = living.pop(path)
+        dest = dest_prefix + path[len(prefix) :]
+        priors.setdefault(logical, []).append(path)
+        confidence[logical] = min(confidence.get(logical, 100), move.score)
+        living[dest] = logical
+
+
+def _apply_copy(
+    living: dict[str, str],
+    origin: dict[str, str],
+    priors: dict[str, list[str]],
+    confidence: dict[str, int],
+    move: PathMove,
+    nonce: str,
+) -> str | None:
+    source_id = living.get(move.source)
+    taken = set(origin)
+    new_id = _logical_id(move.dest, taken, nonce)
+    living[move.dest] = new_id
+    origin[new_id] = move.dest
+    priors.setdefault(new_id, []).append(move.source)
+    confidence[new_id] = move.score
+    return source_id
+
+
+def _with_lineage(history: _CommitHistory) -> _CommitHistory:
+    ordered = sorted(history.commits, key=lambda commit: (commit.timestamp, commit.sha))
+    living: dict[str, str] = {}
+    origin: dict[str, str] = {}
+    priors: dict[str, list[str]] = {}
+    confidence: dict[str, int] = {}
+    files_by_sha: dict[str, tuple[str, ...]] = {}
+    applied: dict[str, tuple[PathMove, ...]] = {}
+    for commit in ordered:
+        raw_moves = history.moves.get(commit.sha, ())
+        commit_moves = _collapse_directory_moves(raw_moves, living)
+        applied[commit.sha] = commit_moves
+        _apply_renames(living, origin, priors, confidence, commit_moves, commit.sha)
+        for move in commit_moves:
+            if move.kind == "D":
+                _apply_directory_move(living, priors, confidence, move)
+        copied: list[tuple[str, str]] = []
+        for move in commit_moves:
+            if move.kind != "C":
+                continue
+            source_id = _apply_copy(living, origin, priors, confidence, move, commit.sha)
+            new_id = living.get(move.dest)
+            if source_id is not None and new_id is not None:
+                copied.append((new_id, source_id))
+        identities: list[str] = []
+        for path in commit.files:
+            if path not in living:
+                logical = _logical_id(path, set(origin), commit.sha)
+                living[path] = logical
+                origin[logical] = path
+                confidence.setdefault(logical, 100)
+            identities.append(living[path])
+        files_by_sha[commit.sha] = tuple(dict.fromkeys(identities))
+        for new_id, source_id in copied:
+            for sha, file_ids in files_by_sha.items():
+                if source_id in file_ids and new_id not in file_ids:
+                    files_by_sha[sha] = (*file_ids, new_id)
+    id_to_path = {logical: path for path, logical in living.items()}
+    rewritten: list[_RawCommit] = []
+    for commit in history.commits:
+        rewritten.append(replace(commit, files=files_by_sha.get(commit.sha, ())))
+    path_confidence = {path: confidence.get(logical, 100) / 100 for path, logical in living.items()}
+    path_priors = {
+        path: _bounded_priors(priors.get(logical, []), path) for path, logical in living.items()
+    }
+    path_ids = dict(living)
+    return replace(
+        history,
+        commits=rewritten,
+        moves={sha: moves for sha, moves in applied.items() if moves},
+        id_to_path=id_to_path,
+        confidence=path_confidence,
+        priors=path_priors,
+        logical_ids=path_ids,
+    )
+
+
+def _bounded_priors(previous: list[str], current: str) -> tuple[str, ...]:
+    seen: set[str] = set()
+    names: list[str] = []
+    for item in previous:
+        if item == current or item in seen:
+            break
+        seen.add(item)
+        names.append(item)
+    return tuple(names)
+
+
+def _finish_history(history: _CommitHistory, *, follow_renames: bool) -> _CommitHistory:
+    if not follow_renames:
+        return history
+    return _with_lineage(history)
+
+
+def _current_commits(history: _CommitHistory) -> list[_RawCommit]:
+    if not history.id_to_path:
+        return history.commits
+    mapped: list[_RawCommit] = []
+    for commit in history.commits:
+        paths = tuple(
+            dict.fromkeys(
+                history.id_to_path[item] for item in commit.files if item in history.id_to_path
+            )
+        )
+        mapped.append(replace(commit, files=paths))
+    return mapped
+
+
+def _remap_contributions(
+    contributions: dict[str, dict[str, Contribution]],
+    id_to_path: Mapping[str, str],
+) -> dict[str, dict[str, Contribution]]:
+    if not id_to_path:
+        return contributions
+    remapped: dict[str, dict[str, Contribution]] = {}
+    for logical, authors in contributions.items():
+        current = id_to_path.get(logical)
+        if current is None:
+            continue
+        remapped[current] = authors
+    return remapped
+
+
+def path_lineage(
+    repo_root: Path,
+    target: str,
+    config: Config,
+    as_of: datetime,
+) -> tuple[tuple[str, ...], str, float]:
+    """Return prior names, logical id, and rename confidence for `target`."""
+    history = _get_commit_history(
+        repo_root,
+        lookback_start(config.analysis.lookback_days, as_of),
+        as_of,
+        use_mailmap=config.git.use_mailmap,
+        pathspec=(target,),
+        count_co_authors=config.git.count_co_authors,
+        merge_strategy=config.git.merge_strategy,
+        follow_renames=True,
+        rename_similarity=config.analysis.rename_similarity,
+    )
+    return (
+        history.priors.get(target, ()),
+        history.logical_ids.get(target, ""),
+        history.confidence.get(target, 1.0),
+    )
+
+
+def _scale_lineage_confidence(
+    ownership: OwnershipMap,
+    confidence: Mapping[str, float],
+) -> OwnershipMap:
+    factors = {path: value for path, value in confidence.items() if value < 1.0}
+    if not factors:
+        return ownership
+
+    def scale(path: str, owner: OwnerEntry) -> OwnerEntry:
+        factor = factors.get(path)
+        if factor is None:
+            return owner
+        return replace(owner, evidence_quality=_clamp(owner.evidence_quality * factor))
+
+    paths = {
+        path: replace(
+            path_ownership,
+            owners=tuple(scale(path, owner) for owner in path_ownership.owners),
+            candidates=tuple(scale(path, owner) for owner in path_ownership.candidates),
+            scored_owners=tuple(scale(path, owner) for owner in path_ownership.scored_owners),
+        )
+        for path, path_ownership in ownership.paths.items()
+    }
+    return replace(ownership, paths=paths)
+
+
 def _aggregate_contributions(
     commits: list[_RawCommit],
     *,
     co_author_weight: float = 1.0,
 ) -> dict[str, dict[str, Contribution]]:
     """Aggregate per-(path, author) counts, credit, cadence, and later commits."""
-    events: dict[str, list[tuple[str, datetime, float]]] = {}
+    events: dict[str, list[tuple[str, datetime, float, str]]] = {}
     for commit in commits:
         people = [
             (commit.author, 1.0),
@@ -1826,31 +2378,34 @@ def _aggregate_contributions(
         for file_path in commit.files:
             bucket = events.setdefault(file_path, [])
             for author, weight in people:
-                bucket.append((author, commit.timestamp, weight))
+                bucket.append((author, commit.timestamp, weight, commit.sha))
     result: dict[str, dict[str, Contribution]] = {}
     for path in sorted(events):
         path_events = events[path]
         counts: dict[str, int] = {}
         credits_by_author: dict[str, float] = {}
         latest: dict[str, datetime] = {}
-        for author, timestamp, weight in path_events:
+        latest_sha: dict[str, str] = {}
+        for author, timestamp, weight, sha in path_events:
             counts[author] = counts.get(author, 0) + 1
             credits_by_author[author] = credits_by_author.get(author, 0.0) + weight
             prior = latest.get(author)
             if prior is None or timestamp > prior:
                 latest[author] = timestamp
-        cadence = _cadence_days([timestamp for _author, timestamp, _weight in path_events])
+                latest_sha[author] = sha
+        cadence = _cadence_days([timestamp for _author, timestamp, _weight, _sha in path_events])
         result[path] = {
             author: Contribution(
                 commits=commits_n,
                 last_commit=latest[author],
                 later_commits=sum(
                     1
-                    for other, timestamp, _weight in path_events
+                    for other, timestamp, _weight, _sha in path_events
                     if other != author and timestamp > latest[author]
                 ),
                 cadence_days=cadence,
                 credit=credits_by_author[author],
+                last_sha=latest_sha[author],
             )
             for author, commits_n in sorted(counts.items())
         }
@@ -2251,6 +2806,57 @@ def _blame_argv(
     return argv
 
 
+def set_blame_cache_enabled(enabled: bool) -> None:
+    _USE_BLAME_CACHE.set(enabled)
+
+
+def set_blame_verbose(enabled: bool) -> None:
+    _BLAME_VERBOSE.set(enabled)
+
+
+def _file_bytes(path: Path | None) -> bytes:
+    if path is None:
+        return b""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return b""
+
+
+def _blame_cache_digest(
+    blob: str,
+    argv: list[str],
+    *,
+    path: str,
+    ignore_bytes: bytes,
+    mass: tuple[str, ...],
+    mailmap_bytes: bytes,
+) -> str:
+    flags = tuple(
+        part for part in argv if part in {"-w", "-M", "-C", "--use-mailmap", "--no-use-mailmap"}
+    )
+    payload = json.dumps(
+        {
+            "blob": blob,
+            "path": path,
+            "flags": flags,
+            "ignore": ignore_bytes.decode("utf-8", "surrogateescape"),
+            "mailmap": mailmap_bytes.decode("utf-8", "surrogateescape"),
+            "mass": mass,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _fractions_from_counts(counts: Mapping[str, int]) -> dict[str, float]:
+    total = sum(counts.values())
+    if total == 0:
+        return {}
+    return dict(sorted((author, count / total) for author, count in counts.items()))
+
+
 def gather_blame_coverage(
     paths: Iterable[str],
     repo_root: Path,
@@ -2261,6 +2867,8 @@ def gather_blame_coverage(
     mass_revs: tuple[str, ...] | None = None,
     detail_sink: dict[str, _BlameDetail] | None = None,
     revision: str | None = None,
+    blobs: Mapping[str, str] | None = None,
+    report_cache: bool = True,
 ) -> _BlamePass:
     """Return author coverage for `paths`, reusing `mass_revs` when it is passed."""
     git_config = git if git is not None else GitConfig()
@@ -2282,23 +2890,77 @@ def gather_blame_coverage(
         argv = _blame_argv(git_config, ignore_revs, extra_path, revision)
         if not _blame_accepts_mailmap_flags(repo_root):
             argv = _drop_mailmap_flags(argv)
+        mailmap_bytes = _file_bytes(repo_root / ".mailmap")
+        ignore_bytes = _file_bytes(ignore_revs)
+        mass_key = tuple(sorted(mass))
+        if blobs is not None:
+            resolved_blobs = dict(blobs)
+        elif revision is not None:
+            resolved_blobs = _blobs_at_revision(repo_root, revision, path_list)
+        else:
+            resolved_blobs = _blob_shas(repo_root, path_list)
+        use_cache = _USE_BLAME_CACHE.get()
         coverage: dict[str, dict[str, float]] = {}
+        line_counts: dict[str, dict[str, int]] = {}
+        pending_paths: list[tuple[str, str | None]] = []
+        hits = 0
+        sink = detail_sink if detail_sink is not None else {}
+        for path in path_list:
+            blob = resolved_blobs.get(path, "")
+            digest = (
+                _blame_cache_digest(
+                    blob,
+                    argv,
+                    path=path,
+                    ignore_bytes=ignore_bytes,
+                    mass=mass_key,
+                    mailmap_bytes=mailmap_bytes,
+                )
+                if use_cache and blob
+                else ""
+            )
+            cached = read_blame_cache(digest) if digest else None
+            if cached is None:
+                pending_paths.append((path, digest or None))
+                continue
+            hits += 1
+            line_counts[path] = dict(cached)
+            fractions = _fractions_from_counts(cached)
+            if fractions:
+                coverage[path] = fractions
+        if report_cache and _BLAME_VERBOSE.get():
+            print(
+                f"blame cache: hits={hits} misses={len(pending_paths)}",
+                file=sys.stderr,
+            )
         workers = max_workers if max_workers is not None else min(32, os.cpu_count() or 4)
         workers = max(workers, 1)
-        done = 0
+        done = hits
         truncated = False
         deadline = _BLAME_DEADLINE.get()
+        if on_progress is not None and hits == total:
+            on_progress(total, total)
         with (
             _suppress_workdir_mailmap(repo_root, enabled=git_config.use_mailmap),
             ThreadPoolExecutor(max_workers=workers) as pool,
         ):
             pending: list[tuple[str, Future[dict[str, float]]]] = []
-            for path in path_list:
+            for path, cache_id in pending_paths:
                 if deadline is not None and time.monotonic() >= deadline:
                     truncated = True
                     break
                 pending.append(
-                    (path, pool.submit(_blame_for_path, repo_root, path, argv, detail_sink))
+                    (
+                        path,
+                        pool.submit(
+                            _blame_for_path,
+                            repo_root,
+                            path,
+                            argv,
+                            sink,
+                            cache_id if use_cache else None,
+                        ),
+                    )
                 )
             for path, future in pending:
                 per_author = future.result()
@@ -2307,12 +2969,19 @@ def gather_blame_coverage(
                     on_progress(done, total)
                 if per_author:
                     coverage[path] = per_author
+                detail = sink.get(path)
+                if detail is not None:
+                    line_counts[path] = dict(detail.lines)
         display = _display_ignore_revs_path(repo_root, ignore_revs) if ignore_revs else ""
         return _BlamePass(
             coverage=dict(sorted(coverage.items())),
             ignore_revs_file=display,
             ignore_revs_applied=ignore_revs is not None,
             truncated=truncated,
+            lines={
+                path: dict(sorted(counts.items())) for path, counts in sorted(line_counts.items())
+            },
+            mass=tuple(mass),
         )
     finally:
         if extra_path is not None:
@@ -2333,6 +3002,7 @@ def _blame_for_path(
     path: str,
     argv: list[str],
     sink: dict[str, _BlameDetail] | None = None,
+    digest: str | None = None,
 ) -> dict[str, float]:
     """Run git blame with the prebuilt argv on one path; return coverage fractions."""
     try:
@@ -2341,6 +3011,8 @@ def _blame_for_path(
         detail = _BlameDetail(fractions={}, commits={}, reusable=False)
     else:
         detail = _parse_blame_detail(result.stdout)
+        if digest is not None:
+            write_blame_cache(digest, detail.lines)
     if sink is not None:
         with _BLAME_SINK_LOCK:
             sink[path] = detail
@@ -2377,4 +3049,9 @@ def _parse_blame_detail(stdout: str) -> _BlameDetail:
     if total == 0:
         return _BlameDetail(fractions={}, commits={}, reusable=False)
     fractions = dict(sorted((author, count / total) for author, count in counts.items()))
-    return _BlameDetail(fractions=fractions, commits=commits, reusable=reusable)
+    return _BlameDetail(
+        fractions=fractions,
+        commits=commits,
+        reusable=reusable,
+        lines=dict(sorted(counts.items())),
+    )

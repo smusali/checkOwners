@@ -20,6 +20,10 @@ An author missing from a successful blame map, or from a provider result, scores
 evidence. Blame that failed or was skipped, and a run with no review provider,
 mark those signals unavailable.
 
+Blame line counts are cached by blob SHA and path, together with the blame flags, the ignore-revs file bytes, the mass-refactor revision list, and the `.mailmap` bytes. The path is part of the key so two files with the same bytes keep their own line attribution. A hit rebuilds the same author fractions from those integer counts. The cache survives a rejected incremental baseline. Its files share the 256 MiB cap with state and graph files and are evicted oldest-first with them. `--no-cache` does not read or write it.
+
+`analyze` and `audit` blame every qualified path. `owners`, `explain`, and `change` blame only the requested path. `--diff-only` blames the changed paths. `risk` and bus-factor reports keep the full map. The blame command stays `git blame --line-porcelain`, one path per process. The timed alternatives are in [benchmarks/README.md](../benchmarks/README.md).
+
 ## What each signal proxies
 
 | Signal | It measures | It proxies for | It does not establish |
@@ -44,7 +48,8 @@ ownership_score = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
 
 `wᵢ` is the configured weight, `aᵢ ∈ {0, 1}` is availability, and `sᵢ` is the
 per-signal score. If no signal is available the score is `0.0`. Default weights
-are `0.35 / 0.25 / 0.25 / 0.15` for recency, frequency, blame, and review.
+are `0.30 / 0.20 / 0.20 / 0.15 / 0.15` for recency, frequency, blame, review,
+and change survival.
 
 `analyze` and `trends` share one helper. `trends` emits `historical-v1` with
 signals recency and frequency. Blame and review stay unavailable, so the
@@ -92,8 +97,8 @@ by `contributors.roster`. `former_knowledge_share` is the share of positive
 `ownership_score` held by those owners. It is a knowledge-risk figure, not a
 performance measure. The knowledge-risk notice still applies.
 
-`checkowners explain PATH` prints the same C5 weighted mean as `analyze`. Each
-row shows the four signals with their configured weight and availability. A
+`checkowners explain PATH` prints the same weighted mean as `analyze`. Each
+row shows the five signals with their configured weight and availability. A
 measured zero (author absent from a successful blame or review map) is a
 number. An unavailable signal is omitted from the mean and shown as `n/a`.
 The printed total equals `Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)` on the displayed
@@ -106,7 +111,7 @@ Three model ids are stamped on JSON output and on human reports:
 
 | Id | Config key | What it names |
 | --- | --- | --- |
-| `ownership-v1` | `model.ownership` | The renormalized score in this page |
+| `ownership-v2` | `model.ownership` | The renormalized score in this page |
 | `risk-v1` | `model.risk` | Inverse-Herfindahl concentration and the qualified-owner classifier |
 | `topology-v2` | `model.topology` | Weighted Louvain clusters |
 
@@ -342,17 +347,24 @@ which lines survived.
 
 Continuity risk is a status. `stable` means the gap fits the path's cadence,
 or this person made the latest commit and the gap is within the half-life
-ceiling, and no warning is emitted. `superseded` means later commits by
-others outnumber this person's commits. `inactive` means the gap is past that
-bound, or the path has no commit interval and the gap exceeds
+ceiling, and no warning is emitted. Change survival is
+`current blame lines / blame lines at that person's last commit` on the lineage
+path, clamped to `[0, 1]`. It is a line count from `git blame`, not an AST
+comparison. A zero denominator leaves the signal unavailable. When it is
+available and below `0.2`, and someone else committed later, the status is
+`superseded`. When it is available and at least `0.2`, later commits do not
+mark the owner `superseded`; the cadence and time rules still choose `stable`
+or `inactive`. When the signal is unavailable, `superseded` still means later
+commits by others outnumber this person's commits. `inactive` means the gap is
+past the cadence bound, or the path has no commit interval and the gap exceeds
 `decay.threshold_days`. `departed` means `inactive` on every path. `analysis.lookback_days: adaptive` keeps stable paths inside the history window.
 
 `historical_activity_confidence` is the mean, across paths that still have a
 scored owner, of the top score at the end of one trend period. The model is
 `historical-v1` and the signals are recency and frequency.
 `avg_qualified_owner_count` is the mean capped count for those same paths.
-Blame and review are unavailable, so this number is not `ownership_score`
-(`ownership-v1`).
+Blame, review, and change survival are unavailable, so this number is not
+`ownership_score` (`ownership-v2`).
 
 `load_signal` says what a balance count is. `github_completed_reviews` means the GitHub sample returned submitted reviews. `git_authorship_proxy` means it did not, and `reviews` in that payload is a commit total. `external` means the caller supplied completed-review counts. The proxy never sets `reviews_completed`, `load_band`, `review_concentration`, or `divergence`, and it never recommends a person. Commit volume is not review load.
 
@@ -377,7 +389,7 @@ These cases are the project's stated ownership philosophy.
 repository with pinned author and committer dates. Analysis uses a fixed as-of
 of `2026-06-01T12:00:00+00:00` (the handoff reuses one repository at three
 earlier pinned instants). The expected sentence for each case is stored under
-the model id, currently `ownership-v1`. A model-version bump fails until that
+the model id, currently `ownership-v2`. A model-version bump fails until that
 record gains the new id. A run that breaks a belief fails with the sentence.
 
 Strong ownership in that suite means a score of at least `0.5`. Medium evidence
@@ -410,13 +422,20 @@ produces no blame lines, and no review provider is configured, so those two
 signals are unavailable. The score stays inside `(0, 1]`. A commit still
 supplies frequency, so the case scores the signals that were observed.
 
-**Rename.** Intended belief: ownership survives a rename from `foo.py` to
-`bar.py`. Under `ownership-v1`, log aggregation keys on the literal path, so
-the author of the rename commit is the scored owner of `bar.py` and the earlier
-author is absent.
+**Rename.** Ownership survives a rename from `foo.py` to `bar.py`. History
+aggregation follows renames and copies that git reports at
+`analysis.rename_similarity` (default 50). The earlier author stays on the
+new path. `analysis.follow_renames: false` keys on the literal path again, so
+only the rename commit is scored on `bar.py`. A directory rename is one prefix
+move applied to every file that moved with it. A copy is linked only when the
+source is modified in that same commit; an untouched source starts a new file.
+The lineage pass on a 300-file directory rename stays within 10 seconds.
+Rename confidence is the lowest similarity on the chain, as a fraction, and
+it scales evidence quality for that path. A score of 1.0 means the path was
+not renamed, or every rename was exact.
 
 **Stable cadence.** Intended belief: a path with an 18-month cadence keeps its
-owner. Under `ownership-v1`, a commit 18 months before the as-of falls outside
+owner. Under `ownership-v2`, a commit 18 months before the as-of falls outside
 the 365-day lookback and the 90-day half-life, so the path has no scored owner.
 
 **Co-authors.** A `Co-authored-by` trailer adds a scored owner on every file in
@@ -424,32 +443,17 @@ that commit. Blame stays with the commit author, so the co-author's blame
 share is zero. `git.count_co_authors: false` scores only the commit author.
 
 When a later model makes the rename or cadence record match the intended
-belief, update the `ownership-v1` sentences, or add the new model id, in the
+belief, update the `ownership-v2` sentences, or add the new model id, in the
 same change.
 
 ## Benchmark and calibration
 
-No broad performance benchmark has been published. The intended measurements, when a
-harness exists, are cold runtime, warm runtime, peak resident memory, git
-command count, API request count, cache size, and incremental runtime, on
-fixed repository shapes. Until those runs exist, do not treat a single
-timing as a benchmark.
+Runtimes are measured by [benchmarks/harness.py](../benchmarks/harness.py). A result records cold runtime, warm runtime, peak resident memory, git command count, GitHub API request count, cache size, and incremental runtime after one new commit. Peak resident memory comes from `time -l` on macOS and `time -v` on Linux. Two runs on the same commit must match the git command count exactly. Wall time within 15% is checked unless `--counts-only` is set. The pull-request job passes `--counts-only` because a hosted runner does not hold that band. A run fails the regression check when its cold time is above the recorded baseline times 1.15. The procedure and the current `ci` baseline are in [benchmarks/README.md](../benchmarks/README.md).
 
-One local incremental measurement is recorded here. It is one development
-machine on 2026-10-24 and one generated repository, not the monorepo anecdote.
-The fixture was 600 one-line Python files added across 20 commits, then one
-commit that changed two of those files. The cold pass took 1.99 seconds and
-ran git blame on all 600 files. The warm pass took 0.34 seconds and ran git
-blame on the two changed files. That is about 5.9 times faster on the wall
-clock, and 300 times fewer file blames. On this fixture blame is cheap, so
-the wall-clock ratio is smaller than the blame-count ratio.
-
-On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo finished
-a 365-day analyze in under three minutes. That figure is one measurement on
-one machine.
+The J1 incremental measurement, from one development machine on 2026-10-24, used 600 one-line Python files added across 20 commits, then one commit that changed two of those files. The cold pass took 1.99 seconds and ran git blame on all 600 files. The warm pass took 0.34 seconds and ran git blame on the two changed files.
 
 No calibration study has been run. The default weights
-`0.35 / 0.25 / 0.25 / 0.15` are heuristics. When a study is run, ground truth
+`0.30 / 0.20 / 0.20 / 0.15 / 0.15` are heuristics. When a study is run, ground truth
 is who later maintains and reviews the code, not the CODEOWNERS file that was
 already committed. Existing CODEOWNERS can be stale, which is the condition
 the tool exists to detect.

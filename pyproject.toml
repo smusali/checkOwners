@@ -55,6 +55,9 @@ graph = [
 github = [
     "pygithub>=2.0.0,<3",
 ]
+blame = [
+    "pygit2>=1.14,<2",
+]
 all = [
     "checkowners[graph,github]",
 ]

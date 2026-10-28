@@ -339,3 +339,36 @@ jobs:
 
       - name: Check formatting
         run: ruff format --check .
+
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.14"
+
+      - name: Install locked dependencies
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if python -m pip install --require-hashes -r requirements-dev.lock \
+              && python -m pip install -e . --no-deps; then
+              exit 0
+            fi
+            echo "pip install failed (attempt ${attempt}); retrying"
+            sleep $((attempt * 8))
+          done
+          exit 1
+
+      - name: Run the ci tier twice and reject a slowed sample
+        run: |
+          set -euo pipefail
+          python benchmarks/harness.py run --tier ci --output /tmp/bench-a.json
+          python benchmarks/harness.py run --tier ci --output /tmp/bench-b.json
+          python benchmarks/harness.py compare --counts-only --left /tmp/bench-a.json --right /tmp/bench-b.json
+          python benchmarks/harness.py self-check

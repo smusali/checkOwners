@@ -115,6 +115,8 @@ _V2_ANALYSIS: frozenset[str] = frozenset(
         "max_runtime_seconds",
         "max_git_workers",
         "max_api_requests",
+        "follow_renames",
+        "rename_similarity",
     }
 )
 _V2_QUALIFICATION: frozenset[str] = frozenset({"strategy", "min_commits", "strong_blame_override"})
@@ -128,10 +130,12 @@ _V2_SCORING: frozenset[str] = frozenset(
         "frequency_weight",
         "blame_weight",
         "review_weight",
+        "change_survival_weight",
         "recency_reliability",
         "frequency_reliability",
         "blame_reliability",
         "review_reliability",
+        "change_survival_reliability",
     }
 )
 _V2_DECAY: frozenset[str] = frozenset({"threshold_days", "alert_on_decay"})
@@ -197,7 +201,9 @@ _V2_SECURITY: frozenset[str] = frozenset(
 _V2_BOTS: frozenset[str] = frozenset({"exclude", "additional"})
 _IDENTITY_OVERRIDE_KEYS: frozenset[str] = frozenset({"emails", "aliases", "service_account"})
 _V2_MODEL: frozenset[str] = frozenset({"ownership", "risk", "topology", "signals"})
-_V2_SIGNALS: frozenset[str] = frozenset({"recency", "frequency", "blame", "reviews"})
+_V2_SIGNALS: frozenset[str] = frozenset(
+    {"recency", "frequency", "blame", "reviews", "change_survival"}
+)
 
 _SIGNAL_FIELDS: dict[str, dict[str, str]] = {
     "recency": {
@@ -219,6 +225,10 @@ _SIGNAL_FIELDS: dict[str, dict[str, str]] = {
     "reviews": {
         "weight": "review_weight",
         "reliability": "review_reliability",
+    },
+    "change_survival": {
+        "weight": "change_survival_weight",
+        "reliability": "change_survival_reliability",
     },
 }
 
@@ -551,6 +561,14 @@ def _build_analysis_config(data: dict[str, Any]) -> AnalysisConfig:
     for key in ("max_runtime_seconds", "max_git_workers", "max_api_requests"):
         if key in data:
             kwargs[key] = _require_positive_int(data[key], f"analysis.{key}")
+    if "follow_renames" in data:
+        kwargs["follow_renames"] = _require_bool(data["follow_renames"], "analysis.follow_renames")
+    if "rename_similarity" in data:
+        similarity = _require_positive_int(data["rename_similarity"], "analysis.rename_similarity")
+        if similarity > 100:
+            msg = "analysis.rename_similarity must be from 1 to 100"
+            raise ValueError(msg)
+        kwargs["rename_similarity"] = similarity
     return AnalysisConfig(**kwargs)
 
 
@@ -724,6 +742,8 @@ def _build_scoring_config(data: dict[str, Any]) -> ScoringConfig:
         kwargs["blame_weight"] = float(data["blame_weight"])
     if "review_weight" in data:
         kwargs["review_weight"] = float(data["review_weight"])
+    if "change_survival_weight" in data:
+        kwargs["change_survival_weight"] = float(data["change_survival_weight"])
     if "recency_reliability" in data:
         kwargs["recency_reliability"] = float(data["recency_reliability"])
     if "frequency_reliability" in data:
@@ -732,6 +752,8 @@ def _build_scoring_config(data: dict[str, Any]) -> ScoringConfig:
         kwargs["blame_reliability"] = float(data["blame_reliability"])
     if "review_reliability" in data:
         kwargs["review_reliability"] = float(data["review_reliability"])
+    if "change_survival_reliability" in data:
+        kwargs["change_survival_reliability"] = float(data["change_survival_reliability"])
     scoring = ScoringConfig(**kwargs)
     if scoring.recency_half_life_floor_days >= scoring.recency_half_life_ceiling_days:
         msg = (

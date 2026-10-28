@@ -35,7 +35,7 @@ checkowners --no-incremental analyze
 checkowners --offline analyze
 ```
 
-`--allow-stale` reuses a map whose commit is not `HEAD`. `--max-age SECONDS` refuses a map older than that many seconds (`0` expires immediately). Omit it for no age limit. `--no-cache` neither reads nor writes the analysis cache. `--no-incremental` scores the full lookback and still writes a fresh baseline. A stored baseline is not used, and the reason is printed, when the scoring config, model ids, schema, repository identity, or package version differ, when the stored commit is missing or is not an ancestor of `HEAD`, when rename detection changed, or when the baseline does not cover the requested lookback. The first run has no baseline and does not print that notice. `--offline` makes no network calls and prints:
+`--allow-stale` reuses a map whose commit is not `HEAD`. `--max-age SECONDS` refuses a map older than that many seconds (`0` expires immediately). Omit it for no age limit. `--no-cache` neither reads nor writes the analysis cache. `--no-incremental` scores the full lookback and still writes a fresh baseline. A stored baseline is not used, and the reason is printed, when the scoring config, model ids, schema, repository identity, or package version differ, when the stored commit is missing or is not an ancestor of `HEAD`, when rename detection changed, when lineage settings changed, or when the baseline does not cover the requested lookback. The first run has no baseline and does not print that notice. `--offline` makes no network calls and prints:
 
 ```text
 Network access: disabled
@@ -43,7 +43,7 @@ Review evidence: unavailable
 Team verification: unavailable
 ```
 
-`checkowners cache path` prints the cache directory. `cache info` shows size, file counts, and each stored commit (`--json` for the same fields). `handles` is true when any per-repository handle file or a legacy `handles.json` is present. `cache clear` deletes analysis state and graph files and keeps handle files. `cache purge` deletes everything under the cache directory, including handle files and the identity graph. State and graph files are evicted oldest-first when they exceed 256 MiB. Handle files are not evicted; purge deletes them.
+`checkowners cache path` prints the cache directory. `cache info` shows size, file counts, each stored commit, blame-cache files, and the current repository: its `repo_id`, the state file path, and whether that file exists (`--json` for the same fields). It does not print contributor emails or the ownership map. Exit 0 when that state file exists, exit 1 when this repository has no state file, and exit 2 when the working directory is not a git repository. Both the default `~/.checkowners` directory and `CHECKOWNERS_STATE_DIR` are reported the same way. `handles` is true when any per-repository handle file or a legacy `handles.json` is present. `cache clear` deletes analysis state, graph files, and blame-cache files, and keeps handle files. `cache purge` deletes everything under the cache directory, including handle files and the identity graph. State, graph, and blame-cache files are evicted oldest-first when they exceed 256 MiB together. Handle files are not evicted; purge deletes them. `--verbose` prints `blame cache: hits=N misses=M` on stderr. `--no-cache` skips blame-cache reads and writes for that run.
 
 ## Configuration
 
@@ -63,6 +63,8 @@ analysis:
   max_runtime_seconds: 300    # stop blame when this elapses and mark the run incomplete
   max_git_workers: 16         # parallel git blame processes
   max_api_requests: 2000      # stop GitHub calls at this count and mark the run incomplete
+  follow_renames: true        # roll history onto the current path after a rename
+  rename_similarity: 50       # percent, 1 to 100; git's default similarity
 
 qualification:
   strategy: adaptive          # adaptive | threshold
@@ -70,25 +72,28 @@ qualification:
   strong_blame_override: 0.5  # adaptive: keep authors at or above this blame share
 
 model:
-  ownership: ownership-v1     # pin must match this release, or be omitted
+  ownership: ownership-v2     # pin must match this release, or be omitted
   risk: risk-v1
   topology: topology-v2
   signals:
     recency:
-      weight: 0.35
+      weight: 0.30
       strategy: adaptive      # adaptive | fixed; fixed uses half_life_days for every path
       half_life_days: 90      # fixed half-life, and the fallback when a path has no interval
       half_life_floor_days: 14
       half_life_ceiling_days: 730
       reliability: 1.0
     frequency:
-      weight: 0.25
+      weight: 0.20
       reliability: 1.0
     blame:
-      weight: 0.25
+      weight: 0.20
       reliability: 1.0
     reviews:
       weight: 0.15           # skipped (not zeroed) when github.api_enabled is false
+      reliability: 1.0
+    change_survival:
+      weight: 0.15           # skipped when blame did not run; a zero denominator is unavailable
       reliability: 1.0
 
 bots:
@@ -340,10 +345,11 @@ Each path-owner pair gets an `ownership_score` in `[0.0, 1.0]` from the availabl
 
 | Signal | Source | Weight (default) | Reliability (default) |
 |--------|--------|------------------|------------------------|
-| Recency | `exp(-ln 2 × days_since_last_commit / half_life)` | 0.35 | 1.0 |
-| Frequency | `commits / (max_commits_for_path + prior)` (`prior` is 3 under `adaptive`, 0 under `threshold`) | 0.25 | 1.0 |
-| Blame coverage | `git blame` porcelain lines / total lines, after `-w`, optional `-M`/`-C`, ignore-revs, and `.mailmap` when enabled | 0.25 | 1.0 |
+| Recency | `exp(-ln 2 × days_since_last_commit / half_life)` | 0.30 | 1.0 |
+| Frequency | `commits / (max_commits_for_path + prior)` (`prior` is 3 under `adaptive`, 0 under `threshold`) | 0.20 | 1.0 |
+| Blame coverage | `git blame` porcelain lines / total lines, after `-w`, optional `-M`/`-C`, ignore-revs, and `.mailmap` when enabled | 0.20 | 1.0 |
 | Review activity | PR reviews on pulls closed inside `analysis.review_lookback_days` (requires `github.api_enabled`) | 0.15 | 1.0 |
+| Change survival | Current blame lines divided by that person's blame lines at their last commit, on the lineage path. Line counts, not an AST diff. Unavailable when blame did not run or the older count is zero | 0.15 | 1.0 |
 
 ```text
 ownership_score  = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
@@ -362,7 +368,7 @@ Each owner also reports three evidence scores under `freshness`. They are not a 
 | `historical_expertise` | This person's commits divided by their commits plus commits by anyone else after them. |
 | `maintenance_recency` | The path's latest commit, decayed by the same half-life. |
 
-Continuity risk is a status, not a day-count boolean: `stable` (no warning), `inactive`, `superseded` (later commits by others outnumber this person's commits), or `departed` (inactive on every path). `decay.threshold_days` still marks `inactive` when the path has no commit interval. `historical_expertise` counts commits. It does not measure which lines survived.
+Continuity risk is a status, not a day-count boolean: `stable` (no warning), `inactive`, `superseded`, or `departed` (inactive on every path). When change survival is available and below `0.2` and someone else committed later, the status is `superseded`. At or above `0.2`, later commits do not mark the owner `superseded`. When the signal is unavailable, `superseded` still means later commits by others outnumber this person's commits. `decay.threshold_days` still marks `inactive` when the path has no commit interval. `historical_expertise` counts commits. Change survival is the line-level signal for which lines remained.
 
 ```mermaid
 flowchart LR
@@ -370,10 +376,12 @@ flowchart LR
     F[Frequency] --> S
     B[Blame] --> S
     V[Reviews] --> S
+    C[Change survival] --> S
     R --> Q[evidence_quality]
     F --> Q
     B --> Q
     V --> Q
+    C --> Q
     S --> Filter{meets threshold?}
     Filter -->|yes| Generate[CODEOWNERS owner]
     Filter -->|no| Drop[dropped]
@@ -385,9 +393,9 @@ Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path am
 
 Analyze JSON includes `analysis.ignore_revs_applied` and `analysis.ignore_revs_file` so you can see whether that correction ran. It also includes `analysis.mailmap_applied` / `analysis.mailmap_file` for `.mailmap`, and `analysis.excluded_gitattributes` / `analysis.excluded_static` for how many paths each exclusion mechanism dropped.
 
-Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way. Set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C`.
+Paths marked `linguist-generated` or `linguist-vendored` in `.gitattributes` are excluded first when `analysis.respect_gitattributes` is true (the default). `paths.exclude` is the fallback. Set `analysis.respect_gitattributes: false` to use only the static list. Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default `0.5`) are omitted from blame the same way. Set the fraction to `0` to disable. Set `git.detect_moves: false` to skip `-M` and `-C` on blame. `analysis.follow_renames` (default true) is separate: it follows renames and copies in `git log` so a renamed file keeps its history. `analysis.rename_similarity` is the percent git must see, from 1 to 100, default 50. Set `analysis.follow_renames: false` to score each literal path on its own. `explain` shows the prior names, the logical file id, and the rename confidence. A 300-file directory rename stays within 10 seconds for that lineage pass.
 
-Offline scores are no longer capped at `0.85`. A value of `0.72` means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `models.ownership`, `models.risk`, and `models.topology` (`ownership-v1`, `risk-v1`, `topology-v2`). Per-repo state is schema 1; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. `qualification.strategy: threshold` keeps a commit-count gate and undamped frequency:
+Offline scores are no longer capped at `0.85`. A value of `0.72` means the same thing with or without a token. The default qualification strategy is `adaptive`: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (`3` commits on an untouched path scores `0.5`, not `1.0`). Analyze JSON includes `models.ownership`, `models.risk`, and `models.topology` (`ownership-v2`, `risk-v1`, `topology-v2`). Per-repo state is schema 1; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. `qualification.strategy: threshold` keeps a commit-count gate and undamped frequency:
 
 ```yaml
 qualification:
@@ -398,13 +406,13 @@ analysis:
 
 A bare `analysis.min_commits: 3` without `strategy: threshold` stays adaptive: authors below the bar still qualify when blame is at least `strong_blame_override`.
 
-The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it covers every path that still has a human author after gitattributes, exclude, missing-file, and bot filters. Under `threshold` it still skips paths where no author reaches `min_commits`. Adaptive may therefore blame several times more paths than threshold; it does not blame excluded, deleted, or bot-only paths. On the 0.5.0 dogfood run, a 24k-commit, 12k-file production monorepo completed a full 365-day analyze in under three minutes. That figure is one measurement, not a published reproducible harness. See [METHODOLOGY.md](METHODOLOGY.md) for availability rules and the full formula.
+Blame coverage is cached by blob SHA, path, the blame flags (`-w`, `-M`, `-C`, and the mailmap flag), the ignore-revs file bytes, the mass-refactor revision list, and the `.mailmap` bytes. A hit stores integer line counts per author and rebuilds the same fractions as a fresh blame. The files live under `blame/` in the cache directory and share the 256 MiB cap with state and graph files. The blame pass runs on a thread pool sized to the CPU count. Under `adaptive` it covers every path that still has a human author after gitattributes, exclude, missing-file, and bot filters. Under `threshold` it still skips paths where no author reaches `min_commits`. Adaptive may therefore blame several times more paths than threshold; it does not blame excluded, deleted, or bot-only paths. Measured runtimes are in [benchmarks/README.md](../benchmarks/README.md). See [METHODOLOGY.md](METHODOLOGY.md) for availability rules and the full formula.
 
 ## Trends
 
 `checkowners trends` reconstructs one snapshot per period from `git log`. Each point's `historical_activity_confidence` is the mean top score across paths that still have a scored owner. `avg_qualified_owner_count` is the mean capped count for those paths. Both use recency and frequency only.
 
-The JSON payload sets `metric` to `historical_activity_confidence`, `model_version` to `historical-v1`, and `signals` to `recency` and `frequency`. `limitation` states that this is not `ownership_score` (`ownership-v1`, which can include blame and review). Human output prints the same sentence. Envelope `schema_version` stays `"1"`. The point field replaces `avg_top_confidence`.
+The JSON payload sets `metric` to `historical_activity_confidence`, `model_version` to `historical-v1`, and `signals` to `recency` and `frequency`. `limitation` states that this is not `ownership_score` (`ownership-v2`, which can include blame, review, and change survival). Human output prints the same sentence. Envelope `schema_version` stays `"1"`. The point field replaces `avg_top_confidence`.
 
 `--compare-ownership` asks to name `ownership_score` in the same report. Without `--acknowledge-different-metrics` the command exits 2 and does not print the pair. With both flags, JSON adds `compared_to` (`metric`, `model_version`, `signals`) and human output says the two metrics are not on one axis. The historical column still does not contain `ownership_score` values. Historical blame is not reconstructed.
 

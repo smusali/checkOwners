@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+from checkowners.analyze import analyze_ownership
 from checkowners.decay import detect_decay
 from checkowners.expertise import common_prefix_depth
 from checkowners.models import (
@@ -12,10 +13,12 @@ from checkowners.models import (
     Config,
     DecayConfig,
     DecayWarning,
+    GitConfig,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
 )
+from tests.conftest import GitRepo
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 _OLD = _NOW - timedelta(days=300)
@@ -201,3 +204,52 @@ def test_detect_decay_marks_a_former_owner() -> None:
     )
     reports = detect_decay(ownership, _zero_threshold())
     assert reports[0].contributor_status == "former"
+
+
+def test_surviving_lines_stay_inactive_then_departed(git_repo: GitRepo) -> None:
+    git_repo.commit_files(
+        {"src/quiet.py": "keep = 1\nstay = 2\n"},
+        "create",
+        author="Alice",
+        email="alice@example.com",
+        date="2026-01-01T12:00:00+00:00",
+    )
+    git_repo.write("src/quiet.py", "keep = 1\nstay = 2\nextra = 3\nmore = 4\n")
+    git_repo.commit(
+        "extend",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-01-02T12:00:00+00:00",
+    )
+    git_repo.write("src/quiet.py", "keep = 1\nstay = 2\nextra = 3\nmore = 4\nalso = 5\n")
+    git_repo.commit(
+        "extend again",
+        author="Bob",
+        email="bob@example.com",
+        date="2026-01-03T12:00:00+00:00",
+    )
+    when = datetime(2026, 8, 1, tzinfo=UTC)
+    config = Config(
+        analysis=AnalysisConfig(confidence_threshold=0.0, min_commits=1),
+        decay=DecayConfig(alert_on_decay=True, threshold_days=180),
+        git=GitConfig(mass_refactor_file_fraction=0.0),
+    )
+    ownership = analyze_ownership(
+        git_repo.path,
+        config,
+        as_of=when,
+        analysis_ref=git_repo.head_sha(),
+    )
+    alice = next(
+        owner
+        for owner in ownership.paths["src/quiet.py"].owners
+        if owner.handle == "alice@example.com"
+    )
+    assert alice.freshness is not None
+    assert alice.score_breakdown is not None
+    assert alice.score_breakdown.change_survival.score >= 0.2
+    assert alice.freshness.status == "inactive"
+    reports = detect_decay(ownership, config)
+    departed = [report for report in reports if report.warning.handle == "alice@example.com"]
+    assert departed
+    assert departed[0].warning.status == "departed"

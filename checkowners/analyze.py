@@ -24,14 +24,8 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Literal
 
+from checkowners.config import load_config
 from checkowners.expertise import fnmatch_posix, path_matches_glob
-from checkowners.github import (
-    collection_gaps,
-    note_metric,
-    reset_review_window,
-    review_was_omitted,
-    review_window,
-)
 from checkowners.identity import bot_identities, is_bot_identity, mechanical_authors
 from checkowners.models import (
     AnalysisCompleteness,
@@ -53,6 +47,16 @@ from checkowners.models import (
     history_evidence_gaps,
     merge_gaps,
     with_gaps,
+)
+from checkowners.providers import (
+    LayeredOwnership,
+    collection_gaps,
+    note_metric,
+    path_evidence,
+    reconcile_layers,
+    reset_review_window,
+    review_was_omitted,
+    review_window,
 )
 from checkowners.state import (
     BlameLines,
@@ -269,6 +273,18 @@ def consume_analysis_outcome() -> AnalysisOutcome | None:
     outcome = _PENDING_OUTCOME.get()
     _PENDING_OUTCOME.set(None)
     return outcome
+
+
+class RepositoryAnalyzer:
+    def __init__(self, root: Path, config: Config | None = None) -> None:
+        self.root = root
+        self.config = load_config(root) if config is None else config
+
+    def analyze(self) -> OwnershipMap:
+        return analyze_ownership(self.root, self.config)
+
+    def reconcile(self) -> tuple[LayeredOwnership, ...]:
+        return reconcile_layers(self.root, self.analyze(), self.config)
 
 
 def analysis_epoch(when: datetime) -> str:
@@ -764,6 +780,15 @@ def _build_path_ownerships(
         decay = _detect_decay(path, qualified, top, config.decay.threshold_days, now)
         qualified_owner_count = _count_qualified_owners(top, config.analysis.confidence_threshold)
         events, cadence, coupling = activity.get(path, (None, None, None))
+        evidence = path_evidence(
+            path,
+            qualified,
+            path_blame,
+            path_review,
+            blame_available=path in blame_coverage,
+            review_available=review_available,
+            survival=survival_by_path.get(path),
+        )
         result[path] = PathOwnership(
             owners=top,
             qualified_owner_count=qualified_owner_count,
@@ -773,6 +798,7 @@ def _build_path_ownerships(
             change_events=events,
             cadence_days=cadence,
             cochange_degree=coupling,
+            evidence=evidence,
         )
     return dict(sorted(result.items()))
 

@@ -58,6 +58,8 @@ formula renormalizes over those two signals. That score is
 
 JSON from `analyze` emits `ownership_score`. `analysis.confidence_threshold` still gates this number.
 
+The score is an interpretation of stored observations. Each analyzed path keeps the commit, blame, and review facts that `score_owners` already used: commit count, last commit, credit, cadence, blame share, and review fraction. A later scoring pass rebuilds those inputs from the stored facts and calls `score_owners` again. Changing a weight does not require another git or API pass. Command JSON does not add these records. They stay on the library object and in the state file.
+
 ## Evidence quality
 
 Evidence quality is a separate quantity and is never folded into the score:

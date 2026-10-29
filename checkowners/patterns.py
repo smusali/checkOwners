@@ -59,25 +59,54 @@ class CodeownersRule:
     owners: tuple[str, ...]
     line_number: int
     source: RuleSource = "unmarked"
+    section: str = ""
+    approvals: int = 1
+    optional: bool = False
 
 
-def parse_rules(content: str) -> tuple[CodeownersRule, ...]:
+_SECTION_HEADER = re.compile(r"(\^)?\[([^\]]+)\](?:\[(\d+)\])?")
+
+
+def gitlab_section(line: str) -> tuple[str, int, bool] | None:
+    """Return `(name, approvals, optional)` when `line` is a GitLab section header."""
+    parts = split_escaped(line)
+    if not parts:
+        return None
+    match = _SECTION_HEADER.fullmatch(parts[0])
+    if match is None or "/" in match.group(2):
+        return None
+    count = int(match.group(3)) if match.group(3) else 1
+    return match.group(2), count if count >= 1 else 1, match.group(1) == "^"
+
+
+def parse_rules(content: str, *, dialect: str = "github") -> tuple[CodeownersRule, ...]:
     """Parse CODEOWNERS text into ordered rules (comments and blanks skipped).
 
     A pattern with no owners is kept: GitHub uses owner-less rules to exempt
     paths from a broader earlier rule.
     """
     rules: list[CodeownersRule] = []
+    section = ""
+    approvals = 1
+    optional = False
     for line_number, raw_line in enumerate(content.splitlines(), start=1):
         line = strip_inline_comment(raw_line).strip()
         if not line:
             continue
+        if dialect == "gitlab":
+            header = gitlab_section(line)
+            if header is not None:
+                section, approvals, optional = header
+                continue
         parts = split_escaped(line)
         rules.append(
             CodeownersRule(
                 pattern=parts[0],
                 owners=tuple(parts[1:]),
                 line_number=line_number,
+                section=section,
+                approvals=approvals,
+                optional=optional,
             )
         )
     return tuple(rules)
@@ -141,9 +170,9 @@ def marker_layout(content: str) -> MarkerLayout:
     )
 
 
-def rules_with_source(content: str) -> tuple[CodeownersRule, ...]:
+def rules_with_source(content: str, *, dialect: str = "github") -> tuple[CodeownersRule, ...]:
     """Return rules parsed from `content`, tagged by marker source."""
-    rules = parse_rules(content)
+    rules = parse_rules(content, dialect=dialect)
     sources = marker_layout(content).sources
     if not sources:
         return rules

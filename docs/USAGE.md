@@ -510,9 +510,25 @@ Within one dependency rank, files sort by qualified-owner count, then `change_ev
 
 The report lists unavailable signals in one place: code complexity, test coverage, documentation coverage, dependency order when no import graph was built, and domain criticality when no rule matches. Mentor candidates are qualified owners on the selected steps whose `contributor_status` is not `former`, `inactive`, or `bot`. They are ranked by how many of those steps have another qualified owner, then by fewer commits, then by handle, and the list is capped at three. `--json` is schema `1` (`#/$defs/onboard`). `output.aggregate_only` drops `mentor_candidates`. `output.anonymize` rewrites the handles.
 
+## Library
+
+`RepositoryAnalyzer` is the supported library surface. Construct it with a repository path and an optional `Config`. `analyze()` returns the same ownership map the CLI scores, with commit, blame, and review observations attached to each path. `reconcile()` returns declared-local owners (the nearest `OWNERS` file and any nested `CODEOWNERS`), declared-global owners (the repository `CODEOWNERS` match), and observed owners at file, directory, package, service, and repository scope. Package roots contain `pyproject.toml`, `package.json`, `go.mod`, or `Cargo.toml`. A service root contains `catalog-info.yaml`, and its `spec.owner` is a declared-local owner when that field is set.
+
+Those observations are also stored on each path in the state file. Scoring them again uses the same `score_owners` function and does not read git or GitHub. This surface follows the breaking-change policy in [CONTRIBUTING.md](CONTRIBUTING.md#breaking-changes).
+
+```python
+from checkowners import RepositoryAnalyzer
+
+analyzer = RepositoryAnalyzer("/path/to/repo")
+ownership = analyzer.analyze()
+layers = analyzer.reconcile()
+```
+
 ## Generated CODEOWNERS
 
 `checkowners generate` consolidates per-file inference into directory-level rules: when every inferred file under a directory shares the same owner set, one `/dir/ @owners` line replaces the per-file lines. That keeps the file reviewable and means brand-new files under the directory match a rule. Directories whose files disagree keep per-file lines. Set `output.consolidate: false` for raw per-file output. A sanitized generated file is [examples/sample-CODEOWNERS](../examples/sample-CODEOWNERS). Reference configs for a solo maintainer and an organization with teams are under [examples/](../examples/).
+
+`generate` and `validate` accept `--dialect github|gitlab|bitbucket|gerrit`. The default is `github`, and that output is the GitHub CODEOWNERS file described below, including the `.github/CODEOWNERS` path. `gitlab` writes one section per top-level directory. The header is `[Name][1]`. Root files use `[Repository][1]`. A section is optional (`^[Name]`) only when every owner on that directory is below the confidence threshold. An approval count on an input header is kept. A count below 1 is read as 1. `bitbucket` and `gerrit` are accepted names and exit 2 because those forges are not rendered. `validate --dialect gitlab` accepts `[Section]`, `[Section][n]`, and `^[Section]` headers. GitHub validation does not.
 
 After building the file, generate re-resolves every path that contributed a rule with the same pattern engine used by drift (`last matching rule wins`) and fails if any path's owners differ from the set generation assigned. The error names the path, the intended owners, the resolved owners, and the winning rule line. Set `output.verify_round_trip: false` to skip this check. `--force` does not skip it. `sync` runs the same verification before it opens a pull request or, with `--commit`, before it commits.
 

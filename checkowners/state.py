@@ -46,6 +46,7 @@ from checkowners.models import (
     FreshnessStatus,
     GapCode,
     OwnerEntry,
+    OwnershipEvidence,
     OwnershipFreshness,
     OwnershipMap,
     PathOwnership,
@@ -57,6 +58,7 @@ from checkowners.models import (
     models_payload,
 )
 from checkowners.privacy import stored_identity
+from checkowners.providers import evidence_from_payload, evidence_payload
 
 SCHEMA_VERSION: int = 1
 CACHE_LIMIT_BYTES: int = 256 * 1024 * 1024
@@ -1167,6 +1169,15 @@ def _serialize_path(po: PathOwnership, cap: int) -> dict[str, Any]:
         payload["cadence_days"] = po.cadence_days
     if po.cochange_degree is not None:
         payload["cochange_degree"] = po.cochange_degree
+    if po.evidence:
+        payload["evidence"] = [_serialize_evidence(record) for record in po.evidence]
+    return payload
+
+
+def _serialize_evidence(record: OwnershipEvidence) -> dict[str, str | float | int]:
+    payload = evidence_payload(record)
+    payload["subject"] = stored_identity(record.subject)
+    payload["path"] = record.path
     return payload
 
 
@@ -1345,7 +1356,19 @@ def _deserialize_path(raw: dict[str, Any]) -> PathOwnership | None:
         change_events=_read_optional_int(raw.get("change_events")),
         cadence_days=_read_number(raw.get("cadence_days")),
         cochange_degree=_read_number(raw.get("cochange_degree")),
+        evidence=_deserialize_evidence(raw.get("evidence")),
     )
+
+
+def _deserialize_evidence(raw: object) -> tuple[OwnershipEvidence, ...]:
+    if not isinstance(raw, list):
+        return ()
+    records: list[OwnershipEvidence] = []
+    for item in raw:
+        parsed = evidence_from_payload("", item)
+        if parsed is not None:
+            records.append(parsed)
+    return tuple(records)
 
 
 def _read_qualified_owner_count(raw: dict[str, Any]) -> int:

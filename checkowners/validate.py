@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from checkowners.patterns import split_escaped, strip_inline_comment
+from checkowners.patterns import gitlab_section, split_escaped, strip_inline_comment
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 SyntaxClass = Literal["negation", "brackets", "malformed_owner"]
@@ -39,22 +39,24 @@ def validate_codeowners(
     repo_root: Path,
     *,
     codeowners_path: Path | None = None,
+    dialect: str = "github",
 ) -> list[ValidationFinding]:
     """Validate CODEOWNERS syntax and return a list of errors."""
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     if not target.exists():
         return [ValidationFinding(line_number=0, line="", message="CODEOWNERS file not found")]
     content = target.read_text(encoding="utf-8")
-    return _validate_lines(content)
+    return _validate_lines(content, dialect=dialect)
 
 
-def _validate_lines(content: str) -> list[ValidationFinding]:
+def _validate_lines(content: str, *, dialect: str = "github") -> list[ValidationFinding]:
     """Validate each line of CODEOWNERS content."""
     errors: list[ValidationFinding] = []
     for line_number, raw_line in enumerate(content.splitlines(), start=1):
-        # Strip inline comment so confidence annotations don't fail validation.
         line = strip_inline_comment(raw_line.strip()).strip()
         if not line:
+            continue
+        if dialect == "gitlab" and gitlab_section(line) is not None:
             continue
         errors.extend(_validate_entry(line_number, line))
     return errors

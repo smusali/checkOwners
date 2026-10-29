@@ -7,7 +7,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 import checkowners.graph as graph_module
-from checkowners.models import Config, GithubConfig, OwnerEntry, OwnershipMap, TeamCluster
+from checkowners.models import Config, OwnerEntry, OwnershipMap, TeamCluster
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -116,12 +116,6 @@ def infer_topology(
         signals_unavailable=unavailable,
         comparisons=comparisons,
     )
-
-
-def declared_teams_from_github(config: Config) -> dict[str, frozenset[str]] | None:
-    if not config.github.api_enabled:
-        return None
-    return _fetch_teams(config.github)
 
 
 def _signal_lists(review_used: bool) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -514,24 +508,3 @@ def _bare(handle: str) -> str:
     if text.startswith("@"):
         return text[1:]
     return text
-
-
-def _fetch_teams(github: GithubConfig) -> dict[str, frozenset[str]] | None:
-    if not github.org:
-        return None
-    try:
-        from checkowners.github import (  # noqa: PLC0415
-            _get_org_teams,
-            get_github_client,
-            get_github_token,
-        )
-    except ImportError:
-        return None
-    token = get_github_token()
-    if not token:
-        return None
-    client = get_github_client(token)
-    if client is None:
-        return None
-    raw = _get_org_teams(client, github.org)
-    return {team: frozenset(members) for team, members in raw.items()}

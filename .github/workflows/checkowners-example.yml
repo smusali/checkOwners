@@ -28,6 +28,7 @@ jobs:
         uses: ./  # zizmor: ignore[self-repository]
         with:
           mode: both
+          baseline: .checkowners-baseline.json
           # Keep the action non-failing so the label + fail steps below still
           # run; this workflow gates the merge with its own final step.
           fail_on_drift: "false"

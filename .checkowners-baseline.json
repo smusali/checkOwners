@@ -79,13 +79,6 @@
     },
     {
       "owners": [
-        "@smusali"
-      ],
-      "path": ".github/workflows/docs.yml",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
         "samir.musali@gmail.com"
       ],
       "path": ".github/workflows/docs.yml",
@@ -124,13 +117,6 @@
         "samir.musali@gmail.com"
       ],
       "path": ".pre-commit-config.yaml",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "@smusali"
-      ],
-      "path": "CITATION.cff",
       "rule": "single-expert"
     },
     {
@@ -415,23 +401,9 @@
     },
     {
       "owners": [
-        "@smusali"
-      ],
-      "path": "docs/cli.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
         "samir.musali@gmail.com"
       ],
       "path": "docs/cli.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "@smusali"
-      ],
-      "path": "docs/concepts.md",
       "rule": "single-expert"
     },
     {
@@ -443,23 +415,9 @@
     },
     {
       "owners": [
-        "@smusali"
-      ],
-      "path": "docs/decisions.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
         "samir.musali@gmail.com"
       ],
       "path": "docs/decisions.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "@smusali"
-      ],
-      "path": "docs/guides.md",
       "rule": "single-expert"
     },
     {
@@ -471,23 +429,9 @@
     },
     {
       "owners": [
-        "@smusali"
-      ],
-      "path": "docs/index.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
         "samir.musali@gmail.com"
       ],
       "path": "docs/index.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "@smusali"
-      ],
-      "path": "docs/internals.md",
       "rule": "single-expert"
     },
     {
@@ -502,13 +446,6 @@
         "samir.musali@gmail.com"
       ],
       "path": "docs/limitations.md",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "@smusali"
-      ],
-      "path": "docs/reference.md",
       "rule": "single-expert"
     },
     {
@@ -583,13 +520,6 @@
     },
     {
       "owners": [
-        "@smusali"
-      ],
-      "path": "mkdocs.yml",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
         "samir.musali@gmail.com"
       ],
       "path": "mkdocs.yml",
@@ -600,13 +530,6 @@
         "samir.musali@gmail.com"
       ],
       "path": "pyproject.toml",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "@smusali"
-      ],
-      "path": "requirements-docs.in",
       "rule": "single-expert"
     },
     {
@@ -831,13 +754,6 @@
         "samir.musali@gmail.com"
       ],
       "path": "tools/check_changelog.py",
-      "rule": "single-expert"
-    },
-    {
-      "owners": [
-        "@smusali"
-      ],
-      "path": "tools/check_docs.py",
       "rule": "single-expert"
     },
     {

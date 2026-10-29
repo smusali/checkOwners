@@ -12,6 +12,7 @@ Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0]
 
 ### Added
 - A documentation site, published from this repository, with search, a version per release, and the adoption guide for an existing large repository.
+- `.checkowners-baseline.json` is excluded from analysis by default, so refreshing the accepted-findings file does not create a single-expert finding about the file itself.
 - The contributor guide names the maintainer seat, the contributor ladder, the open-core boundary, the zero-telemetry guarantee, the AI-assisted review process, semantic versioning, and the release pipeline. Architectural decisions are in [docs/decisions.md](decisions.md). `CITATION.cff` records citation metadata.
 - `RepositoryAnalyzer` is the library entry point. `analyze()` returns scored ownership with the commit, blame, and review observations stored on each path. The same observations are written into the state file and can be scored again with `score_owners` without another git or API pass. A state file written before this field still loads.
 - `generate` and `validate` take `--dialect github|gitlab|bitbucket|gerrit`. GitHub output is unchanged. GitLab writes one `[Section][1]` per top-level directory, and `^[Section]` only when every owner on that directory is below the confidence threshold. Bitbucket and Gerrit exit 2. `RepositoryAnalyzer.reconcile()` reports declared-local, declared-global, and observed owners at file, directory, package, service, and repository scope.

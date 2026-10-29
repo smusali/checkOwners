@@ -1,0 +1,1360 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://smusali.github.io/checkowners/dev/limitations/">
+      
+      
+        <link rel="prev" href="../PRIVACY/">
+      
+      
+        <link rel="next" href="../GLOSSARY/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Limitations - CheckOwners</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#limitations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="CheckOwners" class="md-header__button md-logo" aria-label="CheckOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            CheckOwners
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Limitations
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="CheckOwners" class="md-nav__button md-logo" aria-label="CheckOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    CheckOwners
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Internals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../METHODOLOGY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Patterns and caching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../USAGE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FAQ/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PRIVACY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limitations
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-tool-can-be-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the tool can be wrong
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-repository-evidence-can-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What repository evidence can support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-repository-evidence-cannot-prove" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What repository evidence cannot prove
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inferred-clusters-are-not-teams" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inferred clusters are not teams
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-ownership-graph-is-not-a-system-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The ownership graph is not a system model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#onboarding-suggestions-are-not-a-curriculum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Onboarding suggestions are not a curriculum
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#git-history-is-incomplete-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Git history is incomplete evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#blame-corrections-have-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Blame corrections have limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codeowners-is-policy-not-a-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CODEOWNERS is policy, not a measurement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#github-data-is-optional-and-partial" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub data is optional and partial
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#historical-trend-scores-use-different-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Historical trend scores use different data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-resolution-can-be-ambiguous" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity resolution can be ambiguous
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#completeness-is-reported-not-implied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Completeness is reported, not implied
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#published-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Published reports
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GLOSSARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../false-positives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    False positives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/smusali/checkowners/blob/main/SECURITY.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h1>
+<p>CheckOwners infers a ranking from repository evidence. That ranking can be
+wrong. Observed history is evidence, not authority.</p>
+<h2 id="where-the-tool-can-be-wrong">Where the tool can be wrong<a class="headerlink" href="#where-the-tool-can-be-wrong" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Git history is not complete human expertise.</li>
+<li>Squash merges hide authors who are absent from the commit and its <code>Co-authored-by</code> trailers.</li>
+<li>Blame can over-credit formatting changes.</li>
+<li>CODEOWNERS may intentionally differ from repository evidence.</li>
+<li>GitHub team analysis requires API access.</li>
+<li>Review history availability affects evidence.</li>
+<li>Historical trend scores use different data.</li>
+<li>Identity resolution can be ambiguous.</li>
+</ul>
+<h2 id="what-repository-evidence-can-support">What repository evidence can support<a class="headerlink" href="#what-repository-evidence-can-support" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Contribution frequency inside the lookback window.</li>
+<li>Recency of the last commit on a path.</li>
+<li>Current-line attribution, after the blame corrections that actually ran.</li>
+<li>Review participation, when a review provider returned data.</li>
+<li>Concentrated activity, as score mass on the truncated owner list.</li>
+<li>Stale CODEOWNERS rules, when declared owners and inferred owners diverge.</li>
+<li>Changing patterns across trend periods that share the same two signals.</li>
+<li>Possible continuity risk, classified as <code>inactive</code>, <code>superseded</code>, or <code>departed</code>. <code>stable</code> is not a warning. A path with no commit interval still uses <code>decay.threshold_days</code>.</li>
+<li>Possible reviewer affinity, from commits or from recorded reviews.</li>
+</ul>
+<h2 id="what-repository-evidence-cannot-prove">What repository evidence cannot prove<a class="headerlink" href="#what-repository-evidence-cannot-prove" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Formal team ownership. Inferred clusters are a hypothesis, not an org chart.</li>
+<li>Architectural decision authority.</li>
+<li>Organizational accountability.</li>
+<li>Operational ownership.</li>
+<li>Incident responsibility.</li>
+<li>Compliance responsibility.</li>
+<li>Security responsibility.</li>
+<li>Current employment.</li>
+<li>Reviewer availability.</li>
+<li>Business ownership.</li>
+<li>Managerial accountability.</li>
+</ul>
+<p><code>qualified_owner_count</code> is a capped count, not a truck factor. <code>top_owner_share</code>,
+<code>effective_owners</code>, <code>truck_factor_50</code>, <code>truck_factor_75</code>, and <code>truck_factor_90</code>
+describe score mass after the confidence threshold and before <code>top_n_owners</code>
+truncation. They are not a repository removal simulation. See
+<a href="../METHODOLOGY/">Methodology</a>.</p>
+<h2 id="inferred-clusters-are-not-teams">Inferred clusters are not teams<a class="headerlink" href="#inferred-clusters-are-not-teams" title="Permanent link">&para;</a></h2>
+<p><code>checkowners topology</code> uses weighted Louvain. The result changes with <code>--resolution</code> and with the seed. The published run fixes the seed at <code>0</code> and reports modularity plus stability across seeds <code>0</code> through <code>4</code>. A chain of collaborators can still be split or joined for reasons that are not team boundaries. Co-change and temporal overlap are not in the weight. Missing review scores are omitted, not treated as zero. A person can be affiliated with a second cluster. That overlap is a threshold on edge weight, not a survey of the organization. Confirm the hypothesis before acting on it.</p>
+<h2 id="the-ownership-graph-is-not-a-system-model">The ownership graph is not a system model<a class="headerlink" href="#the-ownership-graph-is-not-a-system-model" title="Permanent link">&para;</a></h2>
+<p>The graph has contributors, files, directories, the repository, teams from CODEOWNERS, and CODEOWNERS rules. It does not have packages, services, commits, pull requests, reviews, incidents, or domains. Python import edges are limited to files already in the ownership map. Articulation points, betweenness, orphan files, and a transfer path describe that graph. They do not identify a service owner or a handover plan.</p>
+<h2 id="onboarding-suggestions-are-not-a-curriculum">Onboarding suggestions are not a curriculum<a class="headerlink" href="#onboarding-suggestions-are-not-a-curriculum" title="Permanent link">&para;</a></h2>
+<p><code>checkowners onboard</code> can order steps from resolved Python imports. It does not know code complexity, test coverage, or documentation coverage, and it says so. A mentor candidate is a qualified owner who is not <code>former</code>, <code>inactive</code>, or <code>bot</code>, ranked by how often someone else also qualifies on the selected steps. The list is not an assignment and it is not a measure of who has time.</p>
+<h2 id="git-history-is-incomplete-evidence">Git history is incomplete evidence<a class="headerlink" href="#git-history-is-incomplete-evidence" title="Permanent link">&para;</a></h2>
+<p>Git attribution is not a complete engineering contribution history. Analyze
+reports <code>merge_strategy</code> and <code>co_author_count</code> so that gap is visible.
+<code>git.merge_strategy: auto</code> detects the dominant style in the lookback window.
+An explicit <code>squash</code>, <code>merge</code>, or <code>rebase</code> is reported as given. Detection
+does not change which commits are read. <code>git log</code> walks every parent. It does
+not pass <code>-m</code> or <code>--first-parent</code>: <code>-m</code> would count a merge's files twice, and
+<code>--first-parent</code> would hide the authors on the merged branch.</p>
+<ul>
+<li><strong>auto.</strong> If at least 5% of commits in the window have two or more parents,
+  the strategy is <code>merge</code>. Otherwise, if at least half of the remaining
+  commits have a subject ending in <code>(#&lt;number&gt;)</code>, the strategy is <code>squash</code>.
+  Otherwise, including an empty window, it is <code>rebase</code>.</li>
+<li><strong>squash.</strong> One commit stands in for the change. Other authors are recovered
+  only from <code>Co-authored-by</code> trailers when <code>git.count_co_authors</code> is true.
+  Each credited person is scored on every file in that commit, with
+  <code>git.co_author_weight</code> relative to the author's <code>1</code>. Blame still names only
+  the commit author. Reviewers, and authors left off the trailer, are not
+  recovered. Pull-request participant lists are not read.</li>
+<li><strong>merge.</strong> Commits that were merged keep their own files and authors. The
+  merge commit itself adds no file credit. A trailer on a merged commit still
+  credits that co-author.</li>
+<li><strong>rebase.</strong> Each replayed commit keeps its author. A trailer credits an
+  extra person on that commit. It does not stand in for commits the rebase
+  dropped.</li>
+</ul>
+<p><code>git.count_co_authors: false</code> scores only the commit author and reports
+<code>co_author_count: 0</code>.</p>
+<p>A <code>Co-authored-by</code> line counts only in the form <code>Name &lt;email&gt;</code>. The key is
+case-insensitive. Any other trailer is ignored and does not fail the run. The
+same email twice on one commit counts once. A trailer that is the author, or
+that <code>.mailmap</code> maps to the author, is not a second person. Co-author emails
+use the same <code>.mailmap</code> mapping, bot filter, and handle resolution as authors.
+Blame does not split lines across co-authors.</p>
+<ul>
+<li>Unmapped emails stay distinct. <code>.mailmap</code> (on by default) collapses
+  addresses the repository already listed; anything left unmapped is still
+  two identities until handle resolution merges them.</li>
+<li>History follows renames when <code>analysis.follow_renames</code> is true (the default),
+  using <code>-M</code> and <code>-C</code> at <code>analysis.rename_similarity</code> (default 50). A copy of
+  an unmodified file is not linked, because finding those copies compares the
+  new file with every unchanged file. <code>analysis.follow_renames: false</code> scores
+  each literal path on its own. <code>-M</code> and <code>-C</code> on blame still only attribute
+  lines moved inside one commit. <code>explain</code> lists the prior names used for
+  scoring when follow is on, and the <code>git log --follow</code> name list when it is off.</li>
+</ul>
+<h2 id="blame-corrections-have-limits">Blame corrections have limits<a class="headerlink" href="#blame-corrections-have-limits" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Ignore-revs applies only when <code>.git-blame-ignore-revs</code> (or the configured
+  path, or <code>blame.ignoreRevsFile</code>) exists. Repositories that never listed a
+  formatter commit still get mass-refactor omission when that commit
+  modified at least <code>git.mass_refactor_file_fraction</code> of tracked files.</li>
+<li>Mass-refactor detection is a file-count heuristic on modifications. A
+  large feature that edits half the tree can be omitted from blame the same
+  way a formatter is. Set the fraction to <code>0</code> to disable.</li>
+<li>Whitespace-only edits are ignored (<code>-w</code>). Token-changing formatters still
+  need ignore-revs or the mass-refactor threshold.</li>
+<li>Blame can still over-credit a formatting change that is not whitespace-only
+  and is below the mass-refactor fraction.</li>
+</ul>
+<h2 id="codeowners-is-policy-not-a-measurement">CODEOWNERS is policy, not a measurement<a class="headerlink" href="#codeowners-is-policy-not-a-measurement" title="Permanent link">&para;</a></h2>
+<p>CODEOWNERS may intentionally differ from inferred expertise. A security team,
+a compliance owner, or an on-call rotation can be the right declared owner
+when git history points at someone else. Drift reports that difference. It
+does not decide which side should win.</p>
+<p>GitHub skips any CODEOWNERS line that uses <code>[ ]</code> as a character range. Paths such
+as <code>routes/[id]/page.tsx</code> therefore cannot be represented exactly. Generate
+rewrites bracket segments to <code>*</code> only when every inferred path the wildcard
+matches shares the same owners. When owners differ, the default is per-file
+rules rather than a wildcard that assigns review to people who did not earn
+those paths. Literal fallback lines with <code>[...]</code> are also skipped by GitHub;
+<code>--allow-broad-patterns</code> opts into the broader <code>*</code> rule.</p>
+<h2 id="github-data-is-optional-and-partial">GitHub data is optional and partial<a class="headerlink" href="#github-data-is-optional-and-partial" title="Permanent link">&para;</a></h2>
+<p>GitHub team analysis requires API access. Without a token that can list the
+organization, team membership is unverifiable. Offline mode does not call the
+network.</p>
+<p>Review history availability affects evidence. With no review provider, the
+review signal is unavailable: it is omitted from <code>ownership_score</code> and it
+lowers <code>evidence_quality</code>. A missing review history is not a score of zero
+and it is not evidence that nobody reviewed the path.</p>
+<p><code>suggest</code> labels that gap as <code>load_signal: git_authorship_proxy</code>. The JSON
+field <code>reviews</code> then holds commit totals. Those totals are not review load,
+and the command does not recommend a person from them. When the API sample
+exists, the label is <code>github_completed_reviews</code>. The ownership review factor
+uses pulls closed inside <code>analysis.review_lookback_days</code>, which follows
+<code>analysis.lookback_days</code> when omitted. Two repositories with the same
+in-window reviewers and paths get the same review shares even when one ships
+faster. <code>reviews_sampled</code> is how many closed pulls were included.
+<code>reviews_window_days</code> is the span back to the oldest of those pulls. A young
+repository can show a shorter span with no warning, because the pull list
+ended. A recently updated pull that closed before the window is not part of
+the signal, but walking those updates can spend <code>analysis.max_api_requests</code>
+before the window is filled. That stop is a gap whose reason starts with
+<code>Review window truncated:</code>, and it lowers <code>analysis_completeness</code>. It is not
+a silent short window. Suggest still reads the 200 most recently updated
+closed pull requests, and open pull requests, also capped at 200, are only
+the current waiting queue. <code>median_response_time_hours</code>
+is pull open to first submitted review, not the time from the review request.
+<code>pr_complexity</code> is the median number of changed lines, not a calibrated
+complexity score. <code>review_concentration</code> is per analyzed path, and only when
+recorded reviews exist.</p>
+<h2 id="historical-trend-scores-use-different-data">Historical trend scores use different data<a class="headerlink" href="#historical-trend-scores-use-different-data" title="Permanent link">&para;</a></h2>
+<p><code>trends</code> reconstructs each period from <code>git log</code> only. The series is
+<code>historical_activity_confidence</code> (<code>model_version</code> <code>historical-v1</code>, signals
+recency and frequency). <code>avg_qualified_owner_count</code> uses those same scores.
+<code>ownership_score</code> is <code>ownership-v2</code> and can include blame, review, and change
+survival. Change survival compares blame line counts at the current blob and
+at that person's last commit. It is not an AST comparison. The two
+numbers are not the same metric. The command prints that limitation. Naming
+<code>ownership_score</code> in the same report requires <code>--compare-ownership</code> and
+<code>--acknowledge-different-metrics</code>, and still does not plot <code>ownership_score</code>
+values on the historical series.</p>
+<p>Historical blame is not reconstructed. It stays unavailable until a published
+benchmark shows the cost is acceptable.</p>
+<p><code>historical_confidence</code> on a continuity-risk warning is the present
+<code>ownership_score</code> of an owner whose freshness status is not <code>stable</code>. It is
+not <code>historical_activity_confidence</code> and it is not a score from an earlier
+period. <code>active_expertise</code>, <code>historical_expertise</code>, and <code>maintenance_recency</code>
+are evidence scores, not a measurement of what a person knows.
+<code>historical_expertise</code> does not measure which lines survived.</p>
+<h2 id="identity-resolution-can-be-ambiguous">Identity resolution can be ambiguous<a class="headerlink" href="#identity-resolution-can-be-ambiguous" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Private emails and accounts that do not appear in the GitHub search API
+  stay unresolved.</li>
+<li>User search matches a public profile email and can attach the wrong account.
+  A search hit may relabel one email. It does not collapse two owners.</li>
+<li>Two people who share an address, or one person who never listed both
+  addresses in <code>.mailmap</code> or <code>identities</code>, can be split or merged incorrectly.
+  <code>identity.do_not_merge</code> and <code>identity unmerge</code> keep a named pair apart.</li>
+<li>Noreply addresses resolve to a login locally. A commit linked to an account
+  resolves from <code>author.login</code>. Other addresses need a configured identity, a
+  cache hit, search, or they remain raw emails.</li>
+<li><code>former</code> is roster-only. A person who is not on the roster and is absent
+  from the org is <code>external</code> when the member list was fetched, not <code>former</code>.
+  Commit dates never assign <code>former</code>.</li>
+<li>A login ending in <code>[bot]</code>, an account type of <code>Bot</code>, a known dependency
+  address, <code>bots.additional</code>, or <code>identities.*.service_account</code> is a bot.
+  The substring <code>bot</code> in a human name is not. A long run of identical subjects
+  caps frequency credit and does not delete the author.</li>
+</ul>
+<h2 id="completeness-is-reported-not-implied">Completeness is reported, not implied<a class="headerlink" href="#completeness-is-reported-not-implied" title="Permanent link">&para;</a></h2>
+<p>A run with a missing token, a shallow clone, an exhausted API or runtime
+budget, unresolved identities, or a skipped team comparison still prints an
+ownership table. The summary includes <code>analysis completeness</code> and one reason
+per missing source. That percentage is not a finding, and a missing source is
+not evidence that a person did not do the work. <code>--fail-on-incomplete</code> and
+<code>policy.incomplete_analysis.fail</code> are how strict CI turns that report into
+exit code 3.</p>
+<h2 id="published-reports">Published reports<a class="headerlink" href="#published-reports" title="Permanent link">&para;</a></h2>
+<p>An HTML report and a public audit are knowledge-risk descriptions. They are not a performance measurement. Each one repeats that limit, states that inference can be wrong, and tells a maintainer how to ask for the repository to be removed: open an issue on the checkOwners project. A maintainer disagreement is recorded in the false-positive ledger beside the original evidence.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

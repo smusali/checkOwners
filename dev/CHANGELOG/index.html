@@ -1,0 +1,1883 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://smusali.github.io/checkowners/dev/CHANGELOG/">
+      
+      
+        <link rel="prev" href="../internals/">
+      
+      
+        <link rel="next" href="../CONTRIBUTING/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Changelog - CheckOwners</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="CheckOwners" class="md-header__button md-logo" aria-label="CheckOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            CheckOwners
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="CheckOwners" class="md-nav__button md-logo" aria-label="CheckOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    CheckOwners
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Internals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../METHODOLOGY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Patterns and caching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Unreleased">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#060-2026-09-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.6.0 - 2026-09-24
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.6.0 - 2026-09-24">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#051-2026-09-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.1 - 2026-09-15
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.1 - 2026-09-15">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#050-2026-07-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.5.0 - 2026-07-04
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.5.0 - 2026-07-04">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#removed_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#040-2026-06-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.0 - 2026-06-14
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0 - 2026-06-14">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#030-2026-06-06" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.3.0 - 2026-06-06
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.0 - 2026-06-06">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#020-2026-05-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.2.0 - 2026-05-26
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.2.0 - 2026-05-26">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#011-2026-05-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1.1 - 2026-05-26
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.1.1 - 2026-05-26">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#010-2026-05-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.1.0 - 2026-05-26
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.1.0 - 2026-05-26">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../USAGE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FAQ/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PRIVACY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GLOSSARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../false-positives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    False positives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/smusali/checkowners/blob/main/SECURITY.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<p>All notable changes to this project are documented in this file.</p>
+<p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>, and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
+<p>Each dated heading is the UTC calendar day that version was published to PyPI (<code>YYYY-MM-DD</code>). <code>Unreleased</code> has no date.</p>
+<h2 id="unreleased"><a href="https://github.com/smusali/checkowners/compare/v0.6.0...HEAD">Unreleased</a><a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<p>Next cycle is <code>0.7.0</code> (ownership risk and scale), tracked in <a href="https://github.com/smusali/checkowners/issues/183">Upgrade to v0.7.0</a>.</p>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li>A documentation site, published from this repository, with search, a version per release, and the adoption guide for an existing large repository.</li>
+<li><code>.checkowners-baseline.json</code> is excluded from analysis by default, so refreshing the accepted-findings file does not create a single-expert finding about the file itself.</li>
+<li>The contributor guide names the maintainer seat, the contributor ladder, the open-core boundary, the zero-telemetry guarantee, the AI-assisted review process, semantic versioning, and the release pipeline. Architectural decisions are in <a href="../decisions/">docs/decisions.md</a>. <code>CITATION.cff</code> records citation metadata.</li>
+<li><code>RepositoryAnalyzer</code> is the library entry point. <code>analyze()</code> returns scored ownership with the commit, blame, and review observations stored on each path. The same observations are written into the state file and can be scored again with <code>score_owners</code> without another git or API pass. A state file written before this field still loads.</li>
+<li><code>generate</code> and <code>validate</code> take <code>--dialect github|gitlab|bitbucket|gerrit</code>. GitHub output is unchanged. GitLab writes one <code>[Section][1]</code> per top-level directory, and <code>^[Section]</code> only when every owner on that directory is below the confidence threshold. Bitbucket and Gerrit exit 2. <code>RepositoryAnalyzer.reconcile()</code> reports declared-local, declared-global, and observed owners at file, directory, package, service, and repository scope.</li>
+<li><code>checkowners calibrate</code> back-tests ownership scores against later authors. <code>calibrate --fit</code> writes per-repository weights and a provenance block when history spans at least 180 days and at least 30 labeled paths. The result is held-out performance. A public validation corpus and harness record the same metrics, baselines, and a calibration curve.</li>
+<li><code>checkowners report --html</code> writes one offline HTML file with an overview, treemap, ownership map, historical timeline, team alignment, and drill-down. Anonymize and aggregate-only modes remove identities. A report names its head SHA, generation time, and analysis completeness, and shows evidence quality beside each score.</li>
+<li>A public false-positive ledger records the prediction, the judgment, the reason, the fix, and the original evidence. Fixed entries name a regression test. New reports use the false-positive issue form.</li>
+<li>A dataset generator writes per-repository HTML and JSON, a 50-audit list, counts, and checksums. README self-audit badges report ownership coverage, critical knowledge-risk paths, and CODEOWNERS drift.</li>
+<li><code>cache info</code> reports the current repository id, its state file path, and whether that file exists. A repository with no state file exits 1. A directory that is not a git repository exits 2.</li>
+<li>A benchmark harness records cold, warm, and incremental analyze runs. Pull-request CI runs the synthetic tier. Public repositories stay on a manual workflow until their commit is pinned.</li>
+<li>Blame coverage is cached by blob SHA, path, blame flags, ignore-revs, mass-refactor revisions, and <code>.mailmap</code>. <code>cache info</code> counts those files. <code>cache clear</code> removes them. <code>--verbose</code> prints hit and miss counts. <code>--no-cache</code> skips the cache.</li>
+<li>Blame stays one <code>git blame</code> process per path. <code>owners</code>, <code>explain</code>, and <code>change</code> blame only the path they were asked about.</li>
+<li>Ownership scoring is <code>ownership-v2</code>. Change survival is current blame lines divided by that person's lines at their last commit. Default weights are recency <code>0.30</code>, frequency <code>0.20</code>, blame <code>0.20</code>, review <code>0.15</code>, and change survival <code>0.15</code>. A survival below <code>0.2</code> with a later commit from someone else is <code>superseded</code>. At or above <code>0.2</code>, later commits no longer mark the owner <code>superseded</code>. A pin of <code>ownership-v1</code> is rejected. The <code>ci</code> benchmark tier records the cold and warm cost.</li>
+<li>History follows renames and same-commit copies by default (<code>analysis.follow_renames</code>, <code>analysis.rename_similarity</code>). <code>explain</code> shows the prior names, logical file id, and rename confidence. <code>analysis.follow_renames: false</code> keeps each literal path separate.</li>
+<li><code>checkowners audit</code> is the command run when no subcommand is given. <code>checkowners --help</code> still prints help. <code>checkowners doctor</code> and <code>checkowners doctor --env</code> report configuration and environment rows. A missing token or a failed API row is <code>unverifiable</code>.</li>
+<li>Drift compares a team rule with the expanded member set. Statuses are <code>aligned</code>, <code>partial-drift</code>, <code>unverifiable</code>, <code>invisible</code>, <code>empty</code>, and <code>nested</code>. Each team record carries the snapshot timestamp. An offline run does not read the cache into <code>aligned</code>.</li>
+<li>The local syntax validator is diffed against GitHub's CODEOWNERS errors endpoint. <code>corpus/conformance.json</code> publishes the pass rate. A private non-default branch that returns no errors is excluded. A weekly workflow opens or updates an issue when the rate drops and does not commit.</li>
+<li>Drift severity is a score of overlap, confidence delta, path criticality, decay, and a single qualified owner. The default cutoffs are <code>0.15</code>, <code>0.35</code>, <code>0.55</code>, and <code>0.75</code>. Below the first cutoff the tier is <code>info</code>, which SARIF reports as <code>note</code>.</li>
+<li><code>checkowners graph</code> exports DOT (the documented default), GraphML, GEXF, and JSON. Text and JSON include articulation points, unweighted betweenness, orphan files, and a <code>--from</code>/<code>--to</code> transfer path. DOT, GraphML, and GEXF stay valid exports; a transfer path for those formats is printed on stderr. An unknown <code>--export</code> value exits 2 and lists the supported formats.</li>
+<li><code>checkowners onboard</code> lists experimental inferred suggestions. Steps follow resolved Python imports when those edges exist, name a cycle and fall back to path order when they do not, and list the signals that were not available. Mentor candidates exclude former, inactive, and bot contributors.</li>
+<li><code>checkowners topology</code> reports weighted Louvain clusters (<code>topology-v2</code>) with seed <code>0</code>, <code>--resolution</code>, modularity, and cross-seed stability. Output is experimental. Declared teams are compared with Jaccard, precision, recall, and coverage. Co-change and temporal collaboration are reported as unavailable.</li>
+<li>Identity resolution prefers a configured <code>identities</code> entry, then noreply parsing, this repository's handle cache, <code>author.login</code> on a local commit, and user search last. Search does not merge two owners. Misses expire after <code>identity.negative_cache_ttl_days</code>. <code>identity merge</code>, <code>identity unmerge</code>, and <code>identity audit</code> record or report identity changes without a second cache. <code>contributors.roster</code> sets <code>contributor_status</code>, including <code>former</code>, and risk reports <code>former_knowledge_share</code>. <code>simulate --remove-status</code> removes cached owners with that status. Bot detection adds configured addresses, account type, and a frequency cap for repeated mechanical subjects.</li>
+<li>The nightly Fuzz workflow publishes mutation scores for <code>patterns.py</code>, <code>drift.py</code>, <code>generate.py</code>, the <code>analyze.py</code> scoring path, and the GitHub identity helpers. <code>patterns.py</code> fails when its score is below 90.</li>
+<li><code>drift</code>, <code>risk</code>, and <code>validate</code> accept <code>--format text|json|sarif|junit</code>. <code>--json</code> remains the shortcut for JSON. SARIF 2.1.0 uses seven stable rule ids, and the fingerprint is the baseline identity so a later severity change does not mint a new alert. The Action always writes <code>checkowners.sarif</code> and <code>checkowners.junit.xml</code> into the report artifact. <code>upload_sarif</code> uploads that file for a same-repo token that can write <code>security-events</code>. Fork and Dependabot pull requests keep the artifact and skip the upload. A <code>workflow_run</code> workflow uploads the artifact for those forks once that workflow file is on the default branch.</li>
+<li>In GitHub Actions the same findings become workflow annotations, capped at 50, and a completed check run named checkOwners. A missing token or a 401, 403, or 404 leaves the job result unchanged. <code>checks: write</code> is the scope for the check run. <code>.github/workflows/checkowners.yml</code> is a reusable workflow for the composite action.</li>
+<li><code>checkowners diff SPEC</code> and <code>checkowners suggest --diff SPEC</code> report ownership impact and reviewer routing for the changed paths. <code>suggest --pr N</code> reads the pull request file list and does not request reviewers. <code>--diff-only SPEC</code> limits read-only analysis commands to those paths and does not replace the repository cache. Recommendations carry per-signal evidence. A high review-load band demotes someone only when the load signal is completed reviews or caller-supplied counts.</li>
+<li><code>generate</code> keeps a <code># checkowners:manual</code> block byte for byte and rewrites only the generated block, <code>output.block_order</code> chooses which block wins overlapping paths, <code>drift --fix-plan</code> prints suggested edits without writing, and a manual rule that differs from observed expertise is reported for review rather than as <code>changed</code>.</li>
+<li>Incremental analysis replays a usable baseline by default, <code>--no-incremental</code> forces a full lookback, and a rejected baseline is scored again from scratch with the reason printed.</li>
+<li>CI tests Ubuntu, macOS, and Windows, limits each pull-request test job to 25 minutes, and covers Git 2.23.0 and Git 2.39.3 on Ubuntu for pushes, the nightly run, and manual runs.</li>
+<li><code>checkowners suggest</code> recommends one reviewer from expertise and current load, with <code>balance</code> as an alias and GitHub review load when a token sample exists.</li>
+<li><code>policy</code> chooses which finding classes block, warning by default for drift, a single expert, unowned paths, and incomplete analysis, and failing for invalid owners.</li>
+<li><code>checkowners sync</code> opens or updates one reconciliation pull request by default, while <code>--commit</code> commits on the current branch and <code>--dry-run</code> prints the diff only.</li>
+<li><code>Co-authored-by</code> trailers credit co-authors when <code>git.count_co_authors</code> is true, and analyze reports the detected <code>merge_strategy</code> plus <code>co_author_count</code>.</li>
+<li>Recency uses each path's median commit gap as its half-life, and each owner reports expertise, maintenance recency, and a continuity-risk status.</li>
+<li><code>checkowners simulate --remove</code> reports paths that lose coverage and the repository truck factor before and after, using the cached map only.</li>
+<li><code>qualified-owners</code> reports a criticality-weighted distribution of <code>top_owner_share</code>, and an empty <code>criticality</code> map sets <code>criticality_incomplete</code>.</li>
+<li>Per-path <code>risk</code> reports concentration from every <code>ownership_score</code> above the confidence threshold, while <code>top_n_owners</code> still caps only the displayed owner list.</li>
+<li>The composite Action caches pip and <code>~/.checkowners</code>, reusing a restored state file only when its commit is <code>HEAD</code> and the config hash and model versions match.</li>
+</ul>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>model.topology</code> is <code>topology-v2</code>. A config pin of <code>topology-v1</code> is refused. Cached state and graph files from <code>topology-v1</code> are ignored.</li>
+<li>The ownership review factor reads closed pulls inside <code>analysis.review_lookback_days</code> through batched GraphQL queries, and a window cut short by the request budget records a gap and lowers <code>analysis_completeness</code>.</li>
+<li><code>checkowners trends</code> reports <code>historical_activity_confidence</code> (<code>historical-v1</code>) instead of <code>avg_top_confidence</code>, and <code>--compare-ownership</code> requires <code>--acknowledge-different-metrics</code>.</li>
+<li>The Action <code>fail_on_drift</code> input defaults to empty so a run follows <code>policy.drift.fail</code>, and <code>checkowners drift</code> exits 3 only for a novel finding that policy marks as blocking.</li>
+</ul>
+<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>ROADMAP.md</code>, <code>docs/ACTION_ITEMS.md</code>, and <code>docs/PROJECT_STATE_AND_ROADMAP.md</code> are removed, and release planning now lives in the issue tracker.</li>
+</ul>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Path globs and <code>paths.exclude</code> treat <code>\</code> and <code>/</code> as the same separator and stay case-sensitive on every operating system.</li>
+<li>Git path output is read as UTF-8 with quoting disabled, <code>CHECKOWNERS_STATE_DIR</code> expands a leading tilde, and Git older than 2.23.0 exits 4 with the version to install.</li>
+<li><code>requirements-dev.lock</code> pins <code>colorama</code> 0.4.6 on Windows so hashed installs satisfy pytest there.</li>
+<li>Concurrent handle-cache writes take an in-process lock, and a Windows file lock when another process may write the same cache.</li>
+<li><code>requirements.lock</code> and <code>requirements-dev.lock</code> pin <code>PyJWT</code> 2.15.1 and <code>urllib3</code> 2.8.0 so <code>pip-audit</code> no longer fails on the advisories in the previous pins.</li>
+<li>All three lock files pin <code>certifi</code> 2026.10.19, which drops the <code>emSign ECC Root CA - G3</code> root after its intermediates were compromised (PYSEC-2026-4320, GHSA-6q48-6c7w-9gw2).</li>
+</ul>
+<h2 id="060-2026-09-24"><a href="https://github.com/smusali/checkowners/compare/v0.5.1...v0.6.0">0.6.0</a> - 2026-09-24<a class="headerlink" href="#060-2026-09-24" title="Permanent link">&para;</a></h2>
+<p>Correctness and trust: scored ownership, schema 1, privacy controls, and supply-chain checks. Inference stays local git.</p>
+<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="../METHODOLOGY/">docs/METHODOLOGY.md</a> states the formulas, truck-factor divergence, terminology, golden beliefs, and principles, <a href="../limitations/">docs/limitations.md</a> states when the tool can be wrong, and CI fails if a shipped metric key is missing from the methodology page.</li>
+<li>The README leads with a drift example, install, run, CI, the offline guarantee, Trusted Publishing, and Sigstore, and adds <code>examples/demo.gif</code>, <code>examples/pr-comment.png</code>, and <code>examples/sample-CODEOWNERS</code>.</li>
+<li><code>.pre-commit-hooks.yaml</code> exposes <code>checkowners-validate</code> and <code>checkowners-drift</code>, this repository runs both, and the hooks are documented in <a href="../USAGE/#pre-commit">docs/USAGE.md</a>.</li>
+<li>CI runs CodeQL, dependency review, pip-audit, and zizmor, Dependabot updates Python dependencies, and each GitHub Release carries a CycloneDX SBOM and a signed provenance attestation.</li>
+<li>Human reports, the job summary, and pull-request comments state that CheckOwners is a knowledge-risk tool, not a performance-measurement tool, and <a href="../PRIVACY/">docs/PRIVACY.md</a> records the data flow, cache, <code>cache purge</code>, and threat model.</li>
+<li>A public CODEOWNERS compatibility corpus (<code>corpus/compatibility.jsonl</code>) and a license-checked parser corpus (<code>corpus/realworld.jsonl</code>) ship under <code>corpus/README.md</code>.</li>
+<li>Privacy controls add <code>output.anonymize</code>, <code>output.aggregate_only</code>, <code>privacy.redact_emails</code> with <code>--redact-emails</code>, <code>identity.mode</code> (<code>handle</code>, <code>email</code>, or <code>hashed</code>), and <code>contributors.exclude</code>, and the Action input <code>include_balance</code> defaults to false.</li>
+<li>On-disk state is schema 1 with tokenized emails, atomic locked writes, reuse only when HEAD and the scoring config still match, <code>cache path|info|clear|purge</code>, a 256 MiB cap, and <code>--offline</code> with no network calls.</li>
+<li>Analysis completeness is a run-level score with <code>analysis_gaps</code> that scales evidence quality only, and <code>--fail-on-incomplete</code> or <code>policy.incomplete_analysis.fail</code> exits 3 when a runtime, worker, API, or rate-limit bound leaves the run incomplete.</li>
+<li><code>--json</code> uses schema <code>1</code> (<a href="../schemas/commands-v1.json">docs/schemas/commands-v1.json</a>) with <code>schema_version</code>, <code>checkowners_version</code>, <code>models</code>, <code>repository</code>, <code>head_sha</code>, <code>generated_at</code>, and <code>analysis_completeness</code>, plus <code>identity</code>, flat <code>signals</code>, per-path <code>risk</code>, nested drift <code>recommendation</code>, optional GitHub evidence stamps, and Action summaries at integer <code>schema_version: 1</code>.</li>
+<li>Configuration requires <code>version: 1</code> and pins <code>ownership-v1</code>, <code>risk-v1</code>, and <code>topology-v1</code>, refuses any other version or unimplemented keys such as <code>criticality</code>, and ignores caches whose <code>models</code> do not match.</li>
+<li><code>checkowners baseline create</code> writes accepted findings identified by rule, path, and owner set, and <code>--baseline</code>, <code>drift.baseline_file</code>, <code>CHECKOWNERS_BASELINE</code>, the Action <code>baseline</code> input, and reasoned <code>suppressions</code> keep CI failing only on new findings.</li>
+<li><code>checkowners explain PATH</code> decomposes one path's inferred ownership, <code>checkowners owners PATH</code> (<code>who</code>) prints a ranked list, and both accept <code>--json</code> with <code>schema_version: "1"</code> without reading or writing the cache.</li>
+<li>Analyze excludes <code>linguist-generated</code> and <code>linguist-vendored</code> paths from <code>.gitattributes</code> when <code>analysis.respect_gitattributes</code> is true, reports <code>excluded_gitattributes</code> and <code>excluded_static</code>, and falls back to <code>paths.exclude</code>.</li>
+<li>Blame honors <code>.git-blame-ignore-revs</code>, ignores whitespace, detects moves and copies, omits mass-refactor commits above <code>git.mass_refactor_file_fraction</code> (default <code>0.5</code>), and requires Git 2.23 or newer.</li>
+<li><code>.mailmap</code> is applied first when <code>identity.mailmap</code> is true, and analyze reports whether a mapping file was found.</li>
+<li><code>generate</code> and <code>sync</code> fail when re-resolved CODEOWNERS owners differ from the intended set, unless <code>output.verify_round_trip</code> is false.</li>
+<li><code>generate</code> warns at 2 MB and refuses above <code>output.max_bytes</code> (default 2_500_000) without <code>--force</code>, and <code>--json</code> includes <code>bytes_written</code> and <code>rules_written</code>.</li>
+<li><code>checkowners explain-path &lt;path&gt;</code> shows the winning CODEOWNERS rule and the full match chain.</li>
+<li><code>generate</code> and <code>sync</code> refuse sanitized <code>*</code> rules that would assign a different owner set, unless <code>--allow-broad-patterns</code> or <code>output.allow_broad_patterns</code> is set, and <code>--json</code> records <code>broad_patterns</code>.</li>
+<li>Golden ownership tests in <code>tests/test_golden.py</code> record what <code>ownership-v1</code> concludes for pinned git histories under a fixed as-of.</li>
+</ul>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Action output <code>checkowners_drift</code> is now <code>drift_summary</code> in <code>github-action --json</code> and <code>GITHUB_OUTPUT</code>, and command JSON and Action summaries both use schema <code>1</code>.</li>
+<li>Commands share exit codes 0 clean, 1 internal, 2 usage, 3 findings, and 4 integration failure, with <code>--exit-zero</code> clearing only code 3 and <code>--fail-on-incomplete</code> exiting 3 when completeness is below 1.</li>
+<li>The composite Action runs <code>checkowners github-action</code> once for drift, qualified owners, decay, the job summary, and <code>GITHUB_OUTPUT</code>.</li>
+<li>Recency, decay, and lookback age against <code>--as-of</code>, else <code>SOURCE_DATE_EPOCH</code>, else the HEAD committer time, JSON emits <code>head_sha</code> and <code>generated_at</code>, and <code>drift.hysteresis_runs</code> holds severity flips.</li>
+<li>Ownership scoring renormalizes over available signals into <code>ownership_score</code> on <code>[0, 1]</code> with a separate <code>evidence_quality</code>, stamps <code>models.ownership: ownership-v1</code>, and no longer caps offline scores at <code>0.85</code>.</li>
+<li>The default <code>qualification.strategy</code> is <code>adaptive</code>, so commit count is evidence with Bayesian shrinkage rather than an eligibility gate, while <code>threshold</code> keeps a commit-count gate and undamped frequency.</li>
+</ul>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>requirements-dev.lock</code> pins <code>pyyaml-ft</code> to <code>python_version &gt;= "3.13"</code> so hashed CI installs skip libcst's 3.13-only YAML backend on 3.11 and 3.12.</li>
+</ul>
+<h2 id="051-2026-09-15"><a href="https://github.com/smusali/checkowners/compare/v0.5.0...v0.5.1">0.5.1</a> - 2026-09-15<a class="headerlink" href="#051-2026-09-15" title="Permanent link">&para;</a></h2>
+<p>Corrective release: identity, Action supply chain, metric naming, and the
+contributor on-ramp. No new inference behavior.</p>
+<h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Issue forms (bug, false-positive, feature), a pull-request template,
+  Discussions, <code>ROADMAP.md</code>, the action-item register, <code>.github/FUNDING.yml</code>,
+  two example configs, and demo assets (terminal recording, PR comment,
+  sample <code>analyze</code> / <code>drift</code> JSON). Listing PRs:
+  <a href="https://github.com/sdras/awesome-actions/pull/953">awesome-actions</a>,
+  <a href="https://github.com/wmariuss/awesome-devops/pull/555">awesome-devops</a>,
+  <a href="https://github.com/analysis-tools-dev/static-analysis/pull/1895">static-analysis</a>.</li>
+<li>A <code>dev</code> extra bootstraps tests and linters via <code>pip install -e ".[dev]"</code>.</li>
+<li>Python 3.14 classifier and CI matrix entry. <code>checkowners/py.typed</code> ships in
+  the wheel so the <code>Typing :: Typed</code> classifier is accurate.</li>
+<li><code>requirements-dev.lock</code> pins CI test and lint installs with hashes.</li>
+<li>pytest <code>--cov-fail-under=85</code> so CI fails below the documented coverage
+  floor. Branch coverage is collected repo-wide and reported for
+  <code>patterns.py</code>, <code>analyze.py</code>, <code>drift.py</code>, and <code>generate.py</code>.</li>
+<li>Ruff enables <code>S</code> (bandit), <code>PTH</code> (pathlib), <code>RUF</code>, <code>C4</code>, <code>PL</code>, <code>ARG</code>,
+  <code>TID</code>, and <code>ERA</code>.</li>
+<li>Coverage badge on the README pointing at <code>smusali/checkowners</code>.</li>
+<li>Composite Action input <code>max_output_entries</code> (default 50) caps each list
+  in the <code>GITHUB_OUTPUT</code> summaries. Full <code>drift.json</code>, <code>bus_factor.json</code>,
+  and <code>decay.json</code> payloads are uploaded as the <code>checkowners-reports</code>
+  artifact, exposed via the <code>artifact_name</code> output.</li>
+<li>The composite Action always writes the drift, bus-factor, and decay
+  report to the job summary, including when the drift step fails.</li>
+<li>Third-party GitHub Actions are pinned to full commit SHAs. Dependabot
+  watches the <code>github-actions</code> ecosystem, and CI fails on any unpinned
+  <code>uses:</code> reference.</li>
+<li>The publish workflow rejects a GitHub Release whose tag has no dated changelog heading.</li>
+<li>The composite Action installs the <code>checkowners</code> version that matches its
+  own tag from a committed wheel and a hashed <code>requirements.lock</code>. New
+  <code>index_url</code> and <code>offline</code> inputs support internal mirrors and air-gapped
+  runners. <code>install_spec</code> is limited to a local extras allowlist.</li>
+<li>CI and the publish job fail when the Action pin, package version, wheel,
+  or lockfile disagree with each other (or with the release tag).</li>
+</ul>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Codecov uploads authenticate with <code>CODECOV_TOKEN</code> and fail the job if
+  the report is rejected, so the README coverage badge can receive data.</li>
+<li>README monthly-download badge uses pepy.tech instead of shields.io
+  <code>pypi/dm</code>, which was rendering "rate limited by upstream service".</li>
+<li>CI pip installs retry with a longer timeout on transient PyPI index
+  failures.</li>
+<li>The Action PR-comment lookup paginates past 100 comments, so the
+  managed comment is updated instead of duplicated. Interpolated
+  paths, notes, and reasons are escaped, long paths are truncated,
+  and the report is capped with an overflow line pointing at the
+  uploaded artifact.</li>
+<li>Composite Action multiline <code>GITHUB_OUTPUT</code> writes use a random
+  <code>ghadelim_</code> delimiter instead of a static <code>EOF</code>, so a path, note, or
+  reason equal to <code>EOF</code> can no longer truncate or inject outputs.</li>
+<li>The composite Action no longer installs an unpinned latest package from
+  PyPI. <code>uses: smusali/checkowners@vX.Y.Z</code> now installs <code>checkowners==X.Y.Z</code>.</li>
+<li><code>install_spec</code> dogfood installs use pip's isolated build env so hatchling
+  is available. <code>git blame</code> no longer crashes on non-UTF-8 files, and <code>*.whl</code>
+  is excluded from inference.</li>
+<li>README documentation and license links are now absolute GitHub URLs so they
+  resolve on the PyPI project page.</li>
+<li>The composite Action exports <code>GITHUB_TOKEN</code> on every CLI step via a
+  <code>github_token</code> input (default <code>${{ github.token }}</code>). The 0.5.0 claim that
+  installing the <code>github</code> extra made handle resolution work in CI was
+  incomplete: the extra was installed, but the token was never passed, so
+  only local noreply parsing worked. When <code>github.api_enabled</code> is true and
+  no token is reachable, the CLI now prints a warning naming <code>GITHUB_TOKEN</code>
+  instead of degrading silently. The same input is now passed to the PR
+  comment step, so a PAT or App token takes precedence over <code>github.token</code>.</li>
+<li>PR comments no longer fail the job on fork pull requests or read-only
+  workflow permissions. Forks skip the comment with a notice; a 403
+  becomes a warning that names <code>pull-requests: write</code> and
+  <code>comment_on_pr: false</code>. The comment body is a short sectioned report
+  rather than a details-block dump.</li>
+<li>Solo-maintainer repos no longer get a per-file knowledge-risk comment
+  for <code>bus_factor = 1</code>. The Action only lists single-owner paths when
+  more than one human has qualified ownership, and names the owner and
+  suggested backups instead of saying "bus factor 1".</li>
+<li>The composite Action sets <code>CHECKOWNERS_STATE_DIR</code> to
+  <code>${{ runner.temp }}/checkowners-state</code> on every CLI step, so CI state
+  no longer lands in the runner home directory. Environment variables
+  (<code>CHECKOWNERS_CONFIG</code>, <code>CHECKOWNERS_DRIFT_MODE</code>, <code>CHECKOWNERS_STATE_DIR</code>,
+  <code>GITHUB_TOKEN</code>, plus runner-provided <code>GITHUB_REPOSITORY</code> and
+  <code>GITHUB_OUTPUT</code>) are documented with their precedence over the config file.</li>
+<li>Composite Action <code>description</code> is under 125 characters so GitHub Marketplace
+  will accept the listing.</li>
+</ul>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>The <code>all</code> extra composes <code>checkowners[graph,github]</code> instead of duplicating
+  those dependency lists. Runtime dependencies are capped at the next
+  untested major. Package version is read from
+  <code>checkowners/__init__.py</code> only.</li>
+<li>Test and lint CI install from <code>requirements-dev.lock</code> with hashes instead
+  of resolving a hatch environment unpinned.</li>
+<li>The truncated owner count is now named <code>qualified_owner_count</code>. Human
+  output always states the <code>top_n_owners</code> cap. JSON emits both
+  <code>qualified_owner_count</code> and the deprecated <code>bus_factor</code> alias for one
+  minor cycle, plus <code>qualified_owner_count_cap</code> and <code>deprecated_keys</code>.
+  <code>checkowners qualified-owners</code> is the canonical command; <code>bus-factor</code>
+  remains as a deprecated alias pending redefinition. Persisted state is
+  schema v4; Action summaries are <code>schema_version</code> 2. README, PyPI, and
+  Action copy no longer advertise an unqualified bus factor.</li>
+<li>Composite Action outputs <code>checkowners_drift</code>, <code>bus_factor_summary</code>, and
+  <code>decay_summary</code> are now bounded summaries (<code>schema_version: 1</code>) with
+  counts and a <code>truncated</code> flag, not the full CLI payloads. Bus-factor
+  <code>entries</code> are omitted from <code>GITHUB_OUTPUT</code>. <code>fromJson</code> gates on
+  <code>drift_detected</code>, <code>severity</code>, and <code>critical_paths[0]</code> are unchanged.</li>
+<li>Project URLs, documentation clone and issue links, the Actions example,
+  and the security advisory link now point at this repository.</li>
+<li>Changelog version dates are the PyPI publication day; the 0.3.0 and 0.5.0
+  headings now match those uploads.</li>
+<li>Composite Action <code>mode</code> default is now <code>commit</code>, matching <code>DriftConfig</code>
+  and the configuration reference. Callers who omitted <code>mode</code> previously
+  got <code>both</code> (including stale-rule detection) and must pass <code>mode: both</code>
+  to keep that behavior.</li>
+<li>Positioning copy no longer claims priority. The comparison table credits
+  competitors, including where they exceed CheckOwners (owner-existence
+  checks, formal truck factor, compile-time <code>check</code> mode). The runtime
+  sentence now matches the 0.5.0 dogfood figure of under three minutes
+  on a 24k-commit, 12k-file monorepo. The README and FAQ state the
+  AI-assistance posture explicitly: inference is deterministic git
+  analysis, and the codebase has been built with reviewed agent
+  assistance. Unused <code>CLAUDE.md</code> agent instructions are removed.</li>
+</ul>
+<h2 id="050-2026-07-04"><a href="https://github.com/smusali/checkowners/compare/v0.4.0...v0.5.0">0.5.0</a> - 2026-07-04<a class="headerlink" href="#050-2026-07-04" title="Permanent link">&para;</a></h2>
+<p>Hardening release driven by testing every command against a real production
+monorepo (24k commits, 12k active files). Focus: correct CODEOWNERS
+semantics, analyze performance, per-repo state isolation, and identity
+resolution.</p>
+<h3 id="added_3">Added<a class="headerlink" href="#added_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>CODEOWNERS pattern matching engine (<code>checkowners/patterns.py</code>) with
+  GitHub's documented gitignore-style semantics: <code>*</code> stays within a path
+  segment, <code>**</code> crosses segments, leading or interior <code>/</code> anchors to the repo
+  root, trailing <code>/</code> matches directory contents, <code>dir/*</code> matches direct
+  children only, and the last matching rule wins.</li>
+<li><code>generate</code> consolidates per-file inference into directory-level rules when
+  every inferred file under a directory shares one owner set (<code>/src/ @alice</code>
+  instead of hundreds of per-file lines). New files under a consolidated
+  directory now match a rule. Disable with <code>output.consolidate: false</code>.</li>
+<li><code>generate</code> and <code>sync</code> refuse to overwrite a hand-written CODEOWNERS (one
+  without the machine-generated header) unless <code>--force</code> is passed.</li>
+<li><code>--version</code> flag; running bare <code>checkowners</code> now prints help instead of a
+  usage error.</li>
+<li>Progress bar (stderr, TTY-only) during the analyze blame pass.</li>
+<li>Local GitHub-noreply email resolution: <code>12345+login@users.noreply.github.com</code>
+  and <code>login@users.noreply.github.com</code> map to <code>@login</code> with zero API calls
+  and no token.</li>
+<li>Persistent email-to-handle cache at <code>&lt;state-dir&gt;/handles.json</code>, including
+  remembered misses, so the rate-limited user-search API is only queried once
+  per new email.</li>
+<li>Identity merging: when several commit emails resolve to one GitHub handle,
+  their owner entries merge and per-path bus factor is recomputed over
+  distinct people, so one person with two emails no longer reads as a bus
+  factor of two. Decay warnings are remapped to the resolved handle.</li>
+<li>Drift results carry <code>notes</code> explaining skipped comparisons (raw emails vs
+  @handles, team-owned rules) instead of emitting false drift.</li>
+<li><code>balance</code> reports <code>fallback_reason</code> when the GitHub API path was abandoned,
+  and labels the load column "Commits (proxy)" when counting authorship.</li>
+</ul>
+<h3 id="changed_3">Changed<a class="headerlink" href="#changed_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Drift detection is now pattern-aware.</strong> Inferred files are matched
+  against CODEOWNERS rules with real matching semantics; previously the
+  comparison was literal string equality, so directory rules like
+  <code>frontend/</code> never matched inferred file paths and real-world files
+  produced near-100% false "missing"/"stale" reports. New categories:
+  <code>missing</code> = file no rule covers, <code>stale</code> = rule matching no tracked file
+  (via <code>git ls-files</code>), <code>changed</code> = per-rule owner divergence, aggregated and
+  ranked by worst per-file delta. Owner comparison is case-insensitive.</li>
+<li><strong>State is keyed per repo</strong> (schema v3) at
+  <code>~/.checkowners/state/&lt;repo-hash&gt;.json</code> with the absolute repo path
+  embedded and verified on load. Previously a single global <code>state.json</code>
+  meant analyzing repo A then running <code>decay</code> in repo B silently reused repo
+  A's data.</li>
+<li><strong>Analyze is parallel and skips unowned files.</strong> git blame now runs on a
+  thread pool sized to the CPU count and only on paths where at least one
+  author reaches <code>min_commits</code> (4-5x fewer files on a real monorepo).
+  Combined effect on a 24k-commit production repo: 80+ minutes to under 3
+  minutes.</li>
+<li><code>validate</code> follows GitHub's actual CODEOWNERS rules: relative patterns
+  (<code>docs/</code>, <code>apps/*</code>, <code>frontend/package.json</code>) are valid, owner-less rules
+  (GitHub's documented exemption mechanism) are valid, escaped spaces are
+  parsed, and <code>!</code> negation / <code>[...]</code> character ranges are correctly rejected.
+  It previously demanded every pattern start with <code>/</code> or <code>*</code>, failing
+  perfectly valid real-world files. Handle validation now matches GitHub's
+  login rules (no dots, max 39 chars).</li>
+<li><code>validate --json</code> exits non-zero on an invalid file, matching the
+  human-readable mode.</li>
+<li><code>sync</code> is a no-op success when the generated file matches the committed one
+  ("already in sync"); it previously failed with an empty error because git
+  prints "nothing to commit" on stdout.</li>
+<li>Downstream commands print a stderr hint when reusing cached state.</li>
+<li><code>notifications.include_unchanged</code> now means "also notify when no drift was
+  detected"; without it, no-drift runs no longer fire webhooks.</li>
+<li>Severity's critical signal honors <code>bus_factor.critical_threshold</code> instead
+  of a hardcoded 1.</li>
+<li>Review-coverage and balance GitHub scans are bounded to the 200 most
+  recently updated closed PRs and scoped to <code>GITHUB_REPOSITORY</code>; previously
+  unbounded scans exhausted the API rate limit on mature repos.</li>
+<li><code>trends</code> counts distinct commits per period; a commit touching 12 files
+  previously counted 12 times.</li>
+<li><code>bus-factor</code>, <code>expertise</code>, and <code>onboard</code> share one glob semantic
+  (previously the same pattern matched different path sets per command).</li>
+<li>Backup-reviewer suggestions fall back to repo-wide top owners for
+  root-level files.</li>
+<li>Onboarding steps never label a <code>bus_factor&lt;=1</code> path "easy".</li>
+<li>Default exclusions now also cover <code>package-lock.json</code>, <code>pnpm-lock.yaml</code>,
+  <code>*.min.js</code>, <code>*.min.css</code>, <code>*.map</code>, and the CODEOWNERS file itself (a sync
+  commit would otherwise make whoever runs the tool its inferred owner,
+  perturbing every subsequent run).</li>
+<li>Composite Action: fails fast with a clear error on shallow clones
+  (<code>fetch-depth: 0</code> guidance), installs the <code>github</code> extra so handle
+  resolution works in CI, and the PR comment is updated in place (one
+  managed comment per PR, marked resolved when drift clears) instead of
+  posting a new comment on every push.</li>
+<li>PyGithub moved from a hard dependency to the <code>github</code> extra (with an
+  <code>all</code> convenience extra); core inference is pure git. Unused GitPython
+  dependency dropped.</li>
+<li>graph DOT export escapes quotes and backslashes in node IDs and labels.</li>
+</ul>
+<h3 id="removed_1">Removed<a class="headerlink" href="#removed_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>drift.compare_to</code> config option: it was parsed and documented but never
+  read by any logic. Configs still containing it are ignored, not rejected.</li>
+<li>Dead internal API surface orphaned by the identity-merge rework:
+  <code>OwnershipMap.handles_only()</code> and <code>github.map_owners()</code>.</li>
+</ul>
+<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Generated CODEOWNERS never emits <code>[...]</code> character ranges: bracket-bearing
+  path segments (Next.js dynamic routes like <code>[companyId]</code>) become the valid
+  <code>*</code> wildcard, colliding patterns merge their owners, and literal spaces in
+  patterns are backslash-escaped. GitHub ignores lines with <code>[...]</code>, which
+  silently un-owned those paths. Found by dogfooding against a production
+  Next.js monorepo.</li>
+<li>Terminal output renders paths like <code>[companyId]</code> verbatim: user-derived
+  text (paths, reasons, handles) is markup-escaped so Rich no longer swallows
+  bracket segments as style tags.</li>
+<li>Webhook notifications no longer crash the CLI on HTTP or network errors;
+  failures log a warning and <code>notify</code> reports <code>sent: false</code>.</li>
+<li>Rebalance suggestions can no longer propose shifting reviews onto another
+  overloaded reviewer.</li>
+<li>Topology reports one mismatch line per overlapping declared team instead of
+  only the first.</li>
+<li>Tests never touch the developer's real <code>~/.checkowners</code> (isolated state
+  dir fixture).</li>
+</ul>
+<h2 id="040-2026-06-14"><a href="https://github.com/smusali/checkowners/compare/v0.3.0...v0.4.0">0.4.0</a> - 2026-06-14<a class="headerlink" href="#040-2026-06-14" title="Permanent link">&para;</a></h2>
+<h3 id="added_4">Added<a class="headerlink" href="#added_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>checkowners github-action</code>: runs the full CI flow (<code>analyze</code> -&gt; <code>drift</code> -&gt; <code>bus-factor</code> -&gt; <code>decay</code>) in one command, writes the <code>checkowners_drift</code>, <code>bus_factor_summary</code>, and <code>decay_summary</code> keys to <code>GITHUB_OUTPUT</code>, and exits non-zero on drift by default (<code>--no-fail-on-drift</code> to override).</li>
+<li><code>checkowners trends [--periods N] [--period-days D]</code>: reconstructs the ownership snapshot at the end of each of the last N periods from a single <code>git log</code> pass and reports commits, active contributors, tracked paths, average top-owner confidence, and average bus factor over time.</li>
+<li>Review-activity factor of the confidence score is now populated (it was previously always 0.0). When <code>github.api_enabled</code>, a token resolves, and <code>GITHUB_REPOSITORY</code> is set, closed-PR reviews are aggregated per changed file and folded into the score; the factor stays 0.0 otherwise.</li>
+<li>Serialized knowledge-graph cache at <code>~/.checkowners/graph/&lt;repo-hash&gt;.json</code>, keyed by repo and invalidated by the analysis timestamp; the <code>graph</code> command reuses a fresh cache.</li>
+<li>Composite Action posts a built-in drift + bus-factor PR comment on pull requests (<code>comment_on_pr</code> input, default <code>true</code>).</li>
+<li><code>docs/</code> directory housing detailed reference: <code>USAGE.md</code>, <code>FAQ.md</code>, <code>CONTRIBUTING.md</code>, this <code>CHANGELOG.md</code>, and the project <code>CODEOWNERS</code> (moved from <code>.github/CODEOWNERS</code>).</li>
+</ul>
+<h3 id="changed_4">Changed<a class="headerlink" href="#changed_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>README drops its Mermaid pipeline diagram (PyPI does not render Mermaid) in favor of a prose summary; the diagram now lives in <code>docs/USAGE.md</code>.</li>
+<li><code>paths.exclude</code> default now includes <code>*.generated.*</code>.</li>
+<li>Composite Action honors its <code>config</code> and <code>mode</code> inputs via the <code>CHECKOWNERS_CONFIG</code> and <code>CHECKOWNERS_DRIFT_MODE</code> environment variables, which <code>load_config</code> now reads.</li>
+<li><code>BusFactorReport</code> tiers (<code>tier_for</code> / <code>critical_paths</code>) respect the repo's configured <code>bus_factor</code> thresholds instead of hardcoded defaults.</li>
+<li>README slimmed to intro, install, quick start, command table, and links to the new <code>docs/</code>.</li>
+<li>Dogfood config sets <code>output.include_confidence: false</code> so the committed <code>CODEOWNERS</code> no longer publishes a per-file confidence/bus-factor map.</li>
+<li>All Markdown across the repo follows a tightened style: no em dashes, no typographic <code>--</code> separators, multi-entry bullets only.</li>
+</ul>
+<h3 id="fixed_4">Fixed<a class="headerlink" href="#fixed_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>CI smoke job: <code>pip install "dist/checkowners-"*"-py3-none-any.whl[graph]"</code> failed because bash treated <code>[graph]</code> as a glob character class and never expanded the wildcard. The wheel path is now resolved via <code>ls</code> before installation.</li>
+<li>Removed dead <code>generate._owners_for_path</code> helper.</li>
+</ul>
+<h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>notifications.webhook_url</code> accepts a <code>${ENV_VAR}</code> reference (e.g. <code>${CHECKOWNERS_WEBHOOK_URL}</code>) so a committed config can point at a secret/internal endpoint without storing it; an unset variable resolves to "".</li>
+<li><code>.checkowners/</code> is git-ignored so a state or graph cache (contributor emails + ownership map) cannot be committed if <code>CHECKOWNERS_STATE_DIR</code> points inside a repo.</li>
+<li><code>github.token</code> remains refused inside <code>.github/checkowners.yml</code>; the only supported way to provide a token is the <code>GITHUB_TOKEN</code> environment variable.</li>
+</ul>
+<h2 id="030-2026-06-06"><a href="https://github.com/smusali/checkowners/compare/v0.2.0...v0.3.0">0.3.0</a> - 2026-06-06<a class="headerlink" href="#030-2026-06-06" title="Permanent link">&para;</a></h2>
+<h3 id="added_5">Added<a class="headerlink" href="#added_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Confidence scoring on every path-owner pair. Score is a weighted blend of four signals: commit recency (exponential decay), commit frequency, blame coverage, and PR review activity (last one only when <code>github.api_enabled</code>).</li>
+<li>Bus factor calculation per path with backup-reviewer suggestions, plus <code>checkowners bus-factor [&lt;path&gt;] [--all]</code>.</li>
+<li>Expertise decay detection that distinguishes dormant from departed owners, recommends transfer targets, and exposes them through <code>checkowners decay</code>.</li>
+<li>Knowledge graph builder backed by an optional <code>networkx</code> extra: <code>pip install "checkowners[graph]"</code>. Render in the terminal or export to DOT via <code>checkowners graph [--export dot]</code>.</li>
+<li>Per-path expertise ranking via <code>checkowners expertise &lt;path&gt;</code>.</li>
+<li>Team topology inference from commit co-occurrence, with reconciliation against declared GitHub teams when <code>api_enabled</code>. Exposed as <code>checkowners topology</code>.</li>
+<li>PR review load balancer that detects overloaded reviewers and suggests redistribution. Exposed as <code>checkowners balance</code>.</li>
+<li>Onboarding path generator that walks the knowledge graph from broad-ownership files to deep-expertise files and emits a Markdown checklist via <code>checkowners onboard &lt;path&gt;</code>.</li>
+<li>Persistent state cache at <code>~/.checkowners/state.json</code> (schema v2), with <code>CHECKOWNERS_STATE_DIR</code> override for CI and tests.</li>
+<li>Composite GitHub Action (<code>action.yml</code>) exposing <code>checkowners_drift</code>, <code>bus_factor_summary</code>, and <code>decay_summary</code> outputs; example workflow at <code>.github/workflows/checkowners-example.yml</code>.</li>
+<li>Drift severity tiers (<code>low</code> / <code>medium</code> / <code>high</code> / <code>critical</code>) computed from the max confidence delta plus bus-factor and decay signals; <code>notifications.severity_threshold</code> gates webhook delivery.</li>
+<li>Config sections <code>scoring</code>, <code>decay</code>, <code>bus_factor</code> and new fields on existing sections (<code>confidence_threshold</code>, <code>min_confidence_delta</code>, <code>include_confidence</code>, <code>severity_threshold</code>, <code>github.api_enabled</code>).</li>
+</ul>
+<h3 id="changed_5">Changed<a class="headerlink" href="#changed_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>analysis.lookback_days</code> default lifted from 180 to 365.</li>
+<li><code>analysis.top_n_owners</code> default lifted from 2 to 3.</li>
+<li><code>paths.exclude</code> default now includes <code>node_modules/**</code>.</li>
+<li><code>OwnershipMap</code> reshaped to carry <code>PathOwnership</code> entries (confidence-scored owners, bus factor, decay warnings).</li>
+<li><code>DriftResult</code> now carries <code>DriftEntry</code> tuples with per-entry confidence delta and reason.</li>
+<li><code>notify</code> payload includes severity, max delta, and per-entry bus factor / decay flags.</li>
+</ul>
+<h3 id="fixed_5">Fixed<a class="headerlink" href="#fixed_5" title="Permanent link">&para;</a></h3>
+<p><code>validate</code> strips inline confidence comments so <code>output.include_confidence: true</code> does not fail the validator. Caught while dogfooding.</p>
+<h3 id="security_1">Security<a class="headerlink" href="#security_1" title="Permanent link">&para;</a></h3>
+<p><code>github.token</code> is now refused inside <code>.github/checkowners.yml</code>. <code>load_config</code> raises a clear error if the field is present, since that file gets pushed to GitHub. The only supported way to provide a token is the <code>GITHUB_TOKEN</code> environment variable.</p>
+<h2 id="020-2026-05-26"><a href="https://github.com/smusali/checkowners/compare/v0.1.1...v0.2.0">0.2.0</a> - 2026-05-26<a class="headerlink" href="#020-2026-05-26" title="Permanent link">&para;</a></h2>
+<h3 id="added_6">Added<a class="headerlink" href="#added_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li>GitHub <code>@handle</code> mapping: commit emails are looked up against the GitHub user-search API and rewritten to <code>@username</code> when a match is found.</li>
+<li>Team and subteam resolution: owner sets whose handles are a subset of an org team collapse to <code>@org/team-slug</code>, with the most deeply-nested matching team winning.</li>
+<li>CODEOWNERS path auto-detection across <code>.github/CODEOWNERS</code>, root <code>CODEOWNERS</code>, and <code>docs/CODEOWNERS</code> in priority order.</li>
+</ul>
+<h2 id="011-2026-05-26"><a href="https://github.com/smusali/checkowners/compare/v0.1.0...v0.1.1">0.1.1</a> - 2026-05-26<a class="headerlink" href="#011-2026-05-26" title="Permanent link">&para;</a></h2>
+<h3 id="fixed_6">Fixed<a class="headerlink" href="#fixed_6" title="Permanent link">&para;</a></h3>
+<p>Deleted files are no longer carried into the generated CODEOWNERS; <code>analyze</code> filters out paths that no longer exist on disk.</p>
+<h3 id="changed_6">Changed<a class="headerlink" href="#changed_6" title="Permanent link">&para;</a></h3>
+<p>Repo now dogfoods its own generated CODEOWNERS.</p>
+<h2 id="010-2026-05-26"><a href="https://github.com/smusali/checkowners/releases/tag/v0.1.0">0.1.0</a> - 2026-05-26<a class="headerlink" href="#010-2026-05-26" title="Permanent link">&para;</a></h2>
+<h3 id="added_7">Added<a class="headerlink" href="#added_7" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Initial CLI: <code>analyze</code>, <code>generate</code>, <code>print</code>, <code>validate</code>, <code>drift</code>, <code>notify</code>, <code>sync</code>.</li>
+<li>Drift detection with three modes (<code>commit</code>, <code>repo</code>, <code>both</code>) and GITHUB_OUTPUT integration.</li>
+<li>Webhook notifications on drift events.</li>
+<li>Syntax-only CODEOWNERS validator.</li>
+<li>Packaging via hatch; published to PyPI under <code>checkowners</code>.</li>
+<li>CI workflow running tests and lint across Python 3.11, 3.12, 3.13.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2009 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://smusali.github.io/checkowners/dev/USAGE/">
+      
+      
+        <link rel="prev" href="../decisions/">
+      
+      
+        <link rel="next" href="../FAQ/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Usage - CheckOwners</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#usage" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="CheckOwners" class="md-header__button md-logo" aria-label="CheckOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            CheckOwners
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Usage
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="CheckOwners" class="md-nav__button md-logo" aria-label="CheckOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    CheckOwners
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Internals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../METHODOLOGY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Patterns and caching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#turning-checkowners-on-for-an-existing-large-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turning checkOwners on for an existing large repository
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#determinism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity resolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#privacy-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Privacy controls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ownership-scoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ownership scoring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trends
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#qualified-owner-count" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Qualified owner count
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#departure-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Departure simulation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#knowledge-risk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knowledge risk
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reviewer-recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewer recommendation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ownership-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ownership graph
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exploratory-repository-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exploratory repository topology
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#onboarding-suggestions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Onboarding suggestions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#library" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Library
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generated-codeowners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generated CODEOWNERS
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sync" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sync
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#explain-and-owners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Explain and owners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#drift-and-severity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drift and severity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calibrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calibrate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#doctor-and-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Doctor and audit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pre-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pre-commit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#github-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub Actions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-checkowners-compares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How checkowners compares
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How checkowners compares">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#competitive-positioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Competitive positioning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#json-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FAQ/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PRIVACY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GLOSSARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../false-positives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    False positives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/smusali/checkowners/blob/main/SECURITY.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h1>
+<p>Full configuration, scoring, and CI reference. The <a href="https://github.com/smusali/checkowners/blob/main/README.md">README</a> opens with a drift example, install, and CI. For answers to common questions see <a href="../FAQ/">docs/FAQ.md</a>.</p>
+<h2 id="pipeline">Pipeline<a class="headerlink" href="#pipeline" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful.</p>
+</blockquote>
+<pre class="mermaid"><code>flowchart LR
+    Git[Git history] --&gt; Analyze[analyze]
+    Analyze --&gt; State[(per-repo state)]
+    State --&gt; Generate[generate]
+    State --&gt; Drift[drift]
+    State --&gt; Owners[qualified-owners]
+    State --&gt; Risk[risk]
+    State --&gt; Topology[topology]
+    State --&gt; Suggest[suggest]
+    State --&gt; Onboard[onboard]
+    Generate --&gt; CO[CODEOWNERS]
+    Drift --&gt; CI[CI output]</code></pre>
+<p>State is cached per repo at <code>~/.checkowners/state/&lt;repo-hash&gt;.json</code> (override the base directory with <code>CHECKOWNERS_STATE_DIR</code>). The hash is the normalized <code>origin</code> URL when the repo has one, so two checkouts of the same remote share a file. A repo with no <code>origin</code> is keyed by its absolute path.</p>
+<p><code>trends</code> is independent of the cached state. It runs its own <code>git log</code> pass and reports <code>historical_activity_confidence</code> (<code>historical-v1</code>), not <code>ownership_score</code>. See <a href="#trends">Trends</a>. <code>explain</code> and <code>owners</code> (<code>who</code>) also skip the cache. They analyze only the requested file or directory and do not write state.</p>
+<p>Downstream commands reuse that file only when its commit is <code>HEAD</code>, its scoring config hash matches, and its model ids match. Otherwise they refresh. A usable baseline replays commits since the stored ref and reuses blame for blobs that did not change. The result matches a full lookback for the same repository, commit, config, and model. Place these flags before the command name:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>checkowners<span class="w"> </span>--allow-stale<span class="w"> </span>decay
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>checkowners<span class="w"> </span>--max-age<span class="w"> </span><span class="m">86400</span><span class="w"> </span>qualified-owners
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>checkowners<span class="w"> </span>--no-cache<span class="w"> </span>decay
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>checkowners<span class="w"> </span>--no-incremental<span class="w"> </span>analyze
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>checkowners<span class="w"> </span>--offline<span class="w"> </span>analyze
+</code></pre></div>
+<p><code>--allow-stale</code> reuses a map whose commit is not <code>HEAD</code>. <code>--max-age SECONDS</code> refuses a map older than that many seconds (<code>0</code> expires immediately). Omit it for no age limit. <code>--no-cache</code> neither reads nor writes the analysis cache. <code>--no-incremental</code> scores the full lookback and still writes a fresh baseline. A stored baseline is not used, and the reason is printed, when the scoring config, model ids, schema, repository identity, or package version differ, when the stored commit is missing or is not an ancestor of <code>HEAD</code>, when rename detection changed, when lineage settings changed, or when the baseline does not cover the requested lookback. The first run has no baseline and does not print that notice. <code>--offline</code> makes no network calls and prints:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Network access: disabled
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>Review evidence: unavailable
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>Team verification: unavailable
+</code></pre></div>
+<p><code>checkowners cache path</code> prints the cache directory. <code>cache info</code> shows size, file counts, each stored commit, blame-cache files, and the current repository: its <code>repo_id</code>, the state file path, and whether that file exists (<code>--json</code> for the same fields). It does not print contributor emails or the ownership map. Exit 0 when that state file exists, exit 1 when this repository has no state file, and exit 2 when the working directory is not a git repository. Both the default <code>~/.checkowners</code> directory and <code>CHECKOWNERS_STATE_DIR</code> are reported the same way. <code>handles</code> is true when any per-repository handle file or a legacy <code>handles.json</code> is present. <code>cache clear</code> deletes analysis state, graph files, and blame-cache files, and keeps handle files. <code>cache purge</code> deletes everything under the cache directory, including handle files and the identity graph. State, graph, and blame-cache files are evicted oldest-first when they exceed 256 MiB together. Handle files are not evicted; purge deletes them. <code>--verbose</code> prints <code>blame cache: hits=N misses=M</code> on stderr. <code>--no-cache</code> skips blame-cache reads and writes for that run.</p>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p>The configuration reference, including defaults and environment variables, is in <a href="../reference/#configuration">Configuration</a>.</p>
+<h3 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h3>
+<p>The environment-variable table is in <a href="../reference/#environment-variables">Environment variables</a>.</p>
+<h2 id="turning-checkowners-on-for-an-existing-large-repository">Turning checkOwners on for an existing large repository<a class="headerlink" href="#turning-checkowners-on-for-an-existing-large-repository" title="Permanent link">&para;</a></h2>
+<p>The adoption guide for an existing large repository is in <a href="../guides/#large-repositories">Large repositories</a>.</p>
+<h2 id="determinism">Determinism<a class="headerlink" href="#determinism" title="Permanent link">&para;</a></h2>
+<p>Scoring and lookback are a pure function of the repository, the commit, and the config. Recency and decay age against one resolved instant, never the wall clock:</p>
+<ol>
+<li><code>--as-of &lt;ISO8601&gt;</code> (naive values are UTC)</li>
+<li><code>SOURCE_DATE_EPOCH</code> (integer POSIX seconds, UTC)</li>
+<li>The HEAD committer timestamp (<code>git log -1 --format=%cI</code>)</li>
+</ol>
+<p><code>--deterministic</code> documents that contract. It does not change the resolution order. JSON payloads include <code>head_sha</code> (HEAD SHA) and <code>generated_at</code> (the resolved instant as ISO 8601 UTC). <code>git log</code> uses <code>--since</code> / <code>--until</code> pinned to that instant, so the same commit scored twice with a clock offset is byte-identical.</p>
+<p><code>drift.hysteresis_runs</code> (default <code>1</code>) holds a severity flip until the new tier appears on N consecutive drift runs, unless <code>max_confidence_delta</code> is at least <code>2 * min_confidence_delta</code>. Default <code>1</code> matches previous behavior.</p>
+<h2 id="identity-resolution">Identity resolution<a class="headerlink" href="#identity-resolution" title="Permanent link">&para;</a></h2>
+<p>Maintaining a <code>.mailmap</code> at the repository root is the cheapest, most reliable way to improve checkOwners accuracy. Git already knows how to collapse one person's addresses; checkOwners applies that mapping first, offline, with no token and no rate limit.</p>
+<p>Commit emails are then rewritten to GitHub <code>@handles</code>, in this order:</p>
+<ol>
+<li><strong>Configured identity.</strong> An entry under <code>identities</code> wins over noreply parsing, the cache, and both GitHub calls. <code>emails</code> lists the addresses for that handle. <code>aliases</code> are display names used by <code>identity audit</code>. <code>service_account: true</code> marks the handle and its emails as bots.</li>
+<li><strong><code>.mailmap</code></strong> (default, <code>identity.mailmap: true</code>): <code>git log</code> and <code>git blame</code> emit canonical emails before any later stage sees them. Set <code>identity.mailmap: false</code> to keep raw commit addresses. There is no second mailmap pass.</li>
+<li><strong>Noreply parsing</strong> (no token, no network): <code>12345+login@users.noreply.github.com</code> and <code>login@users.noreply.github.com</code> become <code>@login</code>. On squash-merge repos this resolves most contributors for free.</li>
+<li><strong>This repository's handle cache</strong> at <code>~/.checkowners/handles/&lt;repo-digest&gt;.json</code>. Two checkouts of one origin share the file. A hit is reused. A miss is skipped until <code>identity.negative_cache_ttl_days</code> (default 30) has passed. <code>0</code> does not store a miss. A legacy <code>handles.json</code> is not copied into these files. <code>cache purge</code> deletes it.</li>
+<li><strong>Commit author login</strong> (<code>GET /repos/{owner}/{repo}/commits/{sha}</code>): <code>author.login</code> when GitHub linked the commit to an account. A null author is not a hit. This uses the core rate limit. A core rate-limit gap does not fall through to search.</li>
+<li><strong>GitHub user-search API</strong> (needs <code>GITHUB_TOKEN</code> and the <code>github</code> extra), and only after the commit read found no login. Search matches a public profile email and can attach the wrong account.</li>
+</ol>
+<p><code>--offline</code>, an empty token, or a missing <code>github</code> extra skips the commit read and the search. Overrides, mailmap, noreply parsing, and the cache still run. <code>github.resolve_handles: false</code> skips rewriting.</p>
+<p>An override, a noreply address, or a commit login may collapse two owners onto one handle. Commits are summed and the path's qualified owner count is recomputed over distinct people. A search hit may relabel that one email and lowers its evidence quality. It does not collapse two owners. Pairs in <code>identity.do_not_merge</code>, and pairs split with <code>identity unmerge</code>, stay two owners.</p>
+<p><code>identity merge LEFT RIGHT INTO</code> records a merge and combines the stored records. <code>identity unmerge LEFT RIGHT</code> writes those records back and separates the pair so the next analyze does not merge them again. <code>identity audit</code> lists probable duplicates (the same author name, an email local-part equal to another handle, or a shared alias) and writes nothing. Pairs already merged or listed in <code>do_not_merge</code> are omitted. Under <code>output.aggregate_only</code> the JSON is only <code>duplicate_count</code>.</p>
+<p>On a fresh analyze, evidence quality is scaled once before the state file is written: <code>1.0</code> for a certain link, <code>0.75</code> for an unresolved email, and <code>0.5</code> for a search hit. A cached load does not scale again. Qualification still uses <code>ownership_score</code>.</p>
+<p>Each owner has <code>contributor_status</code>: <code>active</code>, <code>inactive</code>, <code>unknown</code>, <code>former</code>, <code>bot</code>, or <code>external</code>. JSON uses <code>contributor_status</code> so it does not collide with freshness <code>status</code>. The roster wins, including an explicit non-bot status. Then a <code>Bot</code> account type or a login ending in <code>[bot]</code>. Then org membership, only when <code>github.org</code> is set, a token exists, and the member list was fetched: a member with a commit inside <code>decay.threshold_days</code> is <code>active</code>, an older member is <code>inactive</code>, and a handle absent from that list is <code>external</code>. When the member list was not available, a recent commit is <code>active</code> and an older commit is <code>inactive</code>. That path never assigns <code>former</code>. <code>former</code> comes only from <code>contributors.roster</code>. Someone with no roster entry, no org list, and no commit time stays <code>unknown</code>.</p>
+<p><code>former_knowledge_share</code> is the share of <code>ownership_score</code> held by owners whose status is <code>former</code>, on each risk path and as a criticality-weighted repository figure on the risk summary and the owner distribution. It is <code>0</code> when nobody is former. It is a repository figure, so <code>output.aggregate_only</code> keeps it and drops <code>contributor_status</code> and <code>former_owners</code>. The knowledge-risk notice still applies. This is not a performance measure.</p>
+<p>Analyze JSON reports <code>analysis.mailmap_applied</code> and <code>analysis.mailmap_file</code>.</p>
+<h2 id="privacy-controls">Privacy controls<a class="headerlink" href="#privacy-controls" title="Permanent link">&para;</a></h2>
+<p>Five settings change what a report may say about a person. They apply to terminal output, JSON, graph text and DOT export, Action JSON, the job summary, and pull-request comments. <code>generate</code> and <code>sync</code> exit 2 when <code>output.anonymize</code>, <code>output.aggregate_only</code>, or <code>identity.mode: hashed</code> is set, because a CODEOWNERS file has to name GitHub accounts.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>output.anonymize</code></td>
+<td><code>false</code></td>
+<td>Replace each person with a <code>person-</code> token. The token is stable for that person in that repository and different in another repository.</td>
+</tr>
+<tr>
+<td><code>output.aggregate_only</code></td>
+<td><code>false</code></td>
+<td>Omit per-person fields, including <code>contributor_status</code> and <code>former_owners</code>. Path and repository metrics stay, including <code>qualified_owner_count</code>, <code>load_signal</code>, <code>former_knowledge_share</code>, and review-load averages.</td>
+</tr>
+<tr>
+<td><code>privacy.redact_emails</code> and <code>--redact-emails</code></td>
+<td><code>false</code></td>
+<td>Replace email addresses in output with <code>email:</code> tokens. <code>--redact-emails</code> forces this on for one process. With redaction, <code>generate</code> skips owners that are still raw addresses.</td>
+</tr>
+<tr>
+<td><code>identity.mode</code></td>
+<td><code>handle</code></td>
+<td><code>handle</code> shows a GitHub login when one was resolved. <code>email</code> shows the address when the process still has it. <code>hashed</code> shows the <code>email:</code> token for addresses.</td>
+</tr>
+<tr>
+<td><code>contributors.exclude</code></td>
+<td><code>[]</code></td>
+<td>Drop those people from analysis, reports, and graph export. Match a commit email, a <code>@handle</code>, or the stored <code>email:</code> token. Their address is not sent to the user-search API.</td>
+</tr>
+</tbody>
+</table>
+<p>Email addresses are stored as <code>email:</code> tokens in <code>~/.checkowners</code> state, the graph cache, and the per-repository handle files. <code>@handles</code> stay. Changing <code>contributors.exclude</code>, <code>contributors.roster</code>, <code>identities</code>, <code>identity.do_not_merge</code>, <code>identity.negative_cache_ttl_days</code>, or <code>bots.additional</code> invalidates the analysis cache. The other four presentation settings do not.</p>
+<h2 id="ownership-scoring">Ownership scoring<a class="headerlink" href="#ownership-scoring" title="Permanent link">&para;</a></h2>
+<p>Each path-owner pair gets an <code>ownership_score</code> in <code>[0.0, 1.0]</code> from the available signals only. Missing evidence is skipped, not scored as zero, so the attainable range is <code>[0, 1]</code> with or without a review provider. This number is a ranking signal, not a calibrated probability.</p>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Source</th>
+<th>Weight (default)</th>
+<th>Reliability (default)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Recency</td>
+<td><code>exp(-ln 2 × days_since_last_commit / half_life)</code></td>
+<td>0.30</td>
+<td>1.0</td>
+</tr>
+<tr>
+<td>Frequency</td>
+<td><code>commits / (max_commits_for_path + prior)</code> (<code>prior</code> is 3 under <code>adaptive</code>, 0 under <code>threshold</code>)</td>
+<td>0.20</td>
+<td>1.0</td>
+</tr>
+<tr>
+<td>Blame coverage</td>
+<td><code>git blame</code> porcelain lines / total lines, after <code>-w</code>, optional <code>-M</code>/<code>-C</code>, ignore-revs, and <code>.mailmap</code> when enabled</td>
+<td>0.20</td>
+<td>1.0</td>
+</tr>
+<tr>
+<td>Review activity</td>
+<td>PR reviews on pulls closed inside <code>analysis.review_lookback_days</code> (requires <code>github.api_enabled</code>)</td>
+<td>0.15</td>
+<td>1.0</td>
+</tr>
+<tr>
+<td>Change survival</td>
+<td>Current blame lines divided by that person's blame lines at their last commit, on the lineage path. Line counts, not an AST diff. Unavailable when blame did not run or the older count is zero</td>
+<td>0.15</td>
+<td>1.0</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>ownership_score  = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>evidence_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
+</code></pre></div>
+<p><code>aᵢ</code> is 1 when that signal was observed for the path (blame ran; a review provider was injected) and 0 otherwise. An author with 0% blame or 0 reviews still has that signal available: that is a measured zero, not a missing signal. <code>evidence_quality</code> is a separate quantity. Two owners can share a score and still differ in quality, for example <code>@alice 0.91/0.93</code> versus <code>@bob 0.79/0.31</code>. Human output and CODEOWNERS annotations (<code>output.include_confidence</code>) show <code>score/quality</code>.</p>
+<p>With <code>scoring.recency_strategy: adaptive</code> (the default), the half-life is the path's median gap between commits, clamped to <code>recency_half_life_floor_days</code> and <code>recency_half_life_ceiling_days</code> (14 and 730). A path with no positive gap keeps <code>recency_half_life_days</code>. <code>scoring.recency_strategy: fixed</code> uses that configured half-life for every path. <code>analysis.lookback_days: adaptive</code> reads history until the analysis instant instead of a fixed <code>--since</code>.</p>
+<p>Each owner also reports three evidence scores under <code>freshness</code>. They are not a measurement of what a person knows:</p>
+<table>
+<thead>
+<tr>
+<th>Score</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>active_expertise</code></td>
+<td>This person's last commit, decayed by the effective half-life. This is the recency term inside <code>ownership_score</code>.</td>
+</tr>
+<tr>
+<td><code>historical_expertise</code></td>
+<td>This person's commits divided by their commits plus commits by anyone else after them.</td>
+</tr>
+<tr>
+<td><code>maintenance_recency</code></td>
+<td>The path's latest commit, decayed by the same half-life.</td>
+</tr>
+</tbody>
+</table>
+<p>Continuity risk is a status, not a day-count boolean: <code>stable</code> (no warning), <code>inactive</code>, <code>superseded</code>, or <code>departed</code> (inactive on every path). When change survival is available and below <code>0.2</code> and someone else committed later, the status is <code>superseded</code>. At or above <code>0.2</code>, later commits do not mark the owner <code>superseded</code>. When the signal is unavailable, <code>superseded</code> still means later commits by others outnumber this person's commits. <code>decay.threshold_days</code> still marks <code>inactive</code> when the path has no commit interval. <code>historical_expertise</code> counts commits. Change survival is the line-level signal for which lines remained.</p>
+<pre class="mermaid"><code>flowchart LR
+    R[Recency] --&gt; S[ownership_score]
+    F[Frequency] --&gt; S
+    B[Blame] --&gt; S
+    V[Reviews] --&gt; S
+    C[Change survival] --&gt; S
+    R --&gt; Q[evidence_quality]
+    F --&gt; Q
+    B --&gt; Q
+    V --&gt; Q
+    C --&gt; Q
+    S --&gt; Filter{meets threshold?}
+    Filter --&gt;|yes| Generate[CODEOWNERS owner]
+    Filter --&gt;|no| Drop[dropped]</code></pre>
+<p>Weights and reliabilities are configurable under <code>scoring</code>. Review weight is omitted from the score when <code>github.api_enabled</code> is false; it is not filled in as <code>0.0</code>. The score is clamped to <code>[0.0, 1.0]</code>; owners below <code>analysis.confidence_threshold</code> are dropped from the generated CODEOWNERS. Qualified owner count per path is the count of remaining owners after that threshold and after <code>analysis.top_n_owners</code> truncation.</p>
+<p>Blame uses Git 2.23 or newer. The ignore-revs file is the first existing path among <code>git.blame_ignore_revs_file</code> (default <code>.git-blame-ignore-revs</code> at the repo root) and the native <code>blame.ignoreRevsFile</code> git setting.</p>
+<p>Analyze JSON includes <code>analysis.ignore_revs_applied</code> and <code>analysis.ignore_revs_file</code> so you can see whether that correction ran. It also includes <code>analysis.mailmap_applied</code> / <code>analysis.mailmap_file</code> for <code>.mailmap</code>, and <code>analysis.excluded_gitattributes</code> / <code>analysis.excluded_static</code> for how many paths each exclusion mechanism dropped.</p>
+<p>Paths marked <code>linguist-generated</code> or <code>linguist-vendored</code> in <code>.gitattributes</code> are excluded first when <code>analysis.respect_gitattributes</code> is true (the default). <code>paths.exclude</code> is the fallback. Set <code>analysis.respect_gitattributes: false</code> to use only the static list. Commits that modify at least <code>git.mass_refactor_file_fraction</code> of tracked files (default <code>0.5</code>) are omitted from blame the same way. Set the fraction to <code>0</code> to disable. Set <code>git.detect_moves: false</code> to skip <code>-M</code> and <code>-C</code> on blame. <code>analysis.follow_renames</code> (default true) is separate: it follows renames and copies in <code>git log</code> so a renamed file keeps its history. <code>analysis.rename_similarity</code> is the percent git must see, from 1 to 100, default 50. Set <code>analysis.follow_renames: false</code> to score each literal path on its own. <code>explain</code> shows the prior names, the logical file id, and the rename confidence. A 300-file directory rename stays within 10 seconds for that lineage pass.</p>
+<p>Offline scores are no longer capped at <code>0.85</code>. A value of <code>0.72</code> means the same thing with or without a token. The default qualification strategy is <code>adaptive</code>: a single-commit author of a new file can appear as an owner, and low-n frequency scores are shrunk (<code>3</code> commits on an untouched path scores <code>0.5</code>, not <code>1.0</code>). Analyze JSON includes <code>models.ownership</code>, <code>models.risk</code>, and <code>models.topology</code> (<code>ownership-v2</code>, <code>risk-v1</code>, <code>topology-v2</code>). Per-repo state is schema 1; files whose model ids or schema do not match are ignored and replaced on the next analyze. Email addresses in that state are stored as tokens. <code>qualification.strategy: threshold</code> keeps a commit-count gate and undamped frequency:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">qualification</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">strategy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">threshold</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">analysis</span><span class="p">:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">min_commits</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+</code></pre></div>
+<p>A bare <code>analysis.min_commits: 3</code> without <code>strategy: threshold</code> stays adaptive: authors below the bar still qualify when blame is at least <code>strong_blame_override</code>.</p>
+<p>Blame coverage is cached by blob SHA, path, the blame flags (<code>-w</code>, <code>-M</code>, <code>-C</code>, and the mailmap flag), the ignore-revs file bytes, the mass-refactor revision list, and the <code>.mailmap</code> bytes. A hit stores integer line counts per author and rebuilds the same fractions as a fresh blame. The files live under <code>blame/</code> in the cache directory and share the 256 MiB cap with state and graph files. The blame pass runs on a thread pool sized to the CPU count. Under <code>adaptive</code> it covers every path that still has a human author after gitattributes, exclude, missing-file, and bot filters. Under <code>threshold</code> it still skips paths where no author reaches <code>min_commits</code>. Adaptive may therefore blame several times more paths than threshold; it does not blame excluded, deleted, or bot-only paths. Measured runtimes are in the <a href="https://github.com/smusali/checkowners/blob/main/benchmarks/README.md">benchmark readme</a>. See <a href="../METHODOLOGY/">METHODOLOGY.md</a> for availability rules and the full formula.</p>
+<h2 id="trends">Trends<a class="headerlink" href="#trends" title="Permanent link">&para;</a></h2>
+<p><code>checkowners trends</code> reconstructs one snapshot per period from <code>git log</code>. Each point's <code>historical_activity_confidence</code> is the mean top score across paths that still have a scored owner. <code>avg_qualified_owner_count</code> is the mean capped count for those paths. Both use recency and frequency only.</p>
+<p>The JSON payload sets <code>metric</code> to <code>historical_activity_confidence</code>, <code>model_version</code> to <code>historical-v1</code>, and <code>signals</code> to <code>recency</code> and <code>frequency</code>. <code>limitation</code> states that this is not <code>ownership_score</code> (<code>ownership-v2</code>, which can include blame, review, and change survival). Human output prints the same sentence. Envelope <code>schema_version</code> stays <code>"1"</code>. The point field replaces <code>avg_top_confidence</code>.</p>
+<p><code>--compare-ownership</code> asks to name <code>ownership_score</code> in the same report. Without <code>--acknowledge-different-metrics</code> the command exits 2 and does not print the pair. With both flags, JSON adds <code>compared_to</code> (<code>metric</code>, <code>model_version</code>, <code>signals</code>) and human output says the two metrics are not on one axis. The historical column still does not contain <code>ownership_score</code> values. Historical blame is not reconstructed.</p>
+<p><code>--periods</code> defaults to 6 (maximum 36). <code>--period-days</code> defaults to 30.</p>
+<h2 id="qualified-owner-count">Qualified owner count<a class="headerlink" href="#qualified-owner-count" title="Permanent link">&para;</a></h2>
+<p><code>qualified_owner_count</code> is the number of owners on a path whose score is at or above <code>analysis.confidence_threshold</code>, taken from the list that has already been truncated to <code>analysis.top_n_owners</code> (default 3). Human output always states the cap: <code>3 (capped by top_n_owners=3)</code>. JSON emits <code>qualified_owner_count</code> and <code>qualified_owner_count_cap</code>.</p>
+<p>This is not truck factor, bus factor, or lottery factor. Those metrics are a removal simulation over a knowledge distribution: the smallest set of contributors whose departure leaves a threshold fraction of files without an owner.</p>
+<p><code>qualified_owner_count</code> stays the capped threshold count. Raising <code>top_n_owners</code> raises the maximum reportable count without any code changing hands. It is not a repo-level truck factor. The formulas, the prior-art divergence, and the truncation caveat are in <a href="../METHODOLOGY/#knowledge-concentration">Knowledge concentration</a>.</p>
+<h2 id="departure-simulation">Departure simulation<a class="headerlink" href="#departure-simulation" title="Permanent link">&para;</a></h2>
+<p><code>checkowners simulate --remove @alice --remove @bob</code> answers what breaks if those people leave. It reads the cached ownership map and does not collect new evidence. Repeat <code>--remove</code>, or pass <code>--remove-file</code> with one identity per line (blank lines and <code>#</code> comments are ignored). <code>--remove-status former</code> adds every cached owner with that status and can be combined with <code>--remove</code>. An unknown status exits 2. Removing nobody exits 2, the same as an empty <code>--remove</code>. An identity that is not in the map exits 2. A person who is in the map but authors no file changes nothing.</p>
+<p>An author of a path is someone on the untruncated scored list whose ownership score is at or above <code>analysis.confidence_threshold</code>. <code>top_n_owners</code> does not cap that set. A file loses its only owner when that set had one author and they are removed. A file drops to one when at least two authors remain as exactly one. A directory is fully orphaned when every mapped file under it has no author left; the report keeps the roots of those subtrees.</p>
+<p>The repository truck factor is the greedy count from Avelino et al.: remove the author who still covers the most files until covered files drop below <code>risk.truck_factor_thresholds[0]</code> (default <code>0.50</code>). The report shows that count before and after the named removal. Per-path <code>truck_factor_50</code>, <code>truck_factor_75</code>, and <code>truck_factor_90</code> stay the score-mass counts on one path.</p>
+<p>Suggested transfers are candidate backup reviewers, ranked by the highest remaining ownership score under an orphaned directory, including scores below the author threshold. They are not a claim that the person is a backup reviewer.</p>
+<p>The command refuses a missing cache, <code>--no-cache</code>, a stored commit that is not HEAD, and a cache older than <code>--max-age</code>. <code>--allow-stale</code> reuses a non-HEAD commit. It never re-analyzes. <code>--json</code> uses schema <code>1</code> (<code>#/$defs/simulate</code>) with the before/after risk distribution, repository truck factor, affected paths, and candidate transfers.</p>
+<p>Per-path JSON also reports score mass under <code>risk</code>, computed before <code>top_n_owners</code> truncation. Expertise is <code>ownership_score</code>. <code>top_owner_share</code> is the largest share. <code>effective_owners</code> is <code>1 / sum(p_i^2)</code>. <code>shannon_entropy</code> is in nats. <code>hhi</code> is <code>sum(p_i^2)</code>. <code>truck_factor_50</code>, <code>truck_factor_75</code>, and <code>truck_factor_90</code> are the smallest owner counts whose largest shares reach the three values in <code>risk.truck_factor_thresholds</code> (default <code>0.50</code>, <code>0.75</code>, <code>0.90</code>). A major contributor has a share of at least <code>0.05</code>; <code>minor_contributor_share</code> is the rest. Changing <code>top_n_owners</code> does not change these numbers. The <code>bus_factor:</code> config section still classifies the capped count (<code>critical</code> at or below <code>critical_threshold</code>, <code>warning</code> at or below <code>warn_threshold</code>).</p>
+<p><code>checkowners qualified-owners</code> is the command for this count. Repository output is a distribution of <code>top_owner_share</code>, weighted by <code>criticality</code>. JSON reports <code>distribution.minimum</code>, <code>distribution.p10</code>, <code>distribution.median</code>, <code>distribution.p90</code>, <code>distribution.critical_path_risk</code> (the weighted mean of <code>top_owner_share</code>), and <code>distribution.knowledge_at_risk</code> (the share of criticality weight on paths at or below <code>bus_factor.critical_threshold</code>). The first matching <code>criticality</code> pattern wins. A path with no match weighs <code>1.0</code>. An empty <code>criticality</code> map uses that same weight and sets <code>distribution.criticality_incomplete</code> to true, because repository risk without criticality is incomplete.</p>
+<h2 id="knowledge-risk">Knowledge risk<a class="headerlink" href="#knowledge-risk" title="Permanent link">&para;</a></h2>
+<p><code>checkowners risk</code> ranks each analyzed path by the composite score in <a href="../METHODOLOGY/#composite-risk">Composite risk</a>. <code>checkowners bus-factor</code> and <code>checkowners decay</code> are aliases. Both accept <code>--json</code> and <code>--baseline</code>. The command exits 0. Findings use the baseline and <code>suppressions</code> rules <code>knowledge-vacuum</code>, <code>phantom-ownership</code>, <code>shadow-maintainer</code>, and <code>ownership-review-divergence</code>.</p>
+<p><code>--json</code> is schema <code>1</code> (<code>#/$defs/risk</code>). Each entry reports <code>risk</code>, <code>tier</code>, <code>reason</code>, and the five factors <code>ownership_concentration</code>, <code>change_frequency</code>, <code>dependency_criticality</code>, <code>code_criticality</code>, and <code>expertise_decay</code>. A factor that cannot be computed is <code>null</code>. <code>criticality_unavailable</code> is true when no criticality source exists, and the text report says repository risk is incomplete without criticality. The summary reports observed ownership coverage, <code>knowledge_at_risk</code>, critical components, ownership vacuums, and high CODEOWNERS drift.</p>
+<p><code>qualified-owners</code> is unchanged. <code>github-action</code> still writes <code>bus_factor.json</code> and <code>decay.json</code> from the qualified-owner count and the continuity-risk list.</p>
+<h2 id="reviewer-recommendation">Reviewer recommendation<a class="headerlink" href="#reviewer-recommendation" title="Permanent link">&para;</a></h2>
+<p><code>checkowners suggest</code> recommends a reviewer from expertise and current load. <code>checkowners balance</code> is an alias and prints the same report. This is a routing suggestion, not a ranking of people, and it is not for individual evaluation.</p>
+<p>Human output always starts with <code>load_signal</code>:</p>
+<ul>
+<li><code>github_completed_reviews</code> when the GitHub sample returned reviews</li>
+<li><code>git_authorship_proxy</code> when it did not. Commit totals stay in JSON under <code>reviews</code> so older readers still see a number, and they are not review load. The text says so and recommends nobody.</li>
+<li><code>external</code> when the caller supplied completed-review counts</li>
+</ul>
+<p>When the signal is real reviews, each high-load person is paired with one co-owner who is not high: prefer low load, then higher <code>ownership_score</code>, then fewer completed reviews, then handle. The text looks like this:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>load_signal: github_completed_reviews
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>@alice  expertise 0.94  current load high
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>@bob    expertise 0.81  current load low
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>Recommended: @bob
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>qualified co-owner with lower current load
+</code></pre></div>
+<p><code>expertise</code> is that person's highest <code>ownership_score</code>. <code>current load</code> is <code>high</code> when completed reviews, or open requests still waiting, are at least twice the average; <code>low</code> when both are at or below the average; otherwise <code>typical</code>. JSON keeps <code>loads</code>, <code>overloaded</code>, and <code>suggestions</code>, including <code>proposed_shift</code>, and adds <code>load_signal</code>. The text does not print the shift and does not list everyone.</p>
+<p>With review history, each person can also carry <code>reviews_requested</code>, <code>reviews_completed</code>, <code>prs_waiting</code>, <code>median_response_time_hours</code>, <code>reviewed_lines</code>, <code>pr_complexity</code>, and <code>ownership_criticality</code>. Those fields are omitted on the authorship proxy. That suggest sample is still the 200 most recently updated closed pull requests. It is not the ownership review window. Open pull requests, capped at the same number, supply the waiting queue. <code>median_response_time_hours</code> is hours from pull open to that person's first submitted review. <code>pr_complexity</code> is the median of <code>additions + deletions</code> on pulls they reviewed. <code>ownership_criticality</code> is the highest configured <code>criticality</code> weight on a path they own at or above the confidence threshold. It is unset when no rule matches.</p>
+<p><code>review_concentration</code> is per analyzed path. It is reported when one person's share of reviews on that path is at least 0.72 and at least two owners meet the confidence threshold. A path with one knowledgeable owner is not a review monopoly. Commit share is not review concentration.</p>
+<p><code>divergence</code> names three roles on one path: <code>writer</code> (most commits), <code>reviewer</code> (most reviews in the sample), and <code>declared</code> (a CODEOWNERS owner who is neither). A path is omitted when any role is missing. The three are not folded into one score.</p>
+<p><code>output.aggregate_only</code> keeps <code>load_signal</code> and the path-level concentration and divergence lines, and drops the names and the <code>Recommended</code> line. <code>output.anonymize</code> replaces names with <code>person-</code> tokens. <code>--json</code> is schema <code>1</code> (<code>#/$defs/balance</code>) for both commands.</p>
+<p><code>checkowners suggest --diff SPEC</code> and <code>checkowners diff SPEC</code> score only the paths changed between the two revisions. <code>SPEC</code> is <code>base...head</code>, or one revision, which means that revision compared with <code>HEAD</code>. Removed files are left out, and paths matching <code>paths.exclude</code> are left out. <code>suggest --pr N</code> reads the changed files from the pull request. A missing token or a 403 exits 4 and names <code>pull-requests: read</code>. Neither command requests reviewers or writes the repository cache.</p>
+<p>The long text names recommended reviewers with <code>ownership_score</code>, <code>evidence_quality</code>, the available signal scores, and how recently they touched the files. Someone in the <code>high</code> load band is listed under not recommended only when <code>load_signal</code> is <code>github_completed_reviews</code> or <code>external</code>. The authorship proxy does not demote anyone and does not treat commits as review load. The short <code>diff</code> text lists the paths, the recommended handles, ownership risks on those paths, CODEOWNERS drift for those paths, and a bus-factor regression when the qualified-owner count falls to the warn threshold. <code>--json</code> for these reports is schema <code>1</code> (<code>#/$defs/change</code>). <code>suggest --json</code> without <code>--diff</code> or <code>--pr</code> stays <code>#/$defs/balance</code>.</p>
+<p><code>--diff-only SPEC</code> on <code>analyze</code>, <code>drift</code>, <code>risk</code>, <code>bus-factor</code>, <code>decay</code>, <code>suggest</code>, <code>balance</code>, <code>explain</code>, <code>owners</code>, <code>who</code>, <code>expertise</code>, and <code>qualified-owners</code> limits that command to the same path set. A fresh full cache is filtered, so those paths are not blamed again. Otherwise the command scores only those paths and does not write <code>~/.checkowners</code>. An empty diff does not analyze the repository. <code>generate</code>, <code>sync</code>, <code>baseline</code>, <code>validate</code>, and <code>github-action</code> reject the flag.</p>
+<h2 id="ownership-graph">Ownership graph<a class="headerlink" href="#ownership-graph" title="Permanent link">&para;</a></h2>
+<p><code>checkowners graph</code> prints the ownership graph as text. <code>--export dot</code> writes Graphviz DOT, which is the documented default. <code>--export graphml</code> writes GraphML, <code>--export gexf</code> writes GEXF, and <code>--export json</code> writes the node and edge lists plus an <code>analytics</code> object. An unknown format exits 2 and lists the supported formats. Install the optional <code>graph</code> extra (<code>networkx</code>) before using the command. Privacy settings apply to every export. <code>output.aggregate_only</code> drops contributor nodes. <code>output.anonymize</code> relabels them.</p>
+<p>The graph is undirected. One pair of nodes has one edge, and that edge's <code>relations</code> attribute lists every relation the sources support. Populated nodes are contributors, files, directories, the repository, teams, and CODEOWNERS rules. Populated relations are <code>OWNS_OBSERVED</code>, <code>AUTHORED</code> when the owner has commits, <code>REVIEWS</code> when a review score exists, <code>DECAYING_EXPERTISE</code> when status is <code>former</code> or freshness is <code>inactive</code> or <code>departed</code>, <code>OWNS_DECLARED</code> from CODEOWNERS, <code>MEMBER_OF</code>, <code>CONTAINS</code>, and <code>DEPENDS_ON</code> for a Python import that resolves to another analyzed file. Package, Service, Commit, PullRequest, Review, Incident, and Domain are not nodes. <code>KNOWS</code>, <code>MODIFIES</code>, <code>REPLACES</code>, and <code>REVIEWED_BY</code> are not edges.</p>
+<p>Text and JSON add articulation points, unweighted betweenness for contributors, and orphan files. An orphan is a file with no qualified owner whose status is outside <code>former</code> and <code>inactive</code> and whose freshness is not <code>inactive</code> or <code>departed</code>. <code>unknown</code> still counts as an expert. A Python file that imports an orphan is listed as a dependent. <code>--from</code> and <code>--to</code> resolve a handle or a path and print the shortest ownership path. A missing endpoint exits 2. Under <code>aggregate_only</code>, a person endpoint is refused. For DOT, GraphML, and GEXF the path is printed on stderr so the export stays valid. No path is a message and exits 0.</p>
+<h2 id="exploratory-repository-topology">Exploratory repository topology<a class="headerlink" href="#exploratory-repository-topology" title="Permanent link">&para;</a></h2>
+<p><code>checkowners topology</code> is experimental. The text says the clusters are a hypothesis for a person to confirm, not an org chart. The algorithm is Louvain with seed <code>0</code>. <code>--resolution</code> defaults to <code>1</code>. Values above 1 favor smaller clusters. The report includes modularity and the mean and variance of cluster stability across seeds <code>0</code> through <code>4</code>.</p>
+<p>Edge weight uses co-ownership, co-review when both review scores exist, and shared-module activity. Co-change and temporal collaboration are named as unavailable. A person can appear on a second cluster when their weight into it is at least half their primary weight and they connect to at least two of its members.</p>
+<p>Declared teams are compared with Jaccard, precision, recall, and coverage. A cluster is named after a declared team only when the sets match. <code>--json</code> is schema <code>1</code> (<code>#/$defs/topology</code>) and includes <code>models.topology</code> <code>topology-v2</code>. A config pin of <code>topology-v1</code> is refused. Install the optional <code>graph</code> extra before running the command.</p>
+<h2 id="onboarding-suggestions">Onboarding suggestions<a class="headerlink" href="#onboarding-suggestions" title="Permanent link">&para;</a></h2>
+<p><code>checkowners onboard &lt;path&gt;</code> is an experimental list of inferred suggestions, not a curriculum. When Python imports among the matched files resolve to other matched files, steps follow that order, prerequisites first. A cycle is named, and those files fall back to path order. No resolved edges means the report lists dependency order as unavailable and keeps the within-rank sort.</p>
+<p>Within one dependency rank, files sort by qualified-owner count, then <code>change_events</code> when that value is present, then a matching <code>criticality</code> weight when a rule matches, then path. A missing signal stays missing. The <code>complexity</code> field stays <code>easy</code>, <code>medium</code>, or <code>hard</code> and is only a position tier. The step text is the reason, for example <code>depends on src/payments/utils.py, 2 qualified owners</code>.</p>
+<p>The report lists unavailable signals in one place: code complexity, test coverage, documentation coverage, dependency order when no import graph was built, and domain criticality when no rule matches. Mentor candidates are qualified owners on the selected steps whose <code>contributor_status</code> is not <code>former</code>, <code>inactive</code>, or <code>bot</code>. They are ranked by how many of those steps have another qualified owner, then by fewer commits, then by handle, and the list is capped at three. <code>--json</code> is schema <code>1</code> (<code>#/$defs/onboard</code>). <code>output.aggregate_only</code> drops <code>mentor_candidates</code>. <code>output.anonymize</code> rewrites the handles.</p>
+<h2 id="library">Library<a class="headerlink" href="#library" title="Permanent link">&para;</a></h2>
+<p><code>RepositoryAnalyzer</code> is the supported library surface. Construct it with a repository path and an optional <code>Config</code>. <code>analyze()</code> returns the same ownership map the CLI scores, with commit, blame, and review observations attached to each path. <code>reconcile()</code> returns declared-local owners (the nearest <code>OWNERS</code> file and any nested <code>CODEOWNERS</code>), declared-global owners (the repository <code>CODEOWNERS</code> match), and observed owners at file, directory, package, service, and repository scope. Package roots contain <code>pyproject.toml</code>, <code>package.json</code>, <code>go.mod</code>, or <code>Cargo.toml</code>. A service root contains <code>catalog-info.yaml</code>, and its <code>spec.owner</code> is a declared-local owner when that field is set.</p>
+<p>Those observations are also stored on each path in the state file. Scoring them again uses the same <code>score_owners</code> function and does not read git or GitHub. This surface follows the breaking-change policy in <a href="../CONTRIBUTING/#breaking-changes">CONTRIBUTING.md</a>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">checkowners</span><span class="w"> </span><span class="kn">import</span> <span class="n">RepositoryAnalyzer</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">analyzer</span> <span class="o">=</span> <span class="n">RepositoryAnalyzer</span><span class="p">(</span><span class="s2">"/path/to/repo"</span><span class="p">)</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">ownership</span> <span class="o">=</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">analyze</span><span class="p">()</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">layers</span> <span class="o">=</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">reconcile</span><span class="p">()</span>
+</code></pre></div>
+<h2 id="generated-codeowners">Generated CODEOWNERS<a class="headerlink" href="#generated-codeowners" title="Permanent link">&para;</a></h2>
+<p><code>checkowners generate</code> consolidates per-file inference into directory-level rules: when every inferred file under a directory shares the same owner set, one <code>/dir/ @owners</code> line replaces the per-file lines. That keeps the file reviewable and means brand-new files under the directory match a rule. Directories whose files disagree keep per-file lines. Set <code>output.consolidate: false</code> for raw per-file output. A sanitized generated file is <a href="https://github.com/smusali/checkowners/blob/main/examples/sample-CODEOWNERS">examples/sample-CODEOWNERS</a>. Reference configs for a solo maintainer and an organization with teams are under <a href="https://github.com/smusali/checkowners/tree/main/examples">examples/</a>.</p>
+<p><code>generate</code> and <code>validate</code> accept <code>--dialect github|gitlab|bitbucket|gerrit</code>. The default is <code>github</code>, and that output is the GitHub CODEOWNERS file described below, including the <code>.github/CODEOWNERS</code> path. <code>gitlab</code> writes one section per top-level directory. The header is <code>[Name][1]</code>. Root files use <code>[Repository][1]</code>. A section is optional (<code>^[Name]</code>) only when every owner on that directory is below the confidence threshold. An approval count on an input header is kept. A count below 1 is read as 1. <code>bitbucket</code> and <code>gerrit</code> are accepted names and exit 2 because those forges are not rendered. <code>validate --dialect gitlab</code> accepts <code>[Section]</code>, <code>[Section][n]</code>, and <code>^[Section]</code> headers. GitHub validation does not.</p>
+<p>After building the file, generate re-resolves every path that contributed a rule with the same pattern engine used by drift (<code>last matching rule wins</code>) and fails if any path's owners differ from the set generation assigned. The error names the path, the intended owners, the resolved owners, and the winning rule line. Set <code>output.verify_round_trip: false</code> to skip this check. <code>--force</code> does not skip it. <code>sync</code> runs the same verification before it opens a pull request or, with <code>--commit</code>, before it commits.</p>
+<p>GitHub does not load a CODEOWNERS file over 3 MB. Generate warns on stderr at 2 MB and refuses above <code>output.max_bytes</code> (default 2_500_000) unless <code>--force</code> is passed. The error names the configured limit.</p>
+<p>GitHub ignores CODEOWNERS lines that contain <code>[...]</code> character ranges, so generate rewrites those path segments to <code>*</code>. If the rewritten pattern would also match inferred paths with a different owner set (for example <code>routes/[id]/</code> and <code>routes/[slug]/</code> both becoming <code>routes/*/</code>, which also matches <code>routes/static/</code>), generate refuses the broad rule by default, prints a warning, and emits per-file rules instead. When every newly matched path has the same owners, the wildcard is kept and recorded in JSON only. Pass <code>--allow-broad-patterns</code> or set <code>output.allow_broad_patterns: true</code> to emit the broad rule anyway. <code>--force</code> does not opt in.</p>
+<p><code>generate --json</code> and <code>sync --json</code> include <code>bytes_written</code>, <code>rules_written</code>, and <code>broad_patterns</code> alongside <code>path</code> and <code>content</code>. Each <code>broad_patterns</code> entry names the source pattern, the generated fallback, the extra matched paths, whether the wildcard was accepted, and the owner delta.</p>
+<p><code>checkowners explain-path &lt;path&gt;</code> shows which rule owns a path and the full match chain (every matching rule in file order, last match wins). It reads the existing CODEOWNERS and does not re-run analysis.</p>
+<p><code>generate</code> and <code>sync</code> refuse to overwrite a CODEOWNERS that was not generated by CheckOwners (no machine-generated header). Pass <code>--force</code> to replace a hand-written file, or to write a file larger than <code>output.max_bytes</code>.</p>
+<p>Lines between <code># checkowners:manual:start</code> and <code># checkowners:manual:end</code> are copied unchanged when the file is regenerated. The rules CheckOwners writes sit between <code># checkowners:generated:start</code> and <code># checkowners:generated:end</code>. A file with no marker lines is still written as a normal generated file, and a file with no machine-generated header still requires <code>--force</code>.</p>
+<p><code>output.block_order</code> chooses the order. <code>manual-first</code> (the default) puts the manual block above the generated block, so the generated block wins when both match a path. <code>generated-first</code> puts the manual block last, so the manual rule wins those paths. Last matching rule wins either way. A manual winner is not a round-trip failure.</p>
+<p>A start marker without its end marker, an end marker without its start, a second block of the same kind, or one kind of marker inside the other exits 2 and writes nothing.</p>
+<h2 id="sync">Sync<a class="headerlink" href="#sync" title="Permanent link">&para;</a></h2>
+<p><code>checkowners sync</code> opens or updates one pull request titled <code>chore: reconcile CODEOWNERS ownership drift</code> on the branch <code>checkowners/reconcile-codeowners</code>. The body explains each rule change, the ownership score and evidence quality behind it, the supporting evidence, and the drift severity and direction. It states that inferred ownership is evidence, not accountability. A later run updates that open pull request instead of opening another one. The working tree stays unchanged until someone merges the pull request.</p>
+<p><code>--pr</code> and <code>--pull-request</code> select that default. <code>--dry-run</code> prints the diff and does not write a file, commit, or call the GitHub API. <code>--commit</code> writes CODEOWNERS and commits it on the current branch with <code>chore: sync CODEOWNERS via checkowners</code>.</p>
+<p>Round-trip verification runs before a pull request is opened and before a commit. A failure exits 3 and publishes nothing. <code>--force</code> does not skip it. A hand-written file without the machine-generated header still requires <code>--force</code>.</p>
+<p><code>sync</code> keeps a manual marker block byte for byte and rewrites only the generated block. Order follows <code>output.block_order</code>. The later block wins overlapping paths. An unbalanced marker exits 2 and publishes nothing.</p>
+<p>The pull request needs <code>GITHUB_TOKEN</code> and <code>owner/repo</code> from <code>GITHUB_REPOSITORY</code> or the <code>origin</code> remote. A job token needs <code>contents: write</code> and <code>pull-requests: write</code>. A fine-grained personal access token needs those same repository permissions. A classic personal access token needs <code>repo</code>. The repository <code>GITHUB_TOKEN</code> can open the pull request, but GitHub does not run <code>push</code> workflows from that token, and the <code>pull_request</code> workflows it creates stay waiting for approval. A personal access token or a GitHub App token is what makes those checks start on their own. checkOwners does not merge the pull request.</p>
+<p>If the token cannot open pull requests, sync exits 4 and names <code>contents: write</code> and <code>pull-requests: write</code>.</p>
+<p><code>sync --json</code> keeps <code>committed</code>, which is true only for <code>--commit</code>. When a pull request is opened or updated, the payload also includes <code>pull_request</code> with <code>number</code>, <code>url</code>, and <code>updated</code>.</p>
+<h2 id="explain-and-owners">Explain and owners<a class="headerlink" href="#explain-and-owners" title="Permanent link">&para;</a></h2>
+<p><code>checkowners explain PATH</code> interrogates inferred ownership for one file or directory. It does not read or write the per-repo cache. Git log and blame run only for the requested path (a directory blames the surviving files under that prefix, not the rest of the repository).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>checkowners<span class="w"> </span>explain<span class="w"> </span>src/main.py
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>checkowners<span class="w"> </span>explain<span class="w"> </span>src/payments/
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>checkowners<span class="w"> </span>explain<span class="w"> </span>src/main.py<span class="w"> </span>--owner<span class="w"> </span>@alice
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>checkowners<span class="w"> </span>explain<span class="w"> </span>src/main.py<span class="w"> </span>--why-not<span class="w"> </span>@carol
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>checkowners<span class="w"> </span>explain<span class="w"> </span>src/main.py<span class="w"> </span>--json
+</code></pre></div>
+<p>Human output lists observed owners with each signal's score, weight, and availability. An unavailable signal is printed as <code>n/a</code>, not <code>0.00</code>. Supporting evidence names recent commit SHAs, the current-blame share, and review availability. The footer states evidence quality, the winning CODEOWNERS owners (if a file exists), team membership when the GitHub API can answer, an <code>aligned</code> / <code>diverged</code> / <code>unverifiable</code> assessment, prior names from <code>git log --follow</code> on a single file, and the configuration knobs that would change the result.</p>
+<p><code>--owner @alice</code> keeps one inferred contributor. <code>--why-not @carol</code> explains exclusion with concrete numbers and the threshold that was missed. A contributor below threshold and one who never touched the path produce different reasons. The two flags cannot be combined.</p>
+<p>A directory target uses the same path matcher as <code>expertise</code>: the union of surviving files under that prefix. Each contributor's score and signal breakdown come from their highest-scoring file; commits are summed; <code>last_commit</code> is the most recent. The human header states the file count and that aggregation rule.</p>
+<p><code>checkowners owners PATH</code> (<code>who</code> is an alias) prints only the ranked inferred list:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>@alice  0.87
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>@bob    0.61
+</code></pre></div>
+<p>Both commands accept <code>--json</code> with <code>schema_version: "1"</code> and <code>models</code>. <code>explain --json</code> includes per-signal availability, weights, evidence, knobs, and optional <code>why_not</code>, and names each person with <code>handle</code>. <code>owners --json</code> uses <code>identity</code> and <code>ownership_score</code>.</p>
+<p><code>expertise</code> remains the cache-backed ranking table. <code>explain-path</code> remains the CODEOWNERS rule-chain command. Neither is a substitute for <code>explain</code>.</p>
+<h2 id="drift-and-severity">Drift and severity<a class="headerlink" href="#drift-and-severity" title="Permanent link">&para;</a></h2>
+<p><code>checkowners drift</code> compares the inferred ownership against the existing CODEOWNERS and emits a JSON payload that CI can branch on.</p>
+<p>The comparison uses real CODEOWNERS pattern semantics (gitignore-style: <code>*</code> within a segment, <code>**</code> across segments, leading <code>/</code> anchors to the repo root, trailing <code>/</code> matches directory contents, <code>dir/*</code> is direct children only, last matching rule wins), so directory and glob rules are honored:</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>missing</code></td>
+<td>An inferred file that no rule covers</td>
+</tr>
+<tr>
+<td><code>stale</code></td>
+<td>A rule whose pattern matches no tracked file (dead rule)</td>
+</tr>
+<tr>
+<td><code>changed</code></td>
+<td>A rule whose owners disagree with the inferred owners of files it covers, aggregated per rule and ranked by the worst per-file delta</td>
+</tr>
+</tbody>
+</table>
+<p>Owner comparison is case-insensitive, and owner-less rules (GitHub's exemption mechanism) count as intentional coverage. When comparison would be meaningless, drift emits a <code>note</code> instead of false positives: raw-email inference vs <code>@handle</code> rules (set <code>GITHUB_TOKEN</code> to resolve handles).</p>
+<p>A rule whose owners contain <code>/</code> is a team rule. With a token, <code>github.resolve_teams</code>, and <code>github.org</code>, drift loads one org team list, records each slug, parent, and member login, and builds child links in memory. The snapshot is <code>teams/{org}.json</code> under the cache root. A run with no directory does not read that file.</p>
+<table>
+<thead>
+<tr>
+<th>Team status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>aligned</code></td>
+<td>Every inferred handle is in the team or its descendants. <code>team_coverage</code> is 1. This is not drift.</td>
+</tr>
+<tr>
+<td><code>partial-drift</code></td>
+<td>Some inferred handles are outside that set. Reported as <code>changed</code> with direction <code>organizational_mismatch</code>.</td>
+</tr>
+<tr>
+<td><code>unverifiable</code></td>
+<td>No directory. Reason <code>team_membership_requires_github_api</code>. The <code>team_membership</code> gap stays.</td>
+</tr>
+<tr>
+<td><code>invisible</code></td>
+<td>The slug is missing or its member list is forbidden.</td>
+</tr>
+<tr>
+<td><code>empty</code></td>
+<td>The team has no members and no children.</td>
+</tr>
+<tr>
+<td><code>nested</code></td>
+<td>The team has children. Coverage uses the union of the team and its descendants. Cycles are ignored.</td>
+</tr>
+</tbody>
+</table>
+<p><code>team_coverage</code> is the share of inferred handles who are members, not Jaccard. <code>inactive_members</code> are members who were not inferred. <code>observed_outside_team</code> lists inferred handles outside the set. <code>team_snapshot</code> is the directory's <code>fetched_at</code>. Individual rules keep the previous comparison.</p>
+<p>A manual rule whose owners differ from observed expertise is not <code>changed</code>. Drift prints <code>declared ownership without observed expertise</code> and asks for a review. A generated rule with the same disagreement stays <code>changed</code>.</p>
+<p><code>checkowners drift --fix-plan</code> prints suggested edits and does not write CODEOWNERS. A generated replacement looks like this:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>-/payments/** @platform
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>+/payments/** @payments
+</code></pre></div>
+<p>When the declared owners should stay and someone observed is missing, the plan is a sentence: <code>Consider adding @alice while retaining @platform. @alice has 0.91 observed expertise and is not currently represented.</code> A manual rule is named for review and is not shown as a deletion. <code>--json</code> includes the same text as <code>fix_plan</code>.</p>
+<p>Drift severity scores each entry, then takes the worst tier. The weights are <code>0.40 * (1 - overlap)</code>, <code>0.25 *</code> the confidence delta capped at 1, <code>0.15 *</code> path criticality (0 when the path matches no <code>criticality</code> pattern), <code>0.15</code> when the entry is decayed, and <code>0.05</code> when <code>qualified_owner_count</code> is 1. Overlap for a team rule is <code>team_coverage</code>. Otherwise it is the Jaccard <code>owner_overlap</code>. A superset of the declared owners therefore scores below a disjoint set when the delta is the same. A qualified-owner count of 1, or decay, does not by itself force <code>critical</code>.</p>
+<p><code>drift.severity_thresholds</code> is four ascending numbers in <code>[0, 1]</code>. The default is <code>0.15 / 0.35 / 0.55 / 0.75</code>. A score below the first cutoff is <code>info</code>. Then <code>low</code>, <code>medium</code>, <code>high</code>, and <code>critical</code>. No entries is <code>info</code>. The command severity is the max entry tier. Hysteresis compares these tier names.</p>
+<p>Direction stays on <code>drift_type</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Direction</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>missing_observed_expert</code></td>
+<td>An inferred path has no rule</td>
+</tr>
+<tr>
+<td><code>stale_declared_owner</code></td>
+<td>Declared owners are decayed and the sets still overlap</td>
+</tr>
+<tr>
+<td><code>complete_ownership_replacement</code></td>
+<td>Overlap is 0 and both sides are non-empty</td>
+</tr>
+<tr>
+<td><code>organizational_mismatch</code></td>
+<td>An inferred handle is outside the resolved team</td>
+</tr>
+<tr>
+<td><code>owner_mismatch</code></td>
+<td>The partial individual case that is none of those four</td>
+</tr>
+</tbody>
+</table>
+<p><code>--json</code> always includes the <code>severity</code> field. The composite Action publishes the same field on <code>drift_summary</code>. <code>info</code> is SARIF <code>note</code>.</p>
+<h2 id="calibrate">Calibrate<a class="headerlink" href="#calibrate" title="Permanent link">&para;</a></h2>
+<p><code>checkowners calibrate</code> scores the repository at a cutoff and compares that ranking with the people who changed each path afterward. It prints held-out <code>precision_at_1</code>, <code>precision_at_3</code>, <code>recall_at_3</code>, MRR, Brier score, and ten calibration bins. <code>--json</code> uses the shared command envelope. Reviewer overload, review latency, and time to first useful review are <code>unavailable</code> unless review history was collected.</p>
+<p><code>checkowners calibrate --fit</code> learns signal weights on the earliest 80 percent of labeled paths and writes them into <code>.github/checkowners.yml</code>. The file also gains a <code>calibration</code> block with the cutoff, sample sizes, default weights, and held-out metrics. The command refuses when history spans fewer than 180 days or fewer than 30 paths changed after the cutoff. It warns when the fitted weights differ from the shipped defaults by an L1 distance above 0.20. The printed result is the held-out slice.</p>
+<h2 id="report">Report<a class="headerlink" href="#report" title="Permanent link">&para;</a></h2>
+<p><code>checkowners report --html checkowners.html</code> writes one HTML file. It has no external network references. The page shows the audit overview, a directory treemap sized by change volume and colored by risk, an ownership map, a <code>historical-v1</code> timeline, team alignment when declared teams were compared with observed clusters, and a drill-down of owners, <code>ownership_score</code>, <code>evidence_quality</code>, the CODEOWNERS rule, and risk. <code>output.anonymize</code> and <code>output.aggregate_only</code> apply before the file is written. The page shows the head SHA, generation time, analysis completeness, and model ids.</p>
+<p>A 12,000-path report stays within 8 MiB. The file is the artifact to share. There is no local server.</p>
+<h2 id="doctor-and-audit">Doctor and audit<a class="headerlink" href="#doctor-and-audit" title="Permanent link">&para;</a></h2>
+<p><code>checkowners doctor</code> reports configuration rows: the branch the file was read from against the branch GitHub consults, file size against 3 MiB, syntax, write access, empty and invisible teams, shadowed rules, declared coverage, dead patterns, and bus factor 1. <code>checkowners doctor --env</code> adds git, history, token, scopes, the CODEOWNERS path, API reachability, team visibility, review history, <code>.git-blame-ignore-revs</code>, cache writability, the package version, and whether config parsed.</p>
+<p>Syntax uses GitHub's CODEOWNERS errors endpoint when that response is conclusive, and records <code>source</code> as <code>github</code>. Offline, or when the endpoint is unavailable, the source is <code>local</code>. A private repository whose non-default branch returns an empty error list while local syntax findings exist is <code>unverifiable</code>. It is not a clean pass. Unknown-owner and missing-access kinds from that endpoint are not syntax failures.</p>
+<p><code>checkowners audit</code> runs every doctor row plus inference: duplicate patterns, broad patterns (at least half of tracked files), CODEOWNERS self-protection, required code-owner review, drift, concentration, decayed declared owners, orphaned former experts, and paths with no confident observed expert. Bare <code>checkowners</code> prints that text summary. <code>checkowners audit --json</code>, <code>--format sarif</code>, and <code>--baseline</code> stay on the subcommand, so <code>--json</code> is not applied to every other command.</p>
+<p>Audit rows that fail and whose policy check fails exit 3. <code>policy.invalid_owner.fail</code> is true, so syntax, file size, missing write access, an invisible team, and an empty team fail closed. <code>policy.drift.fail</code> and <code>policy.unowned.fail</code> stay false, so a first audit is not a red X. Warning-only rules do not block. No token, a 404, or a missing roster is <code>unverifiable</code>, never <code>ok</code>. The runtime bound is <code>analysis.max_runtime_seconds</code> (default 300). Audit does not start a second analysis when doctor already ran one.</p>
+<h2 id="exit-codes">Exit codes<a class="headerlink" href="#exit-codes" title="Permanent link">&para;</a></h2>
+<p>Exit codes are in <a href="../reference/#exit-codes">Exit codes</a>.</p>
+<h2 id="pre-commit">Pre-commit<a class="headerlink" href="#pre-commit" title="Permanent link">&para;</a></h2>
+<p>Other repositories adopt the hooks from <code>.pre-commit-hooks.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">repos</span><span class="p">:</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">repo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/smusali/checkowners</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nt">rev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;commit sha&gt;</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="nt">hooks</span><span class="p">:</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkowners-validate</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkowners-drift</span>
+</code></pre></div>
+<p>Pin <code>rev</code> to <code>v0.6.0</code> (or a later immutable tag). Pre-commit installs the package from that git ref (<code>language: python</code>).</p>
+<p><code>checkowners-validate</code> runs <code>checkowners validate</code> at the <code>pre-commit</code>, <code>pre-merge-commit</code>, <code>pre-push</code>, and <code>manual</code> stages. It runs only when a changed path is <code>CODEOWNERS</code>, <code>.github/CODEOWNERS</code>, or <code>docs/CODEOWNERS</code>. A syntax error exits 3 and blocks the commit. A clean file exits 0.</p>
+<p><code>checkowners-drift</code> runs <code>checkowners drift --baseline .checkowners-baseline.json</code> at <code>pre-push</code> only, on any pushed change. Create the baseline first:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>checkowners<span class="w"> </span>baseline<span class="w"> </span>create
+</code></pre></div>
+<p>A missing or invalid baseline exits 2 and the push hook fails. Findings that remain after the baseline ratchet exit 3. A clean ratchet exits 0. A git failure exits 4.</p>
+<p>Pre-commit treats every non-zero status as a failed hook, so 1, 2, 3, and 4 all block. <code>--exit-zero</code> is not part of either hook. Hook <code>args</code> are appended after the subcommand, and <code>--exit-zero</code> is only accepted before the subcommand, so do not pass it through <code>args</code>.</p>
+<p>The drift hook installs the local <code>github</code> extra in its environment. Install the push hook or drift never runs:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>pre-commit<span class="w"> </span>install<span class="w"> </span>--hook-type<span class="w"> </span>pre-commit<span class="w"> </span>--hook-type<span class="w"> </span>pre-push
+</code></pre></div>
+<p><code>default_install_hook_types: [pre-commit, pre-push]</code> makes a plain <code>pre-commit install</code> register both.</p>
+<h2 id="github-actions">GitHub Actions<a class="headerlink" href="#github-actions" title="Permanent link">&para;</a></h2>
+<p>Least privilege (job summary only; no PR comment):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkowners</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="nt">on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">pull_request</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="nt">jobs</span><span class="p">:</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="nt">drift</span><span class="p">:</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">      </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">          </span><span class="nt">fetch-depth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">smusali/checkowners@v0</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">          </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.github/checkowners.yml</span>
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="w">          </span><span class="nt">comment_on_pr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+<p>Same-repo PR comments (<code>comment_on_pr</code> defaults to <code>"true"</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkowners</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nt">on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">pull_request</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="nt">jobs</span><span class="p">:</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span><span class="nt">drift</span><span class="p">:</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">      </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">      </span><span class="nt">pull-requests</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="w">          </span><span class="nt">fetch-depth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">smusali/checkowners@v0</span>
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a><span class="w">          </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.github/checkowners.yml</span>
+</code></pre></div>
+<p><code>@v0</code> tracks the latest 0.x release. <code>@v0.6</code> tracks 0.6.x patches. <code>@v0.5</code> stays on the 0.5.x line. <code>@v0.6.0</code> is the immutable pin for this release.</p>
+<p>The action always writes the full report to the job summary. That needs no extra permissions and works on fork pull requests, where the job token is read-only regardless of the <code>permissions:</code> block. On a fork pull request the action skips commenting, emits a notice, and leaves the job green.</p>
+<p>If <code>comment_on_pr</code> stays <code>"true"</code> under read-only workflow permissions, the comment step warns (<code>Grant 'pull-requests: write' or set comment_on_pr: false</code>) and does not fail the job. Set <code>comment_on_pr: false</code> to skip the attempt.</p>
+<p>The composite action writes bounded JSON summaries to <code>GITHUB_OUTPUT</code> (<code>schema_version: 1</code>) so workflow gates stay under GitHub's 1 MB per-output cap. The drift output is <code>drift_summary</code>. Gates read <code>drift_summary.drift_detected</code>, <code>drift_summary.severity</code>, and <code>bus_factor_summary.critical_paths[0]</code>. Each summary includes <code>counts</code> and <code>truncated</code>. The qualified-owner summary also includes <code>qualified_owner_count_cap</code>. Drift still carries <code>notes</code> plus the top <code>missing</code> / <code>stale</code> / <code>changed</code> entries (with per-entry <code>qualified_owner_count</code> and <code>decay</code> flags). Per-path <code>entries</code> are omitted from the output; the full lists live in the uploaded artifact.</p>
+<p>Post that drift summary to Slack when drift is present:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkowners</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">smusali/checkowners@v0</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fromJson(steps.checkowners.outputs.drift_summary).drift_detected</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">slackapi/slack-github-action@v2</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">  </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">    </span><span class="nt">webhook</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.SLACK_WEBHOOK_URL }}</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">    </span><span class="nt">webhook-type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">incoming-webhook</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">    </span><span class="nt">payload</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="w">      </span><span class="no">text: "checkOwners drift (${{ fromJson(steps.checkowners.outputs.drift_summary).severity }})"</span>
+</code></pre></div>
+<p>Set <code>max_output_entries</code> (default <code>50</code>) to cap each list in those summaries and in the job-summary / PR-comment report. Workflows that need every entry should <code>actions/download-artifact</code> using the <code>artifact_name</code> output (<code>checkowners-reports</code>) and branch on <code>schema_version</code>.</p>
+<p>The composite action exports <code>GITHUB_TOKEN</code> on the <code>github-action</code> step from the <code>github_token</code> input, which defaults to <code>${{ github.token }}</code>, and passes the same token to the PR comment step. Most callers can omit the input. Override it with a PAT or App token when the default job token cannot list org teams or cannot comment. A supplied token takes precedence over <code>github.token</code>. Minimum permissions for each capability are listed in <a href="../FAQ/#what-token-scopes-are-needed">docs/FAQ.md</a>.</p>
+<p>The composite action accepts <code>fail_on_drift</code>. An empty value uses <code>policy.drift.fail</code>. <code>"true"</code> blocks novel drift. <code>"false"</code> reports it without blocking. The default policy does not fail the step for drift. It also accepts <code>baseline</code> for an accepted-findings file (fail only on new findings), <code>include_bus_factor</code> / <code>include_decay</code> toggles for the secondary outputs, <code>include_balance</code> (default <code>"false"</code>) for the review-load summary, <code>max_output_entries</code> for summary size, and <code>comment_on_pr</code> (default <code>"true"</code>) which maintains a single drift + qualified-owners summary comment on same-repo pull requests, updated in place on every push and marked resolved when drift clears. The Action output key remains <code>bus_factor_summary</code> for compatibility.</p>
+<p>The action fails fast with a clear error when it detects a shallow clone: <code>git log</code> and <code>git blame</code> need history, so the <code>actions/checkout</code> step must set <code>fetch-depth: 0</code>.</p>
+<p>With no extra inputs, Action <code>vX.Y.Z</code> installs <code>checkowners==X.Y.Z</code> from the wheel committed next to <code>action.yml</code>, and installs third-party dependencies from <code>requirements.lock</code> with <code>pip install --require-hashes --only-binary :all:</code>. An empty <code>checkowners_version</code> uses that pin; it never installs "whatever PyPI serves today." After install, the action asserts <code>checkowners --version</code> matches the pin.</p>
+<p>Advanced install inputs:</p>
+<table>
+<thead>
+<tr>
+<th>Input</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>checkowners_version</code></td>
+<td>this Action's tag version</td>
+<td>Override to install a different published version from the index. That path still uses the hashed lockfile for third-party deps, but skips hash verification for the <code>checkowners</code> package itself.</td>
+</tr>
+<tr>
+<td><code>index_url</code></td>
+<td>(PyPI)</td>
+<td>pip <code>--index-url</code> for an internal mirror.</td>
+</tr>
+<tr>
+<td><code>offline</code></td>
+<td><code>"false"</code></td>
+<td>Install the committed wheel with <code>--no-index --find-links</code>. The override must match the pin. A fully air-gapped runner also needs the lockfile wheels on disk (<code>pip download --require-hashes -r requirements.lock -d &lt;dir&gt;</code>) or a reachable <code>index_url</code>.</td>
+</tr>
+<tr>
+<td><code>install_spec</code></td>
+<td><code>""</code></td>
+<td><strong>Security-sensitive.</strong> Allowed only as a local extras spec for dogfooding this repository: <code>.</code>, <code>.[graph]</code>, <code>.[github]</code>, <code>.[graph,github]</code>, <code>.[github,graph]</code>, or <code>.[all]</code>. Interpolating untrusted workflow data into this input is remote code execution. Downstream callers must omit it.</td>
+</tr>
+<tr>
+<td><code>cache</code></td>
+<td><code>"true"</code></td>
+<td>Cache pip downloads and <code>~/.checkowners</code>. <code>"false"</code> skips both.</td>
+</tr>
+</tbody>
+</table>
+<p><code>cache: "false"</code> turns off the pip cache and the state cache. A warm run reuses the ownership map only when the stored commit is still <code>HEAD</code> and the config hash and model versions match. A restored ancestor baseline is applied incrementally. A restored commit that is not an ancestor of <code>HEAD</code>, or a baseline whose config or model ids do not match, is scored again from the full lookback, and the reason is printed.</p>
+<p><code>drift</code>, <code>risk</code>, and <code>validate</code> accept <code>--format text</code>, <code>--format json</code>, <code>--format sarif</code>, and <code>--format junit</code>. <code>--json</code> is still <code>--format json</code>. If both are set and they disagree, the command exits 2. SARIF and JUnit write only that document to stdout. Exit codes are unchanged: blocking findings still exit 3 after the document is printed. <code>drift</code> still writes <code>GITHUB_OUTPUT</code>.</p>
+<p>The SARIF rules are <code>checkowners/unowned-path</code>, <code>checkowners/stale-owner</code>, <code>checkowners/ownership-drift</code>, <code>checkowners/invalid-owner</code>, <code>checkowners/shadowed-rule</code>, <code>checkowners/single-expert-risk</code>, and <code>checkowners/incomplete-analysis</code>, plus the audit ids <code>owner-permission</code>, <code>invisible-team</code>, <code>empty-team</code>, <code>file-size</code>, <code>unowned-file</code>, <code>observed-unowned</code>, <code>duplicate-rule</code>, <code>broad-rule</code>, <code>self-protection</code>, <code>ruleset</code>, <code>decayed-owner</code>, and <code>orphaned-owner</code>. Every run lists the full set. <code>critical</code>, <code>high</code>, and policy <code>error</code> are SARIF <code>error</code>. <code>medium</code> and policy <code>warning</code> are <code>warning</code>. <code>low</code> and <code>info</code> are <code>note</code>. The fingerprint is the baseline identity of rule, path, and owners, so a later severity change does not open a new alert. Shadowed rules are reported in SARIF and JUnit only. The default <code>validate</code> text stays syntax-only.</p>
+<p>The composite action writes <code>checkowners.sarif</code> and <code>checkowners.junit.xml</code> next to the JSON reports. <code>upload_sarif</code> defaults to <code>"false"</code>. Set it to <code>"true"</code> and grant <code>security-events: write</code> to upload the file with category <code>checkowners</code>. Fork and Dependabot pull requests skip that upload, because their token cannot be given the scope, and the job stays green. The artifact is still uploaded. A privileged <code>workflow_run</code> workflow can download that artifact and upload it for fork pull requests. That workflow file has to be on the default branch before GitHub will run it. This repository ships <code>.github/workflows/checkowners-sarif-upload.yml</code> for the dogfood workflow.</p>
+<p>When <code>GITHUB_ACTIONS</code> is set, findings are also workflow annotations on the real file and line, capped at 50. The step summary says how many more there are. The action creates a check run named checkOwners when <code>GITHUB_TOKEN</code>, <code>GITHUB_SHA</code>, and <code>GITHUB_REPOSITORY</code> are set. The conclusion is <code>failure</code> only when the run will exit 3. A missing token or an HTTP 401, 403, or 404 does not fail the job. Grant <code>checks: write</code> for that check run.</p>
+<p><code>.github/workflows/checkowners.yml</code> is a reusable workflow (<code>workflow_call</code>) that calls this action. Pass <code>config</code>, <code>mode</code>, <code>comment_on_pr</code>, <code>upload_sarif</code>, <code>fail_on_drift</code>, and <code>include_balance</code>. The called workflow declares <code>contents: read</code>, <code>checks: write</code>, <code>security-events: write</code>, and <code>pull-requests: write</code>. GitHub keeps the intersection with the caller's permissions, so a caller that grants only <code>contents: read</code> still runs, and the check, the SARIF upload, and the comment fail soft. Grant <code>pull-requests: write</code> only when <code>comment_on_pr</code> is true.</p>
+<p><code>--diff-only</code> is a CLI flag. The Action still analyzes the whole repository. Incremental analysis keeps the same cache key: repository identity, the merge base, the scoring config hash, and the model versions (<code>ownership</code>, <code>risk</code>, <code>topology</code>). A near-miss restore can supply an ancestor baseline. Pass <code>--no-incremental</code> on a hand-rolled CLI step to force a full lookback.</p>
+<h2 id="how-checkowners-compares">How checkowners compares<a class="headerlink" href="#how-checkowners-compares" title="Permanent link">&para;</a></h2>
+<p>CheckOwners treats code ownership as a scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract. Individual pieces exist elsewhere; the table credits them.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Infers from history</th>
+<th>Confidence score</th>
+<th>Drift detection</th>
+<th>Owner validity</th>
+<th>Knowledge risk</th>
+<th>Forges</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>checkowners</strong></td>
+<td>yes</td>
+<td>yes, four-factor</td>
+<td>yes, pattern-aware with severity</td>
+<td>syntax and handle format</td>
+<td>qualified-owner depth, decay, topology, balance</td>
+<td>GitHub</td>
+</tr>
+<tr>
+<td>History-based generator</td>
+<td><strong>yes</strong></td>
+<td>no, threshold only</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>git</td>
+</tr>
+<tr>
+<td>Monorepo CODEOWNERS compiler</td>
+<td>no, composes files</td>
+<td>no</td>
+<td><strong>yes, <code>check</code> mode</strong></td>
+<td>no</td>
+<td>no</td>
+<td>GitHub</td>
+</tr>
+<tr>
+<td>Dedicated CODEOWNERS validator</td>
+<td>no</td>
+<td>no</td>
+<td>partial: not-owned plus file-exist</td>
+<td><strong>yes: verifies accounts, org membership, teams</strong></td>
+<td>no</td>
+<td>GitHub</td>
+</tr>
+<tr>
+<td>Ownership-audit CLI</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>ownership stats only</td>
+<td>GitHub</td>
+</tr>
+<tr>
+<td>GitHub-endpoint linter</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td><strong>yes, via GitHub's own endpoint</strong></td>
+<td>no</td>
+<td>GitHub</td>
+</tr>
+<tr>
+<td>Bus/truck-factor research tooling</td>
+<td>yes</td>
+<td>knowledge model</td>
+<td>no</td>
+<td>no</td>
+<td><strong>yes, formal bus/truck factor</strong></td>
+<td>GitHub / git</td>
+</tr>
+<tr>
+<td>GitHub native</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>partial, UI errors</td>
+<td>no</td>
+<td>GitHub</td>
+</tr>
+</tbody>
+</table>
+<p>Representative tools, so the credits are reviewable: <a href="https://github.com/tomasbjerre/generate-codeowners">tomasbjerre/generate-codeowners</a> (<code>--since</code>, <code>--minimumcommitcount</code>, <code>--maximumnumberofcommitters</code>, <code>--identifier</code>); <a href="https://github.com/gagoar/codeowners-generator">gagoar/codeowners-generator</a> (compose plus <code>--check</code>); <a href="https://github.com/mszostok/codeowners-validator">mszostok/codeowners-validator</a> (<code>files</code>, <code>notowned</code>, and <code>owners</code> checks that verify accounts, org membership, and teams); <a href="https://github.com/snyk/github-codeowners">snyk/github-codeowners</a> (<code>audit -s</code> coverage stats); <a href="https://github.com/heaths/gh-codeowners">heaths/gh-codeowners</a> wrapping <code>GET /repos/{owner}/{repo}/codeowners/errors</code>; <a href="https://github.com/aserg-ufmg/Truck-Factor">aserg-ufmg/Truck-Factor</a> (Avelino et al., ICPC 2016; degree-of-authorship plus removal simulation); GitHub CODEOWNERS UI and branch protection.</p>
+<h3 id="competitive-positioning">Competitive positioning<a class="headerlink" href="#competitive-positioning" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>GitHub CODEOWNERS.</strong> Native, trusted, and wired into review enforcement. Static declaration; infers nothing. CheckOwners is the intelligence and reconciliation layer above it.</li>
+<li><strong>Dedicated validators.</strong> Account, org, and team checks that CheckOwners <code>validate</code> does not do. Use a validator for integrity; use CheckOwners for observed-versus-declared drift.</li>
+<li><strong>Generators and compilers.</strong> Distributed declarations and a compile/<code>check</code> mode that fails CI when the composed file is stale. CheckOwners infers from history; it does not compose satellite CODEOWNERS files.</li>
+<li><strong>Ownership-audit CLIs.</strong> Coverage stats over the committed file (owned vs unowned, per-owner counts). CheckOwners scores inferred expertise and knowledge risk.</li>
+<li><strong>Bus/truck-factor research tools.</strong> Formal removal simulation over degree of authorship. <code>qualified_owner_count</code> is still a capped count. <code>simulate</code> removes named people from the cached author sets and reports the repository truck factor; it does not compute degree of authorship. See <a href="#departure-simulation">Departure simulation</a>.</li>
+<li><strong>Commercial behavioral analysis.</strong> Mature framing around knowledge distribution, key-person risk, and team/code alignment. CheckOwners is the local-first open-source ownership-intelligence layer, not a commercial suite clone.</li>
+</ul>
+<p>The project will not be positioned around who contributes least, who is really working, or which engineer is underperforming. Position it around repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. See <a href="../PRIVACY/">Privacy</a>.</p>
+<h2 id="json-contract">JSON contract<a class="headerlink" href="#json-contract" title="Permanent link">&para;</a></h2>
+<p>The JSON contract is in <a href="../reference/#json-schema">JSON schema</a>.</p>
+<h2 id="development">Development<a class="headerlink" href="#development" title="Permanent link">&para;</a></h2>
+<p>See <a href="../CONTRIBUTING/">docs/CONTRIBUTING.md</a> for the full contributor guide. Common commands:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>hatch<span class="w"> </span>run<span class="w"> </span><span class="nb">test</span><span class="w">              </span><span class="c1"># pytest with coverage; fails below 85%</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>hatch<span class="w"> </span>run<span class="w"> </span>lint<span class="w">              </span><span class="c1"># ruff check + mypy --strict</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>hatch<span class="w"> </span>run<span class="w"> </span>fmt<span class="w">               </span><span class="c1"># ruff format</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>hatch<span class="w"> </span>build<span class="w">                 </span><span class="c1"># sdist + wheel in dist/</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

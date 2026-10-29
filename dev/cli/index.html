@@ -1,0 +1,2500 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://smusali.github.io/checkowners/dev/cli/">
+      
+      
+        <link rel="prev" href="../guides/">
+      
+      
+        <link rel="next" href="../reference/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>CLI - CheckOwners</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cli" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="CheckOwners" class="md-header__button md-logo" aria-label="CheckOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            CheckOwners
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              CLI
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="CheckOwners" class="md-nav__button md-logo" aria-label="CheckOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    CheckOwners
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Internals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../METHODOLOGY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoring model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Patterns and caching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../USAGE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FAQ/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PRIVACY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GLOSSARY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../false-positives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    False positives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/smusali/checkowners/blob/main/SECURITY.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h1>
+<p>Generated from the Typer application. Behavior that the help text does not state stays in <a href="../USAGE/">Usage</a>.</p>
+<div class="typer-docs">
+<h1 id="checkowners">checkowners<a class="headerlink" href="#checkowners" title="Permanent link">&para;</a></h1>
+<p>Infer and maintain CODEOWNERS from git history.</p>
+<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
+<p><code>checkowners [OPTIONS] COMMAND [ARGS]...</code></p>
+<h2 id="arguments">Arguments<a class="headerlink" href="#arguments" title="Permanent link">&para;</a></h2>
+<p><em>No arguments available</em></p>
+<h2 id="options">Options<a class="headerlink" href="#options" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--version</code></td>
+<td>Show the version and exit.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--as-of <str></code></td>
+<td>Score recency as of this UTC instant (ISO 8601).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--deterministic</code></td>
+<td>Documented guarantee: analysis is a pure function of the repository, commit, and config.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--exit-zero</code></td>
+<td>Exit 0 when the only problem is findings.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--fail-on-incomplete</code></td>
+<td>Exit 3 when scored-signal completeness is below 1.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--allow-stale</code></td>
+<td>Reuse cached analysis even when its commit is not HEAD.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--max-age <int range></code></td>
+<td>Refuse cached analysis older than this many seconds. 0 expires immediately.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--no-cache</code></td>
+<td>Do not read or write the analysis cache.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--verbose</code></td>
+<td>Print blame cache hits and misses.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--no-incremental</code></td>
+<td>Recompute the full lookback window.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--offline</code></td>
+<td>Make no network calls. Review evidence and team verification are unavailable.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--redact-emails</code></td>
+<td>Replace email addresses in output with stable tokens.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--diff-only <str></code></td>
+<td>Limit read-only analysis to paths changed in SPEC (base...head or a revision).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--install-completion</code></td>
+<td>Install completion for the current shell.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--show-completion</code></td>
+<td>Show completion for the current shell, to copy it or customize the installation.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>analyze</code></td>
+<td>Analyze git history and rank owners by...</td>
+</tr>
+<tr>
+<td><code>generate</code></td>
+<td>Generate a CODEOWNERS file from inferred...</td>
+</tr>
+<tr>
+<td><code>print</code></td>
+<td>Print inferred ownership to stdout.</td>
+</tr>
+<tr>
+<td><code>validate</code></td>
+<td>Validate CODEOWNERS file syntax.</td>
+</tr>
+<tr>
+<td><code>doctor</code></td>
+<td>Check CODEOWNERS configuration.</td>
+</tr>
+<tr>
+<td><code>audit</code></td>
+<td>Audit CODEOWNERS configuration, drift, and...</td>
+</tr>
+<tr>
+<td><code>explain-path</code></td>
+<td>Show which CODEOWNERS rule owns a path,...</td>
+</tr>
+<tr>
+<td><code>drift</code></td>
+<td>Detect drift between inferred and current...</td>
+</tr>
+<tr>
+<td><code>sync</code></td>
+<td>Open or update a pull request that...</td>
+</tr>
+<tr>
+<td><code>github-action</code></td>
+<td>Run the full CI flow (drift + qualified...</td>
+</tr>
+<tr>
+<td><code>graph</code></td>
+<td>Render the ownership graph in the terminal.</td>
+</tr>
+<tr>
+<td><code>risk</code></td>
+<td>Report composite knowledge risk for the...</td>
+</tr>
+<tr>
+<td><code>bus-factor</code></td>
+<td>Alias of risk.</td>
+</tr>
+<tr>
+<td><code>decay</code></td>
+<td>Alias of risk.</td>
+</tr>
+<tr>
+<td><code>qualified-owners</code></td>
+<td>Count owners above the confidence...</td>
+</tr>
+<tr>
+<td><code>simulate</code></td>
+<td>Report what changes if the named...</td>
+</tr>
+<tr>
+<td><code>suggest</code></td>
+<td>Recommend a reviewer from expertise and...</td>
+</tr>
+<tr>
+<td><code>balance</code></td>
+<td>Alias of suggest.</td>
+</tr>
+<tr>
+<td><code>diff</code></td>
+<td>Print ownership impact for the paths...</td>
+</tr>
+<tr>
+<td><code>topology</code></td>
+<td>Experimental.</td>
+</tr>
+<tr>
+<td><code>onboard</code></td>
+<td>Experimental.</td>
+</tr>
+<tr>
+<td><code>explain</code></td>
+<td>Decompose inferred ownership for a path.</td>
+</tr>
+<tr>
+<td><code>owners</code></td>
+<td>List inferred owners for a path.</td>
+</tr>
+<tr>
+<td><code>who</code></td>
+<td>List inferred owners for a path.</td>
+</tr>
+<tr>
+<td><code>expertise</code></td>
+<td>Show the evidence ranking for a path.</td>
+</tr>
+<tr>
+<td><code>trends</code></td>
+<td>Show historical activity confidence and...</td>
+</tr>
+<tr>
+<td><code>calibrate</code></td>
+<td>Back-test scores against later maintainers...</td>
+</tr>
+<tr>
+<td><code>report</code></td>
+<td>Write a self-contained offline HTML...</td>
+</tr>
+<tr>
+<td><code>baseline</code></td>
+<td>Manage the accepted-findings baseline.</td>
+</tr>
+<tr>
+<td><code>cache</code></td>
+<td>Inspect and delete the on-disk cache.</td>
+</tr>
+<tr>
+<td><code>identity</code></td>
+<td>Inspect and edit contributor identity.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="subcommands">Subcommands<a class="headerlink" href="#subcommands" title="Permanent link">&para;</a></h2>
+<h3 id="analyze">analyze<a class="headerlink" href="#analyze" title="Permanent link">&para;</a></h3>
+<p>Analyze git history and rank owners by ownership score.</p>
+<h4 id="usage_1">Usage<a class="headerlink" href="#usage_1" title="Permanent link">&para;</a></h4>
+<p><code>checkowners analyze [OPTIONS]</code></p>
+<h4 id="arguments_1">Arguments<a class="headerlink" href="#arguments_1" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_1">Options<a class="headerlink" href="#options_1" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="generate">generate<a class="headerlink" href="#generate" title="Permanent link">&para;</a></h3>
+<p>Generate a CODEOWNERS file from inferred ownership.</p>
+<h4 id="usage_2">Usage<a class="headerlink" href="#usage_2" title="Permanent link">&para;</a></h4>
+<p><code>checkowners generate [OPTIONS]</code></p>
+<h4 id="arguments_2">Arguments<a class="headerlink" href="#arguments_2" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_2">Options<a class="headerlink" href="#options_2" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--force</code></td>
+<td>Overwrite a CODEOWNERS file that was not generated by checkOwners, or write a file larger than output.max_bytes.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--allow-broad-patterns</code></td>
+<td>Emit sanitized wildcard rules even when they match extra paths with different owners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--dialect <str></code></td>
+<td>CODEOWNERS dialect: github, gitlab, bitbucket, or gerrit.</td>
+<td>No</td>
+<td><code>github</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="print">print<a class="headerlink" href="#print" title="Permanent link">&para;</a></h3>
+<p>Print inferred ownership to stdout.</p>
+<h4 id="usage_3">Usage<a class="headerlink" href="#usage_3" title="Permanent link">&para;</a></h4>
+<p><code>checkowners print [OPTIONS]</code></p>
+<h4 id="arguments_3">Arguments<a class="headerlink" href="#arguments_3" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_3">Options<a class="headerlink" href="#options_3" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="validate">validate<a class="headerlink" href="#validate" title="Permanent link">&para;</a></h3>
+<p>Validate CODEOWNERS file syntax.</p>
+<h4 id="usage_4">Usage<a class="headerlink" href="#usage_4" title="Permanent link">&para;</a></h4>
+<p><code>checkowners validate [OPTIONS]</code></p>
+<h4 id="arguments_4">Arguments<a class="headerlink" href="#arguments_4" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_4">Options<a class="headerlink" href="#options_4" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--format <str></code></td>
+<td>Output format: text, json, sarif, or junit. --json selects json.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--dialect <str></code></td>
+<td>CODEOWNERS dialect: github, gitlab, bitbucket, or gerrit.</td>
+<td>No</td>
+<td><code>github</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="doctor">doctor<a class="headerlink" href="#doctor" title="Permanent link">&para;</a></h3>
+<p>Check CODEOWNERS configuration. Inference is limited to the bus-factor row.</p>
+<h4 id="usage_5">Usage<a class="headerlink" href="#usage_5" title="Permanent link">&para;</a></h4>
+<p><code>checkowners doctor [OPTIONS]</code></p>
+<h4 id="arguments_5">Arguments<a class="headerlink" href="#arguments_5" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_5">Options<a class="headerlink" href="#options_5" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--env</code></td>
+<td>Include environment checks.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="audit">audit<a class="headerlink" href="#audit" title="Permanent link">&para;</a></h3>
+<p>Audit CODEOWNERS configuration, drift, and ownership risk.</p>
+<h4 id="usage_6">Usage<a class="headerlink" href="#usage_6" title="Permanent link">&para;</a></h4>
+<p><code>checkowners audit [OPTIONS]</code></p>
+<h4 id="arguments_6">Arguments<a class="headerlink" href="#arguments_6" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_6">Options<a class="headerlink" href="#options_6" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--format <str></code></td>
+<td>Output format: text, json, sarif, or junit. --json selects json.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--baseline <str></code></td>
+<td>Accepted-findings file. Fail only on new findings.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="explain-path">explain-path<a class="headerlink" href="#explain-path" title="Permanent link">&para;</a></h3>
+<p>Show which CODEOWNERS rule owns a path, and the full match chain.</p>
+<h4 id="usage_7">Usage<a class="headerlink" href="#usage_7" title="Permanent link">&para;</a></h4>
+<p><code>checkowners explain-path [OPTIONS] {path}</code></p>
+<h4 id="arguments_7">Arguments<a class="headerlink" href="#arguments_7" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>Repo-relative path to resolve against CODEOWNERS.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_7">Options<a class="headerlink" href="#options_7" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="drift">drift<a class="headerlink" href="#drift" title="Permanent link">&para;</a></h3>
+<p>Detect drift between inferred and current CODEOWNERS.</p>
+<h4 id="usage_8">Usage<a class="headerlink" href="#usage_8" title="Permanent link">&para;</a></h4>
+<p><code>checkowners drift [OPTIONS]</code></p>
+<h4 id="arguments_8">Arguments<a class="headerlink" href="#arguments_8" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_8">Options<a class="headerlink" href="#options_8" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--format <str></code></td>
+<td>Output format: text, json, sarif, or junit. --json selects json.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--baseline <str></code></td>
+<td>Accepted-findings file. Fail only on new findings.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--fix-plan</code></td>
+<td>Print suggested CODEOWNERS edits and write nothing.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="sync">sync<a class="headerlink" href="#sync" title="Permanent link">&para;</a></h3>
+<p>Open or update a pull request that proposes CODEOWNERS changes.</p>
+<h4 id="usage_9">Usage<a class="headerlink" href="#usage_9" title="Permanent link">&para;</a></h4>
+<p><code>checkowners sync [OPTIONS]</code></p>
+<h4 id="arguments_9">Arguments<a class="headerlink" href="#arguments_9" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_9">Options<a class="headerlink" href="#options_9" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--force</code></td>
+<td>Overwrite a CODEOWNERS file that was not generated by checkOwners, or write a file larger than output.max_bytes.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--allow-broad-patterns</code></td>
+<td>Emit sanitized wildcard rules even when they match extra paths with different owners.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--commit</code></td>
+<td>Commit CODEOWNERS on the current branch instead of opening a pull request.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>Print the CODEOWNERS diff. Write nothing and open nothing.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--pr, --pull-request</code></td>
+<td>Open or update a reconciliation pull request. This is the default.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="github-action">github-action<a class="headerlink" href="#github-action" title="Permanent link">&para;</a></h3>
+<p>Run the full CI flow (drift + qualified owners + decay) and write GITHUB_OUTPUT.</p>
+<h4 id="usage_10">Usage<a class="headerlink" href="#usage_10" title="Permanent link">&para;</a></h4>
+<p><code>checkowners github-action [OPTIONS]</code></p>
+<h4 id="arguments_10">Arguments<a class="headerlink" href="#arguments_10" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_10">Options<a class="headerlink" href="#options_10" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--fail-on-drift / --no-fail-on-drift</code></td>
+<td>Override policy.drift.fail. Omit to use the configured policy.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--include-bus-factor / --no-include-bus-factor</code></td>
+<td>Write bus_factor.json and the bus_factor_summary output.</td>
+<td>No</td>
+<td><code>include-bus-factor</code></td>
+</tr>
+<tr>
+<td><code>--include-decay / --no-include-decay</code></td>
+<td>Write decay.json and the decay_summary output.</td>
+<td>No</td>
+<td><code>include-decay</code></td>
+</tr>
+<tr>
+<td><code>--include-balance / --no-include-balance</code></td>
+<td>Write balance.json and the balance_summary output.</td>
+<td>No</td>
+<td><code>no-include-balance</code></td>
+</tr>
+<tr>
+<td><code>--max-output-entries <int></code></td>
+<td>Maximum entries per list in GITHUB_OUTPUT summaries.</td>
+<td>No</td>
+<td><code>50</code></td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--baseline <str></code></td>
+<td>Accepted-findings file. Fail only on new findings.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="graph">graph<a class="headerlink" href="#graph" title="Permanent link">&para;</a></h3>
+<p>Render the ownership graph in the terminal.</p>
+<h4 id="usage_11">Usage<a class="headerlink" href="#usage_11" title="Permanent link">&para;</a></h4>
+<p><code>checkowners graph [OPTIONS]</code></p>
+<h4 id="arguments_11">Arguments<a class="headerlink" href="#arguments_11" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_11">Options<a class="headerlink" href="#options_11" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--export <str></code></td>
+<td>Export format. The documented default is dot. Supported: dot, graphml, gexf, json.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--from <str></code></td>
+<td>Start of an ownership transfer path.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--to <str></code></td>
+<td>End of an ownership transfer path.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="risk">risk<a class="headerlink" href="#risk" title="Permanent link">&para;</a></h3>
+<p>Report composite knowledge risk for the repository.</p>
+<h4 id="usage_12">Usage<a class="headerlink" href="#usage_12" title="Permanent link">&para;</a></h4>
+<p><code>checkowners risk [OPTIONS]</code></p>
+<h4 id="arguments_12">Arguments<a class="headerlink" href="#arguments_12" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_12">Options<a class="headerlink" href="#options_12" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--format <str></code></td>
+<td>Output format: text, json, sarif, or junit. --json selects json.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--baseline <str></code></td>
+<td>Accepted-findings file. Fail only on new findings.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="bus-factor">bus-factor<a class="headerlink" href="#bus-factor" title="Permanent link">&para;</a></h3>
+<p>Alias of risk.</p>
+<h4 id="usage_13">Usage<a class="headerlink" href="#usage_13" title="Permanent link">&para;</a></h4>
+<p><code>checkowners bus-factor [OPTIONS]</code></p>
+<h4 id="arguments_13">Arguments<a class="headerlink" href="#arguments_13" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_13">Options<a class="headerlink" href="#options_13" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--format <str></code></td>
+<td>Output format: text, json, sarif, or junit. --json selects json.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--baseline <str></code></td>
+<td>Accepted-findings file. Fail only on new findings.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="decay">decay<a class="headerlink" href="#decay" title="Permanent link">&para;</a></h3>
+<p>Alias of risk.</p>
+<h4 id="usage_14">Usage<a class="headerlink" href="#usage_14" title="Permanent link">&para;</a></h4>
+<p><code>checkowners decay [OPTIONS]</code></p>
+<h4 id="arguments_14">Arguments<a class="headerlink" href="#arguments_14" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_14">Options<a class="headerlink" href="#options_14" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--format <str></code></td>
+<td>Output format: text, json, sarif, or junit. --json selects json.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--baseline <str></code></td>
+<td>Accepted-findings file. Fail only on new findings.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="qualified-owners">qualified-owners<a class="headerlink" href="#qualified-owners" title="Permanent link">&para;</a></h3>
+<p>Count owners above the confidence threshold, capped by top_n_owners.</p>
+<h4 id="usage_15">Usage<a class="headerlink" href="#usage_15" title="Permanent link">&para;</a></h4>
+<p><code>checkowners qualified-owners [OPTIONS] [path]</code></p>
+<h4 id="arguments_15">Arguments<a class="headerlink" href="#arguments_15" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>Path (or glob) to limit the report to.</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_15">Options<a class="headerlink" href="#options_15" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--all</code></td>
+<td>Report every path in the repo.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="simulate">simulate<a class="headerlink" href="#simulate" title="Permanent link">&para;</a></h3>
+<p>Report what changes if the named contributors leave. Uses cached analysis only.</p>
+<h4 id="usage_16">Usage<a class="headerlink" href="#usage_16" title="Permanent link">&para;</a></h4>
+<p><code>checkowners simulate [OPTIONS]</code></p>
+<h4 id="arguments_16">Arguments<a class="headerlink" href="#arguments_16" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_16">Options<a class="headerlink" href="#options_16" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--remove <str></code></td>
+<td>Identity to exclude. Repeat for each person.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--remove-file <path></code></td>
+<td>Roster of identities, one per line.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--remove-status <str></code></td>
+<td>Also remove cached owners with this contributor status. Repeatable.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="suggest">suggest<a class="headerlink" href="#suggest" title="Permanent link">&para;</a></h3>
+<p>Recommend a reviewer from expertise and current load.</p>
+<h4 id="usage_17">Usage<a class="headerlink" href="#usage_17" title="Permanent link">&para;</a></h4>
+<p><code>checkowners suggest [OPTIONS]</code></p>
+<h4 id="arguments_17">Arguments<a class="headerlink" href="#arguments_17" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_17">Options<a class="headerlink" href="#options_17" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--diff <str></code></td>
+<td>Recommend reviewers for SPEC (base...head or a revision).</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--pr <int range></code></td>
+<td>Recommend reviewers for pull request N.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="balance">balance<a class="headerlink" href="#balance" title="Permanent link">&para;</a></h3>
+<p>Alias of suggest.</p>
+<h4 id="usage_18">Usage<a class="headerlink" href="#usage_18" title="Permanent link">&para;</a></h4>
+<p><code>checkowners balance [OPTIONS]</code></p>
+<h4 id="arguments_18">Arguments<a class="headerlink" href="#arguments_18" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_18">Options<a class="headerlink" href="#options_18" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="diff">diff<a class="headerlink" href="#diff" title="Permanent link">&para;</a></h3>
+<p>Print ownership impact for the paths changed in SPEC.</p>
+<h4 id="usage_19">Usage<a class="headerlink" href="#usage_19" title="Permanent link">&para;</a></h4>
+<p><code>checkowners diff [OPTIONS] {spec}</code></p>
+<h4 id="arguments_19">Arguments<a class="headerlink" href="#arguments_19" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spec</code></td>
+<td>base...head, or a revision compared with HEAD.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_19">Options<a class="headerlink" href="#options_19" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="topology">topology<a class="headerlink" href="#topology" title="Permanent link">&para;</a></h3>
+<p>Experimental. Infer exploratory repository topology. Clusters are a hypothesis, not teams.</p>
+<h4 id="usage_20">Usage<a class="headerlink" href="#usage_20" title="Permanent link">&para;</a></h4>
+<p><code>checkowners topology [OPTIONS]</code></p>
+<h4 id="arguments_20">Arguments<a class="headerlink" href="#arguments_20" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_20">Options<a class="headerlink" href="#options_20" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--resolution <float></code></td>
+<td>Louvain resolution. Values above 1 favor smaller clusters.</td>
+<td>No</td>
+<td><code>1.0</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="onboard">onboard<a class="headerlink" href="#onboard" title="Permanent link">&para;</a></h3>
+<p>Experimental. List inferred onboarding suggestions for a codebase area.</p>
+<h4 id="usage_21">Usage<a class="headerlink" href="#usage_21" title="Permanent link">&para;</a></h4>
+<p><code>checkowners onboard [OPTIONS] {path}</code></p>
+<h4 id="arguments_21">Arguments<a class="headerlink" href="#arguments_21" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>Path or directory to onboard into.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_21">Options<a class="headerlink" href="#options_21" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--markdown</code></td>
+<td>Emit a Markdown checklist.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="explain">explain<a class="headerlink" href="#explain" title="Permanent link">&para;</a></h3>
+<p>Decompose inferred ownership for a path.</p>
+<h4 id="usage_22">Usage<a class="headerlink" href="#usage_22" title="Permanent link">&para;</a></h4>
+<p><code>checkowners explain [OPTIONS] {path}</code></p>
+<h4 id="arguments_22">Arguments<a class="headerlink" href="#arguments_22" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>File or directory to explain.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_22">Options<a class="headerlink" href="#options_22" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--owner <str></code></td>
+<td>Show only this inferred contributor.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--why-not <str></code></td>
+<td>Explain why this contributor was excluded.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="owners">owners<a class="headerlink" href="#owners" title="Permanent link">&para;</a></h3>
+<p>List inferred owners for a path.</p>
+<h4 id="usage_23">Usage<a class="headerlink" href="#usage_23" title="Permanent link">&para;</a></h4>
+<p><code>checkowners owners [OPTIONS] {path}</code></p>
+<h4 id="arguments_23">Arguments<a class="headerlink" href="#arguments_23" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>File or directory to list owners for.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_23">Options<a class="headerlink" href="#options_23" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="who">who<a class="headerlink" href="#who" title="Permanent link">&para;</a></h3>
+<p>List inferred owners for a path.</p>
+<h4 id="usage_24">Usage<a class="headerlink" href="#usage_24" title="Permanent link">&para;</a></h4>
+<p><code>checkowners who [OPTIONS] {path}</code></p>
+<h4 id="arguments_24">Arguments<a class="headerlink" href="#arguments_24" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>File or directory to list owners for.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_24">Options<a class="headerlink" href="#options_24" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="expertise">expertise<a class="headerlink" href="#expertise" title="Permanent link">&para;</a></h3>
+<p>Show the evidence ranking for a path.</p>
+<h4 id="usage_25">Usage<a class="headerlink" href="#usage_25" title="Permanent link">&para;</a></h4>
+<p><code>checkowners expertise [OPTIONS] {path}</code></p>
+<h4 id="arguments_25">Arguments<a class="headerlink" href="#arguments_25" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>Path or glob to rank evidence for.</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h4 id="options_25">Options<a class="headerlink" href="#options_25" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="trends">trends<a class="headerlink" href="#trends" title="Permanent link">&para;</a></h3>
+<p>Show historical activity confidence and qualified owner count over time.</p>
+<h4 id="usage_26">Usage<a class="headerlink" href="#usage_26" title="Permanent link">&para;</a></h4>
+<p><code>checkowners trends [OPTIONS]</code></p>
+<h4 id="arguments_26">Arguments<a class="headerlink" href="#arguments_26" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_26">Options<a class="headerlink" href="#options_26" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--periods <int range></code></td>
+<td>Number of periods to report.</td>
+<td>No</td>
+<td><code>6</code></td>
+</tr>
+<tr>
+<td><code>--period-days <int range></code></td>
+<td>Length of each period in days.</td>
+<td>No</td>
+<td><code>30</code></td>
+</tr>
+<tr>
+<td><code>--compare-ownership</code></td>
+<td>Name ownership_score beside this report. Requires acknowledgement.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--acknowledge-different-metrics</code></td>
+<td>Allow naming ownership_score next to historical_activity_confidence.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="calibrate">calibrate<a class="headerlink" href="#calibrate" title="Permanent link">&para;</a></h3>
+<p>Back-test scores against later maintainers in this repository.</p>
+<h4 id="usage_27">Usage<a class="headerlink" href="#usage_27" title="Permanent link">&para;</a></h4>
+<p><code>checkowners calibrate [OPTIONS]</code></p>
+<h4 id="arguments_27">Arguments<a class="headerlink" href="#arguments_27" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_27">Options<a class="headerlink" href="#options_27" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--fit</code></td>
+<td>Learn weights and record them in the config file.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="report">report<a class="headerlink" href="#report" title="Permanent link">&para;</a></h3>
+<p>Write a self-contained offline HTML ownership report.</p>
+<h4 id="usage_28">Usage<a class="headerlink" href="#usage_28" title="Permanent link">&para;</a></h4>
+<p><code>checkowners report [OPTIONS]</code></p>
+<h4 id="arguments_28">Arguments<a class="headerlink" href="#arguments_28" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_28">Options<a class="headerlink" href="#options_28" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--html <path></code></td>
+<td>Write a self-contained HTML report to this path.</td>
+<td>Yes</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h3 id="baseline">baseline<a class="headerlink" href="#baseline" title="Permanent link">&para;</a></h3>
+<p>Manage the accepted-findings baseline.</p>
+<h4 id="usage_29">Usage<a class="headerlink" href="#usage_29" title="Permanent link">&para;</a></h4>
+<p><code>checkowners baseline [OPTIONS] COMMAND [ARGS]...</code></p>
+<h4 id="arguments_29">Arguments<a class="headerlink" href="#arguments_29" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_29">Options<a class="headerlink" href="#options_29" title="Permanent link">&para;</a></h4>
+<p><em>No options available</em></p>
+<h4 id="subcommands_1">Subcommands<a class="headerlink" href="#subcommands_1" title="Permanent link">&para;</a></h4>
+<h5 id="create">create<a class="headerlink" href="#create" title="Permanent link">&para;</a></h5>
+<p>Write current findings to an accepted-findings file.</p>
+<h6 id="usage_30">Usage<a class="headerlink" href="#usage_30" title="Permanent link">&para;</a></h6>
+<p><code>checkowners baseline create [OPTIONS]</code></p>
+<h6 id="arguments_30">Arguments<a class="headerlink" href="#arguments_30" title="Permanent link">&para;</a></h6>
+<p><em>No arguments available</em></p>
+<h6 id="options_30">Options<a class="headerlink" href="#options_30" title="Permanent link">&para;</a></h6>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output <path></code></td>
+<td>Path to write the accepted-findings file.</td>
+<td>No</td>
+<td><code>.checkowners-baseline.json</code></td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="cache">cache<a class="headerlink" href="#cache" title="Permanent link">&para;</a></h3>
+<p>Inspect and delete the on-disk cache.</p>
+<h4 id="usage_31">Usage<a class="headerlink" href="#usage_31" title="Permanent link">&para;</a></h4>
+<p><code>checkowners cache [OPTIONS] COMMAND [ARGS]...</code></p>
+<h4 id="arguments_31">Arguments<a class="headerlink" href="#arguments_31" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_31">Options<a class="headerlink" href="#options_31" title="Permanent link">&para;</a></h4>
+<p><em>No options available</em></p>
+<h4 id="subcommands_2">Subcommands<a class="headerlink" href="#subcommands_2" title="Permanent link">&para;</a></h4>
+<h5 id="info">info<a class="headerlink" href="#info" title="Permanent link">&para;</a></h5>
+<p>Show cache location, size, stored refs, and this repository's state file.</p>
+<h6 id="usage_32">Usage<a class="headerlink" href="#usage_32" title="Permanent link">&para;</a></h6>
+<p><code>checkowners cache info [OPTIONS]</code></p>
+<h6 id="arguments_32">Arguments<a class="headerlink" href="#arguments_32" title="Permanent link">&para;</a></h6>
+<p><em>No arguments available</em></p>
+<h6 id="options_32">Options<a class="headerlink" href="#options_32" title="Permanent link">&para;</a></h6>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h5 id="clear">clear<a class="headerlink" href="#clear" title="Permanent link">&para;</a></h5>
+<p>Delete analysis state and graph files. Keep the handle cache.</p>
+<h6 id="usage_33">Usage<a class="headerlink" href="#usage_33" title="Permanent link">&para;</a></h6>
+<p><code>checkowners cache clear [OPTIONS]</code></p>
+<h6 id="arguments_33">Arguments<a class="headerlink" href="#arguments_33" title="Permanent link">&para;</a></h6>
+<p><em>No arguments available</em></p>
+<h6 id="options_33">Options<a class="headerlink" href="#options_33" title="Permanent link">&para;</a></h6>
+<p><em>No options available</em></p>
+<h5 id="path">path<a class="headerlink" href="#path" title="Permanent link">&para;</a></h5>
+<p>Print the cache directory.</p>
+<h6 id="usage_34">Usage<a class="headerlink" href="#usage_34" title="Permanent link">&para;</a></h6>
+<p><code>checkowners cache path [OPTIONS]</code></p>
+<h6 id="arguments_34">Arguments<a class="headerlink" href="#arguments_34" title="Permanent link">&para;</a></h6>
+<p><em>No arguments available</em></p>
+<h6 id="options_34">Options<a class="headerlink" href="#options_34" title="Permanent link">&para;</a></h6>
+<p><em>No options available</em></p>
+<h5 id="purge">purge<a class="headerlink" href="#purge" title="Permanent link">&para;</a></h5>
+<p>Delete the cache, including contributor emails in the handle file.</p>
+<h6 id="usage_35">Usage<a class="headerlink" href="#usage_35" title="Permanent link">&para;</a></h6>
+<p><code>checkowners cache purge [OPTIONS]</code></p>
+<h6 id="arguments_35">Arguments<a class="headerlink" href="#arguments_35" title="Permanent link">&para;</a></h6>
+<p><em>No arguments available</em></p>
+<h6 id="options_35">Options<a class="headerlink" href="#options_35" title="Permanent link">&para;</a></h6>
+<p><em>No options available</em></p>
+<h3 id="identity">identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h3>
+<p>Inspect and edit contributor identity.</p>
+<h4 id="usage_36">Usage<a class="headerlink" href="#usage_36" title="Permanent link">&para;</a></h4>
+<p><code>checkowners identity [OPTIONS] COMMAND [ARGS]...</code></p>
+<h4 id="arguments_36">Arguments<a class="headerlink" href="#arguments_36" title="Permanent link">&para;</a></h4>
+<p><em>No arguments available</em></p>
+<h4 id="options_36">Options<a class="headerlink" href="#options_36" title="Permanent link">&para;</a></h4>
+<p><em>No options available</em></p>
+<h4 id="subcommands_3">Subcommands<a class="headerlink" href="#subcommands_3" title="Permanent link">&para;</a></h4>
+<h5 id="audit_1">audit<a class="headerlink" href="#audit_1" title="Permanent link">&para;</a></h5>
+<p>List probable duplicate identities in this repository.</p>
+<h6 id="usage_37">Usage<a class="headerlink" href="#usage_37" title="Permanent link">&para;</a></h6>
+<p><code>checkowners identity audit [OPTIONS]</code></p>
+<h6 id="arguments_37">Arguments<a class="headerlink" href="#arguments_37" title="Permanent link">&para;</a></h6>
+<p><em>No arguments available</em></p>
+<h6 id="options_37">Options<a class="headerlink" href="#options_37" title="Permanent link">&para;</a></h6>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td>Output as JSON.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h5 id="merge">merge<a class="headerlink" href="#merge" title="Permanent link">&para;</a></h5>
+<p>Combine two identities into one and record the merge.</p>
+<h6 id="usage_38">Usage<a class="headerlink" href="#usage_38" title="Permanent link">&para;</a></h6>
+<p><code>checkowners identity merge [OPTIONS] {left} {right} {into}</code></p>
+<h6 id="arguments_38">Arguments<a class="headerlink" href="#arguments_38" title="Permanent link">&para;</a></h6>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>left</code></td>
+<td></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>right</code></td>
+<td></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>into</code></td>
+<td></td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h6 id="options_38">Options<a class="headerlink" href="#options_38" title="Permanent link">&para;</a></h6>
+<p><em>No options available</em></p>
+<h5 id="unmerge">unmerge<a class="headerlink" href="#unmerge" title="Permanent link">&para;</a></h5>
+<p>Restore the records from a recorded merge and keep the pair separate.</p>
+<h6 id="usage_39">Usage<a class="headerlink" href="#usage_39" title="Permanent link">&para;</a></h6>
+<p><code>checkowners identity unmerge [OPTIONS] {left} {right}</code></p>
+<h6 id="arguments_39">Arguments<a class="headerlink" href="#arguments_39" title="Permanent link">&para;</a></h6>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Description</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>left</code></td>
+<td></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>right</code></td>
+<td></td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<h6 id="options_39">Options<a class="headerlink" href="#options_39" title="Permanent link">&para;</a></h6>
+<p><em>No options available</em></p>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

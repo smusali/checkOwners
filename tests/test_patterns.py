@@ -15,6 +15,7 @@ from checkowners.analyze import _is_excluded
 from checkowners.change import _matches_exclude
 from checkowners.patterns import (
     CodeownersMarkerError,
+    gitlab_section,
     marker_layout,
     match_path,
     parse_rules,
@@ -407,6 +408,11 @@ def test_bracket_patterns_and_slash_stripping_do_not_invent_owners() -> None:
     literal = match_path(parse_rules("Xfoo @alice\n"), "Xfoo")
     assert literal is not None
     assert literal.owners == ("@alice",)
+
+
+def test_gitlab_section_ignores_a_blank_line() -> None:
+    assert gitlab_section("") is None
+    assert gitlab_section("   ") is None
 
 
 def test_strip_inline_comment_cuts_at_the_first_spaced_hash() -> None:

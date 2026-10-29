@@ -2688,6 +2688,13 @@ def github_action(
         result,
         owners_report,
     )
+    hidden = outcome.hidden_bus_paths
+    if hidden:
+        findings = tuple(
+            item
+            for item in findings
+            if item.baseline_rule != "single-expert" or item.path not in hidden
+        )
     _write_action_machines(findings, ownership)
     summary = _scrubbed(build(limit=max_output_entries))
     write_step_summary(summary)

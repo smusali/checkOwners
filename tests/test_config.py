@@ -98,10 +98,10 @@ def test_drift_mode_default_matches_documented_surfaces() -> None:
     root = Path(__file__).resolve().parents[1]
     expected = DriftConfig().mode
 
-    usage = (root / "docs" / "USAGE.md").read_text(encoding="utf-8")
-    usage_match = re.search(r"(?m)^drift:\n  mode: (\w+)", usage)
-    assert usage_match is not None
-    assert usage_match.group(1) == expected
+    reference = (root / "docs" / "reference.md").read_text(encoding="utf-8")
+    documented = re.search(r"(?m)^drift:\n  mode: (\w+)", reference)
+    assert documented is not None
+    assert documented.group(1) == expected
 
     action = (root / "action.yml").read_text(encoding="utf-8")
     action_match = re.search(r"(?m)^  mode:\n(?:    .*\n)*?    default: (\S+)", action)

@@ -452,15 +452,29 @@ Runtimes are measured by [benchmarks/harness.py](../benchmarks/harness.py). A re
 
 The J1 incremental measurement, from one development machine on 2026-10-24, used 600 one-line Python files added across 20 commits, then one commit that changed two of those files. The cold pass took 1.99 seconds and ran git blame on all 600 files. The warm pass took 0.34 seconds and ran git blame on the two changed files.
 
-No calibration study has been run. The default weights
-`0.30 / 0.20 / 0.20 / 0.15 / 0.15` are heuristics. When a study is run, ground truth
-is who later maintains and reviews the code, not the CODEOWNERS file that was
-already committed. Existing CODEOWNERS can be stale, which is the condition
-the tool exists to detect.
+The default weights `0.30 / 0.20 / 0.20 / 0.15 / 0.15` stay in place unless a held-out comparison beats them. Ground truth is who later maintains the code. For a cutoff commit, prediction uses only history at or before that commit. The label for a path is the authors of non-merge commits that change it afterward. Reviewer labels are used only when a review provider returned reviews submitted after the cutoff. Commit counts are never labeled as reviews. When that sample is absent, `review_metrics` is `unavailable`. The committed CODEOWNERS file is not a label and is not the fit objective.
 
-The study will report ranking quality (precision and recall at small cutoffs)
-against future authors and reviewers. It will not treat an `ownership_score`
-as a calibrated probability until that evidence exists.
+The cutoff is the commit nearest 60 percent of the way from the first commit time to the last. A re-run at the same pinned commits must match exactly. That is the variance band.
+
+`precision_at_1`, `precision_at_3`, and `precision_at_5` are the mean, over labeled paths, of the number of positive authors in the top k divided by k. `recall_at_3` divides that overlap by the size of the positive set. `mrr` is the mean reciprocal rank of the first positive author. `ndcg` is binary NDCG over the full ranking, with discount `log2(rank + 1)`. `brier` is the mean squared error of the top score against whether that person later changed the path. `calibration_error` is the expected absolute gap between bin mean score and hit rate across ten bins. `changed_file_coverage` is the share of labeled paths that had at least one candidate. `acceptance_rate` is the share of top-1 predictions that later changed the path. `rejection_rate`, `false_positive_rate`, and `stale_ownership_rate` are the complementary share among paths that had a prediction. Under this label those three rates are the same quantity. `handoff_days` is the mean days from the cutoff until a different author first holds a strict majority of later commits, on paths where that happens.
+
+Baselines rank the same candidates by commit count, blame share, or recency alone. The published table keeps rows where a baseline wins.
+
+Repository holdout sorts ids and reserves every fourth repository. The weight search is a 0.05 grid on the other repositories. It never sees the held-out ids. Shipped defaults change only when held-out `precision_at_1` improves by at least 0.02. `ownership_score` is called a calibrated probability only when every occupied bin is within 0.1 of its hit rate. Otherwise the name stays `ownership_score`.
+
+`checkowners calibrate` reports the same held-out metrics for one repository. `checkowners calibrate --fit` learns weights on the earliest 80 percent of labeled paths and writes the later 20 percent into `.github/checkowners.yml` with the cutoff, sample sizes, and held-out metrics. It refuses when history is shorter than 180 days or labeled paths are fewer than 30. Training-slice metrics are not the result. A fitted vector whose L1 distance from the shipped defaults is above 0.20 produces a warning.
+
+The public false-positive ledger in [docs/false-positives.md](false-positives.md) records a prediction, the judgment, the reason, the fix, and the evidence that produced the prediction. New reports use the [false-positive issue form](https://github.com/smusali/checkowners/issues/new?template=false-positive.yml). Corrections use the categories `recommendation_correct`, `recommendation_wrong`, `right_person_unavailable`, `team_owns_it`, `security_owner_required`, `compliance_owner_required`, `temporary_migration`, `departed_contributor`, `useful_but_incomplete`, `no_ownership`, and `should_not_own`.
+
+Published numbers for the current corpus are in [benchmarks/validation_results.json](../benchmarks/validation_results.json). The corpus list is [benchmarks/validation_corpus.json](../benchmarks/validation_corpus.json).
+
+The held-out repositories are davegamble/cJSON, google/uuid, kjd/idna, pallets/markupsafe, and ruby/rake. That slice has 306 labeled paths and 133 paths with a candidate. `ownership_score` is not a calibrated probability on this slice: occupied bins are not all within 0.1 of their hit rate, and `calibration_error` is 0.3918.
+
+Held-out `precision_at_1` for the shipped weights is 0.3105. The best grid point on the other repositories scored 0.3039 on the same slice, which is below the 0.02 margin, so the shipped weights stayed `0.30 / 0.20 / 0.20 / 0.15 / 0.15`. Ranking the same candidates by commit count scored 0.3268. Recency alone scored 0.317. Blame alone scored 0.2941. Commit count wins this slice.
+
+The same slice: `precision_at_3` 0.1198, `precision_at_5` 0.0745, `recall_at_3` 0.1447, `mrr` 0.3316, `ndcg` 0.3091, `brier` 0.3966, `changed_file_coverage` 0.4346, `acceptance_rate` 0.7143, `rejection_rate` 0.2857, `false_positive_rate` 0.2857, `stale_ownership_rate` 0.2857, `handoff_days` 362.1566. Reviewer overload, review latency, and time to first useful review were not computed.
+
+Held-out `precision_at_1` by language: C 0.0303 (33 paths), Go 0.0 (27 paths), Python 0.15 (120 paths), Ruby 0.6032 (126 paths). JavaScript, Rust, the small monorepo, and medium-turnover repositories were in the fit and not in this held-out slice, so they have no held-out row.
 
 ## Principles
 

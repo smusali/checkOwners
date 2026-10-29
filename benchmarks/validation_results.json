@@ -1,0 +1,236 @@
+{
+  "baselines": [
+    {
+      "method": "most_commits",
+      "precision_at_1": 0.3268,
+      "recall_at_3": 0.1467
+    },
+    {
+      "method": "git_blame",
+      "precision_at_1": 0.2941,
+      "recall_at_3": 0.1449
+    },
+    {
+      "method": "recency_only",
+      "precision_at_1": 0.317,
+      "recall_at_3": 0.146
+    },
+    {
+      "method": "checkowners",
+      "precision_at_1": 0.3105,
+      "recall_at_3": 0.1447
+    }
+  ],
+  "breakouts": {
+    "language": {
+      "c": {
+        "count": 33,
+        "precision_at_1": 0.0303,
+        "recall_at_3": 0.0197
+      },
+      "go": {
+        "count": 27,
+        "precision_at_1": 0.0,
+        "recall_at_3": 0.0
+      },
+      "python": {
+        "count": 120,
+        "precision_at_1": 0.15,
+        "recall_at_3": 0.0892
+      },
+      "ruby": {
+        "count": 126,
+        "precision_at_1": 0.6032,
+        "recall_at_3": 0.2614
+      }
+    },
+    "merge_strategy": {
+      "unknown": {
+        "count": 306,
+        "precision_at_1": 0.3105,
+        "recall_at_3": 0.1447
+      }
+    },
+    "monorepo_scale": {
+      "single": {
+        "count": 306,
+        "precision_at_1": 0.3105,
+        "recall_at_3": 0.1447
+      }
+    },
+    "repository_type": {
+      "library": {
+        "count": 180,
+        "precision_at_1": 0.1056,
+        "recall_at_3": 0.0631
+      },
+      "tool": {
+        "count": 126,
+        "precision_at_1": 0.6032,
+        "recall_at_3": 0.2614
+      }
+    },
+    "turnover": {
+      "low": {
+        "count": 306,
+        "precision_at_1": 0.3105,
+        "recall_at_3": 0.1447
+      }
+    }
+  },
+  "calibrated_probability": false,
+  "candidate_held_out_precision_at_1": 0.3039,
+  "candidate_weights": {
+    "blame": 0.5,
+    "change_survival": 0.1,
+    "frequency": 0.05,
+    "recency": 0.0,
+    "review": 0.35
+  },
+  "cutoff_fraction": 0.6,
+  "defaults_replaced": false,
+  "held_out": {
+    "acceptance_rate": 0.7143,
+    "brier": 0.3966,
+    "calibration_curve": [
+      {
+        "bin_end": 0.1,
+        "bin_start": 0.0,
+        "count": 0,
+        "hit_rate": null,
+        "mean_score": null
+      },
+      {
+        "bin_end": 0.2,
+        "bin_start": 0.1,
+        "count": 34,
+        "hit_rate": 0.9117647058823529,
+        "mean_score": 0.13638239677619693
+      },
+      {
+        "bin_end": 0.3,
+        "bin_start": 0.2,
+        "count": 17,
+        "hit_rate": 0.7647058823529411,
+        "mean_score": 0.27866753570260805
+      },
+      {
+        "bin_end": 0.4,
+        "bin_start": 0.3,
+        "count": 33,
+        "hit_rate": 0.7272727272727273,
+        "mean_score": 0.3379542474251325
+      },
+      {
+        "bin_end": 0.5,
+        "bin_start": 0.4,
+        "count": 19,
+        "hit_rate": 0.3157894736842105,
+        "mean_score": 0.4467689938473467
+      },
+      {
+        "bin_end": 0.6,
+        "bin_start": 0.5,
+        "count": 13,
+        "hit_rate": 0.5384615384615384,
+        "mean_score": 0.5503282349685642
+      },
+      {
+        "bin_end": 0.7,
+        "bin_start": 0.6,
+        "count": 11,
+        "hit_rate": 0.8181818181818182,
+        "mean_score": 0.6663388024586658
+      },
+      {
+        "bin_end": 0.8,
+        "bin_start": 0.7,
+        "count": 4,
+        "hit_rate": 0.75,
+        "mean_score": 0.7665945394870841
+      },
+      {
+        "bin_end": 0.9,
+        "bin_start": 0.8,
+        "count": 2,
+        "hit_rate": 1.0,
+        "mean_score": 0.8705846916802839
+      },
+      {
+        "bin_end": 1.0,
+        "bin_start": 0.9,
+        "count": 0,
+        "hit_rate": null,
+        "mean_score": null
+      }
+    ],
+    "calibration_error": 0.3918,
+    "changed_file_coverage": 0.4346,
+    "false_positive_rate": 0.2857,
+    "handoff_days": 362.1566,
+    "labeled_paths": 306,
+    "mrr": 0.3316,
+    "ndcg": 0.3091,
+    "precision_at_1": 0.3105,
+    "precision_at_3": 0.1198,
+    "precision_at_5": 0.0745,
+    "predicted_paths": 133,
+    "recall_at_3": 0.1447,
+    "recommendation_correct": 95,
+    "recommendation_wrong": 211,
+    "rejection_rate": 0.2857,
+    "review_latency_hours": null,
+    "reviewer_overload": null,
+    "stale_ownership_rate": 0.2857,
+    "time_to_first_useful_review_hours": null
+  },
+  "held_out_ids": [
+    "davegamble/cJSON",
+    "google/uuid",
+    "kjd/idna",
+    "pallets/markupsafe",
+    "ruby/rake"
+  ],
+  "model": "ownership-v2",
+  "review_metrics": "unavailable",
+  "review_metrics_reason": "review history was not collected",
+  "selected_weights": {
+    "blame": 0.2,
+    "change_survival": 0.15,
+    "frequency": 0.2,
+    "recency": 0.3,
+    "review": 0.15
+  },
+  "training_ids": [
+    "BurntSushi/memchr",
+    "BurntSushi/toml",
+    "changesets/changesets",
+    "dtolnay/anyhow",
+    "dtolnay/thiserror",
+    "gin-gonic/gin",
+    "isaacs/minimatch",
+    "jaraco/zipp",
+    "jshttp/cookie",
+    "madler/zlib",
+    "mahmoud/boltons",
+    "pallets/itsdangerous",
+    "pypa/packaging",
+    "pytest-dev/iniconfig",
+    "python-hyper/h11",
+    "rust-lang/log",
+    "spf13/pflag",
+    "stretchr/testify"
+  ],
+  "unobserved_labels": [
+    "right_person_unavailable",
+    "team_owns_it",
+    "security_owner_required",
+    "compliance_owner_required",
+    "temporary_migration",
+    "departed_contributor",
+    "useful_but_incomplete",
+    "no_ownership",
+    "should_not_own"
+  ],
+  "variance_band": "exact"
+}

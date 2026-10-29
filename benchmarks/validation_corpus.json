@@ -1,0 +1,1266 @@
+{
+  "repositories": [
+    {
+      "id": "pallets/itsdangerous",
+      "url": "https://github.com/pallets/itsdangerous.git",
+      "sha": "672971d66a2ef9f85151e53283113f33d642dabd",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pallets/markupsafe",
+      "url": "https://github.com/pallets/markupsafe.git",
+      "sha": "4e111271b1494995708a9e878a10829b5e10c7ba",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pypa/packaging",
+      "url": "https://github.com/pypa/packaging.git",
+      "sha": "b635dc5e60d6fb8020416c6bab9421964bfa342a",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pytest-dev/iniconfig",
+      "url": "https://github.com/pytest-dev/iniconfig.git",
+      "sha": "a9e0ad14bcd0d9d3b68d2b699ce38399cbe64fdd",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "python-hyper/h11",
+      "url": "https://github.com/python-hyper/h11.git",
+      "sha": "62c5068c971579d61fa1b55373390e12f25fd856",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jaraco/zipp",
+      "url": "https://github.com/jaraco/zipp.git",
+      "sha": "fc40ccc2806ac551f345bfacd1fbc87b7d1fa44d",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "kjd/idna",
+      "url": "https://github.com/kjd/idna.git",
+      "sha": "7c55529db07b94781037703199f57fc9b7c0dc40",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "mahmoud/boltons",
+      "url": "https://github.com/mahmoud/boltons.git",
+      "sha": "d31d821d56c8f7756af9c30a864077f2e5855321",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "BurntSushi/toml",
+      "url": "https://github.com/BurntSushi/toml.git",
+      "sha": "d733fc535e4a9f3c454e421a87b90ade5d49bf31",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "dtolnay/anyhow",
+      "url": "https://github.com/dtolnay/anyhow.git",
+      "sha": "bb1b0f9af0f645d5fdf1ac63a1fcbf3975ee452c",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "dtolnay/thiserror",
+      "url": "https://github.com/dtolnay/thiserror.git",
+      "sha": "3b29f0107e7900860c7a061c069958569eb458e7",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "rust-lang/log",
+      "url": "https://github.com/rust-lang/log.git",
+      "sha": "5bc5545f5f0e01615da3893b658ec9e5c2b1bcdc",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "BurntSushi/memchr",
+      "url": "https://github.com/BurntSushi/memchr.git",
+      "sha": "bd6068c30e9074a90c285e47912fa0b047d07597",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "spf13/pflag",
+      "url": "https://github.com/spf13/pflag.git",
+      "sha": "f3a68a10eace80b4c97a5771ed511e125c77de88",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "google/uuid",
+      "url": "https://github.com/google/uuid.git",
+      "sha": "2d3c2a9cc518326daf99a383f07c4d3c44317e4d",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "stretchr/testify",
+      "url": "https://github.com/stretchr/testify.git",
+      "sha": "87a7b9d57689f6579db2da795ab8deeab29cb724",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "gin-gonic/gin",
+      "url": "https://github.com/gin-gonic/gin.git",
+      "sha": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646",
+      "repository_type": "framework",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "isaacs/minimatch",
+      "url": "https://github.com/isaacs/minimatch.git",
+      "sha": "b0c2aa83161cb6aaa19fa2e612f0b64edffd18ee",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/cookie",
+      "url": "https://github.com/jshttp/cookie.git",
+      "sha": "51c485421a95ee796de6d8dab53a5ade0a20db8a",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "madler/zlib",
+      "url": "https://github.com/madler/zlib.git",
+      "sha": "71747d1d39168833e0cae8ed84b8ce77cb049699",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ruby/rake",
+      "url": "https://github.com/ruby/rake.git",
+      "sha": "52362ac5e324f0d430fbcf804413fab17bbc6a40",
+      "repository_type": "tool",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "davegamble/cJSON",
+      "url": "https://github.com/davegamble/cJSON.git",
+      "sha": "6d9f2443ab071f86e5d9b43025a40929ec41c46c",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "changesets/changesets",
+      "url": "https://github.com/changesets/changesets.git",
+      "sha": "b09779a3d503a581df98a81384d5849db969eb03",
+      "repository_type": "tool",
+      "language": "javascript",
+      "monorepo_scale": "small",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    }
+  ],
+  "dataset": [
+    {
+      "id": "pallets/itsdangerous",
+      "url": "https://github.com/pallets/itsdangerous.git",
+      "sha": "672971d66a2ef9f85151e53283113f33d642dabd",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pallets/markupsafe",
+      "url": "https://github.com/pallets/markupsafe.git",
+      "sha": "4e111271b1494995708a9e878a10829b5e10c7ba",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pallets/click",
+      "url": "https://github.com/pallets/click.git",
+      "sha": "2247b35ea1c47c727d7a06e51fa280e12a863ff6",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pypa/packaging",
+      "url": "https://github.com/pypa/packaging.git",
+      "sha": "b635dc5e60d6fb8020416c6bab9421964bfa342a",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pytest-dev/iniconfig",
+      "url": "https://github.com/pytest-dev/iniconfig.git",
+      "sha": "a9e0ad14bcd0d9d3b68d2b699ce38399cbe64fdd",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pytest-dev/pluggy",
+      "url": "https://github.com/pytest-dev/pluggy.git",
+      "sha": "3fc9e561ea7e72a95549673d79ebdaf4a9fae829",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "python-hyper/h11",
+      "url": "https://github.com/python-hyper/h11.git",
+      "sha": "62c5068c971579d61fa1b55373390e12f25fd856",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jaraco/zipp",
+      "url": "https://github.com/jaraco/zipp.git",
+      "sha": "fc40ccc2806ac551f345bfacd1fbc87b7d1fa44d",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "kjd/idna",
+      "url": "https://github.com/kjd/idna.git",
+      "sha": "7c55529db07b94781037703199f57fc9b7c0dc40",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "chardet/chardet",
+      "url": "https://github.com/chardet/chardet.git",
+      "sha": "865f09baa68378850af723db73707fb1bf3e084d",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "mahmoud/boltons",
+      "url": "https://github.com/mahmoud/boltons.git",
+      "sha": "d31d821d56c8f7756af9c30a864077f2e5855321",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "benjaminp/six",
+      "url": "https://github.com/benjaminp/six.git",
+      "sha": "c8e394065cd541a16c040515dc0afb85cf22a7c3",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "gweis/isodate",
+      "url": "https://github.com/gweis/isodate.git",
+      "sha": "17cb25eb7bc3556a68f3f7b241313e9bb8b23760",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pyparsing/pyparsing",
+      "url": "https://github.com/pyparsing/pyparsing.git",
+      "sha": "810199f89bf916590426e1c5cb3d612584f11a2f",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "dateutil/dateutil",
+      "url": "https://github.com/dateutil/dateutil.git",
+      "sha": "71d92da6f0318101653039ab3f051aef5d7e0438",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "more-itertools/more-itertools",
+      "url": "https://github.com/more-itertools/more-itertools.git",
+      "sha": "4aeb4338ae1407d8da9723e86da99efeb446f719",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "python-attrs/attrs",
+      "url": "https://github.com/python-attrs/attrs.git",
+      "sha": "c8bb9bfaa2843e7844b5bb13bed4370b51feec4f",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "Textualize/rich",
+      "url": "https://github.com/Textualize/rich.git",
+      "sha": "9d8f9a372cc5916fd4781fec207ced7ddac2f08f",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "BurntSushi/toml",
+      "url": "https://github.com/BurntSushi/toml.git",
+      "sha": "d733fc535e4a9f3c454e421a87b90ade5d49bf31",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "dtolnay/anyhow",
+      "url": "https://github.com/dtolnay/anyhow.git",
+      "sha": "bb1b0f9af0f645d5fdf1ac63a1fcbf3975ee452c",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "dtolnay/thiserror",
+      "url": "https://github.com/dtolnay/thiserror.git",
+      "sha": "3b29f0107e7900860c7a061c069958569eb458e7",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "rust-lang/log",
+      "url": "https://github.com/rust-lang/log.git",
+      "sha": "5bc5545f5f0e01615da3893b658ec9e5c2b1bcdc",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "dtolnay/proc-macro2",
+      "url": "https://github.com/dtolnay/proc-macro2.git",
+      "sha": "4626ab98d794f0ff1c3da3fdaf1d6b6e8e6d269c",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "dtolnay/quote",
+      "url": "https://github.com/dtolnay/quote.git",
+      "sha": "27be8db3c8eb07e7ccd83c2e695d5297c2466253",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "BurntSushi/memchr",
+      "url": "https://github.com/BurntSushi/memchr.git",
+      "sha": "bd6068c30e9074a90c285e47912fa0b047d07597",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "BurntSushi/aho-corasick",
+      "url": "https://github.com/BurntSushi/aho-corasick.git",
+      "sha": "6c0abf5681bfc30bb9d8f7f52b68a350b436fffa",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "bitflags/bitflags",
+      "url": "https://github.com/bitflags/bitflags.git",
+      "sha": "8384f6f6e1fd1ab3f448ccf17d400a9e1d6a5280",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "serde-rs/json",
+      "url": "https://github.com/serde-rs/json.git",
+      "sha": "8c535a260ce561eaab4111aafc29038eb9f77ff3",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "serde-rs/serde",
+      "url": "https://github.com/serde-rs/serde.git",
+      "sha": "0db9b3b504bcb0a7fa9cf001429869519afd3e9a",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "rust-lang/libc",
+      "url": "https://github.com/rust-lang/libc.git",
+      "sha": "cdec27dc8b643dd22993f3069a6e3d38a75d175c",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "spf13/pflag",
+      "url": "https://github.com/spf13/pflag.git",
+      "sha": "f3a68a10eace80b4c97a5771ed511e125c77de88",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "spf13/cast",
+      "url": "https://github.com/spf13/cast.git",
+      "sha": "d8e892d16caba3fc13f781dcf4b3f4dd8976999c",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "spf13/afero",
+      "url": "https://github.com/spf13/afero.git",
+      "sha": "d2bffea700c045694727c3172ad6521da4e218b0",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "stretchr/objx",
+      "url": "https://github.com/stretchr/objx.git",
+      "sha": "7d1f603dc6bbd3eef3fda88ef418160b1594535b",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pkg/errors",
+      "url": "https://github.com/pkg/errors.git",
+      "sha": "87f8819acf6dc28bf5d3c14b334268236d686f48",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "davecgh/go-spew",
+      "url": "https://github.com/davecgh/go-spew.git",
+      "sha": "d8f796af33cc11cb798c1aaeb27a4ebc5099927d",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pmezard/go-difflib",
+      "url": "https://github.com/pmezard/go-difflib.git",
+      "sha": "5d4384ee4fb2527b0a1256a821ebfc92f91efefc",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pelletier/go-toml",
+      "url": "https://github.com/pelletier/go-toml.git",
+      "sha": "686c980c47581bf19b6119b60e9a59f2aed04170",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "go-yaml/yaml",
+      "url": "https://github.com/go-yaml/yaml.git",
+      "sha": "944c86a7d29391925ed6ac33bee98a0516f1287a",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "mitchellh/mapstructure",
+      "url": "https://github.com/mitchellh/mapstructure.git",
+      "sha": "8508981c8b6c964e6986dd8aa85490e70ce3c2e2",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "google/uuid",
+      "url": "https://github.com/google/uuid.git",
+      "sha": "2d3c2a9cc518326daf99a383f07c4d3c44317e4d",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "oklog/ulid",
+      "url": "https://github.com/oklog/ulid.git",
+      "sha": "75921a7395850ea47ed4dfd832184a5a294c8fde",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "cespare/xxhash",
+      "url": "https://github.com/cespare/xxhash.git",
+      "sha": "ab37246c889f9db16b606fda1c232d659df9271d",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "golang/snappy",
+      "url": "https://github.com/golang/snappy.git",
+      "sha": "9ae09f520e93143c782aa6088d18a5e300c69dd0",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "stretchr/testify",
+      "url": "https://github.com/stretchr/testify.git",
+      "sha": "87a7b9d57689f6579db2da795ab8deeab29cb724",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "spf13/cobra",
+      "url": "https://github.com/spf13/cobra.git",
+      "sha": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+      "repository_type": "library",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "gin-gonic/gin",
+      "url": "https://github.com/gin-gonic/gin.git",
+      "sha": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646",
+      "repository_type": "framework",
+      "language": "go",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "isaacs/minimatch",
+      "url": "https://github.com/isaacs/minimatch.git",
+      "sha": "b0c2aa83161cb6aaa19fa2e612f0b64edffd18ee",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/cookie",
+      "url": "https://github.com/jshttp/cookie.git",
+      "sha": "51c485421a95ee796de6d8dab53a5ade0a20db8a",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/mime-types",
+      "url": "https://github.com/jshttp/mime-types.git",
+      "sha": "3a1187ee21388efe46b916d4991589d595bcb26c",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/fresh",
+      "url": "https://github.com/jshttp/fresh.git",
+      "sha": "ee7367318cf86a77e8259c63ee014ff0f8853437",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/forwarded",
+      "url": "https://github.com/jshttp/forwarded.git",
+      "sha": "b3097d832aea409b1a1934fd60ecba8129116edc",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/on-finished",
+      "url": "https://github.com/jshttp/on-finished.git",
+      "sha": "9a73f9c1c0b7a17c84b7d68ac5212b11a272cd6a",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/type-is",
+      "url": "https://github.com/jshttp/type-is.git",
+      "sha": "f61fd0318c775d8e4a9590143eb92487c23afe58",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/accepts",
+      "url": "https://github.com/jshttp/accepts.git",
+      "sha": "19db02a05c325e1814833c1b6fde58acdb5ba96a",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "jshttp/negotiator",
+      "url": "https://github.com/jshttp/negotiator.git",
+      "sha": "14b0a7b88e7e7bb1cae38681195951bff29ca2fd",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "sindresorhus/escape-string-regexp",
+      "url": "https://github.com/sindresorhus/escape-string-regexp.git",
+      "sha": "a7f7dabaf336bda98d2166848af15d9168b10bcf",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "component/escape-html",
+      "url": "https://github.com/component/escape-html.git",
+      "sha": "b42947eefa79efff01b3fe988c4c7e7b051ec8d8",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pillarjs/path-to-regexp",
+      "url": "https://github.com/pillarjs/path-to-regexp.git",
+      "sha": "32292b9d13239c7fa3ed23e89c59c10264f9fe20",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "debug-js/debug",
+      "url": "https://github.com/debug-js/debug.git",
+      "sha": "666dbc50680933bde9e7fde3a6c3241102e8f60b",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "visionmedia/bytes.js",
+      "url": "https://github.com/visionmedia/bytes.js.git",
+      "sha": "9ddc13b6c66e0cb293616fba246e05db4b6cef4d",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "stream-utils/unpipe",
+      "url": "https://github.com/stream-utils/unpipe.git",
+      "sha": "a69045d0f12752d64310eea365efa015cbfc97c5",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "chalk/ansi-styles",
+      "url": "https://github.com/chalk/ansi-styles.git",
+      "sha": "8cf247afbecf29a8227f7d0beb69c2997fc6bc61",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ljharb/object-keys",
+      "url": "https://github.com/ljharb/object-keys.git",
+      "sha": "e5d936291dc695bc2611989b33c81d3d56c78638",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "sindresorhus/is-plain-obj",
+      "url": "https://github.com/sindresorhus/is-plain-obj.git",
+      "sha": "666df7c10035f7e26f27ec214fe5ae3173435f34",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "expressjs/body-parser",
+      "url": "https://github.com/expressjs/body-parser.git",
+      "sha": "151a0d9e72682662fd32b439da4693b4459a70b3",
+      "repository_type": "library",
+      "language": "javascript",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "ruby/rake",
+      "url": "https://github.com/ruby/rake.git",
+      "sha": "52362ac5e324f0d430fbcf804413fab17bbc6a40",
+      "repository_type": "tool",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ruby/rexml",
+      "url": "https://github.com/ruby/rexml.git",
+      "sha": "0fee9c5bfab3ae311ed5958ec760db19a2c95eeb",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ruby/psych",
+      "url": "https://github.com/ruby/psych.git",
+      "sha": "9281212767fd0f1de52d8f104a8c12c4eb7014cb",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ruby/webrick",
+      "url": "https://github.com/ruby/webrick.git",
+      "sha": "a3b77313abe1904b05698dae050114fb7c7ff601",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ruby/erb",
+      "url": "https://github.com/ruby/erb.git",
+      "sha": "34ce73a2b6d459721e50da489e108fbb761d6964",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ruby/uri",
+      "url": "https://github.com/ruby/uri.git",
+      "sha": "07052cfed1ce8a555b122c45fb97e9b12a62cbfe",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ruby/csv",
+      "url": "https://github.com/ruby/csv.git",
+      "sha": "bb1588fc5c3b4394dcfc2bc84484677d8557f3aa",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "ruby/stringio",
+      "url": "https://github.com/ruby/stringio.git",
+      "sha": "a64719ee5db88b615eda0c99c5fa3ea124a6f6ec",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "minitest/minitest",
+      "url": "https://github.com/minitest/minitest.git",
+      "sha": "bd26321cdb4acf35aa8cf5a27c0bb6707972754c",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "rspec/rspec-core",
+      "url": "https://github.com/rspec/rspec-core.git",
+      "sha": "aec5f49485d97908183dbe790a7fefb8baaa8091",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "rspec/rspec-expectations",
+      "url": "https://github.com/rspec/rspec-expectations.git",
+      "sha": "ba31727e856de42abb5a2e6566855f0831e1a619",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "rspec/rspec-mocks",
+      "url": "https://github.com/rspec/rspec-mocks.git",
+      "sha": "3caa9ac841e146d618421f870077c0ad684e6cad",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "lostisland/faraday",
+      "url": "https://github.com/lostisland/faraday.git",
+      "sha": "b2d2d7ccb9ecf7558801d6c02f9dbeb4a7c7b9c5",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "rails/marcel",
+      "url": "https://github.com/rails/marcel.git",
+      "sha": "731f57062adad157a6a67f724a6f724ef77339d5",
+      "repository_type": "library",
+      "language": "ruby",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "madler/zlib",
+      "url": "https://github.com/madler/zlib.git",
+      "sha": "71747d1d39168833e0cae8ed84b8ce77cb049699",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "davegamble/cJSON",
+      "url": "https://github.com/davegamble/cJSON.git",
+      "sha": "6d9f2443ab071f86e5d9b43025a40929ec41c46c",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "antirez/linenoise",
+      "url": "https://github.com/antirez/linenoise.git",
+      "sha": "a473823d74b93eab2ba83480df16ed37617493f2",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "akheron/jansson",
+      "url": "https://github.com/akheron/jansson.git",
+      "sha": "851a2145e3256f2e67e5dfe24b0e456bf198b741",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "json-c/json-c",
+      "url": "https://github.com/json-c/json-c.git",
+      "sha": "d9b375ff1b4ea0305566527e377ecf6545771e80",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "zserge/jsmn",
+      "url": "https://github.com/zserge/jsmn.git",
+      "sha": "25647e692c7906b96ffd2b05ca54c097948e879c",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "libexpat/libexpat",
+      "url": "https://github.com/libexpat/libexpat.git",
+      "sha": "c0e20120a0db6d6260377bb410ad4aceb0253802",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "google/brotli",
+      "url": "https://github.com/google/brotli.git",
+      "sha": "d89c4b1c52e25ddafe047bc78bbee5c1e24b1809",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "mity/md4c",
+      "url": "https://github.com/mity/md4c.git",
+      "sha": "f9e5eb232b95b737373ae706648cb75bd259ed1a",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "troydhanson/uthash",
+      "url": "https://github.com/troydhanson/uthash.git",
+      "sha": "a49bed0b4abb7dff16c73906dcdc8a9718d582d2",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "cesanta/frozen",
+      "url": "https://github.com/cesanta/frozen.git",
+      "sha": "a42fc3365d7d4e96a5be146b88870dabc794bbc8",
+      "repository_type": "library",
+      "language": "c",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "rust-lang/hashbrown",
+      "url": "https://github.com/rust-lang/hashbrown.git",
+      "sha": "00c175652a71039ff146110b30dd30c52578e21f",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "dtolnay/syn",
+      "url": "https://github.com/dtolnay/syn.git",
+      "sha": "f81c060acf18657dd354a3cd017b080363ba50da",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "clap-rs/clap",
+      "url": "https://github.com/clap-rs/clap.git",
+      "sha": "ccc89b83875474399e9d9d70841163f6319d1a41",
+      "repository_type": "library",
+      "language": "rust",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "pypa/wheel",
+      "url": "https://github.com/pypa/wheel.git",
+      "sha": "bfb01fb441d579c289556c305280e08168e23c5f",
+      "repository_type": "tool",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pypa/installer",
+      "url": "https://github.com/pypa/installer.git",
+      "sha": "9b7fd286b85c5091390d4368709c46b35693b28c",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pypa/pyproject-hooks",
+      "url": "https://github.com/pypa/pyproject-hooks.git",
+      "sha": "184c9f56a87ede1276a5b33f5024204adb792cd2",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pypa/flit",
+      "url": "https://github.com/pypa/flit.git",
+      "sha": "eeaf9e783c87c331f1d73bb2f5553fc79016aae1",
+      "repository_type": "tool",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "pytest-dev/py",
+      "url": "https://github.com/pytest-dev/py.git",
+      "sha": "6b219734fcd8d2f6489c2f50585a435b34c029c2",
+      "repository_type": "library",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "low"
+    },
+    {
+      "id": "nedbat/coveragepy",
+      "url": "https://github.com/nedbat/coveragepy.git",
+      "sha": "44d8622409538fb6fc261aeb01829fe746219e53",
+      "repository_type": "tool",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "PyCQA/flake8",
+      "url": "https://github.com/PyCQA/flake8.git",
+      "sha": "1c7fec1973ed3a7c192dbe1e96906fbbd1dbe49e",
+      "repository_type": "tool",
+      "language": "python",
+      "monorepo_scale": "single",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "changesets/changesets",
+      "url": "https://github.com/changesets/changesets.git",
+      "sha": "b09779a3d503a581df98a81384d5849db969eb03",
+      "repository_type": "tool",
+      "language": "javascript",
+      "monorepo_scale": "small",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    },
+    {
+      "id": "lerna/lerna",
+      "url": "https://github.com/lerna/lerna.git",
+      "sha": "d6226111673016062ba099b2876334069407ef41",
+      "repository_type": "tool",
+      "language": "javascript",
+      "monorepo_scale": "small",
+      "merge_strategy": "unknown",
+      "turnover": "medium"
+    }
+  ]
+}

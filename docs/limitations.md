@@ -220,3 +220,7 @@ per missing source. That percentage is not a finding, and a missing source is
 not evidence that a person did not do the work. `--fail-on-incomplete` and
 `policy.incomplete_analysis.fail` are how strict CI turns that report into
 exit code 3.
+
+## Published reports
+
+An HTML report and a public audit are knowledge-risk descriptions. They are not a performance measurement. Each one repeats that limit, states that inference can be wrong, and tells a maintainer how to ask for the repository to be removed: open an issue on the checkOwners project. A maintainer disagreement is recorded in the false-positive ledger beside the original evidence.

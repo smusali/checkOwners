@@ -33,3 +33,13 @@ python benchmarks/harness.py self-check
 J1, measured before this harness on 2026-10-24, used 600 one-line Python files across 20 commits and one later commit that changed two files. The cold pass took 1.99 seconds and blamed all 600 files. The warm pass took 0.34 seconds and blamed the two changed files.
 
 The `ci` object in `baseline.json` is this harness's first `ci` run. The `j2` object is the same tier after the blame cache. The `j3` object is the blame-strategy timing. Production blame stayed on `git blame --line-porcelain`. The `c9` object is the same tier after change survival. Historical blame of an unchanged blob hits the blame cache.
+
+## Validation
+
+`python -m checkowners.evaluation study` reads `benchmarks/validation_corpus.json`, checks out each pinned commit, and writes `benchmarks/validation_results.json`. Ground truth is authors after the cutoff. Held-out repository ids are every fourth sorted id. Pull-request CI does not clone this corpus.
+
+`python -m checkowners.evaluation dataset` writes HTML reports, JSON summaries, `audits.jsonl` for the first 50 successes, `findings.json` counts, and `checksums.txt`. Report bodies are release assets, not git blobs. Each report includes the knowledge-risk notice, the limitations summary, and a removal path: a maintainer can ask for a repository to be removed by opening an issue. Counts in `findings.json` are the only aggregate claims. Maintainer disagreements go to the false-positive issue form and the ledger.
+
+`python -m checkowners.evaluation badges --check README.md` regenerates the self-audit line and exits 1 when the README does not contain it.
+
+The current dataset has 103 pinned repositories. All 103 reports succeeded. 53 of those repositories had at least one critical knowledge-risk path. The audit list is the first 50 successful reports. `benchmarks/dataset_checksums.txt` is the checksum list for that generation. The HTML and JSON bodies are a release asset, not files in git.

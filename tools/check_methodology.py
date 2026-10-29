@@ -39,6 +39,20 @@ _METRIC_KEYS = (
     "analysis_completeness",
     "confidence_delta",
     "max_confidence_delta",
+    "precision_at_1",
+    "precision_at_3",
+    "precision_at_5",
+    "recall_at_3",
+    "mrr",
+    "ndcg",
+    "brier",
+    "calibration_error",
+    "changed_file_coverage",
+    "acceptance_rate",
+    "rejection_rate",
+    "false_positive_rate",
+    "stale_ownership_rate",
+    "handoff_days",
 )
 
 

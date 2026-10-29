@@ -4198,6 +4198,197 @@
           ]
         }
       ]
+    },
+    "calibrate": {
+      "allOf": [
+        {"$ref": "#/$defs/envelope"},
+        {
+          "type": "object",
+          "required": [
+            "cutoff",
+            "history_days",
+            "fitted",
+            "warning",
+            "weights",
+            "held_out",
+            "baselines",
+            "review_metrics",
+            "review_metrics_reason"
+          ],
+          "properties": {
+            "cutoff": {"type": "string"},
+            "history_days": {"type": "integer", "minimum": 0},
+            "fitted": {"type": "boolean"},
+            "warning": {"type": ["string", "null"]},
+            "weights": {"$ref": "#/$defs/calibrationWeights"},
+            "held_out": {"$ref": "#/$defs/calibrationMetrics"},
+            "baselines": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/calibrationBaseline"}
+            },
+            "review_metrics": {"const": "unavailable"},
+            "review_metrics_reason": {"type": "string"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false,
+      "examples": [
+        {
+          "schema_version": "1",
+          "checkowners_version": "0.6.0",
+          "models": {
+            "ownership": "ownership-v2",
+            "risk": "risk-v1",
+            "topology": "topology-v2"
+          },
+          "repository": "acme/payments",
+          "head_sha": "abc123",
+          "generated_at": "2026-05-28T12:00:00+00:00",
+          "analysis_completeness": null,
+          "cutoff": "2026-01-01T00:00:00+00:00",
+          "history_days": 200,
+          "fitted": false,
+          "warning": null,
+          "weights": {
+            "recency": 0.3,
+            "frequency": 0.2,
+            "blame": 0.2,
+            "review": 0.15,
+            "change_survival": 0.15
+          },
+          "held_out": {
+            "precision_at_1": 0.5,
+            "precision_at_3": 0.3,
+            "precision_at_5": 0.2,
+            "recall_at_3": 0.4,
+            "mrr": 0.5,
+            "ndcg": 0.6,
+            "brier": 0.2,
+            "calibration_error": 0.1,
+            "changed_file_coverage": 1,
+            "acceptance_rate": 0.5,
+            "rejection_rate": 0.5,
+            "false_positive_rate": 0.5,
+            "stale_ownership_rate": 0.5,
+            "handoff_days": null,
+            "labeled_paths": 2,
+            "predicted_paths": 2,
+            "recommendation_correct": 1,
+            "recommendation_wrong": 1,
+            "calibration_curve": [
+              {
+                "bin_start": 0.0,
+                "bin_end": 0.1,
+                "count": 0,
+                "mean_score": null,
+                "hit_rate": null
+              }
+            ],
+            "reviewer_overload": null,
+            "review_latency_hours": null,
+            "time_to_first_useful_review_hours": null
+          },
+          "baselines": [
+            {"method": "most_commits", "precision_at_1": 0.4, "recall_at_3": 0.5},
+            {"method": "git_blame", "precision_at_1": 0.4, "recall_at_3": 0.5},
+            {"method": "recency_only", "precision_at_1": 0.3, "recall_at_3": 0.4},
+            {"method": "checkowners", "precision_at_1": 0.5, "recall_at_3": 0.4}
+          ],
+          "review_metrics": "unavailable",
+          "review_metrics_reason": "review history was not collected"
+        }
+      ]
+    },
+    "calibrationWeights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recency", "frequency", "blame", "review", "change_survival"],
+      "properties": {
+        "recency": {"type": "number"},
+        "frequency": {"type": "number"},
+        "blame": {"type": "number"},
+        "review": {"type": "number"},
+        "change_survival": {"type": "number"}
+      }
+    },
+    "calibrationBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "precision_at_1", "recall_at_3"],
+      "properties": {
+        "method": {
+          "enum": ["most_commits", "git_blame", "recency_only", "checkowners"]
+        },
+        "precision_at_1": {"type": "number"},
+        "recall_at_3": {"type": "number"}
+      }
+    },
+    "calibrationMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "precision_at_1",
+        "precision_at_3",
+        "precision_at_5",
+        "recall_at_3",
+        "mrr",
+        "ndcg",
+        "brier",
+        "calibration_error",
+        "changed_file_coverage",
+        "acceptance_rate",
+        "rejection_rate",
+        "false_positive_rate",
+        "stale_ownership_rate",
+        "handoff_days",
+        "labeled_paths",
+        "predicted_paths",
+        "recommendation_correct",
+        "recommendation_wrong",
+        "calibration_curve",
+        "reviewer_overload",
+        "review_latency_hours",
+        "time_to_first_useful_review_hours"
+      ],
+      "properties": {
+        "precision_at_1": {"type": "number"},
+        "precision_at_3": {"type": "number"},
+        "precision_at_5": {"type": "number"},
+        "recall_at_3": {"type": "number"},
+        "mrr": {"type": "number"},
+        "ndcg": {"type": "number"},
+        "brier": {"type": "number"},
+        "calibration_error": {"type": "number"},
+        "changed_file_coverage": {"type": "number"},
+        "acceptance_rate": {"type": "number"},
+        "rejection_rate": {"type": "number"},
+        "false_positive_rate": {"type": "number"},
+        "stale_ownership_rate": {"type": "number"},
+        "handoff_days": {"type": ["number", "null"]},
+        "labeled_paths": {"type": "integer", "minimum": 0},
+        "predicted_paths": {"type": "integer", "minimum": 0},
+        "recommendation_correct": {"type": "integer", "minimum": 0},
+        "recommendation_wrong": {"type": "integer", "minimum": 0},
+        "calibration_curve": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/calibrationBin"}
+        },
+        "reviewer_overload": {"type": "null"},
+        "review_latency_hours": {"type": "null"},
+        "time_to_first_useful_review_hours": {"type": "null"}
+      }
+    },
+    "calibrationBin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bin_start", "bin_end", "count", "mean_score", "hit_rate"],
+      "properties": {
+        "bin_start": {"type": "number"},
+        "bin_end": {"type": "number"},
+        "count": {"type": "integer", "minimum": 0},
+        "mean_score": {"type": ["number", "null"]},
+        "hit_rate": {"type": ["number", "null"]}
+      }
     }
   }
 }

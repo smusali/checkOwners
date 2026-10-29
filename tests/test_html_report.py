@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
+from checkowners.audit import AuditRow
 from checkowners.cli import app
+from checkowners.graph import GraphExtraMissingError
 from checkowners.html_report import (
     HTML_SIZE_BUDGET,
     LIMITATIONS_SUMMARY,
@@ -16,9 +20,21 @@ from checkowners.html_report import (
     ReportDocument,
     ReportFile,
     ReportOwner,
+    _branch,
+    _finding,
+    _report_owner,
+    _teams,
+    _tracked,
+    _without_urls,
     render_report,
 )
-from checkowners.models import Config
+from checkowners.models import (
+    ConfidenceScore,
+    Config,
+    OwnerEntry,
+    OwnershipMap,
+    SignalScore,
+)
 from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 from tests.conftest import GitRepo
 
@@ -133,6 +149,81 @@ def test_report_bytes_repeat_and_stay_within_budget() -> None:
     second = render_report(document, config, "fixture")
     assert first == second
     assert len(first.encode("utf-8")) <= HTML_SIZE_BUDGET
+
+
+def test_render_rejects_a_url_and_skips_empty_owners() -> None:
+    document = replace(_document((_file("src/pay.py"),)), head_sha="https://example.invalid/secret")
+    with pytest.raises(ValueError, match="external URL"):
+        render_report(document, Config(), "fixture")
+    files = (
+        ReportFile("NOTES", 1, "low", "", (_owner("notes@example.com"),)),
+        ReportFile("src/empty.py", None, "low", "", ()),
+        _file("src/pay.py"),
+    )
+    html = render_report(_document(files), Config(), "fixture")
+    assert "notes@example.com" in html
+    assert "http://" not in html
+    cleaned = _without_urls(
+        {"ok": "https://example.invalid/a", 1: "skip", "nested": ["https://"], "n": 1}
+    )
+    assert cleaned == {"ok": "example.invalid/a", "nested": [""], "n": 1}
+
+
+def test_report_helpers_cover_missing_signals_and_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    blank = OwnerEntry("blank@example.com", 0.2, None, 1)
+    reported = _report_owner(blank)
+    assert reported.signals == ()
+    assert reported.last_commit == ""
+    off = SignalScore(available=False)
+    scored = OwnerEntry(
+        "scored@example.com",
+        0.8,
+        datetime(2026, 1, 1, tzinfo=UTC),
+        3,
+        score_breakdown=ConfidenceScore(
+            total=0.8,
+            recency=SignalScore(True, 0.8),
+            frequency=off,
+            blame=off,
+            review=off,
+            change_survival=off,
+        ),
+    )
+    assert _report_owner(scored).signals == (("recency", 0.8),)
+    assert _report_owner(scored).last_commit.startswith("2026-01-01")
+    assert _finding((), ()) == "No elevated ownership risk was found."
+    empty_warn = AuditRow(rule="owners", status="warn", summary="")
+    warned = AuditRow(rule="owners", status="warn", summary="Bus factor is 1.")
+    failed = AuditRow(rule="owners", status="fail", summary="missing owners")
+    quiet = AuditRow(rule="owners", status="ok", summary="fine")
+    assert _finding((), (empty_warn, quiet, warned)) == "Bus factor is 1."
+    assert _finding((), (failed,)) == "missing owners"
+
+    def explode(*_args: object, **_kwargs: object) -> object:
+        raise GraphExtraMissingError("networkx")
+
+    monkeypatch.setattr("checkowners.html_report.infer_topology", explode)
+    ownership = OwnershipMap(paths={}, last_analyzed=datetime(2026, 1, 1, tzinfo=UTC))
+    comparisons, clusters, reason = _teams(ownership, Config())
+    assert comparisons == ()
+    assert clusters == ()
+    assert reason == "Team alignment is unavailable."
+
+    def git_fails(*_args: object, **_kwargs: object) -> object:
+        raise subprocess.CalledProcessError(1, ["git"])
+
+    monkeypatch.setattr("checkowners.html_report.run_git", git_fails)
+    assert _tracked(tmp_path) == ()
+    assert _branch(tmp_path) == ""
+
+    class _Result:
+        stdout = "HEAD\n"
+
+    monkeypatch.setattr("checkowners.html_report.run_git", lambda *_args, **_kwargs: _Result())
+    assert _branch(tmp_path) == ""
 
 
 def test_report_command_shows_fixture_provenance(

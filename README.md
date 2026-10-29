@@ -26,7 +26,7 @@ Local-first. Git-native. No source-code upload. No LLM required. The core instal
 
 Ownership coverage: 100%   Critical knowledge risk: 3 paths   CODEOWNERS drift: 0
 
-Known misses are listed in [docs/false-positives.md](docs/false-positives.md). Report one with the [false-positive issue form](https://github.com/smusali/checkowners/issues/new?template=false-positive.yml). `checkowners report --html checkowners.html` writes a single offline report.
+Known misses are listed in [docs/false-positives.md](https://github.com/smusali/checkowners/blob/main/docs/false-positives.md). Report one with the [false-positive issue form](https://github.com/smusali/checkowners/issues/new?template=false-positive.yml). `checkowners report --html checkowners.html` writes a single offline report.
 
 ```bash
 uvx checkowners audit

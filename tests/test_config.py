@@ -859,3 +859,78 @@ def test_severity_thresholds_must_be_four_ascending_numbers(tmp_path: Path, cont
     root = _write_config(tmp_path, content)
     with pytest.raises(ValueError, match="four ascending numbers"):
         load_config(repo_root=root)
+
+
+_CALIBRATION = """
+calibration:
+  cutoff: "2024-06-01T00:00:00+00:00"
+  train_paths: 24
+  held_out_paths: 6
+  history_days: 200
+  weights:
+    recency: 0.30
+    frequency: 0.20
+    blame: 0.20
+    review: 0.15
+    change_survival: 0.15
+  default_weights:
+    recency: 0.30
+    frequency: 0.20
+    blame: 0.20
+    review: 0.15
+    change_survival: 0.15
+  held_out:
+    precision_at_1: 0.5
+    precision_at_3: 0.4
+    recall_at_3: 0.4
+    mrr: 0.5
+    brier: 0.2
+"""
+
+
+def test_calibration_section_loads(tmp_path: Path) -> None:
+    root = _write_config(tmp_path, _CALIBRATION)
+    loaded = load_config(repo_root=root)
+    assert loaded.calibration is not None
+    assert loaded.calibration.train_paths == 24
+    assert loaded.calibration.held_out_precision_at_1 == pytest.approx(0.5)
+    ignored = _write_config(tmp_path, "calibration: []\n")
+    with pytest.raises(ValueError, match="must be a mapping"):
+        load_config(repo_root=ignored)
+
+
+@pytest.mark.parametrize(
+    ("content", "match"),
+    [
+        (_CALIBRATION.replace("recency: 0.30", "recency: true", 1), "must be a number"),
+        (_CALIBRATION.replace("recency: 0.30", 'recency: "no"', 1), "must be a number"),
+        (_CALIBRATION.replace("train_paths: 24", "train_paths: true"), "must be an integer"),
+        (_CALIBRATION.replace("train_paths: 24", "train_paths: 1.5"), "must be an integer"),
+        (_CALIBRATION.replace("    frequency: 0.20\n", "", 1), "is missing frequency"),
+        (_CALIBRATION.replace('cutoff: "2024-06-01T00:00:00+00:00"', "cutoff: 1"), "timestamp"),
+        (_CALIBRATION.replace('cutoff: "2024-06-01T00:00:00+00:00"', 'cutoff: "   "'), "timestamp"),
+        (_CALIBRATION.replace("    brier: 0.2\n", ""), "is missing brier"),
+        (
+            _CALIBRATION.replace(
+                "  held_out:\n"
+                "    precision_at_1: 0.5\n"
+                "    precision_at_3: 0.4\n"
+                "    recall_at_3: 0.4\n"
+                "    mrr: 0.5\n"
+                "    brier: 0.2\n",
+                "  held_out: []\n",
+            ),
+            "must be a mapping",
+        ),
+        (
+            _CALIBRATION.replace("    recency: 0.30\n", "    recency: 0.30\n    extra: 1\n", 1),
+            "Unsupported",
+        ),
+    ],
+)
+def test_calibration_section_rejects_invalid_values(
+    tmp_path: Path, content: str, match: str
+) -> None:
+    root = _write_config(tmp_path, content)
+    with pytest.raises(ValueError, match=match):
+        load_config(repo_root=root)

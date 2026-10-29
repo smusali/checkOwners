@@ -1013,8 +1013,6 @@ def _ndcg(ranked: Sequence[tuple[str, float]], positive: frozenset[str]) -> floa
             dcg += 1.0 / math.log2(index + 1)
     ideal = min(len(positive), len(ranked))
     idcg = sum(1.0 / math.log2(index + 1) for index in range(1, ideal + 1))
-    if idcg == 0.0:
-        return 0.0
     return dcg / idcg
 
 

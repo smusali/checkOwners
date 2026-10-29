@@ -112,6 +112,12 @@ from checkowners.drift import (
     team_comparison_payload,
     write_github_output,
 )
+from checkowners.evaluation import (
+    InsufficientHistoryError,
+    calibrate_repository,
+    calibration_payload,
+    format_calibration_text,
+)
 from checkowners.expertise import rank_expertise
 from checkowners.explain import (
     ExplainedOwner,
@@ -184,6 +190,7 @@ from checkowners.graph import (
     to_text,
     transfer_path,
 )
+from checkowners.html_report import write_report
 from checkowners.identity import (
     HandleHit,
     IdentityGraph,
@@ -4243,6 +4250,47 @@ def cache_purge_command() -> None:
     root = cache_directory()
     removed = cache_purge()
     typer.echo(f"purged {root} ({removed} files)")
+
+
+@app.command()
+def calibrate(
+    fit: Annotated[
+        bool,
+        typer.Option("--fit", help="Learn weights and record them in the config file."),
+    ] = False,
+    json_output: JsonOption = False,
+) -> None:
+    """Back-test scores against later maintainers in this repository."""
+    repo_root = Path.cwd()
+    try:
+        run = calibrate_repository(repo_root, _load_config(), fit=fit)
+    except InsufficientHistoryError as exc:
+        err_console.print(str(exc))
+        exit_with(ExitCode.CONFIG)
+    _report_models("ownership")
+    if run.warning:
+        err_console.print(run.warning)
+    if json_output:
+        _emit_json(calibration_payload(run))
+        return
+    typer.echo(format_calibration_text(run), nl=False)
+
+
+@app.command()
+def report(
+    html: Annotated[
+        Path,
+        typer.Option("--html", help="Write a self-contained HTML report to this path."),
+    ],
+) -> None:
+    """Write a self-contained offline HTML ownership report."""
+    try:
+        destination = write_report(Path.cwd(), html, _load_config())
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        err_console.print(str(exc))
+        exit_with(ExitCode.INTERNAL)
+    _report_models("ownership", "risk", "topology")
+    typer.echo(str(destination))
 
 
 def main() -> None:

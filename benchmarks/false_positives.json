@@ -1,0 +1,15 @@
+{
+  "entries": [
+    {
+      "id": "formatting-reindent",
+      "prediction": "Bob is the owner of foo.py because a reformat commit touches the file.",
+      "judgment": "Alice remains the primary owner. Bob's blame share is 0.",
+      "reason": "A whitespace reformat does not confer ownership.",
+      "fix": "Blame share for the reformat is 0, so Bob scores below Alice.",
+      "category": "recommendation_wrong",
+      "status": "fixed",
+      "test_id": "test_golden_formatting",
+      "evidence": "Alice creates and edits foo.py. Bob reindents it. Alice reviewed that change. The reformat commit and Bob's zero blame share stay in the record."
+    }
+  ]
+}

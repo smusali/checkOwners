@@ -24,6 +24,10 @@ Local-first. Git-native. No source-code upload. No LLM required. The core instal
 
 > This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful.
 
+Ownership coverage: 100%   Critical knowledge risk: 3 paths   CODEOWNERS drift: 0
+
+Known misses are listed in [docs/false-positives.md](https://github.com/smusali/checkowners/blob/main/docs/false-positives.md). Report one with the [false-positive issue form](https://github.com/smusali/checkowners/issues/new?template=false-positive.yml). `checkowners report --html checkowners.html` writes a single offline report.
+
 ```bash
 uvx checkowners audit
 ```
@@ -124,6 +128,8 @@ The full pipeline is in [docs/USAGE.md](https://github.com/smusali/checkowners/b
 | Command | What it does |
 |---------|--------------|
 | `checkowners` / `checkowners audit` | Run the CODEOWNERS audit. Flags such as `--json` stay on the subcommand |
+| `checkowners calibrate` | Back-test scores against later authors. `--fit` writes repository weights |
+| `checkowners report --html FILE` | Write one offline HTML report |
 | `checkowners doctor` | Check the file, syntax, access, teams, coverage, and bus factor. `--env` adds the environment |
 | `checkowners analyze` | Infer ownership scores, qualified owner count, and continuity-risk warnings |
 | `checkowners generate` | Write CODEOWNERS, ordered by ownership score; optional inline annotations |

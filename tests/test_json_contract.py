@@ -58,6 +58,7 @@ _COMMANDS: tuple[tuple[list[str], str], ...] = (
     (["diff", "HEAD", "--json"], "change"),
     (["doctor", "--json"], "doctor"),
     (["audit", "--json"], "audit"),
+    (["calibrate", "--json"], "calibrate"),
 )
 
 

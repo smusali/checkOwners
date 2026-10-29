@@ -169,7 +169,7 @@ CI uploads `coverage.xml` to Codecov with the `CODECOV_TOKEN` repository secret.
 
 ## Reporting bugs
 
-Open an issue from the [issue chooser](https://github.com/smusali/checkowners/issues/new/choose). Use the bug form for a defect, the false-positive form when inference named the wrong owner, and the feature form for a proposed change. Each form asks for the command, configuration (no tokens), repository shape, and merge strategy.
+Open an issue from the [issue chooser](https://github.com/smusali/checkowners/issues/new/choose). Use the bug form for a defect, the false-positive form when inference named the wrong owner, and the feature form for a proposed change. Each form asks for the command, configuration (no tokens), repository shape, and merge strategy. False-positive reports that opt in are added to the public ledger in [docs/false-positives.md](false-positives.md). A fixed entry keeps the original evidence and names the regression test. An open entry names the tracking issue.
 
 Usage questions belong in [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a), not the issue tracker.
 

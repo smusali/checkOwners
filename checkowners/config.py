@@ -15,6 +15,7 @@ from checkowners.models import (
     AnalysisConfig,
     BlockOrder,
     BusFactorConfig,
+    CalibrationProvenance,
     CheckPolicy,
     Config,
     ConfiguredMergeStrategy,
@@ -99,6 +100,7 @@ _V2_TOP_LEVEL: frozenset[str] = frozenset(
         "contributors",
         "criticality",
         "identities",
+        "calibration",
     }
 )
 
@@ -232,6 +234,23 @@ _SIGNAL_FIELDS: dict[str, dict[str, str]] = {
     },
 }
 
+_V2_CALIBRATION: frozenset[str] = frozenset(
+    {
+        "cutoff",
+        "train_paths",
+        "held_out_paths",
+        "history_days",
+        "weights",
+        "default_weights",
+        "held_out",
+    }
+)
+_V2_CALIBRATION_WEIGHTS: frozenset[str] = frozenset(
+    {"recency", "frequency", "blame", "review", "change_survival"}
+)
+_V2_CALIBRATION_METRICS: frozenset[str] = frozenset(
+    {"precision_at_1", "precision_at_3", "recall_at_3", "mrr", "brier"}
+)
 _V2_SECTIONS: dict[str, frozenset[str]] = {
     "qualification": _V2_QUALIFICATION,
     "scoring": _V2_SCORING,
@@ -248,6 +267,7 @@ _V2_SECTIONS: dict[str, frozenset[str]] = {
     "privacy": _V2_PRIVACY,
     "security": _V2_SECURITY,
     "contributors": _V2_CONTRIBUTORS,
+    "calibration": _V2_CALIBRATION,
 }
 
 
@@ -494,6 +514,67 @@ def _pinned_models(raw: dict[str, Any]) -> ModelVersions:
     )
 
 
+def _number(value: object, key: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        msg = f"{key} must be a number"
+        raise ValueError(msg)
+    return float(value)
+
+
+def _whole(value: object, key: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        msg = f"{key} must be an integer"
+        raise ValueError(msg)
+    return value
+
+
+def _weight_pairs(value: object, key: str) -> tuple[tuple[str, float], ...]:
+    section = _require_mapping(value, key)
+    _reject_unknown_keys(section, _V2_CALIBRATION_WEIGHTS, key)
+    missing = _V2_CALIBRATION_WEIGHTS - set(section)
+    if missing:
+        names = ", ".join(sorted(missing))
+        msg = f"{key} is missing {names}"
+        raise ValueError(msg)
+    return tuple(
+        (name, _number(section[name], f"{key}.{name}")) for name in sorted(_V2_CALIBRATION_WEIGHTS)
+    )
+
+
+def _build_calibration(data: Mapping[str, object]) -> CalibrationProvenance:
+    """Return provenance parsed from the `calibration` mapping `data`."""
+    cutoff = data.get("cutoff")
+    if not isinstance(cutoff, str) or not cutoff.strip():
+        msg = "calibration.cutoff must be a timestamp string"
+        raise ValueError(msg)
+    held_out = _require_mapping(data.get("held_out"), "calibration.held_out")
+    _reject_unknown_keys(held_out, _V2_CALIBRATION_METRICS, "calibration.held_out")
+    missing = _V2_CALIBRATION_METRICS - set(held_out)
+    if missing:
+        names = ", ".join(sorted(missing))
+        msg = f"calibration.held_out is missing {names}"
+        raise ValueError(msg)
+    return CalibrationProvenance(
+        cutoff=cutoff,
+        train_paths=_whole(data.get("train_paths"), "calibration.train_paths"),
+        held_out_paths=_whole(data.get("held_out_paths"), "calibration.held_out_paths"),
+        history_days=_whole(data.get("history_days"), "calibration.history_days"),
+        weights=_weight_pairs(data.get("weights"), "calibration.weights"),
+        default_weights=_weight_pairs(data.get("default_weights"), "calibration.default_weights"),
+        held_out_precision_at_1=_number(
+            held_out["precision_at_1"],
+            "calibration.held_out.precision_at_1",
+        ),
+        held_out_precision_at_3=_number(
+            held_out["precision_at_3"],
+            "calibration.held_out.precision_at_3",
+        ),
+        held_out_recall_at_3=_number(held_out["recall_at_3"], "calibration.held_out.recall_at_3"),
+        held_out_mrr=_number(held_out["mrr"], "calibration.held_out.mrr"),
+        held_out_brier=_number(held_out["brier"], "calibration.held_out.brier"),
+    )
+
+
 def _merge_config(raw: dict[str, Any]) -> Config:
     builders: dict[str, tuple[str, Any]] = {
         "analysis": ("analysis", _build_analysis_config),
@@ -536,6 +617,8 @@ def _merge_config(raw: dict[str, Any]) -> Config:
         kwargs["suppressions"] = _build_suppressions(raw["suppressions"])
     if "criticality" in raw:
         kwargs["criticality"] = _build_criticality(raw["criticality"])
+    if "calibration" in raw and isinstance(raw["calibration"], dict):
+        kwargs["calibration"] = _build_calibration(raw["calibration"])
     return Config(**kwargs)
 
 

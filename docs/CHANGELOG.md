@@ -11,6 +11,10 @@ Each dated heading is the UTC calendar day that version was published to PyPI (`
 Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183).
 
 ### Added
+- `checkowners calibrate` back-tests ownership scores against later authors. `calibrate --fit` writes per-repository weights and a provenance block when history spans at least 180 days and at least 30 labeled paths. The result is held-out performance. A public validation corpus and harness record the same metrics, baselines, and a calibration curve.
+- `checkowners report --html` writes one offline HTML file with an overview, treemap, ownership map, historical timeline, team alignment, and drill-down. Anonymize and aggregate-only modes remove identities. A report names its head SHA, generation time, and analysis completeness, and shows evidence quality beside each score.
+- A public false-positive ledger records the prediction, the judgment, the reason, the fix, and the original evidence. Fixed entries name a regression test. New reports use the false-positive issue form.
+- A dataset generator writes per-repository HTML and JSON, a 50-audit list, counts, and checksums. README self-audit badges report ownership coverage, critical knowledge-risk paths, and CODEOWNERS drift.
 - `cache info` reports the current repository id, its state file path, and whether that file exists. A repository with no state file exits 1. A directory that is not a git repository exits 2.
 - A benchmark harness records cold, warm, and incremental analyze runs. Pull-request CI runs the synthetic tier. Public repositories stay on a manual workflow until their commit is pinned.
 - Blame coverage is cached by blob SHA, path, blame flags, ignore-revs, mass-refactor revisions, and `.mailmap`. `cache info` counts those files. `cache clear` removes them. `--verbose` prints hit and miss counts. `--no-cache` skips the cache.

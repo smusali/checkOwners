@@ -631,6 +631,18 @@ Direction stays on `drift_type`:
 
 `--json` always includes the `severity` field. The composite Action publishes the same field on `drift_summary`. `info` is SARIF `note`.
 
+## Calibrate
+
+`checkowners calibrate` scores the repository at a cutoff and compares that ranking with the people who changed each path afterward. It prints held-out `precision_at_1`, `precision_at_3`, `recall_at_3`, MRR, Brier score, and ten calibration bins. `--json` uses the shared command envelope. Reviewer overload, review latency, and time to first useful review are `unavailable` unless review history was collected.
+
+`checkowners calibrate --fit` learns signal weights on the earliest 80 percent of labeled paths and writes them into `.github/checkowners.yml`. The file also gains a `calibration` block with the cutoff, sample sizes, default weights, and held-out metrics. The command refuses when history spans fewer than 180 days or fewer than 30 paths changed after the cutoff. It warns when the fitted weights differ from the shipped defaults by an L1 distance above 0.20. The printed result is the held-out slice.
+
+## Report
+
+`checkowners report --html checkowners.html` writes one HTML file. It has no external network references. The page shows the audit overview, a directory treemap sized by change volume and colored by risk, an ownership map, a `historical-v1` timeline, team alignment when declared teams were compared with observed clusters, and a drill-down of owners, `ownership_score`, `evidence_quality`, the CODEOWNERS rule, and risk. `output.anonymize` and `output.aggregate_only` apply before the file is written. The page shows the head SHA, generation time, analysis completeness, and model ids.
+
+A 12,000-path report stays within 8 MiB. The file is the artifact to share. There is no local server.
+
 ## Doctor and audit
 
 `checkowners doctor` reports configuration rows: the branch the file was read from against the branch GitHub consults, file size against 3 MiB, syntax, write access, empty and invisible teams, shadowed rules, declared coverage, dead patterns, and bus factor 1. `checkowners doctor --env` adds git, history, token, scopes, the CODEOWNERS path, API reachability, team visibility, review history, `.git-blame-ignore-revs`, cache writability, the package version, and whether config parsed.

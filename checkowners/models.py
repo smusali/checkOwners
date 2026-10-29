@@ -297,6 +297,27 @@ def is_contributor_status(value: str) -> TypeGuard[ContributorStatus]:
 
 
 @dataclass(frozen=True)
+class CalibrationProvenance:
+    """Record of one per-repository weight fit.
+
+    `weights` and `default_weights` are `(signal, weight)` pairs. The held-out
+    fields are the metrics from the slice that was not used to choose weights.
+    """
+
+    cutoff: str
+    train_paths: int
+    held_out_paths: int
+    history_days: int
+    weights: tuple[tuple[str, float], ...]
+    default_weights: tuple[tuple[str, float], ...]
+    held_out_precision_at_1: float
+    held_out_precision_at_3: float
+    held_out_recall_at_3: float
+    held_out_mrr: float
+    held_out_brier: float
+
+
+@dataclass(frozen=True)
 class Config:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     qualification: QualificationConfig = field(default_factory=QualificationConfig)
@@ -322,6 +343,7 @@ class Config:
     identity_overrides: tuple[tuple[str, IdentityOverride], ...] = ()
     contributor_roster: tuple[tuple[str, ContributorStatus], ...] = ()
     bot_addresses: tuple[str, ...] = ()
+    calibration: CalibrationProvenance | None = None
 
 
 GapCode = Literal[

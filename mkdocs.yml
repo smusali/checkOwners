@@ -1,0 +1,69 @@
+site_name: CheckOwners
+site_url: https://smusali.github.io/checkowners/
+repo_url: https://github.com/smusali/checkowners
+repo_name: smusali/checkowners
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocs-typer2:
+      pretty: true
+      engine: native
+
+extra:
+  version:
+    provider: mike
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+
+validation:
+  nav:
+    omitted_files: warn
+  links:
+    not_found: warn
+    anchors: warn
+
+nav:
+  - Getting Started: index.md
+  - Concepts: concepts.md
+  - Guides: guides.md
+  - Reference:
+      - CLI: cli.md
+      - Configuration: reference.md
+  - Internals:
+      - Scoring model: METHODOLOGY.md
+      - Patterns and caching: internals.md
+  - Project:
+      - Changelog: CHANGELOG.md
+      - Contributing: CONTRIBUTING.md
+      - Decisions: decisions.md
+      - Usage: USAGE.md
+      - FAQ: FAQ.md
+      - Privacy: PRIVACY.md
+      - Limitations: limitations.md
+      - Glossary: GLOSSARY.md
+      - False positives: false-positives.md
+      - Security: https://github.com/smusali/checkowners/blob/main/SECURITY.md

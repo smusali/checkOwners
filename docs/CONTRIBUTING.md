@@ -39,6 +39,15 @@ pytest
 | `hatch run fmt` | ruff format |
 | `hatch build` | produce sdist and wheel in `dist/` |
 
+The documentation site uses the locked docs requirements. From a clean checkout:
+
+```bash
+python -m pip install --require-hashes -r requirements-docs.lock
+python -m pip install --no-build-isolation --no-deps .
+mkdocs build --strict
+python tools/check_docs.py site
+```
+
 CI installs from `requirements-dev.lock` with hashes. A pull request runs pytest on Ubuntu for Python 3.11, 3.12, 3.13, and 3.14, plus macOS and Windows on Python 3.14, each with the runner's Git. Each of those test jobs stops at 25 minutes. Pushes to `main`, the nightly schedule, and a manual run repeat the suite on Ubuntu, macOS, and Windows for every supported Python, and also run Ubuntu on Python 3.14 with Git 2.23.0 and Git 2.39.3. The runner's Git is the latest cell. CI then builds the wheel, smoke-tests CLI subcommands against the built artifact (including `checkowners[all]` and `py.typed`), and runs ruff plus mypy `--strict`. Match the pull-request set locally before opening a PR. A green `pytest` on macOS or Windows runs the same path corpus CI uses: spaces, Unicode, letter case, a long path, and repo-relative separators. The matcher tests also lock forward slashes, backslashes, mixed separators, drive letters, and UNC paths, with no live filesystem.
 
 Optionally, install the pre-commit hooks so ruff, formatting, and mypy run on every commit. This repository also runs `checkowners validate` when a CODEOWNERS file changes, and `checkowners drift` on push against `.checkowners-baseline.json`.
@@ -193,3 +202,77 @@ A breaking change is any of:
 Scoring, risk classification, and topology each have a model id (`model.ownership`, `model.risk`, `model.topology`). Changing the algorithm bumps that id. Configuration files may pin the ids this release implements; an unknown pin is refused. Cached analyze state and the graph cache are reused only when those ids match.
 
 Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.md) as they merge. Leave `[Unreleased]` non-empty. A pointer to the next `Upgrade to v0.x.0` issue is enough when nothing has landed yet.
+
+## Semantic versioning
+
+`1.0` means the JSON schema, the configuration schema, the CLI, and the exit codes are stable, under the breaking-change definition above. It also means multiple external production users, real issue and pull-request activity, and several outside contributors. No star threshold is required. Usage matters more. Do not rush `1.0`.
+
+Until then, `0.x` may change those contracts in a minor release when the changelog calls the change out.
+
+## Governance
+
+Project rules live in this guide. The [code of conduct](https://github.com/smusali/checkowners/blob/main/CODE_OF_CONDUCT.md) covers behavior. Architectural decisions are in [Decisions](decisions.md).
+
+## Maintainers
+
+Samir Musali (`@smusali`) is the only Core Maintainer, and the only person with release rights. The second maintainer seat is open. It is not filled.
+
+Release rights mean permission to publish a GitHub Release. Publishing a release is what starts the publish workflow.
+
+A person can take the open seat when they already meet the Maintainer rung and a Core Maintainer grants release rights in public.
+
+## Contributor ladder
+
+| Rung | Criteria |
+| --- | --- |
+| Contributor | A merged change. |
+| Reviewer | Repeated review on areas they know. |
+| Maintainer | Can merge in those areas. |
+| Core Maintainer | Release rights, and changes to these rules. |
+
+## Open core
+
+The open-source tool is the repository. A commercial layer, if one is ever built, starts at organization-wide features. This document draws the boundary. It does not build the commercial layer.
+
+| Open source, forever, no asterisk | Commercial layer |
+| --- | --- |
+| Single-repository analysis, all commands | Cross-repository and organization-wide aggregation |
+| Full JSON output, full schema, no gating | Historical time-series storage and trend alerting |
+| CODEOWNERS generation, drift, validation | Organization-level identity graph and team reconciliation |
+| Per-repository risk, decay, topology | Ranked organization-wide risk register and remediation workflow |
+| The Action, the CLI, the pre-commit hook | Hosted dashboards, SSO, RBAC, ticket and chat routing |
+| The inference spec and conformance corpus | Benchmarks against peer organizations |
+
+Rules that protect both sides:
+
+- Do not cripple the open-source tool to sell a paid one.
+- Zero telemetry, ever, by default. CheckOwners does not phone home. Network use is opt-in GitHub API access.
+- A commercial product consumes the open-source JSON contract unmodified. Schema changes ship to open source first.
+- The license stays MIT.
+- The privacy controls are required for this boundary.
+- The validation study is the moat.
+
+## AI-assisted changes
+
+Changes in this repository may be written with agent assistance. Every AI-assisted change is human-reviewed, tested, and signed off before it merges. The README states the same rule in short form. This section is the process.
+
+## Releasing
+
+One tagged GitHub Release produces the artifacts. Nothing publishes from `main` by itself.
+
+1. Set `__version__` in `checkowners/__init__.py`.
+2. Move `[Unreleased]` to a dated heading `## [X.Y.Z] - YYYY-MM-DD`, using the UTC day the version is published to PyPI.
+3. Set `version` in `CITATION.cff` to that same version in the same commit.
+4. Keep the Action pin, the committed wheel, and the lockfiles on that version. `tools/check_changelog.py` rejects a tag whose pins or changelog heading disagree.
+5. Publish the GitHub Release. The tag is `vX.Y.Z`. The publish workflow checks the changelog, runs `hatch build`, publishes to PyPI with a GitHub OIDC token, writes a CycloneDX SBOM from `requirements.lock`, attests the distributions, and uploads the SBOM and provenance to the release.
+6. The docs workflow deploys that version and points the `latest` alias at it.
+
+There is no Docker image, Homebrew formula, or standalone binary in this repository today. An extra channel, when it exists, publishes from that same tagged release and not from `main`.
+
+## Roadmap
+
+Planned work is an issue labeled for the release it ships in. One upgrade issue per release pins that version. There is no separate roadmap file.
+
+## Security
+
+Supported versions and how to report a vulnerability are in the [security policy](https://github.com/smusali/checkowners/blob/main/SECURITY.md).

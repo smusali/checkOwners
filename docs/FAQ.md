@@ -1,6 +1,6 @@
 # FAQ
 
-Common questions about configuring and operating checkowners. For the full configuration reference see [docs/USAGE.md](USAGE.md).
+Common questions about configuring and operating checkowners. For the full configuration reference see [Configuration](reference.md#configuration).
 
 ## Requirements
 
@@ -82,7 +82,7 @@ Without a token you still get scored ownership, drift detection, qualified owner
 
 `GITHUB_TOKEN` (not `GITHUB_API_KEY`). This is the **only** supported way to provide a token. `github.token` is intentionally **not** accepted in `checkowners.yml` because that file gets committed to git and storing a secret there would publish it to GitHub.
 
-`load_config` refuses to load a config that contains `github.token` so a misconfigured repo fails fast instead of silently leaking. The full environment-variable list and precedence live in [docs/USAGE.md](USAGE.md#environment-variables).
+`load_config` refuses to load a config that contains `github.token` so a misconfigured repo fails fast instead of silently leaking. The full environment-variable list and precedence live in [Environment variables](reference.md#environment-variables).
 
 ```bash
 export GITHUB_TOKEN=ghp_...

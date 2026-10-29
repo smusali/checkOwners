@@ -22,7 +22,7 @@ mark those signals unavailable.
 
 Blame line counts are cached by blob SHA and path, together with the blame flags, the ignore-revs file bytes, the mass-refactor revision list, and the `.mailmap` bytes. The path is part of the key so two files with the same bytes keep their own line attribution. A hit rebuilds the same author fractions from those integer counts. The cache survives a rejected incremental baseline. Its files share the 256 MiB cap with state and graph files and are evicted oldest-first with them. `--no-cache` does not read or write it.
 
-`analyze` and `audit` blame every qualified path. `owners`, `explain`, and `change` blame only the requested path. `--diff-only` blames the changed paths. `risk` and bus-factor reports keep the full map. The blame command stays `git blame --line-porcelain`, one path per process. The timed alternatives are in [benchmarks/README.md](../benchmarks/README.md).
+`analyze` and `audit` blame every qualified path. `owners`, `explain`, and `change` blame only the requested path. `--diff-only` blames the changed paths. `risk` and bus-factor reports keep the full map. The blame command stays `git blame --line-porcelain`, one path per process. The timed alternatives are in the [benchmark readme](https://github.com/smusali/checkowners/blob/main/benchmarks/README.md).
 
 ## What each signal proxies
 
@@ -450,7 +450,7 @@ same change.
 
 ## Benchmark and calibration
 
-Runtimes are measured by [benchmarks/harness.py](../benchmarks/harness.py). A result records cold runtime, warm runtime, peak resident memory, git command count, GitHub API request count, cache size, and incremental runtime after one new commit. Peak resident memory comes from `time -l` on macOS and `time -v` on Linux. Two runs on the same commit must match the git command count exactly. Wall time within 15% is checked unless `--counts-only` is set. The pull-request job passes `--counts-only` because a hosted runner does not hold that band. A run fails the regression check when its cold time is above the recorded baseline times 1.15. The procedure and the current `ci` baseline are in [benchmarks/README.md](../benchmarks/README.md).
+Runtimes are measured by [benchmarks/harness.py](https://github.com/smusali/checkowners/blob/main/benchmarks/harness.py). A result records cold runtime, warm runtime, peak resident memory, git command count, GitHub API request count, cache size, and incremental runtime after one new commit. Peak resident memory comes from `time -l` on macOS and `time -v` on Linux. Two runs on the same commit must match the git command count exactly. Wall time within 15% is checked unless `--counts-only` is set. The pull-request job passes `--counts-only` because a hosted runner does not hold that band. A run fails the regression check when its cold time is above the recorded baseline times 1.15. The procedure and the current `ci` baseline are in the [benchmark readme](https://github.com/smusali/checkowners/blob/main/benchmarks/README.md).
 
 The J1 incremental measurement, from one development machine on 2026-10-24, used 600 one-line Python files added across 20 commits, then one commit that changed two of those files. The cold pass took 1.99 seconds and ran git blame on all 600 files. The warm pass took 0.34 seconds and ran git blame on the two changed files.
 
@@ -468,7 +468,7 @@ Repository holdout sorts ids and reserves every fourth repository. The weight se
 
 The public false-positive ledger in [docs/false-positives.md](false-positives.md) records a prediction, the judgment, the reason, the fix, and the evidence that produced the prediction. New reports use the [false-positive issue form](https://github.com/smusali/checkowners/issues/new?template=false-positive.yml). Corrections use the categories `recommendation_correct`, `recommendation_wrong`, `right_person_unavailable`, `team_owns_it`, `security_owner_required`, `compliance_owner_required`, `temporary_migration`, `departed_contributor`, `useful_but_incomplete`, `no_ownership`, and `should_not_own`.
 
-Published numbers for the current corpus are in [benchmarks/validation_results.json](../benchmarks/validation_results.json). The corpus list is [benchmarks/validation_corpus.json](../benchmarks/validation_corpus.json).
+Published numbers for the current corpus are in [benchmarks/validation_results.json](https://github.com/smusali/checkowners/blob/main/benchmarks/validation_results.json). The corpus list is [benchmarks/validation_corpus.json](https://github.com/smusali/checkowners/blob/main/benchmarks/validation_corpus.json).
 
 The held-out repositories are davegamble/cJSON, google/uuid, kjd/idna, pallets/markupsafe, and ruby/rake. That slice has 306 labeled paths and 133 paths with a candidate. `ownership_score` is not a calibrated probability on this slice: occupied bins are not all within 0.1 of their hit rate, and `calibration_error` is 0.3918.
 

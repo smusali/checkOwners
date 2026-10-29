@@ -180,6 +180,7 @@ class PathsConfig:
         ".github/CODEOWNERS",
         "CODEOWNERS",
         "docs/CODEOWNERS",
+        ".checkowners-baseline.json",
     )
 
 
@@ -221,6 +222,8 @@ class Finding:
     owners: tuple[str, ...] = ()
 
     def identity(self) -> tuple[str, str, tuple[str, ...]]:
+        if self.rule == "single-expert":
+            return (self.rule, self.path, ())
         return (self.rule, self.path, tuple(sorted(owner.casefold() for owner in self.owners)))
 
 

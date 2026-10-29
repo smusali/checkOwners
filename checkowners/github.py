@@ -13,19 +13,21 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 
+import checkowners.providers as _evidence
 from checkowners.identity import HandleHit
 from checkowners.models import (
-    API_BUDGET_REASON,
     API_RATE_LIMIT_REASON,
     SEARCH_RATE_LIMIT_REASON,
     AnalysisGap,
+    Config,
     GapCode,
+    GithubConfig,
     review_window_truncated_reason,
 )
 from checkowners.privacy import email_token, is_email
@@ -38,6 +40,18 @@ from checkowners.state import (
     write_json_file,
 )
 from checkowners.validate import RemoteCodeownersError
+
+begin_api_budget = _evidence.begin_api_budget
+clear_api_budget = _evidence.clear_api_budget
+collection_gaps = _evidence.collection_gaps
+mark_review_omitted = _evidence.mark_review_omitted
+note_collection_gap = _evidence.note_collection_gap
+note_metric = _evidence.note_metric
+record_review_window = _evidence.record_review_window
+reset_review_window = _evidence.reset_review_window
+review_was_omitted = _evidence.review_was_omitted
+review_window = _evidence.review_window
+take_api_request = _evidence.take_api_request
 
 _HandleCacheValue = HandleCacheEntry | str
 
@@ -115,110 +129,6 @@ def note_api_call(teams: Mapping[str, Iterable[str]] | None = None) -> None:
             team_snapshot=snapshot or current.team_snapshot,
         )
     )
-
-
-@dataclass
-class _ApiBudget:
-    limit: int
-    used: int = 0
-    review_omitted: bool = False
-    gaps: dict[GapCode, AnalysisGap] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ReviewWindow:
-    sampled: int = 0
-    window_days: int = 0
-
-
-_REVIEW_WINDOW: ContextVar[ReviewWindow | None] = ContextVar(
-    "checkowners_review_window",
-    default=None,
-)
-
-
-def reset_review_window() -> None:
-    _REVIEW_WINDOW.set(None)
-
-
-def review_window() -> ReviewWindow:
-    current = _REVIEW_WINDOW.get()
-    return ReviewWindow() if current is None else current
-
-
-def _record_review_window(sampled: int, window_days: int) -> None:
-    _REVIEW_WINDOW.set(ReviewWindow(sampled=sampled, window_days=window_days))
-
-
-_API_BUDGET: ContextVar[_ApiBudget | None] = ContextVar("checkowners_api_budget", default=None)
-
-
-def begin_api_budget(limit: int) -> None:
-    """Start a request budget of `limit` calls for the current context."""
-    _API_BUDGET.set(_ApiBudget(limit=limit))
-
-
-def clear_api_budget() -> None:
-    """Drop the request budget and any gaps recorded for the current context."""
-    _API_BUDGET.set(None)
-
-
-def _budget() -> _ApiBudget:
-    current = _API_BUDGET.get()
-    if current is None:
-        current = _ApiBudget(limit=2**31 - 1)
-        _API_BUDGET.set(current)
-    return current
-
-
-def note_metric(kind: str) -> None:
-    path = os.environ.get("CHECKOWNERS_METRICS_PATH")
-    if not path:
-        return
-    fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
-    try:
-        os.write(fd, f"{kind}\n".encode())
-    finally:
-        os.close(fd)
-
-
-def take_api_request() -> bool:
-    """Consume one request. Return false when the budget is already spent."""
-    note_metric("api")
-    budget = _API_BUDGET.get()
-    if budget is None:
-        return True
-    if budget.used >= budget.limit:
-        budget.gaps.setdefault("api_budget", AnalysisGap("api_budget", API_BUDGET_REASON))
-        return False
-    budget.used += 1
-    return True
-
-
-def note_collection_gap(gap: AnalysisGap, *, replace: bool = False) -> None:
-    """Record `gap`. A later call replaces the reason only when `replace` is true."""
-    budget = _budget()
-    if replace or gap.code not in budget.gaps:
-        budget.gaps[gap.code] = gap
-
-
-def mark_review_omitted() -> None:
-    """Mark review collection as skipped so scores do not treat it as a measured zero."""
-    _budget().review_omitted = True
-
-
-def review_was_omitted() -> bool:
-    """Return whether review collection was skipped for this context."""
-    budget = _API_BUDGET.get()
-    return budget is not None and budget.review_omitted
-
-
-def collection_gaps() -> tuple[AnalysisGap, ...]:
-    """Return API gaps recorded for the current context, in catalog order."""
-    budget = _API_BUDGET.get()
-    if budget is None:
-        return ()
-    return tuple(budget.gaps.values())
 
 
 def clear_api_evidence() -> None:
@@ -719,7 +629,7 @@ def _coverage_from_scan(
         return {}
     oldest = min((pull.closed_at for pull in scan.pulls), default=None)
     days = _span_days(as_of, oldest)
-    _record_review_window(len(scan.pulls), days)
+    record_review_window(len(scan.pulls), days)
     if not scan.finished:
         code: GapCode = "api_rate_limit" if scan.rate_limited else "api_budget"
         note_collection_gap(
@@ -1143,6 +1053,25 @@ def _get_org_teams(
         note_api_call()
         logger.warning("Failed to fetch teams for org %s", org)
         return {}
+
+
+def declared_teams_from_github(config: Config) -> dict[str, frozenset[str]] | None:
+    if not config.github.api_enabled:
+        return None
+    return _fetch_declared_teams(config.github)
+
+
+def _fetch_declared_teams(github: GithubConfig) -> dict[str, frozenset[str]] | None:
+    if not github.org:
+        return None
+    token = get_github_token()
+    if not token:
+        return None
+    client = get_github_client(token)
+    if client is None:
+        return None
+    raw = _get_org_teams(client, github.org)
+    return {team: frozenset(members) for team, members in raw.items()}
 
 
 @dataclass(frozen=True)

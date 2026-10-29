@@ -91,6 +91,7 @@ TeamStatus = Literal[
 DEFAULT_SEVERITY_THRESHOLDS: tuple[float, float, float, float] = (0.15, 0.35, 0.55, 0.75)
 RecommendationAction = Literal["review_codeowners_rule", "remove_stale_rule"]
 OwnershipSignal = Literal["recency", "frequency", "blame", "review", "change_survival"]
+EvidenceType = Literal["commit", "blame", "review"]
 OWNERSHIP_SIGNALS: tuple[OwnershipSignal, ...] = (
     "recency",
     "frequency",
@@ -576,6 +577,21 @@ class DecayWarning:
 
 
 @dataclass(frozen=True)
+class OwnershipEvidence:
+    subject: str
+    path: str
+    type: EvidenceType
+    timestamp: datetime | None = None
+    weight: float | None = None
+    share: float | None = None
+    commits: int | None = None
+    credit: float | None = None
+    cadence_days: float | None = None
+    later_commits: int | None = None
+    survival: float | None = None
+
+
+@dataclass(frozen=True)
 class PathOwnership:
     """All information known about a single path's ownership."""
 
@@ -587,6 +603,7 @@ class PathOwnership:
     change_events: int | None = None
     cadence_days: float | None = None
     cochange_degree: float | None = None
+    evidence: tuple[OwnershipEvidence, ...] = ()
 
 
 @dataclass(frozen=True)

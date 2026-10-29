@@ -16,7 +16,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
-from checkowners.github import create_team_resolver
 from checkowners.models import BlockOrder, Config, OwnerEntry, OwnershipMap
 from checkowners.patterns import (
     GENERATED_END,
@@ -29,6 +28,7 @@ from checkowners.patterns import (
     pattern_matches,
     rules_with_source,
 )
+from checkowners.providers import require_dialect
 
 _DEFAULT_CODEOWNERS_PATH = ".github/CODEOWNERS"
 SIZE_WARN_BYTES = 2 * 1024 * 1024
@@ -115,10 +115,10 @@ def generate_codeowners(
     config: Config,
     *,
     codeowners_path: Path | None = None,
-    token: str = "",
-    org: str = "",
     force: bool = False,
     write: bool = True,
+    dialect: str = "github",
+    team_resolve: Callable[[tuple[str, ...]], str | None] | None = None,
 ) -> GenerateResult:
     """Return generated CODEOWNERS content, and write it when `write` is true.
 
@@ -128,9 +128,15 @@ def generate_codeowners(
     block is copied unchanged. `output.block_order` places that block before
     or after the generated block.
     """
+    chosen = require_dialect(dialect)
     target = codeowners_path or (repo_root / _DEFAULT_CODEOWNERS_PATH)
     layout = _read_layout(target)
-    content, expected, records = _render_codeowners(ownership, config, token=token, org=org)
+    content, expected, records = _render_codeowners(
+        ownership,
+        config,
+        dialect=chosen,
+        team_resolve=team_resolve,
+    )
     if layout.marked:
         content = _assemble_hybrid(
             config.output.header,
@@ -139,7 +145,7 @@ def generate_codeowners(
             config.output.block_order,
         )
     if config.output.verify_round_trip:
-        verify_round_trip(content, expected)
+        verify_round_trip(content, expected, dialect=chosen)
     _ensure_size_ok(content, config.output.max_bytes, force=force)
     ensure_overwrite_safe(target, config.output.header, force=force)
     if write:
@@ -223,14 +229,19 @@ def _last_written_match(
     return matches[-1] if matches else None
 
 
-def codeowners_write_metrics(content: str) -> dict[str, int]:
+def codeowners_write_metrics(content: str, *, dialect: str = "github") -> dict[str, int]:
     return {
         "bytes_written": len(content.encode("utf-8")),
-        "rules_written": len(parse_rules(content)),
+        "rules_written": len(parse_rules(content, dialect=dialect)),
     }
 
 
-def verify_round_trip(content: str, expected: _ExpectedOwners) -> None:
+def verify_round_trip(
+    content: str,
+    expected: _ExpectedOwners,
+    *,
+    dialect: str = "github",
+) -> None:
     """Fail if any assigned path resolves to owners other than ``expected``.
 
     ``expected`` maps repo-relative paths to the owner set generation assigned
@@ -238,7 +249,7 @@ def verify_round_trip(content: str, expected: _ExpectedOwners) -> None:
     winning rule is in the manual block is an accepted override. This check
     uses the written pattern text, including lines GitHub skips.
     """
-    rules = rules_with_source(content)
+    rules = rules_with_source(content, dialect=dialect)
     raw_lines = content.splitlines()
     for path, intended in expected.items():
         rule = _last_written_match(rules, path)
@@ -274,10 +285,15 @@ def _build_codeowners_content(
     ownership: OwnershipMap,
     config: Config,
     *,
-    token: str = "",
-    org: str = "",
+    dialect: str = "github",
+    team_resolve: Callable[[tuple[str, ...]], str | None] | None = None,
 ) -> str:
-    content, _expected, _records = _render_codeowners(ownership, config, token=token, org=org)
+    content, _expected, _records = _render_codeowners(
+        ownership,
+        config,
+        dialect=dialect,
+        team_resolve=team_resolve,
+    )
     return content
 
 
@@ -285,24 +301,19 @@ def _render_codeowners(
     ownership: OwnershipMap,
     config: Config,
     *,
-    token: str = "",
-    org: str = "",
+    dialect: str = "github",
+    team_resolve: Callable[[tuple[str, ...]], str | None] | None = None,
 ) -> tuple[str, _ExpectedOwners, tuple[BroadPatternRecord, ...]]:
+    if dialect == "gitlab":
+        return _render_gitlab(ownership, config, team_resolve=team_resolve)
     lines: list[str] = [config.output.header, ""]
     rows, records = _collect_rows(ownership, config)
     unowned_paths = _collect_unowned_paths(ownership)
     expected: _ExpectedOwners = {}
-
-    team_resolve: Callable[[tuple[str, ...]], str | None] | None = None
-    if config.github.resolve_teams and token and org:
-        team_resolve = create_team_resolver(token, org)
+    active_resolve = team_resolve if config.github.resolve_teams else None
 
     for row in rows:
-        written_handles = tuple(o.handle for o in row.owners)
-        if team_resolve is not None:
-            team = team_resolve(written_handles)
-            if team is not None:
-                written_handles = (team,)
+        written_handles = _resolved_handles(row.owners, active_resolve)
         written = frozenset(handle.casefold() for handle in written_handles)
         for path in row.paths:
             expected[path] = written
@@ -321,6 +332,66 @@ def _render_codeowners(
 
     lines.append("")
     return "\n".join(lines), expected, records
+
+
+def _render_gitlab(
+    ownership: OwnershipMap,
+    config: Config,
+    *,
+    team_resolve: Callable[[tuple[str, ...]], str | None] | None,
+) -> tuple[str, _ExpectedOwners, tuple[BroadPatternRecord, ...]]:
+    lines: list[str] = [config.output.header, ""]
+    rows, records = _collect_rows(ownership, config)
+    active_resolve = team_resolve if config.github.resolve_teams else None
+    grouped: dict[str, list[_Row]] = {}
+    for row in rows:
+        section = _section_name(row.paths[0] if row.paths else row.pattern)
+        grouped.setdefault(section, []).append(row)
+    covered = {path for row in rows for path in row.paths}
+    optional: dict[str, list[tuple[str, tuple[OwnerEntry, ...]]]] = {}
+    for path, path_ownership in ownership.paths.items():
+        relative = path.lstrip("/")
+        if relative in covered or not path_ownership.owners:
+            continue
+        optional.setdefault(_section_name(relative), []).append((relative, path_ownership.owners))
+    expected: _ExpectedOwners = {}
+    for name in sorted(set(grouped) | set(optional)):
+        if name in grouped:
+            lines.append(f"[{name}][1]")
+            for row in grouped[name]:
+                written_handles = _resolved_handles(row.owners, active_resolve)
+                written = frozenset(handle.casefold() for handle in written_handles)
+                for path in row.paths:
+                    expected[path] = written
+                lines.append(_format_line(row.pattern, written_handles, row.owners, config))
+            continue
+        lines.append(f"^[{name}]")
+        for path, owners in optional[name]:
+            written_handles = _resolved_handles(owners, active_resolve)
+            expected[path] = frozenset(handle.casefold() for handle in written_handles)
+            lines.append(_format_line(f"/{path.lstrip('/')}", written_handles, owners, config))
+    lines.append("")
+    return "\n".join(lines), expected, records
+
+
+def _section_name(path: str) -> str:
+    relative = path.lstrip("/")
+    if "/" not in relative:
+        return "Repository"
+    return relative.split("/", 1)[0]
+
+
+def _resolved_handles(
+    owners: tuple[OwnerEntry, ...],
+    team_resolve: Callable[[tuple[str, ...]], str | None] | None,
+) -> tuple[str, ...]:
+    handles = tuple(owner.handle for owner in owners)
+    if team_resolve is None:
+        return handles
+    team = team_resolve(handles)
+    if team is None:
+        return handles
+    return (team,)
 
 
 def _format_line(

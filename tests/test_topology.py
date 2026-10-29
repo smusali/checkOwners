@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import builtins
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import networkx as nx
 
+from checkowners.github import declared_teams_from_github
 from checkowners.models import (
     AnalysisConfig,
     ConfidenceScore,
@@ -26,7 +26,6 @@ from checkowners.topology import (
     _levels,
     _mean_match,
     _parent_names,
-    declared_teams_from_github,
     infer_topology,
 )
 
@@ -380,17 +379,5 @@ def test_declared_teams_from_github_skips_unavailable_clients() -> None:
     with (
         patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}),
         patch("checkowners.github.get_github_client", return_value=None),
-    ):
-        assert declared_teams_from_github(enabled) is None
-    real_import = builtins.__import__
-
-    def blocked(name: str, *args: object, **kwargs: object) -> object:
-        if name == "checkowners.github":
-            raise ImportError(name)
-        return real_import(name, *args, **kwargs)
-
-    with (
-        patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}),
-        patch("builtins.__import__", side_effect=blocked),
     ):
         assert declared_teams_from_github(enabled) is None

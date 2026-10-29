@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -437,22 +435,15 @@ def test_team_resolution_collapses_owner_set() -> None:
         assert owners == ("@alice", "@bob")
         return "@acme/backend"
 
-    with patch(
-        "checkowners.generate.create_team_resolver",
-        return_value=resolve,
-    ) as resolver:
-        content = _build_codeowners_content(ownership, config, token="t", org="acme")
-        skipped = _build_codeowners_content(ownership, config, token="", org="acme")
+    content = _build_codeowners_content(ownership, config, team_resolve=resolve)
+    skipped = _build_codeowners_content(ownership, config)
     assert "/src/main.py @acme/backend" in content
     assert "/src/main.py @alice" in skipped
-    resolver.assert_called_once_with("t", "acme")
     plain = Config(
         analysis=AnalysisConfig(confidence_threshold=0.0),
         github=GithubConfig(org="acme", resolve_teams=False),
     )
-    with patch("checkowners.generate.create_team_resolver") as idle:
-        untouched = _build_codeowners_content(ownership, plain, token="t", org="acme")
-    idle.assert_not_called()
+    untouched = _build_codeowners_content(ownership, plain, team_resolve=resolve)
     assert "/src/main.py @alice" in untouched
 
 
@@ -462,11 +453,11 @@ def test_team_resolution_keeps_handles_when_no_team() -> None:
         github=GithubConfig(org="acme", resolve_teams=True),
     )
     ownership = _make_ownership({"src/main.py": (_entry("@alice", 0.9),)})
-    with patch(
-        "checkowners.generate.create_team_resolver",
-        return_value=lambda _owners: None,
-    ):
-        content = _build_codeowners_content(ownership, config, token="t", org="acme")
+    content = _build_codeowners_content(
+        ownership,
+        config,
+        team_resolve=lambda _owners: None,
+    )
     assert "/src/main.py @alice" in content
 
 
@@ -772,14 +763,13 @@ def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("raw", "token", "org"),
+    ("raw", "org"),
     [
         (
             {
                 "src/a.py": (_entry("@alice", 0.9),),
                 "src/b.py": (_entry("@alice", 0.7),),
             },
-            "",
             "",
         ),
         (
@@ -788,7 +778,6 @@ def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
                 "src/b.py": (_entry("@bob", 0.8),),
             },
             "",
-            "",
         ),
         (
             {
@@ -796,11 +785,9 @@ def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
                 "b.py": (_entry("@alice", 0.8),),
             },
             "",
-            "",
         ),
         (
             {"src/main.py": (_entry("@alice", 0.9), _entry("@bob", 0.8))},
-            "t",
             "acme",
         ),
         (
@@ -808,7 +795,6 @@ def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
                 "app/[teamId]/page.tsx": (_entry("@alice", 0.9),),
                 "app/[userId]/page.tsx": (_entry("@bob", 0.6),),
             },
-            "",
             "",
         ),
         (
@@ -818,14 +804,12 @@ def test_generate_force_writes_over_max_bytes(tmp_path: Path) -> None:
                 "app/static/index.tsx": (_entry("@bob", 0.9),),
             },
             "",
-            "",
         ),
     ],
 )
 def test_generated_file_round_trips_inference(
     tmp_path: Path,
     raw: dict[str, tuple[OwnerEntry, ...]],
-    token: str,
     org: str,
 ) -> None:
     ownership = _make_ownership(raw)
@@ -835,17 +819,13 @@ def test_generated_file_round_trips_inference(
             analysis=AnalysisConfig(confidence_threshold=0.0),
             github=GithubConfig(org=org, resolve_teams=True),
         )
-    team_patch = (
-        patch(
-            "checkowners.generate.create_team_resolver",
-            return_value=lambda _owners: "@acme/backend",
-        )
-        if org
-        else nullcontext()
+    team_resolve = (lambda _owners: "@acme/backend") if org else None
+    written = generate_codeowners(tmp_path, ownership, config, team_resolve=team_resolve)
+    _rendered, expected, _records = _render_codeowners(
+        ownership,
+        config,
+        team_resolve=team_resolve,
     )
-    with team_patch:
-        written = generate_codeowners(tmp_path, ownership, config, token=token, org=org)
-        _rendered, expected, _records = _render_codeowners(ownership, config, token=token, org=org)
     assert written.content == _rendered
     verify_round_trip(written.content, expected)
 

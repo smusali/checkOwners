@@ -154,6 +154,7 @@ from checkowners.github import (
     code_owner_review_required,
     collection_gaps,
     create_team_resolver,
+    declared_teams_from_github,
     external_evidence_payload,
     fetch_codeowners_errors,
     get_github_token,
@@ -265,6 +266,7 @@ from checkowners.privacy import (
     scrub_text,
     without_emails,
 )
+from checkowners.providers import DialectError, require_dialect
 from checkowners.report_formats import (
     ReportFinding,
     check_annotations,
@@ -305,7 +307,6 @@ from checkowners.topology import (
     TOPOLOGY_HYPOTHESIS,
     TeamComparison,
     TopologyReport,
-    declared_teams_from_github,
     infer_topology,
 )
 from checkowners.trends import (
@@ -1624,6 +1625,14 @@ AllowBroadOption = Annotated[
     ),
 ]
 
+DialectOption = Annotated[
+    str,
+    typer.Option(
+        "--dialect",
+        help="CODEOWNERS dialect: github, gitlab, bitbucket, or gerrit.",
+    ),
+]
+
 
 def _check_overwrite_or_exit(codeowners_path: Path, config: Config, force: bool) -> None:
     """Fail before the expensive analyze when the target would be refused."""
@@ -1651,6 +1660,24 @@ def _warn_broad_patterns(records: tuple[BroadPatternRecord, ...]) -> None:
         err_console.print(f"[yellow]{escape(broad_pattern_warning(record))}[/yellow]")
 
 
+def _dialect_or_exit(name: str) -> str:
+    try:
+        return require_dialect(name)
+    except DialectError as exc:
+        console.print(f"[red]{exc}[/red]")
+        exit_with(ExitCode.CONFIG)
+
+
+def _team_resolver(config: Config) -> Callable[[tuple[str, ...]], str | None] | None:
+    if not config.github.resolve_teams:
+        return None
+    token = get_github_token()
+    org = config.github.org.strip()
+    if not token or not org:
+        return None
+    return create_team_resolver(token, org)
+
+
 def _generate_or_exit(
     repo_root: Path,
     ownership: OwnershipMap,
@@ -1659,18 +1686,18 @@ def _generate_or_exit(
     *,
     force: bool,
     write: bool = True,
+    dialect: str = "github",
 ) -> GenerateResult:
-    token = get_github_token()
     try:
         result = generate_codeowners(
             repo_root,
             ownership,
             config,
             codeowners_path=codeowners_path,
-            token=token,
-            org=config.github.org,
             force=force,
             write=write,
+            dialect=dialect,
+            team_resolve=_team_resolver(config),
         )
     except CodeownersVerificationError as exc:
         console.print(f"[red]{exc}[/red]")
@@ -1688,6 +1715,7 @@ def generate(
     json_output: JsonOption = False,
     force: ForceOption = False,
     allow_broad_patterns: AllowBroadOption = False,
+    dialect: DialectOption = "github",
 ) -> None:
     """Generate a CODEOWNERS file from inferred ownership."""
     config = _load_config()
@@ -1698,7 +1726,15 @@ def generate(
     _check_overwrite_or_exit(codeowners_path, config, force)
     ownership = _run_analyze(config, repo_root)
     ownership = _codeowners_ownership(ownership, config)
-    result = _generate_or_exit(repo_root, ownership, config, codeowners_path, force=force)
+    chosen = _dialect_or_exit(dialect)
+    result = _generate_or_exit(
+        repo_root,
+        ownership,
+        config,
+        codeowners_path,
+        force=force,
+        dialect=chosen,
+    )
     rel_path = codeowners_path.relative_to(repo_root)
     if json_output:
         _emit_json(
@@ -1706,7 +1742,7 @@ def generate(
                 "path": rel_path.as_posix(),
                 "content": result.content,
                 "broad_patterns": [record.as_json() for record in result.broad_patterns],
-                **codeowners_write_metrics(result.content),
+                **codeowners_write_metrics(result.content, dialect=chosen),
             },
             ownership,
         )
@@ -1749,13 +1785,15 @@ def print_cmd(json_output: JsonOption = False) -> None:
 def validate(
     json_output: JsonOption = False,
     output_format: FormatOption = None,
+    dialect: DialectOption = "github",
 ) -> None:
     """Validate CODEOWNERS file syntax."""
     fmt = _output_format(json_output, output_format)
     config = _load_config()
     repo_root = Path.cwd()
     codeowners_path = find_codeowners_path(repo_root)
-    errors = validate_codeowners(repo_root, codeowners_path=codeowners_path)
+    chosen = _dialect_or_exit(dialect)
+    errors = validate_codeowners(repo_root, codeowners_path=codeowners_path, dialect=chosen)
     findings = invalid_owner_findings(
         repo_root,
         codeowners_path,

@@ -342,7 +342,6 @@ def _render_gitlab(
 ) -> tuple[str, _ExpectedOwners, tuple[BroadPatternRecord, ...]]:
     lines: list[str] = [config.output.header, ""]
     rows, records = _collect_rows(ownership, config)
-    threshold = config.analysis.confidence_threshold
     active_resolve = team_resolve if config.github.resolve_teams else None
     grouped: dict[str, list[_Row]] = {}
     for row in rows:
@@ -351,10 +350,10 @@ def _render_gitlab(
     covered = {path for row in rows for path in row.paths}
     optional: dict[str, list[tuple[str, tuple[OwnerEntry, ...]]]] = {}
     for path, path_ownership in ownership.paths.items():
-        if path in covered or not path_ownership.owners:
+        relative = path.lstrip("/")
+        if relative in covered or not path_ownership.owners:
             continue
-        if all(owner.confidence < threshold for owner in path_ownership.owners):
-            optional.setdefault(_section_name(path), []).append((path, path_ownership.owners))
+        optional.setdefault(_section_name(relative), []).append((relative, path_ownership.owners))
     expected: _ExpectedOwners = {}
     for name in sorted(set(grouped) | set(optional)):
         if name in grouped:

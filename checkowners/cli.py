@@ -1625,6 +1625,14 @@ AllowBroadOption = Annotated[
     ),
 ]
 
+DialectOption = Annotated[
+    str,
+    typer.Option(
+        "--dialect",
+        help="CODEOWNERS dialect: github, gitlab, bitbucket, or gerrit.",
+    ),
+]
+
 
 def _check_overwrite_or_exit(codeowners_path: Path, config: Config, force: bool) -> None:
     """Fail before the expensive analyze when the target would be refused."""
@@ -1707,10 +1715,7 @@ def generate(
     json_output: JsonOption = False,
     force: ForceOption = False,
     allow_broad_patterns: AllowBroadOption = False,
-    dialect: Annotated[
-        str,
-        typer.Option("--dialect", help="CODEOWNERS dialect: github, gitlab, bitbucket, or gerrit."),
-    ] = "github",
+    dialect: DialectOption = "github",
 ) -> None:
     """Generate a CODEOWNERS file from inferred ownership."""
     config = _load_config()
@@ -1780,10 +1785,7 @@ def print_cmd(json_output: JsonOption = False) -> None:
 def validate(
     json_output: JsonOption = False,
     output_format: FormatOption = None,
-    dialect: Annotated[
-        str,
-        typer.Option("--dialect", help="CODEOWNERS dialect: github, gitlab, bitbucket, or gerrit."),
-    ] = "github",
+    dialect: DialectOption = "github",
 ) -> None:
     """Validate CODEOWNERS file syntax."""
     fmt = _output_format(json_output, output_format)

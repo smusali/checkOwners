@@ -8,7 +8,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from checkowners.analyze import Contribution as _CommitFacts
@@ -38,11 +38,6 @@ _SERVICE_FILE = "catalog-info.yaml"
 
 class DialectError(ValueError):
     pass
-
-
-class EvidenceProvider(Protocol):
-    def collect(self) -> Iterable[OwnershipEvidence]:
-        pass
 
 
 @dataclass(frozen=True)
@@ -226,10 +221,10 @@ def path_evidence(
 
 def replace_reviews(
     evidence: Iterable[OwnershipEvidence],
-    provider: EvidenceProvider,
+    reviews: Iterable[OwnershipEvidence],
 ) -> tuple[OwnershipEvidence, ...]:
     kept = tuple(record for record in evidence if record.type != "review")
-    return kept + tuple(provider.collect())
+    return kept + tuple(reviews)
 
 
 def rescore(
@@ -519,7 +514,6 @@ def _nested_owners(
     path: str,
     nested: tuple[tuple[str, tuple[CodeownersRule, ...]], ...],
 ) -> tuple[str, ...]:
-    best_dir = ""
     best: tuple[str, ...] = ()
     for directory, rules in nested:
         if directory != "." and not path.startswith(f"{directory}/"):
@@ -529,10 +523,7 @@ def _nested_owners(
         for rule in rules:
             if pattern_matches(rule.pattern, relative) or pattern_matches(rule.pattern, path):
                 winner = rule
-        if winner is None:
-            continue
-        if len(directory) >= len(best_dir):
-            best_dir = directory
+        if winner is not None:
             best = winner.owners
     return best
 

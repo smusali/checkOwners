@@ -11,21 +11,27 @@ import pytest
 import typer
 
 from checkowners import RepositoryAnalyzer
-from checkowners.analyze import analyze_ownership, frequency_prior_for
-from checkowners.cli import ExitCode, _dialect_or_exit
+from checkowners.analyze import Contribution, analyze_ownership, frequency_prior_for
+from checkowners.cli import ExitCode, _dialect_or_exit, _team_resolver
 from checkowners.generate import generate_codeowners
 from checkowners.models import (
     AnalysisConfig,
     Config,
+    GithubConfig,
     OwnerEntry,
     OwnershipEvidence,
     OwnershipMap,
     PathOwnership,
+    ScoringConfig,
 )
-from checkowners.patterns import parse_rules
+from checkowners.patterns import CodeownersRule, parse_rules
 from checkowners.providers import (
     DialectError,
     GitHubTeamProvider,
+    _nested_owners,
+    _read_text,
+    evidence_from_payload,
+    path_evidence,
     reconcile_layers,
     replace_reviews,
     require_dialect,
@@ -65,14 +71,6 @@ def _review_signal(owners: tuple[OwnerEntry, ...]) -> dict[str, float]:
         assert breakdown is not None
         signals[owner.handle] = breakdown.review.score
     return signals
-
-
-class _FixedReviews:
-    def __init__(self, records: tuple[OwnershipEvidence, ...]) -> None:
-        self._records = records
-
-    def collect(self) -> tuple[OwnershipEvidence, ...]:
-        return self._records
 
 
 @pytest.mark.integration
@@ -123,15 +121,13 @@ def test_stored_evidence_replays_live_scores(git_repo: GitRepo) -> None:
     first = evidence[0]
     stubbed = replace_reviews(
         evidence,
-        _FixedReviews(
-            (
-                OwnershipEvidence(
-                    subject=first.subject,
-                    path=first.path,
-                    type="review",
-                    share=1.0,
-                ),
-            )
+        (
+            OwnershipEvidence(
+                subject=first.subject,
+                path=first.path,
+                type="review",
+                share=1.0,
+            ),
         ),
     )
     reviewed = rescore(
@@ -164,7 +160,7 @@ def test_stored_evidence_replays_live_scores(git_repo: GitRepo) -> None:
             assert replay[handle] == pytest.approx(values, abs=5e-5)
 
     analyzer = RepositoryAnalyzer(git_repo.path, config)
-    assert analyzer.analyze().paths
+    assert analyzer.reconcile()
 
 
 def test_gitlab_sections_round_trip(tmp_path: Path) -> None:
@@ -173,7 +169,11 @@ def test_gitlab_sections_round_trip(tmp_path: Path) -> None:
             "payments/core.py": PathOwnership(
                 owners=(_entry("@alice", 0.9),),
                 qualified_owner_count=1,
-            )
+            ),
+            "README.md": PathOwnership(
+                owners=(_entry("@ada", 0.8),),
+                qualified_owner_count=1,
+            ),
         },
         last_analyzed=_WHEN,
     )
@@ -192,6 +192,7 @@ def test_gitlab_sections_round_trip(tmp_path: Path) -> None:
     assert matched[-1].section == "payments"
     assert matched[-1].approvals == 1
     assert "[payments][1]" in written.content
+    assert "[Repository][1]" in written.content
     counted = parse_rules("[Security][2]\n/src/ @ada\n", dialect="gitlab")
     assert counted[0].section == "Security"
     assert counted[0].approvals == 2
@@ -236,20 +237,44 @@ def test_reconcile_declared_and_observed_layers(tmp_path: Path) -> None:
     (root / "src").mkdir()
     codeowners = root / ".github" / "CODEOWNERS"
     codeowners.write_text("* @global\n/payments/ @declared\n", encoding="utf-8")
-    (root / "payments" / "OWNERS").write_text("# local\n@local\n", encoding="utf-8")
-    (root / "payments" / "CODEOWNERS").write_text("* @nested\n", encoding="utf-8")
+    (root / "payments" / "OWNERS").write_text("# local\nskip\n@local\n", encoding="utf-8")
+    (root / "payments" / "CODEOWNERS").write_text(
+        "other @nope\n/payments/core.py @anchored\n* @nested\n",
+        encoding="utf-8",
+    )
     manifest = root / "payments" / "pyproject.toml"
     manifest.write_text("[project]\nname = 'payments'\n", encoding="utf-8")
+    (root / "payments" / "package.json").write_text("{}\n", encoding="utf-8")
     (root / "payments" / "catalog-info.yaml").write_text(
         "spec:\n  owner: group:payments\n",
         encoding="utf-8",
     )
     (root / "payments" / "core.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "payments" / "extra.py").write_text("z = 1\n", encoding="utf-8")
     (root / "src" / "main.py").write_text("y = 1\n", encoding="utf-8")
+    (root / "billing").mkdir()
+    (root / "billing" / "catalog-info.yaml").write_text("[\n", encoding="utf-8")
+    (root / "docs").mkdir()
+    (root / "docs" / "catalog-info.yaml").write_text("- item\n", encoding="utf-8")
+    (root / "ops").mkdir()
+    (root / "ops" / "catalog-info.yaml").write_text("spec: hello\n", encoding="utf-8")
+    (root / "team").mkdir()
+    (root / "team" / "catalog-info.yaml").write_text(
+        "spec:\n  owner: 1\n",
+        encoding="utf-8",
+    )
     ownership = OwnershipMap(
         paths={
+            "README.md": PathOwnership(
+                owners=(_entry("@root", 0.4),),
+                qualified_owner_count=1,
+            ),
             "payments/core.py": PathOwnership(
                 owners=(_entry("@observed", 0.9),),
+                qualified_owner_count=1,
+            ),
+            "payments/extra.py": PathOwnership(
+                owners=(_entry("@observed", 0.7),),
                 qualified_owner_count=1,
             ),
             "src/main.py": PathOwnership(
@@ -270,14 +295,91 @@ def test_reconcile_declared_and_observed_layers(tmp_path: Path) -> None:
     assert source.declared_local == ()
     assert source.declared_global == ("@global",)
     assert source.observed == ("@other",)
+    directory = layers["directory:payments"]
+    assert directory.declared_local == ("@local", "@nested")
+    assert directory.declared_global == ("@declared",)
+    assert directory.observed == ("@observed",)
     package = layers["package:payments"]
     assert package.declared_local == ("@local", "@nested")
     assert package.observed == ("@observed",)
     service = layers["service:payments"]
     assert "group:payments" in service.declared_local
+    for name in ("billing", "docs", "ops", "team"):
+        missed = layers[f"service:{name}"]
+        assert missed.declared_local == ()
+        assert missed.observed == ()
     repository = layers["repository:."]
     assert repository.declared_global == ("@global",)
-    assert set(repository.observed) == {"@observed", "@other"}
+    assert set(repository.observed) == {"@observed", "@other", "@root"}
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    bare = reconcile_layers(empty, ownership, config)
+    assert bare[0].declared_global == ()
+    assert bare[-1].declared_global == ()
+
+
+def test_provider_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(DialectError):
+        require_dialect("fossil")
+    assert tuple(GitHubTeamProvider("a.py", {"@acme/empty": frozenset()}).collect()) == ()
+    observed = path_evidence(
+        "a.py",
+        {"@ada": Contribution(commits=1, last_commit=_WHEN, credit=1.0)},
+        {},
+        {"@ada": 1.0},
+        blame_available=False,
+        review_available=True,
+        survival=None,
+    )
+    assert [record.type for record in observed] == ["commit", "review"]
+    assert _read_text(Path("missing-owners-file")) == ""
+    scored = rescore(
+        (
+            OwnershipEvidence(subject="@ada", path="a.py", type="review"),
+            OwnershipEvidence(subject="@ada", path="a.py", type="commit"),
+            OwnershipEvidence(subject="@ada", path="a.py", type="blame"),
+        ),
+        scoring=ScoringConfig(),
+        now=_WHEN,
+    )
+    assert scored["a.py"][0].handle == "@ada"
+    assert _nested_owners(
+        "payments/skip/file.py",
+        (
+            ("payments", (CodeownersRule("other", ("@nope",), 1),)),
+            ("payments/skip", (CodeownersRule("*", ("@nested",), 2),)),
+        ),
+    ) == ("@nested",)
+    assert evidence_from_payload("a.py", None) is None
+    assert evidence_from_payload("a.py", {"type": 1, "subject": "@ada"}) is None
+    assert evidence_from_payload("a.py", {"type": "note", "subject": "@ada"}) is None
+    parsed = evidence_from_payload(
+        "fallback.py",
+        {
+            "type": "blame",
+            "subject": "@ada",
+            "timestamp": "not-a-date",
+            "weight": True,
+            "commits": True,
+        },
+    )
+    assert parsed is not None
+    assert parsed.path == "fallback.py"
+    assert parsed.timestamp is None
+    reviewed = evidence_from_payload(
+        "a.py",
+        {"type": "review", "subject": "@ada", "path": "b.py", "share": "no", "later_commits": "no"},
+    )
+    assert reviewed is not None and reviewed.path == "b.py"
+    assert _team_resolver(Config(github=GithubConfig(resolve_teams=False, org="acme"))) is None
+    assert _team_resolver(Config(github=GithubConfig(resolve_teams=True, org=""))) is None
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    monkeypatch.setattr(
+        "checkowners.cli.create_team_resolver",
+        lambda _token, _org: lambda _owners: None,
+    )
+    resolved = _team_resolver(Config(github=GithubConfig(resolve_teams=True, org="acme")))
+    assert resolved is not None
 
 
 def _write(root: Path, content: str) -> Path:

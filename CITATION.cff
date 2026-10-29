@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it using these metadata.
+type: software
+title: CheckOwners
+abstract: Keep CODEOWNERS aligned with reality by inferring ownership from git history.
+version: 0.6.0
+license: MIT
+repository-code: https://github.com/smusali/checkowners
+url: https://github.com/smusali/checkowners
+authors:
+  - given-names: Samir
+    family-names: Musali
+    email: samir.musali@gmail.com

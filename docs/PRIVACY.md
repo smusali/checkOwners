@@ -119,6 +119,6 @@ Identity resolution is local first: a configured identity, `.mailmap`, GitHub no
 
 **Where is it stored?** On the machine that ran the command. The Action uses the runner temp directory. Do not commit the cache. This repo's `.gitignore` ignores `.checkowners/`.
 
-**How are tokens handled?** The only supported token source is the `GITHUB_TOKEN` environment variable. `github.token` in config is rejected because that file is committed. See [SECURITY.md](../SECURITY.md).
+**How are tokens handled?** The only supported token source is the `GITHUB_TOKEN` environment variable. `github.token` in config is rejected because that file is committed. See [SECURITY.md](https://github.com/smusali/checkowners/blob/main/SECURITY.md).
 
 **What permissions are required?** Job token scopes are in [What token scopes are needed](FAQ.md#what-token-scopes-are-needed). Copy-paste blocks for the Action are in [GitHub Actions](USAGE.md#github-actions).

@@ -172,7 +172,7 @@ Trimmed JSON from this repository is in [examples/sample-output.md](https://gith
 
 ## Trust
 
-Core inference is local git. `checkowners --offline` opens no network connection. With no token, CheckOwners sends nothing anywhere.
+Core inference is local git. `checkowners --offline` opens no network connection. With no token, CheckOwners sends nothing anywhere. Zero telemetry, ever, by default. CheckOwners does not phone home.
 
 PyPI releases use [Trusted Publishing](https://docs.pypi.org/trusted-publishers/). The publish workflow authenticates with a GitHub OIDC token and does not store a PyPI API token. Sigstore signs each distribution.
 
@@ -186,13 +186,16 @@ What the tool reads, what leaves the machine, what the cache holds, how tokens a
 
 ## Documentation
 
+The documentation site is <https://smusali.github.io/checkowners/>.
+
 - [docs/USAGE.md](https://github.com/smusali/checkowners/blob/main/docs/USAGE.md): full configuration reference, ownership scoring formula, drift severity tiers, GitHub Actions integration, comparison table.
 - [docs/METHODOLOGY.md](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md): formulas, prior art, terminology, and [project principles](https://github.com/smusali/checkowners/blob/main/docs/METHODOLOGY.md#principles).
 - [docs/GLOSSARY.md](https://github.com/smusali/checkowners/blob/main/docs/GLOSSARY.md): one-sentence definitions of the terms used in reports.
 - [docs/limitations.md](https://github.com/smusali/checkowners/blob/main/docs/limitations.md): when the tool can be wrong, and what repository evidence cannot prove.
 - [docs/FAQ.md](https://github.com/smusali/checkowners/blob/main/docs/FAQ.md): identity (usernames vs emails, teams + subteams), GitHub API access, file locations, tuning, troubleshooting.
 - [docs/PRIVACY.md](https://github.com/smusali/checkowners/blob/main/docs/PRIVACY.md): what is read, what leaves the machine, the cache, `cache purge`, and the threat model.
-- [docs/CONTRIBUTING.md](https://github.com/smusali/checkowners/blob/main/docs/CONTRIBUTING.md): dev setup, commands, conventional commits, code conventions, PR workflow.
+- [docs/CONTRIBUTING.md](https://github.com/smusali/checkowners/blob/main/docs/CONTRIBUTING.md): dev setup, maintainer seat, contributor ladder, open-core boundary, release process, and PR workflow.
+- [docs/decisions.md](https://github.com/smusali/checkowners/blob/main/docs/decisions.md): architectural decisions.
 - [Good first issues](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) · [Discussions](https://github.com/smusali/checkowners/discussions)
 
 ## License

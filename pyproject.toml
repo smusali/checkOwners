@@ -80,7 +80,7 @@ dev = [
 Homepage = "https://github.com/smusali/checkowners"
 Issues = "https://github.com/smusali/checkowners/issues"
 Source = "https://github.com/smusali/checkowners"
-Documentation = "https://github.com/smusali/checkowners/blob/main/docs/USAGE.md"
+Documentation = "https://smusali.github.io/checkowners/"
 Changelog = "https://github.com/smusali/checkowners/blob/main/docs/CHANGELOG.md"
 
 [project.scripts]

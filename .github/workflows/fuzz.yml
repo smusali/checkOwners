@@ -41,7 +41,7 @@ jobs:
           exit 1
 
       - name: Extended fuzz
-        run: pytest tests/test_patterns.py -k "not git_ls"
+        run: pytest tests/test_patterns.py -k "not git_ls" --no-cov
 
   mutation:
     runs-on: ubuntu-latest

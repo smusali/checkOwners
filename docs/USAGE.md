@@ -336,6 +336,8 @@ jobs:
           mode: both
 ```
 
+`@v0` tracks the latest 0.x. `@v0.7` tracks 0.7.x. `@v0.6` stays on 0.6.x. `@v0.7.0` is the pin.
+
 `fetch-depth: 0` is required: a shallow clone has no history to score. A
 comment needs `pull-requests: write`, a code scanning upload needs
 `security-events: write` with `upload_sarif: true`, and a check run needs
@@ -375,7 +377,7 @@ workflow that wraps the same Action with the same inputs.
 ```yaml
 repos:
   - repo: https://github.com/smusali/checkowners
-    rev: v0.6.0
+    rev: v0.7.0
     hooks:
       - id: checkowners-validate   # on a CODEOWNERS change
       - id: checkowners-drift      # on push

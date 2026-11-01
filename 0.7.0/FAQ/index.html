@@ -1,0 +1,1025 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://smusali.github.io/checkowners/0.7.0/FAQ/">
+      
+      
+        <link rel="prev" href="../PRIVACY/">
+      
+      
+        <link rel="next" href="../CHANGELOG/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>FAQ - checkOwners</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#faq" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="checkOwners" class="md-header__button md-logo" aria-label="checkOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            checkOwners
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              FAQ
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="checkOwners" class="md-nav__button md-logo" aria-label="checkOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    checkOwners
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../USAGE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../METHODOLOGY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PRIVACY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#which-action-tag-should-i-pin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Action tag should I pin?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#does-checkowners-need-a-github-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does checkOwners need a GitHub token?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-does-the-token-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where does the token go?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-permissions-does-each-feature-need" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What permissions does each feature need?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#will-the-generated-codeowners-use-handles-or-emails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Will the generated CODEOWNERS use handles or emails?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#does-it-handle-teams-and-subteams" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does it handle teams and subteams?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#can-a-report-leave-out-peoples-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can a report leave out people's names?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#can-codeowners-live-in-the-repository-root" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can CODEOWNERS live in the repository root?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-is-the-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where is the cache?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-do-i-turn-checkowners-on-without-failing-on-everything" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I turn checkOwners on without failing on everything?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-the-difference-between-a-baseline-and-a-suppression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is the difference between a baseline and a suppression?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-do-i-fail-only-on-critical-drift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I fail only on critical drift?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-is-analysis-completeness-below-100-on-a-healthy-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why is analysis completeness below 100% on a healthy repository?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-did-a-formatter-commit-not-take-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why did a formatter commit not take ownership?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-are-some-paths-missing-from-analyze" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why are some paths missing from analyze?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#can-i-keep-a-hand-written-rule-when-i-generate-codeowners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can I keep a hand-written rule when I generate CODEOWNERS?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generate-stopped-on-a-marker-error-and-left-the-file-alone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        generate stopped on a marker error and left the file alone.
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generate-refused-because-the-file-is-too-large" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        generate refused because the file is too large.
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#networkx-is-not-installed-but-i-want-graph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        networkx is not installed but I want graph.
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#is-this-a-performance-measurement-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is this a performance-measurement tool?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#does-it-use-an-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does it use an LLM?
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/smusali/checkowners/blob/main/SECURITY.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="faq">FAQ<a class="headerlink" href="#faq" title="Permanent link">&para;</a></h1>
+<h2 id="which-action-tag-should-i-pin">Which Action tag should I pin?<a class="headerlink" href="#which-action-tag-should-i-pin" title="Permanent link">&para;</a></h2>
+<p><code>@v0</code> tracks the latest 0.x. <code>@v0.7</code> tracks 0.7.x. <code>@v0.6</code> stays on 0.6.x. <code>@v0.7.0</code> is the pin.</p>
+<h2 id="does-checkowners-need-a-github-token">Does checkOwners need a GitHub token?<a class="headerlink" href="#does-checkowners-need-a-github-token" title="Permanent link">&para;</a></h2>
+<p>No. The inference is pure git and runs offline. A token only adds three
+features: resolving non-noreply emails to <code>@handles</code>, resolving teams and
+subteams, and the review signal with team reconciliation. Without one you still
+get scored ownership, drift, qualified owner counts, freshness, and onboarding,
+and the remaining signal weights are renormalized so the score stays on
+<code>[0, 1]</code>.</p>
+<p>Noreply addresses such as <code>login@users.noreply.github.com</code> resolve to <code>@login</code>
+with no token at all.</p>
+<h2 id="where-does-the-token-go">Where does the token go?<a class="headerlink" href="#where-does-the-token-go" title="Permanent link">&para;</a></h2>
+<p>In the <code>GITHUB_TOKEN</code> environment variable, and nowhere else.
+<code>github.token</code> in <code>checkowners.yml</code> is refused, because that file is committed
+and a secret there would be published. In Actions the composite Action exports
+the job token for you; pass <code>github_token</code> only when you need a PAT or App
+token.</p>
+<h2 id="what-permissions-does-each-feature-need">What permissions does each feature need?<a class="headerlink" href="#what-permissions-does-each-feature-need" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Job token</th>
+<th>Fine-grained PAT</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Email to <code>@handle</code></td>
+<td>the default token is enough</td>
+<td>no extra repository permission</td>
+</tr>
+<tr>
+<td>Teams and subteams</td>
+<td>not available; the job token cannot list org teams</td>
+<td>Organization members: Read</td>
+</tr>
+<tr>
+<td>Review coverage, <code>suggest</code></td>
+<td><code>pull-requests: read</code></td>
+<td>Pull requests: Read</td>
+</tr>
+<tr>
+<td>Pull-request comment</td>
+<td><code>pull-requests: write</code></td>
+<td>Pull requests: Write</td>
+</tr>
+<tr>
+<td>Code scanning upload</td>
+<td><code>security-events: write</code></td>
+<td>Code scanning alerts: Read and write</td>
+</tr>
+<tr>
+<td>Check run</td>
+<td><code>checks: write</code></td>
+<td>Checks: Read and write</td>
+</tr>
+<tr>
+<td><code>sync</code> pull request</td>
+<td><code>contents: write</code> and <code>pull-requests: write</code></td>
+<td>Contents and Pull requests: Read and write</td>
+</tr>
+</tbody>
+</table>
+<p>A fork pull request cannot comment or upload code scanning results: GitHub makes
+that token read-only whatever the <code>permissions:</code> block says. The Action skips
+both, writes the report and the SARIF artifact, and does not fail the job.</p>
+<h2 id="will-the-generated-codeowners-use-handles-or-emails">Will the generated CODEOWNERS use handles or emails?<a class="headerlink" href="#will-the-generated-codeowners-use-handles-or-emails" title="Permanent link">&para;</a></h2>
+<p>Handles whenever one was resolved. A path whose owners are still raw addresses
+is skipped rather than written with an address, because GitHub would not
+understand it. Writing a <code>.mailmap</code> is the cheapest way to improve this.</p>
+<h2 id="does-it-handle-teams-and-subteams">Does it handle teams and subteams?<a class="headerlink" href="#does-it-handle-teams-and-subteams" title="Permanent link">&para;</a></h2>
+<p>With a token, <code>github.org</code>, and <code>github.resolve_teams</code>, yes. checkOwners loads
+the organization team list once, follows child teams, and reports a team rule as
+aligned, partially drifted, unverifiable, invisible, empty, or nested.
+<code>team_coverage</code> is the share of inferred handles who are members.</p>
+<h2 id="can-a-report-leave-out-peoples-names">Can a report leave out people's names?<a class="headerlink" href="#can-a-report-leave-out-peoples-names" title="Permanent link">&para;</a></h2>
+<p>Yes. <code>output.anonymize</code> replaces each person with a stable <code>person-</code> token,
+<code>output.aggregate_only</code> drops per-person fields and keeps path and repository
+metrics, and <code>privacy.redact_emails</code> replaces addresses with tokens.
+<code>generate</code> and <code>sync</code> exit 2 under those settings, because a CODEOWNERS file
+has to name accounts.</p>
+<h2 id="can-codeowners-live-in-the-repository-root">Can CODEOWNERS live in the repository root?<a class="headerlink" href="#can-codeowners-live-in-the-repository-root" title="Permanent link">&para;</a></h2>
+<p>Yes. checkOwners reads <code>.github/CODEOWNERS</code>, <code>CODEOWNERS</code>, and
+<code>docs/CODEOWNERS</code>, in that order, and writes back to whichever it found.</p>
+<h2 id="where-is-the-cache">Where is the cache?<a class="headerlink" href="#where-is-the-cache" title="Permanent link">&para;</a></h2>
+<p><code>~/.checkowners</code>, or <code>%USERPROFILE%\.checkowners</code> on Windows. Set
+<code>CHECKOWNERS_STATE_DIR</code> to move it, <code>checkowners cache path</code> to print it, and
+<code>checkowners cache purge</code> to delete everything in it.</p>
+<h2 id="how-do-i-turn-checkowners-on-without-failing-on-everything">How do I turn checkOwners on without failing on everything?<a class="headerlink" href="#how-do-i-turn-checkowners-on-without-failing-on-everything" title="Permanent link">&para;</a></h2>
+<p>Run <code>checkowners baseline create</code> and commit the file. Later runs then fail only
+on findings that are not in it. <code>--exit-zero</code> is the other way: it turns the
+findings exit code into 0 after printing the report.</p>
+<h2 id="what-is-the-difference-between-a-baseline-and-a-suppression">What is the difference between a baseline and a suppression?<a class="headerlink" href="#what-is-the-difference-between-a-baseline-and-a-suppression" title="Permanent link">&para;</a></h2>
+<p>A baseline is a snapshot of what was already there, written by a command, and it
+ratchets: a finding you fix cannot come back silently. A suppression is a
+hand-written rule in the config that always applies, and it requires a reason so
+the next reader knows why.</p>
+<h2 id="how-do-i-fail-only-on-critical-drift">How do I fail only on critical drift?<a class="headerlink" href="#how-do-i-fail-only-on-critical-drift" title="Permanent link">&para;</a></h2>
+<p>Leave <code>policy.drift.fail</code> false and branch on the Action's <code>drift_summary</code>,
+which carries the severity. A workflow step that fails when
+<code>severity == "critical"</code> is three lines of <code>if:</code>.</p>
+<h2 id="why-is-analysis-completeness-below-100-on-a-healthy-repository">Why is analysis completeness below 100% on a healthy repository?<a class="headerlink" href="#why-is-analysis-completeness-below-100-on-a-healthy-repository" title="Permanent link">&para;</a></h2>
+<p>Completeness counts the evidence catalog, not the health of the repository.
+Without a token the review signal is missing; without a <code>.mailmap</code> or a
+<code>.git-blame-ignore-revs</code> file those corrections did not run. Each of those is a
+gap, so a normal run sits below 1 and still exits 0.</p>
+<h2 id="why-did-a-formatter-commit-not-take-ownership">Why did a formatter commit not take ownership?<a class="headerlink" href="#why-did-a-formatter-commit-not-take-ownership" title="Permanent link">&para;</a></h2>
+<p>Commits that touch at least <code>git.mass_refactor_file_fraction</code> of tracked files
+are left out of blame, and revisions in <code>.git-blame-ignore-revs</code> are ignored.
+Both exist so a sweeping reformat does not become ownership.</p>
+<h2 id="why-are-some-paths-missing-from-analyze">Why are some paths missing from <code>analyze</code>?<a class="headerlink" href="#why-are-some-paths-missing-from-analyze" title="Permanent link">&para;</a></h2>
+<p>They were excluded: <code>linguist-generated</code> or <code>linguist-vendored</code> in
+<code>.gitattributes</code>, a <code>paths.exclude</code> pattern, a deleted file, or a path whose only
+authors are bots.</p>
+<h2 id="can-i-keep-a-hand-written-rule-when-i-generate-codeowners">Can I keep a hand-written rule when I generate CODEOWNERS?<a class="headerlink" href="#can-i-keep-a-hand-written-rule-when-i-generate-codeowners" title="Permanent link">&para;</a></h2>
+<p>Yes. Wrap it in <code># checkowners:manual:start</code> and <code># checkowners:manual:end</code>.
+<code>generate</code> rewrites only the generated block. <code>output.block_order</code> decides which
+block wins an overlap, and the later block is the winner.</p>
+<h2 id="generate-stopped-on-a-marker-error-and-left-the-file-alone"><code>generate</code> stopped on a marker error and left the file alone.<a class="headerlink" href="#generate-stopped-on-a-marker-error-and-left-the-file-alone" title="Permanent link">&para;</a></h2>
+<p>The manual and generated markers are unbalanced or interleaved. The message
+names the line. Nothing is written until they pair up, so no manual rule is ever
+lost to a half-written file.</p>
+<h2 id="generate-refused-because-the-file-is-too-large"><code>generate</code> refused because the file is too large.<a class="headerlink" href="#generate-refused-because-the-file-is-too-large" title="Permanent link">&para;</a></h2>
+<p><code>output.max_bytes</code> defaults to 2.5 MB because GitHub ignores a CODEOWNERS file
+over 3 MB. Raise the limit, or let <code>output.consolidate</code> collapse uniform
+directories, or pass <code>--force</code>.</p>
+<h2 id="networkx-is-not-installed-but-i-want-graph"><code>networkx</code> is not installed but I want <code>graph</code>.<a class="headerlink" href="#networkx-is-not-installed-but-i-want-graph" title="Permanent link">&para;</a></h2>
+<p><code>pip install "checkowners[graph]"</code>. The graph, topology, and onboarding commands
+need it; nothing else does.</p>
+<h2 id="is-this-a-performance-measurement-tool">Is this a performance-measurement tool?<a class="headerlink" href="#is-this-a-performance-measurement-tool" title="Permanent link">&para;</a></h2>
+<p>No. It measures where knowledge is concentrated, which is a property of a
+repository, not of a person. Using it to evaluate individuals is unsupported and
+harmful.</p>
+<h2 id="does-it-use-an-llm">Does it use an LLM?<a class="headerlink" href="#does-it-use-an-llm" title="Permanent link">&para;</a></h2>
+<p>No. Inference is deterministic git analysis, and the scoring code is in the
+repository to read.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

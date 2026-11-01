@@ -1,0 +1,1441 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://smusali.github.io/checkowners/0.7.0/USAGE/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../cli/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Usage - checkOwners</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#usage" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="checkOwners" class="md-header__button md-logo" aria-label="checkOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            checkOwners
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Usage
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="checkOwners" class="md-nav__button md-logo" aria-label="checkOwners" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    checkOwners
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/smusali/checkowners" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    smusali/checkowners
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#determinism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Determinism
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#privacy-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Privacy controls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#drift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drift
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#github-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub Actions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GitHub Actions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pre-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pre-commit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#json-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON contract
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#adopting-on-a-large-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adopting on a large repository
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../METHODOLOGY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PRIVACY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FAQ/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTRIBUTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/smusali/checkowners/blob/main/SECURITY.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h1>
+<p>Every command, every configuration key, and the CI integration. The scoring
+model is in <a href="../METHODOLOGY/">METHODOLOGY.md</a> and common questions are in
+<a href="../FAQ/">FAQ.md</a>.</p>
+<blockquote>
+<p>This is a knowledge-risk tool, not a performance-measurement tool. Using it for
+individual evaluation is unsupported and harmful.</p>
+</blockquote>
+<h2 id="pipeline">Pipeline<a class="headerlink" href="#pipeline" title="Permanent link">&para;</a></h2>
+<p><code>analyze</code> reads git history once and caches a map every other command reads.</p>
+<pre class="mermaid"><code>flowchart LR
+  Git["Git history"] --&gt; Analyze["analyze"]
+  Analyze --&gt; State["Cached map"]
+  State --&gt; Generate["generate"]
+  State --&gt; Drift["drift"]
+  State --&gt; Risk["risk"]
+  State --&gt; Suggest["suggest"]
+  Generate --&gt; File["CODEOWNERS"]
+  Drift --&gt; Report["CI output"]</code></pre>
+<p>The map lives at <code>~/.checkowners/state/&lt;repo-hash&gt;.json</code>, keyed by the
+normalized <code>origin</code> URL so two checkouts of one remote share a file, or by the
+absolute path when there is no origin. <code>CHECKOWNERS_STATE_DIR</code> moves the cache.
+A command reuses the map when its commit is <code>HEAD</code> and the config hash and
+package version match; otherwise it analyzes again, replaying the stored
+baseline since that ref and reusing blame for unchanged blobs, which matches a
+full lookback for the same repository, commit, and config.</p>
+<p>Global flags go before the command name, as in <code>checkowners --allow-stale risk</code>:</p>
+<ul>
+<li><code>--allow-stale</code> reuses a map whose commit is not <code>HEAD</code>.</li>
+<li><code>--max-age SECONDS</code> refuses a map older than that; <code>0</code> expires immediately.</li>
+<li><code>--no-cache</code> neither reads nor writes the cache.</li>
+<li><code>--no-incremental</code> scores the full lookback and writes a fresh baseline.</li>
+<li><code>--offline</code> makes no network call.</li>
+<li><code>--as-of ISO8601</code> fixes the instant recency and decay are scored against.</li>
+<li><code>--redact-emails</code> replaces addresses in output with stable tokens.</li>
+<li><code>--diff-only SPEC</code> limits read-only analysis to the paths a diff touched.</li>
+<li><code>--exit-zero</code> turns exit 3 into 0 after the report is printed.</li>
+<li><code>--fail-on-incomplete</code> exits 3 when run completeness is below 1.</li>
+<li><code>--verbose</code> prints blame cache hits and misses.</li>
+</ul>
+<p><code>cache info</code> reports sizes and this repository's state file, <code>cache clear</code>
+deletes analysis state, graph files, and blame files, and <code>cache purge</code> deletes
+everything including handle files and the identity graph. Those files are
+evicted oldest first above 256 MiB together.</p>
+<h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit</code></td>
+<td>Every doctor row plus inference: drift, concentration, decay, unowned paths. Bare <code>checkowners</code> runs it</td>
+</tr>
+<tr>
+<td><code>doctor</code></td>
+<td>Configuration rows: branch, file size, syntax, access, teams, coverage. <code>--env</code> adds the environment</td>
+</tr>
+<tr>
+<td><code>analyze</code></td>
+<td>Infer ownership scores, qualified owner counts, and continuity-risk warnings</td>
+</tr>
+<tr>
+<td><code>print</code></td>
+<td>Print the inferred map to stdout</td>
+</tr>
+<tr>
+<td><code>generate</code></td>
+<td>Write CODEOWNERS ordered by ownership score</td>
+</tr>
+<tr>
+<td><code>validate</code></td>
+<td>Validate the committed CODEOWNERS syntax</td>
+</tr>
+<tr>
+<td><code>explain-path PATH</code></td>
+<td>Show which rule owns a path, and the whole match chain</td>
+</tr>
+<tr>
+<td><code>explain PATH</code></td>
+<td>Decompose the inferred scores. <code>--why-not</code> and <code>--owner</code> narrow it</td>
+</tr>
+<tr>
+<td><code>owners PATH</code></td>
+<td>The ranked owner list, and nothing else</td>
+</tr>
+<tr>
+<td><code>expertise PATH</code></td>
+<td>Evidence ranking for one path from the cached map</td>
+</tr>
+<tr>
+<td><code>drift</code></td>
+<td>Compare the committed file with the inferred map; severity and the worst score delta</td>
+</tr>
+<tr>
+<td><code>baseline create</code></td>
+<td>Write an accepted-findings file so later runs fail only on new findings</td>
+</tr>
+<tr>
+<td><code>sync</code></td>
+<td>Open a pull request proposing CODEOWNERS changes. <code>--commit</code> commits locally</td>
+</tr>
+<tr>
+<td><code>risk</code></td>
+<td>Rank paths by composite knowledge risk</td>
+</tr>
+<tr>
+<td><code>qualified-owners [PATH] [--all]</code></td>
+<td>Per-path qualified owner count with candidate backup reviewers</td>
+</tr>
+<tr>
+<td><code>simulate --remove @alice</code></td>
+<td>What breaks when those people leave, from the cached map</td>
+</tr>
+<tr>
+<td><code>suggest</code></td>
+<td>Recommend a reviewer from expertise and current load. <code>--diff</code> and <code>--pr</code> scope it to a change</td>
+</tr>
+<tr>
+<td><code>diff SPEC</code></td>
+<td>Ownership impact for the paths changed in <code>base...head</code></td>
+</tr>
+<tr>
+<td><code>graph [--export FORMAT]</code></td>
+<td>Render the ownership graph as <code>dot</code>, <code>graphml</code>, <code>gexf</code>, or <code>json</code></td>
+</tr>
+<tr>
+<td><code>topology</code></td>
+<td>Louvain clustering of collaboration. Exploratory, not an org chart</td>
+</tr>
+<tr>
+<td><code>onboard PATH</code></td>
+<td>Inferred onboarding suggestions. Exploratory</td>
+</tr>
+<tr>
+<td><code>trends</code></td>
+<td>Historical activity and qualified owner count over time</td>
+</tr>
+<tr>
+<td><code>report --html FILE</code></td>
+<td>Write one offline HTML report</td>
+</tr>
+<tr>
+<td><code>identity audit \| merge \| unmerge</code></td>
+<td>Inspect and edit the contributor identity graph</td>
+</tr>
+<tr>
+<td><code>cache info \| path \| clear \| purge</code></td>
+<td>Inspect and delete the on-disk cache</td>
+</tr>
+<tr>
+<td><code>github-action</code></td>
+<td>Run the whole CI flow and write <code>GITHUB_OUTPUT</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>graph</code>, <code>topology</code>, and <code>onboard</code> need the <code>graph</code> extra.</p>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p><code>.github/checkowners.yml</code>, every field optional, defaults shown. An unknown
+key exits 2 and names the line.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">analysis</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">lookback_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">365</span><span class="w">          </span><span class="c1"># integer days, or adaptive for all history</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">review_lookback_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">365</span><span class="w">   </span><span class="c1"># positive integer; omit to follow lookback_days</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">min_commits</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">top_n_owners</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">confidence_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span><span class="w">   </span><span class="c1"># owners below this are dropped from CODEOWNERS</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">respect_gitattributes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># linguist-generated and linguist-vendored first</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">max_runtime_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w">    </span><span class="c1"># stop blame here and mark the run incomplete</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">max_git_workers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">max_api_requests</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2000</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">follow_renames</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">rename_similarity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">       </span><span class="c1"># percent, 1 to 100</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="nt">qualification</span><span class="p">:</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span><span class="nt">strategy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">adaptive</span><span class="w">          </span><span class="c1"># adaptive | threshold</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span><span class="nt">min_commits</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">              </span><span class="c1"># this key wins over analysis.min_commits</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="nt">strong_blame_override</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span><span class="w">  </span><span class="c1"># adaptive keeps authors at or above this share</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="nt">model</span><span class="p">:</span><span class="w">                        </span><span class="c1"># every signal takes weight and reliability</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">  </span><span class="nt">signals</span><span class="p">:</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">    </span><span class="nt">recency</span><span class="p">:</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">      </span><span class="nt">weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.30</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">      </span><span class="nt">strategy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">adaptive</span><span class="w">      </span><span class="c1"># adaptive | fixed</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">      </span><span class="nt">half_life_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span><span class="w">      </span><span class="c1"># the fixed half-life, and the fallback</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">      </span><span class="nt">half_life_floor_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">14</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="w">      </span><span class="nt">half_life_ceiling_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">730</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="w">      </span><span class="nt">reliability</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="w">    </span><span class="nt">frequency</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">weight</span><span class="p">:</span><span class="w"> </span><span class="nv">0.20</span><span class="p p-Indicator">,</span><span class="nt"> reliability</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="w">    </span><span class="nt">blame</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">weight</span><span class="p">:</span><span class="w"> </span><span class="nv">0.20</span><span class="p p-Indicator">,</span><span class="nt"> reliability</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="w">    </span><span class="nt">reviews</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">weight</span><span class="p">:</span><span class="w"> </span><span class="nv">0.15</span><span class="p p-Indicator">,</span><span class="nt"> reliability</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span><span class="w">          </span><span class="c1"># needs api_enabled</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="w">    </span><span class="nt">change_survival</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">weight</span><span class="p">:</span><span class="w"> </span><span class="nv">0.15</span><span class="p p-Indicator">,</span><span class="nt"> reliability</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span><span class="w">  </span><span class="c1"># needs blame</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="nt">bots</span><span class="p">:</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="w">  </span><span class="nt">exclude</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="w">  </span><span class="nt">additional</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">              </span><span class="c1"># extra addresses or handles treated as bots</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="nt">decay</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">threshold_days</span><span class="p">:</span><span class="w"> </span><span class="nv">180</span><span class="p p-Indicator">,</span><span class="nt"> alert_on_decay</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span>
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="nt">bus_factor</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">critical_threshold</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="nt"> warn_threshold</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">}</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a><span class="nt">criticality</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w">              </span><span class="c1"># path glob to weight in (0, 1]; first match wins</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a><span class="nt">risk</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">truck_factor_thresholds</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0.50</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">0.75</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">0.90</span><span class="p p-Indicator">]}</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a><span class="nt">paths</span><span class="p">:</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a><span class="w">  </span><span class="nt">exclude</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"*.lock"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"dist/**"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"vendor/**"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"node_modules/**"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"CODEOWNERS"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a><span class="nt">output</span><span class="p">:</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a><span class="w">  </span><span class="nt">header</span><span class="p">:</span><span class="w"> </span><span class="s">"#</span><span class="nv"> </span><span class="s">Generated</span><span class="nv"> </span><span class="s">by</span><span class="nv"> </span><span class="s">checkOwners.</span><span class="nv"> </span><span class="s">Do</span><span class="nv"> </span><span class="s">not</span><span class="nv"> </span><span class="s">edit</span><span class="nv"> </span><span class="s">manually."</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a><span class="w">  </span><span class="nt">include_unowned</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a><span class="w">  </span><span class="nt">include_confidence</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># append "# alice(0.92) bob(0.71)" to each line</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a><span class="w">  </span><span class="nt">consolidate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">           </span><span class="c1"># collapse a uniform directory into one dir/ rule</span>
+<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a><span class="w">  </span><span class="nt">max_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2500000</span><span class="w">          </span><span class="c1"># refuse to write more without --force</span>
+<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a><span class="w">  </span><span class="nt">verify_round_trip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">     </span><span class="c1"># re-resolve every generated path</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a><span class="w">  </span><span class="nt">allow_broad_patterns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a><span class="w">  </span><span class="nt">anonymize</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a><span class="w">  </span><span class="nt">aggregate_only</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a><span class="w">  </span><span class="nt">block_order</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">manual-first</span><span class="w">   </span><span class="c1"># manual-first | generated-first</span>
+<a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a>
+<a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a><span class="nt">drift</span><span class="p">:</span>
+<a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a><span class="w">  </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">commit</span><span class="w">                </span><span class="c1"># commit | repo | both</span>
+<a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a><span class="w">  </span><span class="nt">min_confidence_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.2</span>
+<a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a><span class="w">  </span><span class="nt">hysteresis_runs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">          </span><span class="c1"># hold a severity flip until N consecutive runs</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a><span class="w">  </span><span class="nt">baseline_file</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+<a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a><span class="w">  </span><span class="nt">severity_thresholds</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">0.15</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">0.35</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">0.55</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">0.75</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a>
+<a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a><span class="nt">suppressions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">              </span><span class="c1"># explicit and reason-required</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a>
+<a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a><span class="nt">github</span><span class="p">:</span>
+<a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a><span class="w">  </span><span class="nt">org</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+<a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a><span class="w">  </span><span class="nt">resolve_handles</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a><span class="w">  </span><span class="nt">resolve_teams</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a><span class="w">  </span><span class="nt">api_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">          </span><span class="c1"># gates the review signal and the API features</span>
+<a id="__codelineno-0-74" name="__codelineno-0-74" href="#__codelineno-0-74"></a>
+<a id="__codelineno-0-75" name="__codelineno-0-75" href="#__codelineno-0-75"></a><span class="nt">git</span><span class="p">:</span>
+<a id="__codelineno-0-76" name="__codelineno-0-76" href="#__codelineno-0-76"></a><span class="w">  </span><span class="nt">blame_ignore_revs_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.git-blame-ignore-revs</span>
+<a id="__codelineno-0-77" name="__codelineno-0-77" href="#__codelineno-0-77"></a><span class="w">  </span><span class="nt">detect_moves</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># pass -M and -C to git blame</span>
+<a id="__codelineno-0-78" name="__codelineno-0-78" href="#__codelineno-0-78"></a><span class="w">  </span><span class="nt">mass_refactor_file_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span><span class="w">  </span><span class="c1"># 0 disables; omit these commits from blame</span>
+<a id="__codelineno-0-79" name="__codelineno-0-79" href="#__codelineno-0-79"></a><span class="w">  </span><span class="nt">count_co_authors</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80" href="#__codelineno-0-80"></a><span class="w">  </span><span class="nt">co_author_weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">       </span><span class="c1"># credit per trailer, against the author's 1</span>
+<a id="__codelineno-0-81" name="__codelineno-0-81" href="#__codelineno-0-81"></a><span class="w">  </span><span class="nt">merge_strategy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span><span class="w">        </span><span class="c1"># auto | squash | merge | rebase</span>
+<a id="__codelineno-0-82" name="__codelineno-0-82" href="#__codelineno-0-82"></a>
+<a id="__codelineno-0-83" name="__codelineno-0-83" href="#__codelineno-0-83"></a><span class="nt">identity</span><span class="p">:</span>
+<a id="__codelineno-0-84" name="__codelineno-0-84" href="#__codelineno-0-84"></a><span class="w">  </span><span class="nt">mailmap</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">               </span><span class="c1"># the cheapest identity fix</span>
+<a id="__codelineno-0-85" name="__codelineno-0-85" href="#__codelineno-0-85"></a><span class="w">  </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">handle</span><span class="w">                </span><span class="c1"># handle | email | hashed</span>
+<a id="__codelineno-0-86" name="__codelineno-0-86" href="#__codelineno-0-86"></a><span class="w">  </span><span class="nt">negative_cache_ttl_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w"> </span><span class="c1"># 0 stores no miss</span>
+<a id="__codelineno-0-87" name="__codelineno-0-87" href="#__codelineno-0-87"></a><span class="w">  </span><span class="nt">do_not_merge</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">            </span><span class="c1"># pairs that stay two owners</span>
+<a id="__codelineno-0-88" name="__codelineno-0-88" href="#__codelineno-0-88"></a>
+<a id="__codelineno-0-89" name="__codelineno-0-89" href="#__codelineno-0-89"></a><span class="nt">identities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w">                </span><span class="c1"># "@alice": {emails: [], aliases: [], service_account: false}</span>
+<a id="__codelineno-0-90" name="__codelineno-0-90" href="#__codelineno-0-90"></a><span class="nt">privacy</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">redact_emails</span><span class="p">:</span><span class="w"> </span><span class="nv">false</span><span class="p p-Indicator">}</span>
+<a id="__codelineno-0-91" name="__codelineno-0-91" href="#__codelineno-0-91"></a><span class="nt">contributors</span><span class="p">:</span>
+<a id="__codelineno-0-92" name="__codelineno-0-92" href="#__codelineno-0-92"></a><span class="w">  </span><span class="nt">exclude</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-0-93" name="__codelineno-0-93" href="#__codelineno-0-93"></a><span class="w">  </span><span class="nt">roster</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w">                  </span><span class="c1"># "@bob": former | active | inactive | bot | external</span>
+<a id="__codelineno-0-94" name="__codelineno-0-94" href="#__codelineno-0-94"></a>
+<a id="__codelineno-0-95" name="__codelineno-0-95" href="#__codelineno-0-95"></a><span class="nt">policy</span><span class="p">:</span>
+<a id="__codelineno-0-96" name="__codelineno-0-96" href="#__codelineno-0-96"></a><span class="w">  </span><span class="nt">drift</span><span class="p">:</span><span class="w">                      </span><span class="c1"># also single_expert, incomplete_analysis, unowned</span>
+<a id="__codelineno-0-97" name="__codelineno-0-97" href="#__codelineno-0-97"></a><span class="w">    </span><span class="nt">fail</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-98" name="__codelineno-0-98" href="#__codelineno-0-98"></a><span class="w">    </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">warning</span><span class="w">         </span><span class="c1"># error | warning; error blocks when fail is omitted</span>
+<a id="__codelineno-0-99" name="__codelineno-0-99" href="#__codelineno-0-99"></a><span class="w">  </span><span class="nt">invalid_owner</span><span class="p">:</span>
+<a id="__codelineno-0-100" name="__codelineno-0-100" href="#__codelineno-0-100"></a><span class="w">    </span><span class="nt">fail</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-101" name="__codelineno-0-101" href="#__codelineno-0-101"></a><span class="w">    </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">error</span>
+<a id="__codelineno-0-102" name="__codelineno-0-102" href="#__codelineno-0-102"></a>
+<a id="__codelineno-0-103" name="__codelineno-0-103" href="#__codelineno-0-103"></a><span class="nt">security</span><span class="p">:</span>
+<a id="__codelineno-0-104" name="__codelineno-0-104" href="#__codelineno-0-104"></a><span class="w">  </span><span class="nt">paths</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">                   </span><span class="c1"># empty applies the stricter rules to nothing</span>
+<a id="__codelineno-0-105" name="__codelineno-0-105" href="#__codelineno-0-105"></a><span class="w">  </span><span class="nt">minimum_effective_owners</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<a id="__codelineno-0-106" name="__codelineno-0-106" href="#__codelineno-0-106"></a><span class="w">  </span><span class="nt">require_declared_owner</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-107" name="__codelineno-0-107" href="#__codelineno-0-107"></a><span class="w">  </span><span class="nt">require_active_expert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<p><code>policy.drift</code> covers <code>stale</code> and <code>changed</code>, <code>unowned</code> covers <code>missing</code>,
+<code>unowned-file</code>, and <code>observed-unowned</code>, <code>single_expert</code> covers <code>single-expert</code>,
+and <code>invalid_owner</code> covers <code>invalid-owner</code>, <code>owner-permission</code>,
+<code>invisible-team</code>, <code>empty-team</code>, and <code>file-size</code>. With both set, <code>fail</code> decides
+the exit and <code>severity</code> is what the report shows. A path under <code>security.paths</code>
+blocks when its effective owner count is below <code>minimum_effective_owners</code>, when
+it has no declared owner, or when no owner is <code>stable</code>. The token is never read
+from this committed file: <code>github.token</code> is rejected, so set <code>GITHUB_TOKEN</code>.</p>
+<h3 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CHECKOWNERS_CONFIG</code></td>
+<td>Config path, relative to the repository root or absolute. Wins over <code>.github/checkowners.yml</code></td>
+</tr>
+<tr>
+<td><code>CHECKOWNERS_DRIFT_MODE</code></td>
+<td><code>commit</code>, <code>repo</code>, or <code>both</code>. Wins over <code>drift.mode</code></td>
+</tr>
+<tr>
+<td><code>CHECKOWNERS_BASELINE</code></td>
+<td>Accepted-findings path. Wins over <code>drift.baseline_file</code></td>
+</tr>
+<tr>
+<td><code>CHECKOWNERS_STATE_DIR</code></td>
+<td>Cache root. Wins over <code>~/.checkowners</code></td>
+</tr>
+<tr>
+<td><code>GITHUB_TOKEN</code></td>
+<td>The only supported token source</td>
+</tr>
+<tr>
+<td><code>GITHUB_REPOSITORY</code></td>
+<td><code>owner/repo</code> for the review, topology, and suggest API features</td>
+</tr>
+<tr>
+<td><code>GITHUB_OUTPUT</code></td>
+<td><code>github-action</code> writes bounded summaries here</td>
+</tr>
+<tr>
+<td><code>SOURCE_DATE_EPOCH</code></td>
+<td>POSIX seconds used as the analysis instant when <code>--as-of</code> is omitted</td>
+</tr>
+</tbody>
+</table>
+<h2 id="determinism">Determinism<a class="headerlink" href="#determinism" title="Permanent link">&para;</a></h2>
+<p>Scoring is a pure function of the repository, the commit, and the config.
+Recency and decay age against one resolved instant, never the wall clock:
+<code>--as-of</code>, then <code>SOURCE_DATE_EPOCH</code>, then the HEAD committer timestamp. JSON
+carries <code>head_sha</code> and <code>generated_at</code>, and <code>git log</code> is pinned to that instant,
+so the same commit scored twice is byte identical.</p>
+<h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
+<p>A <code>.mailmap</code> at the repository root is the cheapest accuracy fix: git already
+collapses one person's addresses, and checkOwners applies that first, offline.
+Commit emails then become GitHub <code>@handles</code> in this order:</p>
+<ol>
+<li>An entry under <code>identities</code>, which wins over everything below.</li>
+<li><code>.mailmap</code>, unless <code>identity.mailmap</code> is false.</li>
+<li>Noreply parsing, with no token and no network: <code>12345+login@users.noreply.github.com</code> becomes <code>@login</code>.</li>
+<li>This repository's handle cache under <code>~/.checkowners/handles/</code>. A miss is skipped for <code>identity.negative_cache_ttl_days</code>.</li>
+<li>The commit author login, when GitHub linked the commit to an account.</li>
+<li>The GitHub user-search API, which needs a token and can attach the wrong account.</li>
+</ol>
+<p><code>--offline</code> or an empty token skips the last two steps. Evidence quality is
+scaled once per fresh analyze: <code>1.0</code> for a certain link, <code>0.75</code> for an
+unresolved email, <code>0.5</code> for a search hit.</p>
+<p>Each owner carries a <code>contributor_status</code> of <code>active</code>, <code>inactive</code>, <code>unknown</code>,
+<code>former</code>, <code>bot</code>, or <code>external</code>. <code>contributors.roster</code> wins, then a bot account
+type, then organization membership, then commit age; only the roster assigns
+<code>former</code>. <code>identity audit</code> lists probable duplicates, <code>identity merge LEFT RIGHT
+INTO</code> records a merge, and <code>identity unmerge LEFT RIGHT</code> keeps a pair apart.</p>
+<h2 id="privacy-controls">Privacy controls<a class="headerlink" href="#privacy-controls" title="Permanent link">&para;</a></h2>
+<p>These apply to terminal output, JSON, the graph export, the Action JSON, the job
+summary, and pull-request comments. <code>generate</code> and <code>sync</code> exit 2 under
+<code>anonymize</code>, <code>aggregate_only</code>, or <code>identity.mode: hashed</code>, because a CODEOWNERS
+file has to name accounts.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>output.anonymize</code></td>
+<td>Replace each person with a <code>person-</code> token, stable within one repository</td>
+</tr>
+<tr>
+<td><code>output.aggregate_only</code></td>
+<td>Omit per-person fields; keep path and repository metrics</td>
+</tr>
+<tr>
+<td><code>privacy.redact_emails</code></td>
+<td>Replace addresses with <code>email:</code> tokens</td>
+</tr>
+<tr>
+<td><code>identity.mode</code></td>
+<td><code>handle</code>, <code>email</code>, or <code>hashed</code> for how a person is named</td>
+</tr>
+<tr>
+<td><code>contributors.exclude</code></td>
+<td>Drop those people from analysis, reports, and export</td>
+</tr>
+</tbody>
+</table>
+<p>Addresses are stored as <code>email:</code> tokens in the cache. Changing
+<code>contributors.exclude</code>, <code>contributors.roster</code>, <code>identities</code>,
+<code>identity.do_not_merge</code>, <code>identity.negative_cache_ttl_days</code>, or
+<code>bots.additional</code> invalidates that cache; the presentation settings do not.</p>
+<h2 id="drift">Drift<a class="headerlink" href="#drift" title="Permanent link">&para;</a></h2>
+<p><code>drift</code> compares the inferred map with the committed CODEOWNERS using real
+CODEOWNERS semantics: <code>*</code> within a segment, <code>**</code> across segments, a leading <code>/</code>
+anchored to the root, a trailing <code>/</code> matching directory contents, last match
+wins.</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>missing</code></td>
+<td>An inferred file no rule covers</td>
+</tr>
+<tr>
+<td><code>stale</code></td>
+<td>A rule whose pattern matches no tracked file</td>
+</tr>
+<tr>
+<td><code>changed</code></td>
+<td>A rule whose owners disagree with the inferred owners of its files</td>
+</tr>
+</tbody>
+</table>
+<p>Owner comparison is case insensitive, and an owner-less rule counts as
+intentional coverage. When the comparison would be meaningless, for example raw
+emails against <code>@handle</code> rules, drift emits a note instead of a false positive.</p>
+<p>A rule whose owners contain <code>/</code> is a team rule. With a token, <code>github.org</code>, and
+<code>github.resolve_teams</code>, drift loads the organization team list once and reports
+the team as <code>aligned</code>, <code>partial-drift</code>, <code>unverifiable</code>, <code>invisible</code>, <code>empty</code>, or
+<code>nested</code>. <code>team_coverage</code> is the share of inferred handles who are members.</p>
+<p>Severity weights <code>0.40 *</code> the non-overlap, <code>0.25 *</code> the capped confidence delta,
+<code>0.15 *</code> path criticality, <code>0.15</code> for a decayed entry, and <code>0.05</code> for a
+qualified owner count of 1, then takes the worst tier under
+<code>drift.severity_thresholds</code>; <code>drift.hysteresis_runs</code> holds a flip until the new
+tier repeats. <code>drift --fix-plan</code> prints suggested edits without writing the
+file, and a manual rule that disagrees with observed expertise is named for
+review rather than reported as <code>changed</code>.</p>
+<h2 id="exit-codes">Exit codes<a class="headerlink" href="#exit-codes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Success</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Internal error</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Configuration or usage error</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Findings</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Git or GitHub integration failure</td>
+</tr>
+</tbody>
+</table>
+<p>Every command uses these, and any non-zero status fails a CI step.
+<code>--exit-zero</code> turns 3 into 0 after the report is printed, and
+<code>--fail-on-drift</code> or <code>--no-fail-on-drift</code> forces <code>policy.drift.fail</code> for one run.</p>
+<h2 id="github-actions">GitHub Actions<a class="headerlink" href="#github-actions" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkowners</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">pull_request</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nt">jobs</span><span class="p">:</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">drift</span><span class="p">:</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">      </span><span class="nt">pull-requests</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">          </span><span class="nt">fetch-depth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">smusali/checkowners@v0</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">          </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">both</span>
+</code></pre></div>
+<p><code>@v0</code> tracks the latest 0.x. <code>@v0.7</code> tracks 0.7.x. <code>@v0.6</code> stays on 0.6.x. <code>@v0.7.0</code> is the pin.</p>
+<p><code>fetch-depth: 0</code> is required: a shallow clone has no history to score. A
+comment needs <code>pull-requests: write</code>, a code scanning upload needs
+<code>security-events: write</code> with <code>upload_sarif: true</code>, and a check run needs
+<code>checks: write</code>. Fork pull requests skip the comment and use the job summary.</p>
+<h3 id="inputs">Inputs<a class="headerlink" href="#inputs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Input</th>
+<th>Default</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>config</code></td>
+<td><code>.github/checkowners.yml</code></td>
+<td>Config file path</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td><code>commit</code></td>
+<td>Drift mode: <code>commit</code>, <code>repo</code>, or <code>both</code></td>
+</tr>
+<tr>
+<td><code>include_bus_factor</code></td>
+<td><code>"true"</code></td>
+<td>Emit <code>bus_factor_summary</code></td>
+</tr>
+<tr>
+<td><code>include_decay</code></td>
+<td><code>"true"</code></td>
+<td>Emit <code>decay_summary</code></td>
+</tr>
+<tr>
+<td><code>include_balance</code></td>
+<td><code>"false"</code></td>
+<td>Emit <code>balance_summary</code></td>
+</tr>
+<tr>
+<td><code>max_output_entries</code></td>
+<td><code>"50"</code></td>
+<td>Cap each list in the summaries</td>
+</tr>
+<tr>
+<td><code>fail_on_drift</code></td>
+<td>empty</td>
+<td>Override <code>policy.drift.fail</code>; empty uses the policy</td>
+</tr>
+<tr>
+<td><code>baseline</code></td>
+<td>empty</td>
+<td>Accepted-findings file</td>
+</tr>
+<tr>
+<td><code>comment_on_pr</code></td>
+<td><code>"true"</code></td>
+<td>Maintain one pull-request comment</td>
+</tr>
+<tr>
+<td><code>upload_sarif</code></td>
+<td><code>"false"</code></td>
+<td>Upload <code>checkowners.sarif</code> to code scanning</td>
+</tr>
+<tr>
+<td><code>python_version</code></td>
+<td><code>"3.13"</code></td>
+<td>Interpreter to set up</td>
+</tr>
+<tr>
+<td><code>checkowners_version</code></td>
+<td>the Action's pin</td>
+<td>Package version; empty uses the pin</td>
+</tr>
+<tr>
+<td><code>install_spec</code></td>
+<td>empty</td>
+<td>Local extras spec for this repository only</td>
+</tr>
+<tr>
+<td><code>index_url</code></td>
+<td>empty</td>
+<td>pip index for an internal mirror</td>
+</tr>
+<tr>
+<td><code>offline</code></td>
+<td><code>"false"</code></td>
+<td>Install the committed wheel with <code>--no-index</code></td>
+</tr>
+<tr>
+<td><code>github_token</code></td>
+<td>the job token</td>
+<td>Exported as <code>GITHUB_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>cache</code></td>
+<td><code>"true"</code></td>
+<td>Cache pip downloads and <code>~/.checkowners</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="outputs">Outputs<a class="headerlink" href="#outputs" title="Permanent link">&para;</a></h3>
+<p><code>drift_summary</code>, <code>bus_factor_summary</code>, <code>decay_summary</code>, and <code>balance_summary</code>
+are bounded JSON, and <code>artifact_name</code> names the artifact holding the full
+payloads. <code>.github/workflows/checkowners.yml</code> in this repository is a reusable
+workflow that wraps the same Action with the same inputs.</p>
+<h2 id="pre-commit">Pre-commit<a class="headerlink" href="#pre-commit" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">repos</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">repo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/smusali/checkowners</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">rev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v0.7.0</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">hooks</span><span class="p">:</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkowners-validate</span><span class="w">   </span><span class="c1"># on a CODEOWNERS change</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">checkowners-drift</span><span class="w">      </span><span class="c1"># on push</span>
+</code></pre></div>
+<h2 id="json-contract">JSON contract<a class="headerlink" href="#json-contract" title="Permanent link">&para;</a></h2>
+<p>Every <code>--json</code> command validates against
+<a href="https://github.com/smusali/checkowners/blob/main/schemas/commands.schema.json">schemas/commands.schema.json</a>,
+JSON Schema draft 2020-12, one definition per command under <code>#/$defs</code>. Each
+payload carries <code>checkowners_version</code>, <code>repository</code>, <code>head_sha</code>,
+<code>generated_at</code>, and the analysis completeness.</p>
+<h2 id="adopting-on-a-large-repository">Adopting on a large repository<a class="headerlink" href="#adopting-on-a-large-repository" title="Permanent link">&para;</a></h2>
+<p>Run <code>checkowners audit</code> and read the findings, then <code>checkowners baseline
+create</code> to accept what is already there, then add the Action with the default
+policy, which blocks only invalid owners. Fix findings over time and turn
+<code>policy.drift.fail</code> on at the end. <code>suppressions</code> is the explicit,
+reason-required escape hatch for a finding that should stay, and writing a
+<code>.mailmap</code> first is the single biggest accuracy win.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "toc.integrate", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

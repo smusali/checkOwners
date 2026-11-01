@@ -13,9 +13,8 @@
   description: >-
     Compare CODEOWNERS to inferred ownership. Novel findings block only
     when policy says they fail. The default does not block drift.
-  entry: checkowners drift --baseline .checkowners-baseline.json
+  entry: checkowners drift
   language: python
-  additional_dependencies: [".[github]"]
   pass_filenames: false
   stages: [pre-push]
   minimum_pre_commit_version: "3.2.0"

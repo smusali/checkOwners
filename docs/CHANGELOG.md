@@ -4,437 +4,236 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Each dated heading is the UTC calendar day that version was published to PyPI (`YYYY-MM-DD`). `Unreleased` has no date.
+Each dated heading is the UTC calendar day that version was published to PyPI. `Unreleased` has no date.
 
 ## [Unreleased]
 
-Next cycle is `0.7.0` (ownership risk and scale), tracked in [Upgrade to v0.7.0](https://github.com/smusali/checkowners/issues/183).
-
 ### Added
-- A documentation site, published from this repository, with search, a version per release, and the adoption guide for an existing large repository.
-- `.checkowners-baseline.json` is excluded from analysis by default, so refreshing the accepted-findings file does not create a single-expert finding about the file itself.
-- The contributor guide names the maintainer seat, the contributor ladder, the open-core boundary, the zero-telemetry guarantee, the AI-assisted review process, semantic versioning, and the release pipeline. Architectural decisions are in [docs/decisions.md](decisions.md). `CITATION.cff` records citation metadata.
-- `RepositoryAnalyzer` is the library entry point. `analyze()` returns scored ownership with the commit, blame, and review observations stored on each path. The same observations are written into the state file and can be scored again with `score_owners` without another git or API pass. A state file written before this field still loads.
-- `generate` and `validate` take `--dialect github|gitlab|bitbucket|gerrit`. GitHub output is unchanged. GitLab writes one `[Section][1]` per top-level directory, and `^[Section]` only when every owner on that directory is below the confidence threshold. Bitbucket and Gerrit exit 2. `RepositoryAnalyzer.reconcile()` reports declared-local, declared-global, and observed owners at file, directory, package, service, and repository scope.
-- `checkowners calibrate` back-tests ownership scores against later authors. `calibrate --fit` writes per-repository weights and a provenance block when history spans at least 180 days and at least 30 labeled paths. The result is held-out performance. A public validation corpus and harness record the same metrics, baselines, and a calibration curve.
-- `checkowners report --html` writes one offline HTML file with an overview, treemap, ownership map, historical timeline, team alignment, and drill-down. Anonymize and aggregate-only modes remove identities. A report names its head SHA, generation time, and analysis completeness, and shows evidence quality beside each score.
-- A public false-positive ledger records the prediction, the judgment, the reason, the fix, and the original evidence. Fixed entries name a regression test. New reports use the false-positive issue form.
-- A dataset generator writes per-repository HTML and JSON, a 50-audit list, counts, and checksums. README self-audit badges report ownership coverage, critical knowledge-risk paths, and CODEOWNERS drift.
-- `cache info` reports the current repository id, its state file path, and whether that file exists. A repository with no state file exits 1. A directory that is not a git repository exits 2.
-- A benchmark harness records cold, warm, and incremental analyze runs. Pull-request CI runs the synthetic tier. Public repositories stay on a manual workflow until their commit is pinned.
-- Blame coverage is cached by blob SHA, path, blame flags, ignore-revs, mass-refactor revisions, and `.mailmap`. `cache info` counts those files. `cache clear` removes them. `--verbose` prints hit and miss counts. `--no-cache` skips the cache.
-- Blame stays one `git blame` process per path. `owners`, `explain`, and `change` blame only the path they were asked about.
-- Ownership scoring is `ownership-v2`. Change survival is current blame lines divided by that person's lines at their last commit. Default weights are recency `0.30`, frequency `0.20`, blame `0.20`, review `0.15`, and change survival `0.15`. A survival below `0.2` with a later commit from someone else is `superseded`. At or above `0.2`, later commits no longer mark the owner `superseded`. A pin of `ownership-v1` is rejected. The `ci` benchmark tier records the cold and warm cost.
-- History follows renames and same-commit copies by default (`analysis.follow_renames`, `analysis.rename_similarity`). `explain` shows the prior names, logical file id, and rename confidence. `analysis.follow_renames: false` keeps each literal path separate.
-- `checkowners audit` is the command run when no subcommand is given. `checkowners --help` still prints help. `checkowners doctor` and `checkowners doctor --env` report configuration and environment rows. A missing token or a failed API row is `unverifiable`.
-- Drift compares a team rule with the expanded member set. Statuses are `aligned`, `partial-drift`, `unverifiable`, `invisible`, `empty`, and `nested`. Each team record carries the snapshot timestamp. An offline run does not read the cache into `aligned`.
-- The local syntax validator is diffed against GitHub's CODEOWNERS errors endpoint. `corpus/conformance.json` publishes the pass rate. A private non-default branch that returns no errors is excluded. A weekly workflow opens or updates an issue when the rate drops and does not commit.
-- Drift severity is a score of overlap, confidence delta, path criticality, decay, and a single qualified owner. The default cutoffs are `0.15`, `0.35`, `0.55`, and `0.75`. Below the first cutoff the tier is `info`, which SARIF reports as `note`.
-- `checkowners graph` exports DOT (the documented default), GraphML, GEXF, and JSON. Text and JSON include articulation points, unweighted betweenness, orphan files, and a `--from`/`--to` transfer path. DOT, GraphML, and GEXF stay valid exports; a transfer path for those formats is printed on stderr. An unknown `--export` value exits 2 and lists the supported formats.
-- `checkowners onboard` lists experimental inferred suggestions. Steps follow resolved Python imports when those edges exist, name a cycle and fall back to path order when they do not, and list the signals that were not available. Mentor candidates exclude former, inactive, and bot contributors.
-- `checkowners topology` reports weighted Louvain clusters (`topology-v2`) with seed `0`, `--resolution`, modularity, and cross-seed stability. Output is experimental. Declared teams are compared with Jaccard, precision, recall, and coverage. Co-change and temporal collaboration are reported as unavailable.
-- Identity resolution prefers a configured `identities` entry, then noreply parsing, this repository's handle cache, `author.login` on a local commit, and user search last. Search does not merge two owners. Misses expire after `identity.negative_cache_ttl_days`. `identity merge`, `identity unmerge`, and `identity audit` record or report identity changes without a second cache. `contributors.roster` sets `contributor_status`, including `former`, and risk reports `former_knowledge_share`. `simulate --remove-status` removes cached owners with that status. Bot detection adds configured addresses, account type, and a frequency cap for repeated mechanical subjects.
-- The nightly Fuzz workflow publishes mutation scores for `patterns.py`, `drift.py`, `generate.py`, the `analyze.py` scoring path, and the GitHub identity helpers. `patterns.py` fails when its score is below 90.
-- `drift`, `risk`, and `validate` accept `--format text|json|sarif|junit`. `--json` remains the shortcut for JSON. SARIF 2.1.0 uses seven stable rule ids, and the fingerprint is the baseline identity so a later severity change does not mint a new alert. The Action always writes `checkowners.sarif` and `checkowners.junit.xml` into the report artifact. `upload_sarif` uploads that file for a same-repo token that can write `security-events`. Fork and Dependabot pull requests keep the artifact and skip the upload. A `workflow_run` workflow uploads the artifact for those forks once that workflow file is on the default branch.
-- In GitHub Actions the same findings become workflow annotations, capped at 50, and a completed check run named checkOwners. A missing token or a 401, 403, or 404 leaves the job result unchanged. `checks: write` is the scope for the check run. `.github/workflows/checkowners.yml` is a reusable workflow for the composite action.
-- `checkowners diff SPEC` and `checkowners suggest --diff SPEC` report ownership impact and reviewer routing for the changed paths. `suggest --pr N` reads the pull request file list and does not request reviewers. `--diff-only SPEC` limits read-only analysis commands to those paths and does not replace the repository cache. Recommendations carry per-signal evidence. A high review-load band demotes someone only when the load signal is completed reviews or caller-supplied counts.
-- `generate` keeps a `# checkowners:manual` block byte for byte and rewrites only the generated block, `output.block_order` chooses which block wins overlapping paths, `drift --fix-plan` prints suggested edits without writing, and a manual rule that differs from observed expertise is reported for review rather than as `changed`.
-- Incremental analysis replays a usable baseline by default, `--no-incremental` forces a full lookback, and a rejected baseline is scored again from scratch with the reason printed.
-- CI tests Ubuntu, macOS, and Windows, limits each pull-request test job to 25 minutes, and covers Git 2.23.0 and Git 2.39.3 on Ubuntu for pushes, the nightly run, and manual runs.
-- `checkowners suggest` recommends one reviewer from expertise and current load, with `balance` as an alias and GitHub review load when a token sample exists.
-- `policy` chooses which finding classes block, warning by default for drift, a single expert, unowned paths, and incomplete analysis, and failing for invalid owners.
-- `checkowners sync` opens or updates one reconciliation pull request by default, while `--commit` commits on the current branch and `--dry-run` prints the diff only.
-- `Co-authored-by` trailers credit co-authors when `git.count_co_authors` is true, and analyze reports the detected `merge_strategy` plus `co_author_count`.
-- Recency uses each path's median commit gap as its half-life, and each owner reports expertise, maintenance recency, and a continuity-risk status.
-- `checkowners simulate --remove` reports paths that lose coverage and the repository truck factor before and after, using the cached map only.
-- `qualified-owners` reports a criticality-weighted distribution of `top_owner_share`, and an empty `criticality` map sets `criticality_incomplete`.
-- Per-path `risk` reports concentration from every `ownership_score` above the confidence threshold, while `top_n_owners` still caps only the displayed owner list.
-- The composite Action caches pip and `~/.checkowners`, reusing a restored state file only when its commit is `HEAD` and the config hash and model versions match.
+
+- A documentation site is published from this repository, with search and a version per release.
+- A bare `checkowners` runs `audit`, and `checkowners --help` still prints help.
+- `checkowners doctor` reports configuration rows and `--env` adds the environment, where a missing token is `unverifiable` and not a pass.
+- `checkowners report --html FILE` writes one offline HTML report: an overview, a treemap, an ownership map, a timeline, and a drill-down.
+- `checkowners diff SPEC` reports the ownership impact of a diff, and `suggest --diff SPEC` or `suggest --pr N` routes a reviewer for it.
+- `--diff-only SPEC` limits the read-only analysis commands to the paths a diff touched without replacing the cached map.
+- `checkowners simulate --remove @alice` reports the paths that lose coverage and the truck factor before and after, from the cached map.
+- `simulate --remove-file` takes a list of identities, and `--remove-status` takes every cached owner with one contributor status.
+- `checkowners graph --export` writes DOT, GraphML, GEXF, or JSON, and reports articulation points, orphan files, and a transfer path.
+- `checkowners topology` reports weighted Louvain clusters with modularity and cross-seed stability, and compares them with declared teams.
+- `checkowners onboard PATH` lists inferred onboarding steps, following resolved imports where they exist and naming the missing signals.
+- `checkowners suggest` recommends one reviewer from expertise and current load, and names the load signal it measured.
+- `checkowners sync` opens or updates one reconciliation pull request; `--commit` commits locally and `--dry-run` prints the diff.
+- `identity merge`, `identity unmerge`, and `identity audit` record or report identity changes, and `contributors.roster` sets each status.
+- `drift`, `risk`, and `validate` accept `--format text|json|sarif|junit`, and the Action uploads the SARIF and JUnit files.
+- The Action `upload_sarif` input uploads that SARIF, publishes workflow annotations, and completes a check run named checkOwners.
+- `.github/workflows/checkowners.yml` is a reusable workflow wrapping the Action with the same inputs.
+- `policy` chooses which findings block: drift, a single expert, unowned paths, and incomplete analysis warn, and an invalid owner fails.
+- `generate` keeps a `# checkowners:manual` block byte for byte, and `output.block_order` decides which block wins an overlapping path.
+- `generate` and `validate` take `--dialect github|gitlab`, and GitLab writes one section per top-level directory.
+- Incremental analysis replays a usable baseline by default, and `--no-incremental` scores the full lookback again.
+- Blame results are cached between runs, `--verbose` prints hit and miss counts, and `--no-cache` skips the cache.
+- History follows renames and copies by default, under `analysis.follow_renames` and `analysis.rename_similarity`.
+- Recency uses each path's median commit gap as its half-life, and each owner reports expertise and a continuity status.
+- Change survival is a scored signal: current blame lines over that person's lines at their last commit.
+- `Co-authored-by` trailers credit co-authors when `git.count_co_authors` is true, and analyze reports the merge strategy it saw.
+- Drift compares a team rule with the expanded member set and says whether the inferred owners are inside it.
+- Drift severity scores owner overlap, confidence delta, path criticality, decay, and a single qualified owner, with configurable cutoffs.
+- `qualified-owners` reports a criticality-weighted distribution of top-owner share, and an empty `criticality` map says so.
+- Per-path `risk` measures concentration over every score above the threshold, while `top_n_owners` caps only the displayed list.
+- `risk` reports `former_knowledge_share`, the share of score held by owners the roster marks as former.
+- `cache info` reports this repository's id and state file, exiting 1 with no state file and 2 outside a repository.
+- `.checkowners-baseline.json` is excluded by default, so refreshing the accepted-findings file is not itself a finding.
+- `RepositoryAnalyzer` is the library entry point, and its stored observations can be scored again with no second git pass.
+- The Action caches pip downloads and `~/.checkowners`, reusing a restored map only when its commit and config hash match.
 
 ### Changed
-- `model.topology` is `topology-v2`. A config pin of `topology-v1` is refused. Cached state and graph files from `topology-v1` are ignored.
-- The ownership review factor reads closed pulls inside `analysis.review_lookback_days` through batched GraphQL queries, and a window cut short by the request budget records a gap and lowers `analysis_completeness`.
-- `checkowners trends` reports `historical_activity_confidence` (`historical-v1`) instead of `avg_top_confidence`, and `--compare-ownership` requires `--acknowledge-different-metrics`.
-- The Action `fail_on_drift` input defaults to empty so a run follows `policy.drift.fail`, and `checkowners drift` exits 3 only for a novel finding that policy marks as blocking.
+
+- Every cache is keyed on the package version and the configuration hash, so a release or a config change refreshes it.
+- `trends` reports `historical_activity_confidence` instead of `avg_top_confidence`, because the two are not the same measurement.
+- The review signal reads closed pulls in batched queries, and a window cut short by the request budget lowers analysis completeness.
+- The Action `fail_on_drift` input defaults to empty, so a run follows `policy.drift.fail` and blocks only on a novel finding.
+- The GitHub API features need only a token; there is no separate extra to install.
 
 ### Removed
-- `ROADMAP.md`, `docs/ACTION_ITEMS.md`, and `docs/PROJECT_STATE_AND_ROADMAP.md` are removed, and release planning now lives in the issue tracker.
+
+- The `version:` key and the `model.ownership`, `model.risk`, and `model.topology` pins are gone, and each now exits 2 naming the line.
+- `schema_version` and `models` are gone from every JSON payload, which now carries `checkowners_version` alone.
+- The `github` extra is gone; `checkowners[all]` is now `checkowners[graph]`.
+- The command aliases `who`, `bus-factor`, `decay`, and `balance` are gone; use `owners`, `qualified-owners`, `risk`, and `suggest`.
+- `analysis.max_owners`, `analysis.exclude_bots`, and the flat `scoring:` section are gone, replaced by one key each.
 
 ### Fixed
-- Path globs and `paths.exclude` treat `\` and `/` as the same separator and stay case-sensitive on every operating system.
-- Git path output is read as UTF-8 with quoting disabled, `CHECKOWNERS_STATE_DIR` expands a leading tilde, and Git older than 2.23.0 exits 4 with the version to install.
-- `requirements-dev.lock` pins `colorama` 0.4.6 on Windows so hashed installs satisfy pytest there.
-- Concurrent handle-cache writes take an in-process lock, and a Windows file lock when another process may write the same cache.
-- `requirements.lock` and `requirements-dev.lock` pin `PyJWT` 2.15.1 and `urllib3` 2.8.0 so `pip-audit` no longer fails on the advisories in the previous pins.
-- All three lock files pin `certifi` 2026.10.19, which drops the `emSign ECC Root CA - G3` root after its intermediates were compromised (PYSEC-2026-4320, GHSA-6q48-6c7w-9gw2).
+
+- `expertise --json` validates against the published schema, which did not accept the confidence field it emits.
+- Path globs and `paths.exclude` treat `\` and `/` alike and stay case-sensitive on every operating system.
+- Git path output is read as UTF-8 with quoting disabled, and Git older than 2.23.0 exits 4 naming the version to install.
+- Concurrent handle-cache writes take a lock, so two commands on one repository cannot corrupt the cache.
+
+### Security
+
+- `certifi` is pinned to 2026.10.19, which drops the compromised `emSign ECC Root CA - G3` root (GHSA-6q48-6c7w-9gw2).
+- `PyJWT` and `urllib3` are pinned past the advisories that the previous pins carried.
 
 ## [0.6.0] - 2026-09-24
 
-Correctness and trust: scored ownership, schema 1, privacy controls, and supply-chain checks. Inference stays local git.
+Correctness and trust: scored ownership, privacy controls, and supply-chain checks. Inference stays local git.
 
 ### Added
-- [docs/METHODOLOGY.md](METHODOLOGY.md) states the formulas, truck-factor divergence, terminology, golden beliefs, and principles, [docs/limitations.md](limitations.md) states when the tool can be wrong, and CI fails if a shipped metric key is missing from the methodology page.
-- The README leads with a drift example, install, run, CI, the offline guarantee, Trusted Publishing, and Sigstore, and adds `examples/demo.gif`, `examples/pr-comment.png`, and `examples/sample-CODEOWNERS`.
-- `.pre-commit-hooks.yaml` exposes `checkowners-validate` and `checkowners-drift`, this repository runs both, and the hooks are documented in [docs/USAGE.md](USAGE.md#pre-commit).
-- CI runs CodeQL, dependency review, pip-audit, and zizmor, Dependabot updates Python dependencies, and each GitHub Release carries a CycloneDX SBOM and a signed provenance attestation.
-- Human reports, the job summary, and pull-request comments state that CheckOwners is a knowledge-risk tool, not a performance-measurement tool, and [docs/PRIVACY.md](PRIVACY.md) records the data flow, cache, `cache purge`, and threat model.
-- A public CODEOWNERS compatibility corpus (`corpus/compatibility.jsonl`) and a license-checked parser corpus (`corpus/realworld.jsonl`) ship under `corpus/README.md`.
-- Privacy controls add `output.anonymize`, `output.aggregate_only`, `privacy.redact_emails` with `--redact-emails`, `identity.mode` (`handle`, `email`, or `hashed`), and `contributors.exclude`, and the Action input `include_balance` defaults to false.
-- On-disk state is schema 1 with tokenized emails, atomic locked writes, reuse only when HEAD and the scoring config still match, `cache path|info|clear|purge`, a 256 MiB cap, and `--offline` with no network calls.
-- Analysis completeness is a run-level score with `analysis_gaps` that scales evidence quality only, and `--fail-on-incomplete` or `policy.incomplete_analysis.fail` exits 3 when a runtime, worker, API, or rate-limit bound leaves the run incomplete.
-- `--json` uses schema `1` ([docs/schemas/commands-v1.json](schemas/commands-v1.json)) with `schema_version`, `checkowners_version`, `models`, `repository`, `head_sha`, `generated_at`, and `analysis_completeness`, plus `identity`, flat `signals`, per-path `risk`, nested drift `recommendation`, optional GitHub evidence stamps, and Action summaries at integer `schema_version: 1`.
-- Configuration requires `version: 1` and pins `ownership-v1`, `risk-v1`, and `topology-v1`, refuses any other version or unimplemented keys such as `criticality`, and ignores caches whose `models` do not match.
-- `checkowners baseline create` writes accepted findings identified by rule, path, and owner set, and `--baseline`, `drift.baseline_file`, `CHECKOWNERS_BASELINE`, the Action `baseline` input, and reasoned `suppressions` keep CI failing only on new findings.
-- `checkowners explain PATH` decomposes one path's inferred ownership, `checkowners owners PATH` (`who`) prints a ranked list, and both accept `--json` with `schema_version: "1"` without reading or writing the cache.
-- Analyze excludes `linguist-generated` and `linguist-vendored` paths from `.gitattributes` when `analysis.respect_gitattributes` is true, reports `excluded_gitattributes` and `excluded_static`, and falls back to `paths.exclude`.
-- Blame honors `.git-blame-ignore-revs`, ignores whitespace, detects moves and copies, omits mass-refactor commits above `git.mass_refactor_file_fraction` (default `0.5`), and requires Git 2.23 or newer.
+
+- Ownership scoring renormalizes over the available signals into `ownership_score` on `[0, 1]`, with `evidence_quality` reported separately.
+- Analysis completeness is a run-level score with `analysis_gaps`, and `--fail-on-incomplete` exits 3 when a bound left the run short.
+- `--json` emits a documented schema with `checkowners_version`, `repository`, `head_sha`, `generated_at`, and completeness.
+- Privacy controls add `output.anonymize`, `output.aggregate_only`, `privacy.redact_emails`, `identity.mode`, and `contributors.exclude`.
+- On-disk state uses tokenized emails and locked atomic writes, with `cache path|info|clear|purge` and a 256 MiB cap.
+- `checkowners baseline create` writes accepted findings, so `--baseline` keeps CI failing only on findings outside that file.
+- `suppressions` accepts explicit, reason-required exceptions, which `drift` and `audit` honor alongside the baseline.
+- `checkowners explain PATH` decomposes one path's inferred ownership and `checkowners owners PATH` prints the ranked list.
+- `checkowners explain-path PATH` shows the winning CODEOWNERS rule and the whole match chain.
+- Analyze excludes `linguist-generated` and `linguist-vendored` paths and reports how many each mechanism dropped.
+- Blame honors `.git-blame-ignore-revs`, ignores whitespace, detects moves, and omits commits above `git.mass_refactor_file_fraction`.
 - `.mailmap` is applied first when `identity.mailmap` is true, and analyze reports whether a mapping file was found.
-- `generate` and `sync` fail when re-resolved CODEOWNERS owners differ from the intended set, unless `output.verify_round_trip` is false.
-- `generate` warns at 2 MB and refuses above `output.max_bytes` (default 2_500_000) without `--force`, and `--json` includes `bytes_written` and `rules_written`.
-- `checkowners explain-path <path>` shows the winning CODEOWNERS rule and the full match chain.
-- `generate` and `sync` refuse sanitized `*` rules that would assign a different owner set, unless `--allow-broad-patterns` or `output.allow_broad_patterns` is set, and `--json` records `broad_patterns`.
-- Golden ownership tests in `tests/test_golden.py` record what `ownership-v1` concludes for pinned git histories under a fixed as-of.
+- `generate` and `sync` fail when the re-resolved owners differ from the intended set, unless `output.verify_round_trip` is false.
+- `generate` warns at 2 MB, refuses above `output.max_bytes` without `--force`, and reports the bytes and rules it wrote.
+- `generate` and `sync` refuse a broad `*` rule that would assign different owners, unless `output.allow_broad_patterns` is set.
+- `.pre-commit-hooks.yaml` exposes `checkowners-validate` and `checkowners-drift`.
+- Human reports, the job summary, and comments state that this is a knowledge-risk tool and not a performance measure.
+- Each GitHub Release carries a CycloneDX SBOM and a signed build-provenance attestation.
 
 ### Changed
-- Action output `checkowners_drift` is now `drift_summary` in `github-action --json` and `GITHUB_OUTPUT`, and command JSON and Action summaries both use schema `1`.
-- Commands share exit codes 0 clean, 1 internal, 2 usage, 3 findings, and 4 integration failure, with `--exit-zero` clearing only code 3 and `--fail-on-incomplete` exiting 3 when completeness is below 1.
-- The composite Action runs `checkowners github-action` once for drift, qualified owners, decay, the job summary, and `GITHUB_OUTPUT`.
-- Recency, decay, and lookback age against `--as-of`, else `SOURCE_DATE_EPOCH`, else the HEAD committer time, JSON emits `head_sha` and `generated_at`, and `drift.hysteresis_runs` holds severity flips.
-- Ownership scoring renormalizes over available signals into `ownership_score` on `[0, 1]` with a separate `evidence_quality`, stamps `models.ownership: ownership-v1`, and no longer caps offline scores at `0.85`.
-- The default `qualification.strategy` is `adaptive`, so commit count is evidence with Bayesian shrinkage rather than an eligibility gate, while `threshold` keeps a commit-count gate and undamped frequency.
 
-### Fixed
-- `requirements-dev.lock` pins `pyyaml-ft` to `python_version >= "3.13"` so hashed CI installs skip libcst's 3.13-only YAML backend on 3.11 and 3.12.
+- Every command shares the exit codes 0 clean, 1 internal, 2 usage, 3 findings, 4 integration, and `--exit-zero` clears only 3.
+- The Action output `checkowners_drift` is now `drift_summary`, in both `github-action --json` and `GITHUB_OUTPUT`.
+- The composite Action runs `checkowners github-action` once for drift, qualified owners, decay, the job summary, and `GITHUB_OUTPUT`.
+- Recency, decay, and lookback age against `--as-of`, else `SOURCE_DATE_EPOCH`, else the HEAD committer time, never the wall clock.
+- An offline score is no longer capped at `0.85`, so a value means the same thing with or without a token.
+- The default `qualification.strategy` is `adaptive`, so commit count is shrunk evidence; `threshold` keeps the old eligibility gate.
 
 ## [0.5.1] - 2026-09-15
 
-Corrective release: identity, Action supply chain, metric naming, and the
-contributor on-ramp. No new inference behavior.
+Corrective release: identity, Action supply chain, and metric naming. No new inference behavior.
 
 ### Added
-- Issue forms (bug, false-positive, feature), a pull-request template,
-  Discussions, `ROADMAP.md`, the action-item register, `.github/FUNDING.yml`,
-  two example configs, and demo assets (terminal recording, PR comment,
-  sample `analyze` / `drift` JSON). Listing PRs:
-  [awesome-actions](https://github.com/sdras/awesome-actions/pull/953),
-  [awesome-devops](https://github.com/wmariuss/awesome-devops/pull/555),
-  [static-analysis](https://github.com/analysis-tools-dev/static-analysis/pull/1895).
-- A `dev` extra bootstraps tests and linters via `pip install -e ".[dev]"`.
-- Python 3.14 classifier and CI matrix entry. `checkowners/py.typed` ships in
-  the wheel so the `Typing :: Typed` classifier is accurate.
-- `requirements-dev.lock` pins CI test and lint installs with hashes.
-- pytest `--cov-fail-under=85` so CI fails below the documented coverage
-  floor. Branch coverage is collected repo-wide and reported for
-  `patterns.py`, `analyze.py`, `drift.py`, and `generate.py`.
-- Ruff enables `S` (bandit), `PTH` (pathlib), `RUF`, `C4`, `PL`, `ARG`,
-  `TID`, and `ERA`.
-- Coverage badge on the README pointing at `smusali/checkowners`.
-- Composite Action input `max_output_entries` (default 50) caps each list
-  in the `GITHUB_OUTPUT` summaries. Full `drift.json`, `bus_factor.json`,
-  and `decay.json` payloads are uploaded as the `checkowners-reports`
-  artifact, exposed via the `artifact_name` output.
-- The composite Action always writes the drift, bus-factor, and decay
-  report to the job summary, including when the drift step fails.
-- Third-party GitHub Actions are pinned to full commit SHAs. Dependabot
-  watches the `github-actions` ecosystem, and CI fails on any unpinned
-  `uses:` reference.
-- The publish workflow rejects a GitHub Release whose tag has no dated changelog heading.
-- The composite Action installs the `checkowners` version that matches its
-  own tag from a committed wheel and a hashed `requirements.lock`. New
-  `index_url` and `offline` inputs support internal mirrors and air-gapped
-  runners. `install_spec` is limited to a local extras allowlist.
-- CI and the publish job fail when the Action pin, package version, wheel,
-  or lockfile disagree with each other (or with the release tag).
 
-### Fixed
-- Codecov uploads authenticate with `CODECOV_TOKEN` and fail the job if
-  the report is rejected, so the README coverage badge can receive data.
-- README monthly-download badge uses pepy.tech instead of shields.io
-  `pypi/dm`, which was rendering "rate limited by upstream service".
-- CI pip installs retry with a longer timeout on transient PyPI index
-  failures.
-- The Action PR-comment lookup paginates past 100 comments, so the
-  managed comment is updated instead of duplicated. Interpolated
-  paths, notes, and reasons are escaped, long paths are truncated,
-  and the report is capped with an overflow line pointing at the
-  uploaded artifact.
-- Composite Action multiline `GITHUB_OUTPUT` writes use a random
-  `ghadelim_` delimiter instead of a static `EOF`, so a path, note, or
-  reason equal to `EOF` can no longer truncate or inject outputs.
-- The composite Action no longer installs an unpinned latest package from
-  PyPI. `uses: smusali/checkowners@vX.Y.Z` now installs `checkowners==X.Y.Z`.
-- `install_spec` dogfood installs use pip's isolated build env so hatchling
-  is available. `git blame` no longer crashes on non-UTF-8 files, and `*.whl`
-  is excluded from inference.
-- README documentation and license links are now absolute GitHub URLs so they
-  resolve on the PyPI project page.
-- The composite Action exports `GITHUB_TOKEN` on every CLI step via a
-  `github_token` input (default `${{ github.token }}`). The 0.5.0 claim that
-  installing the `github` extra made handle resolution work in CI was
-  incomplete: the extra was installed, but the token was never passed, so
-  only local noreply parsing worked. When `github.api_enabled` is true and
-  no token is reachable, the CLI now prints a warning naming `GITHUB_TOKEN`
-  instead of degrading silently. The same input is now passed to the PR
-  comment step, so a PAT or App token takes precedence over `github.token`.
-- PR comments no longer fail the job on fork pull requests or read-only
-  workflow permissions. Forks skip the comment with a notice; a 403
-  becomes a warning that names `pull-requests: write` and
-  `comment_on_pr: false`. The comment body is a short sectioned report
-  rather than a details-block dump.
-- Solo-maintainer repos no longer get a per-file knowledge-risk comment
-  for `bus_factor = 1`. The Action only lists single-owner paths when
-  more than one human has qualified ownership, and names the owner and
-  suggested backups instead of saying "bus factor 1".
-- The composite Action sets `CHECKOWNERS_STATE_DIR` to
-  `${{ runner.temp }}/checkowners-state` on every CLI step, so CI state
-  no longer lands in the runner home directory. Environment variables
-  (`CHECKOWNERS_CONFIG`, `CHECKOWNERS_DRIFT_MODE`, `CHECKOWNERS_STATE_DIR`,
-  `GITHUB_TOKEN`, plus runner-provided `GITHUB_REPOSITORY` and
-  `GITHUB_OUTPUT`) are documented with their precedence over the config file.
-- Composite Action `description` is under 125 characters so GitHub Marketplace
-  will accept the listing.
+- The Action input `max_output_entries` caps each list in the output summaries, and the full payloads are always uploaded as an artifact.
+- The Action installs the `checkowners` version matching its own tag, and a release whose pins disagree is rejected.
+- Third-party Actions are pinned to full commit SHAs.
+- `checkowners/py.typed` ships in the wheel, so type checkers see the annotations.
 
 ### Changed
-- The `all` extra composes `checkowners[graph,github]` instead of duplicating
-  those dependency lists. Runtime dependencies are capped at the next
-  untested major. Package version is read from
-  `checkowners/__init__.py` only.
-- Test and lint CI install from `requirements-dev.lock` with hashes instead
-  of resolving a hatch environment unpinned.
-- The truncated owner count is now named `qualified_owner_count`. Human
-  output always states the `top_n_owners` cap. JSON emits both
-  `qualified_owner_count` and the deprecated `bus_factor` alias for one
-  minor cycle, plus `qualified_owner_count_cap` and `deprecated_keys`.
-  `checkowners qualified-owners` is the canonical command; `bus-factor`
-  remains as a deprecated alias pending redefinition. Persisted state is
-  schema v4; Action summaries are `schema_version` 2. README, PyPI, and
-  Action copy no longer advertise an unqualified bus factor.
-- Composite Action outputs `checkowners_drift`, `bus_factor_summary`, and
-  `decay_summary` are now bounded summaries (`schema_version: 1`) with
-  counts and a `truncated` flag, not the full CLI payloads. Bus-factor
-  `entries` are omitted from `GITHUB_OUTPUT`. `fromJson` gates on
-  `drift_detected`, `severity`, and `critical_paths[0]` are unchanged.
-- Project URLs, documentation clone and issue links, the Actions example,
-  and the security advisory link now point at this repository.
-- Changelog version dates are the PyPI publication day; the 0.3.0 and 0.5.0
-  headings now match those uploads.
-- Composite Action `mode` default is now `commit`, matching `DriftConfig`
-  and the configuration reference. Callers who omitted `mode` previously
-  got `both` (including stale-rule detection) and must pass `mode: both`
-  to keep that behavior.
-- Positioning copy no longer claims priority. The comparison table credits
-  competitors, including where they exceed CheckOwners (owner-existence
-  checks, formal truck factor, compile-time `check` mode). The runtime
-  sentence now matches the 0.5.0 dogfood figure of under three minutes
-  on a 24k-commit, 12k-file monorepo. The README and FAQ state the
-  AI-assistance posture explicitly: inference is deterministic git
-  analysis, and the codebase has been built with reviewed agent
-  assistance. Unused `CLAUDE.md` agent instructions are removed.
+
+- The truncated owner count is named `qualified_owner_count`, because the old name claimed a simulation it never performed.
+- The Action `mode` input defaults to `commit`, matching the configuration default.
+- The `all` extra composes the other extras instead of duplicating their pins.
+
+### Fixed
+
+- The Action comment lookup paginates past 100 comments, so it updates its own comment instead of posting a new one.
+- The Action no longer fails on a fork pull request or a read-only token; it writes the report to the job summary.
+- The Action exports `GITHUB_TOKEN` on every CLI step, and sets `CHECKOWNERS_STATE_DIR` to a writable path.
+- A solo-maintainer repository no longer receives a per-file knowledge-risk comment that names every path.
+- Multiline Action outputs use a random delimiter, so report text cannot break `GITHUB_OUTPUT`.
 
 ## [0.5.0] - 2026-07-04
 
-Hardening release driven by testing every command against a real production
-monorepo (24k commits, 12k active files). Focus: correct CODEOWNERS
-semantics, analyze performance, per-repo state isolation, and identity
-resolution.
+Pattern-aware drift, per-repository state, and local identity resolution.
 
 ### Added
-- CODEOWNERS pattern matching engine (`checkowners/patterns.py`) with
-  GitHub's documented gitignore-style semantics: `*` stays within a path
-  segment, `**` crosses segments, leading or interior `/` anchors to the repo
-  root, trailing `/` matches directory contents, `dir/*` matches direct
-  children only, and the last matching rule wins.
-- `generate` consolidates per-file inference into directory-level rules when
-  every inferred file under a directory shares one owner set (`/src/ @alice`
-  instead of hundreds of per-file lines). New files under a consolidated
-  directory now match a rule. Disable with `output.consolidate: false`.
-- `generate` and `sync` refuse to overwrite a hand-written CODEOWNERS (one
-  without the machine-generated header) unless `--force` is passed.
-- `--version` flag; running bare `checkowners` now prints help instead of a
-  usage error.
-- Progress bar (stderr, TTY-only) during the analyze blame pass.
-- Local GitHub-noreply email resolution: `12345+login@users.noreply.github.com`
-  and `login@users.noreply.github.com` map to `@login` with zero API calls
-  and no token.
-- Persistent email-to-handle cache at `<state-dir>/handles.json`, including
-  remembered misses, so the rate-limited user-search API is only queried once
-  per new email.
-- Identity merging: when several commit emails resolve to one GitHub handle,
-  their owner entries merge and per-path bus factor is recomputed over
-  distinct people, so one person with two emails no longer reads as a bus
-  factor of two. Decay warnings are remapped to the resolved handle.
-- Drift results carry `notes` explaining skipped comparisons (raw emails vs
-  @handles, team-owned rules) instead of emitting false drift.
-- `balance` reports `fallback_reason` when the GitHub API path was abandoned,
-  and labels the load column "Commits (proxy)" when counting authorship.
+
+- A real CODEOWNERS pattern engine: `*` within a segment, `**` across segments, a leading `/` anchored, last match wins.
+- `generate` consolidates per-file inference into directory rules when every file under a directory agrees.
+- `generate` and `sync` refuse to overwrite a hand-written CODEOWNERS unless `--force` is passed.
+- `--version` prints the version, and a bare `checkowners` prints help.
+- GitHub noreply addresses resolve to `@handles` with no token and no network.
+- A persistent email-to-handle cache remembers both hits and misses, so a repeat run does not re-query.
+- Several commit emails that resolve to one handle become one owner, with the commits summed.
+- Drift results carry notes explaining a comparison it skipped, such as raw emails against `@handle` rules.
+- A progress bar on stderr during the blame pass, on a terminal only.
 
 ### Changed
-- **Drift detection is now pattern-aware.** Inferred files are matched
-  against CODEOWNERS rules with real matching semantics; previously the
-  comparison was literal string equality, so directory rules like
-  `frontend/` never matched inferred file paths and real-world files
-  produced near-100% false "missing"/"stale" reports. New categories:
-  `missing` = file no rule covers, `stale` = rule matching no tracked file
-  (via `git ls-files`), `changed` = per-rule owner divergence, aggregated and
-  ranked by worst per-file delta. Owner comparison is case-insensitive.
-- **State is keyed per repo** (schema v3) at
-  `~/.checkowners/state/<repo-hash>.json` with the absolute repo path
-  embedded and verified on load. Previously a single global `state.json`
-  meant analyzing repo A then running `decay` in repo B silently reused repo
-  A's data.
-- **Analyze is parallel and skips unowned files.** git blame now runs on a
-  thread pool sized to the CPU count and only on paths where at least one
-  author reaches `min_commits` (4-5x fewer files on a real monorepo).
-  Combined effect on a 24k-commit production repo: 80+ minutes to under 3
-  minutes.
-- `validate` follows GitHub's actual CODEOWNERS rules: relative patterns
-  (`docs/`, `apps/*`, `frontend/package.json`) are valid, owner-less rules
-  (GitHub's documented exemption mechanism) are valid, escaped spaces are
-  parsed, and `!` negation / `[...]` character ranges are correctly rejected.
-  It previously demanded every pattern start with `/` or `*`, failing
-  perfectly valid real-world files. Handle validation now matches GitHub's
-  login rules (no dots, max 39 chars).
-- `validate --json` exits non-zero on an invalid file, matching the
-  human-readable mode.
-- `sync` is a no-op success when the generated file matches the committed one
-  ("already in sync"); it previously failed with an empty error because git
-  prints "nothing to commit" on stdout.
-- Downstream commands print a stderr hint when reusing cached state.
-- `notifications.include_unchanged` now means "also notify when no drift was
-  detected"; without it, no-drift runs no longer fire webhooks.
-- Severity's critical signal honors `bus_factor.critical_threshold` instead
-  of a hardcoded 1.
-- Review-coverage and balance GitHub scans are bounded to the 200 most
-  recently updated closed PRs and scoped to `GITHUB_REPOSITORY`; previously
-  unbounded scans exhausted the API rate limit on mature repos.
-- `trends` counts distinct commits per period; a commit touching 12 files
-  previously counted 12 times.
-- `bus-factor`, `expertise`, and `onboard` share one glob semantic
-  (previously the same pattern matched different path sets per command).
-- Backup-reviewer suggestions fall back to repo-wide top owners for
-  root-level files.
-- Onboarding steps never label a `bus_factor<=1` path "easy".
-- Default exclusions now also cover `package-lock.json`, `pnpm-lock.yaml`,
-  `*.min.js`, `*.min.css`, `*.map`, and the CODEOWNERS file itself (a sync
-  commit would otherwise make whoever runs the tool its inferred owner,
-  perturbing every subsequent run).
-- Composite Action: fails fast with a clear error on shallow clones
-  (`fetch-depth: 0` guidance), installs the `github` extra so handle
-  resolution works in CI, and the PR comment is updated in place (one
-  managed comment per PR, marked resolved when drift clears) instead of
-  posting a new comment on every push.
-- PyGithub moved from a hard dependency to the `github` extra (with an
-  `all` convenience extra); core inference is pure git. Unused GitPython
-  dependency dropped.
-- graph DOT export escapes quotes and backslashes in node IDs and labels.
+
+- Drift matches inferred files against real patterns, so a directory rule no longer marks the files under it missing.
+- State is keyed per repository, so two checkouts of one remote share a map and unrelated repositories never do.
+- Analyze runs blame in parallel and skips unowned files.
+- `validate` follows GitHub's actual rules, including relative patterns and inline comments.
+- `validate --json` exits non-zero on an invalid file, matching the text output.
+- `sync` is a no-op success when the generated file already matches the committed one.
+- Review-coverage and review-load scans are bounded to the 200 most recent pulls.
+- `trends` counts distinct commits per period, so one commit touching twelve files counts once.
+- The default exclusions cover `package-lock.json`, `pnpm-lock.yaml`, and the generated CODEOWNERS itself.
+- The Action fails fast with a clear message on a shallow clone.
+- PyGithub moved from a hard dependency into an extra.
 
 ### Removed
-- `drift.compare_to` config option: it was parsed and documented but never
-  read by any logic. Configs still containing it are ignored, not rejected.
-- Dead internal API surface orphaned by the identity-merge rework:
-  `OwnershipMap.handles_only()` and `github.map_owners()`.
+
+- The `drift.compare_to` option is gone; it was parsed and documented but never read.
 
 ### Fixed
-- Generated CODEOWNERS never emits `[...]` character ranges: bracket-bearing
-  path segments (Next.js dynamic routes like `[companyId]`) become the valid
-  `*` wildcard, colliding patterns merge their owners, and literal spaces in
-  patterns are backslash-escaped. GitHub ignores lines with `[...]`, which
-  silently un-owned those paths. Found by dogfooding against a production
-  Next.js monorepo.
-- Terminal output renders paths like `[companyId]` verbatim: user-derived
-  text (paths, reasons, handles) is markup-escaped so Rich no longer swallows
-  bracket segments as style tags.
-- Webhook notifications no longer crash the CLI on HTTP or network errors;
-  failures log a warning and `notify` reports `sent: false`.
-- Rebalance suggestions can no longer propose shifting reviews onto another
-  overloaded reviewer.
-- Topology reports one mismatch line per overlapping declared team instead of
-  only the first.
-- Tests never touch the developer's real `~/.checkowners` (isolated state
-  dir fixture).
+
+- Generated CODEOWNERS never emits a `[...]` character range, which GitHub does not support.
+- Terminal output renders a path such as `[companyId]` verbatim instead of interpreting it as markup.
+- A review-load suggestion can no longer propose shifting reviews onto someone who is already overloaded.
+- Graph DOT export escapes quotes and backslashes in node ids and labels.
 
 ## [0.4.0] - 2026-06-14
 
 ### Added
-- `checkowners github-action`: runs the full CI flow (`analyze` -> `drift` -> `bus-factor` -> `decay`) in one command, writes the `checkowners_drift`, `bus_factor_summary`, and `decay_summary` keys to `GITHUB_OUTPUT`, and exits non-zero on drift by default (`--no-fail-on-drift` to override).
-- `checkowners trends [--periods N] [--period-days D]`: reconstructs the ownership snapshot at the end of each of the last N periods from a single `git log` pass and reports commits, active contributors, tracked paths, average top-owner confidence, and average bus factor over time.
-- Review-activity factor of the confidence score is now populated (it was previously always 0.0). When `github.api_enabled`, a token resolves, and `GITHUB_REPOSITORY` is set, closed-PR reviews are aggregated per changed file and folded into the score; the factor stays 0.0 otherwise.
-- Serialized knowledge-graph cache at `~/.checkowners/graph/<repo-hash>.json`, keyed by repo and invalidated by the analysis timestamp; the `graph` command reuses a fresh cache.
-- Composite Action posts a built-in drift + bus-factor PR comment on pull requests (`comment_on_pr` input, default `true`).
-- `docs/` directory housing detailed reference: `USAGE.md`, `FAQ.md`, `CONTRIBUTING.md`, this `CHANGELOG.md`, and the project `CODEOWNERS` (moved from `.github/CODEOWNERS`).
+
+- `checkowners github-action` runs the whole CI flow and writes the drift, qualified-owner, and decay summaries to `GITHUB_OUTPUT`.
+- `checkowners trends [--periods N] [--period-days D]` reconstructs one snapshot per period from a single `git log` pass.
+- The review-activity signal is populated when `github.api_enabled` is set and a token resolves.
+- The Action posts a drift and qualified-owner comment on pull requests, which `comment_on_pr` controls.
+- A serialized graph cache per repository, invalidated by the analysis timestamp.
 
 ### Changed
-- README drops its Mermaid pipeline diagram (PyPI does not render Mermaid) in favor of a prose summary; the diagram now lives in `docs/USAGE.md`.
-- `paths.exclude` default now includes `*.generated.*`.
-- Composite Action honors its `config` and `mode` inputs via the `CHECKOWNERS_CONFIG` and `CHECKOWNERS_DRIFT_MODE` environment variables, which `load_config` now reads.
-- `BusFactorReport` tiers (`tier_for` / `critical_paths`) respect the repo's configured `bus_factor` thresholds instead of hardcoded defaults.
-- README slimmed to intro, install, quick start, command table, and links to the new `docs/`.
-- Dogfood config sets `output.include_confidence: false` so the committed `CODEOWNERS` no longer publishes a per-file confidence/bus-factor map.
-- All Markdown across the repo follows a tightened style: no em dashes, no typographic `--` separators, multi-entry bullets only.
 
-### Fixed
-- CI smoke job: `pip install "dist/checkowners-"*"-py3-none-any.whl[graph]"` failed because bash treated `[graph]` as a glob character class and never expanded the wildcard. The wheel path is now resolved via `ls` before installation.
-- Removed dead `generate._owners_for_path` helper.
+- `paths.exclude` adds `*.generated.*` by default.
+- The Action honors its `config` and `mode` inputs through `CHECKOWNERS_CONFIG` and `CHECKOWNERS_DRIFT_MODE`.
+- Qualified-owner tiers respect the configured `bus_factor` thresholds instead of hardcoded ones.
 
 ### Security
-- `notifications.webhook_url` accepts a `${ENV_VAR}` reference (e.g. `${CHECKOWNERS_WEBHOOK_URL}`) so a committed config can point at a secret/internal endpoint without storing it; an unset variable resolves to "".
-- `.checkowners/` is git-ignored so a state or graph cache (contributor emails + ownership map) cannot be committed if `CHECKOWNERS_STATE_DIR` points inside a repo.
-- `github.token` remains refused inside `.github/checkowners.yml`; the only supported way to provide a token is the `GITHUB_TOKEN` environment variable.
+
+- `.checkowners/` is git-ignored, so a cache of contributor emails cannot be committed when the state directory is inside a repository.
 
 ## [0.3.0] - 2026-06-06
 
 ### Added
-- Confidence scoring on every path-owner pair. Score is a weighted blend of four signals: commit recency (exponential decay), commit frequency, blame coverage, and PR review activity (last one only when `github.api_enabled`).
-- Bus factor calculation per path with backup-reviewer suggestions, plus `checkowners bus-factor [<path>] [--all]`.
-- Expertise decay detection that distinguishes dormant from departed owners, recommends transfer targets, and exposes them through `checkowners decay`.
-- Knowledge graph builder backed by an optional `networkx` extra: `pip install "checkowners[graph]"`. Render in the terminal or export to DOT via `checkowners graph [--export dot]`.
-- Per-path expertise ranking via `checkowners expertise <path>`.
-- Team topology inference from commit co-occurrence, with reconciliation against declared GitHub teams when `api_enabled`. Exposed as `checkowners topology`.
-- PR review load balancer that detects overloaded reviewers and suggests redistribution. Exposed as `checkowners balance`.
-- Onboarding path generator that walks the knowledge graph from broad-ownership files to deep-expertise files and emits a Markdown checklist via `checkowners onboard <path>`.
-- Persistent state cache at `~/.checkowners/state.json` (schema v2), with `CHECKOWNERS_STATE_DIR` override for CI and tests.
-- Composite GitHub Action (`action.yml`) exposing `checkowners_drift`, `bus_factor_summary`, and `decay_summary` outputs; example workflow at `.github/workflows/checkowners-example.yml`.
-- Drift severity tiers (`low` / `medium` / `high` / `critical`) computed from the max confidence delta plus bus-factor and decay signals; `notifications.severity_threshold` gates webhook delivery.
-- Config sections `scoring`, `decay`, `bus_factor` and new fields on existing sections (`confidence_threshold`, `min_confidence_delta`, `include_confidence`, `severity_threshold`, `github.api_enabled`).
+
+- Confidence scoring on every path and owner pair, from commit recency, commit frequency, blame coverage, and review activity.
+- A per-path qualified owner count with candidate backup reviewers, as `checkowners qualified-owners [PATH] [--all]`.
+- Continuity-risk detection that separates a dormant owner from a departed one and names a transfer target.
+- An ownership graph behind the `graph` extra, rendered in the terminal or exported to DOT.
+- `checkowners expertise PATH` ranks the evidence for one path.
+- `checkowners topology` infers collaboration clusters and reconciles them with declared GitHub teams.
+- `checkowners suggest` detects an overloaded reviewer and proposes a redistribution.
+- `checkowners onboard PATH` walks from broad ownership to deep expertise and emits a checklist.
+- A persistent state cache, with `CHECKOWNERS_STATE_DIR` to move it.
+- A composite GitHub Action with the drift, qualified-owner, and decay outputs, plus an example workflow.
+- Drift severity tiers from the worst confidence delta plus the concentration and decay signals.
+- The configuration sections `scoring`, `decay`, and `bus_factor`, plus `confidence_threshold` and `github.api_enabled`.
 
 ### Changed
-- `analysis.lookback_days` default lifted from 180 to 365.
-- `analysis.top_n_owners` default lifted from 2 to 3.
-- `paths.exclude` default now includes `node_modules/**`.
-- `OwnershipMap` reshaped to carry `PathOwnership` entries (confidence-scored owners, bus factor, decay warnings).
-- `DriftResult` now carries `DriftEntry` tuples with per-entry confidence delta and reason.
-- `notify` payload includes severity, max delta, and per-entry bus factor / decay flags.
 
-### Fixed
-`validate` strips inline confidence comments so `output.include_confidence: true` does not fail the validator. Caught while dogfooding.
-
-### Security
-`github.token` is now refused inside `.github/checkowners.yml`. `load_config` raises a clear error if the field is present, since that file gets pushed to GitHub. The only supported way to provide a token is the `GITHUB_TOKEN` environment variable.
+- `analysis.lookback_days` defaults to 365, and `analysis.top_n_owners` to 3.
+- `paths.exclude` adds `node_modules/**` by default.
 
 ## [0.2.0] - 2026-05-26
 
 ### Added
-- GitHub `@handle` mapping: commit emails are looked up against the GitHub user-search API and rewritten to `@username` when a match is found.
-- Team and subteam resolution: owner sets whose handles are a subset of an org team collapse to `@org/team-slug`, with the most deeply-nested matching team winning.
-- CODEOWNERS path auto-detection across `.github/CODEOWNERS`, root `CODEOWNERS`, and `docs/CODEOWNERS` in priority order.
+
+- `checkowners drift` compares inferred ownership with the committed CODEOWNERS and reports what disagrees.
+- `checkowners sync` writes the inferred file, and `checkowners validate` checks the committed one.
 
 ## [0.1.1] - 2026-05-26
 
 ### Fixed
-Deleted files are no longer carried into the generated CODEOWNERS; `analyze` filters out paths that no longer exist on disk.
 
-### Changed
-Repo now dogfoods its own generated CODEOWNERS.
+- The package metadata and entry point work from a clean install.
 
 ## [0.1.0] - 2026-05-26
 
 ### Added
-- Initial CLI: `analyze`, `generate`, `print`, `validate`, `drift`, `notify`, `sync`.
-- Drift detection with three modes (`commit`, `repo`, `both`) and GITHUB_OUTPUT integration.
-- Webhook notifications on drift events.
-- Syntax-only CODEOWNERS validator.
-- Packaging via hatch; published to PyPI under `checkowners`.
-- CI workflow running tests and lint across Python 3.11, 3.12, 3.13.
+
+- `checkowners analyze`, `checkowners print`, and `checkowners generate` infer ownership from git history and write a CODEOWNERS file.
 
 [Unreleased]: https://github.com/smusali/checkowners/compare/v0.6.0...HEAD
 [0.6.0]: https://github.com/smusali/checkowners/compare/v0.5.1...v0.6.0

@@ -1,4 +1,4 @@
-"""Tests for checkowners.decay module."""
+"""Tests for the continuity-risk reports in checkowners.risk."""
 
 from __future__ import annotations
 
@@ -6,18 +6,20 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from checkowners.analyze import analyze_ownership
-from checkowners.decay import detect_decay
-from checkowners.expertise import common_prefix_depth
-from checkowners.models import (
+from checkowners.config import (
     AnalysisConfig,
     Config,
     DecayConfig,
-    DecayWarning,
     GitConfig,
+)
+from checkowners.expertise import common_prefix_depth
+from checkowners.models import (
+    DecayWarning,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
 )
+from checkowners.risk import detect_decay
 from tests.conftest import GitRepo
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)

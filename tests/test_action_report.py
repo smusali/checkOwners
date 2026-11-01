@@ -1,51 +1,54 @@
+"""The report the composite Action writes for a run."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from checkowners.action_report import (
-    DIAGNOSTIC,
-    SOLO_LINE,
-    _completeness_lines,
-    _write_multiline_output,
     build,
     entry_lines,
-    fmt_delta,
-    has_actionable_findings,
-    has_actionable_knowledge_risk,
     knowledge_risk_lines,
-    load,
     md_cell,
     publish_outputs,
-    qualified_humans,
     summarize_balance,
     summarize_bus_factor,
-    summarize_decay,
     summarize_drift,
     write_step_summary,
 )
 from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
+from tests.conftest import Payload
 
 
-def test_completeness_lines_skip_unreadable_gaps() -> None:
-    assert _completeness_lines({}) == []
-    assert _completeness_lines({"analysis_completeness": True}) == []
-    assert _completeness_lines({"analysis_completeness": 1}) == ["analysis completeness: 100%"]
-    lines = _completeness_lines(
-        {
-            "analysis_completeness": 0.5,
-            "analysis_gaps": [
-                "skip",
-                {"code": "missing_mailmap"},
-                {"reason": ""},
-                {"reason": "Missing .mailmap."},
-            ],
-        }
+def test_completeness_lines_skip_unreadable_gaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("drift.json").write_text("{}", encoding="utf-8")
+    assert "analysis completeness" not in build()
+    Path("drift.json").write_text(json.dumps({"analysis_completeness": True}), encoding="utf-8")
+    assert "analysis completeness" not in build()
+    Path("drift.json").write_text(json.dumps({"analysis_completeness": 1}), encoding="utf-8")
+    assert "analysis completeness: 100%" in build()
+    Path("drift.json").write_text(
+        json.dumps(
+            {
+                "analysis_completeness": 0.5,
+                "analysis_gaps": [
+                    "skip",
+                    {"code": "missing_mailmap"},
+                    {"reason": ""},
+                    {"reason": "Missing .mailmap."},
+                ],
+            }
+        ),
+        encoding="utf-8",
     )
-    assert lines == ["analysis completeness: 50%", "Missing .mailmap."]
+    text = build()
+    assert "analysis completeness: 50%" in text
+    assert "Missing .mailmap." in text
 
 
 def test_md_cell_escapes_backticks_pipes_newlines_and_html() -> None:
@@ -87,242 +90,6 @@ def test_build_overflow_points_at_artifact(tmp_path: Path, monkeypatch: pytest.M
     assert KNOWLEDGE_RISK_NOTICE in text
 
 
-def test_action_report_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    assert load("missing.json") is None
-    (tmp_path / "not-object.json").write_text("[1]", encoding="utf-8")
-    assert load("not-object.json") is None
-    assert fmt_delta(None) == "0.00"
-    assert fmt_delta("x") == "0.00"
-    assert fmt_delta("1.5") == "1.50"
-    assert qualified_humans(None) == []
-    assert summarize_bus_factor({"entries": "nope"}, 1)["counts"]["entries"] == 0
-    summary = summarize_bus_factor(
-        {"distribution": {"minimum": "n/a", "criticality_incomplete": "no"}},
-        1,
-    )
-    assert summary["distribution"]["minimum"] == 0.0
-    assert summary["distribution"]["criticality_incomplete"] is True
-    assert summarize_decay({"reports": "nope"}, 1)["counts"]["reports"] == 0
-    assert has_actionable_findings(None, None, None) is False
-    assert has_actionable_findings({"drift_detected": True}, None, None) is True
-    assert has_actionable_findings({"drift_detected": False}, None, None) is False
-    assert has_actionable_knowledge_risk(None, {"reports": [{"path": "a.py"}]}) is False
-    assert (
-        has_actionable_knowledge_risk(
-            {"entries": [{"contributors_above_threshold": ["@only"]}]},
-            {"reports": [{"path": "a.py"}]},
-        )
-        is False
-    )
-    lines, _cut = entry_lines([("stale", {"path": 1})])
-    assert lines == []
-    declared, cut = entry_lines(
-        [
-            (
-                "changed",
-                {
-                    "path": "src/a.py",
-                    "declared": {"owners": ["@alice"]},
-                    "observed": {"owners": ["@bob"], "teams": ["@org/team"]},
-                },
-            )
-        ]
-    )
-    assert cut is False
-    assert "Declared: @alice" in declared
-    assert "Observed: @bob, @org/team" in declared
-    assert has_actionable_knowledge_risk(
-        {
-            "entries": [
-                {
-                    "path": "a.py",
-                    "contributors_above_threshold": ["@a", "@b"],
-                    "recommended_backups": [],
-                },
-                {
-                    "path": "b.py",
-                    "contributors_above_threshold": ["@a"],
-                    "recommended_backups": ["@b"],
-                },
-            ]
-        },
-        None,
-    )
-    solo = {
-        "entries": [
-            {"path": "only.py", "contributors_above_threshold": ["alice"]},
-        ]
-    }
-    assert knowledge_risk_lines(solo, None) == ([SOLO_LINE], False)
-    solo_risk = {
-        **solo,
-        "distribution": {"criticality_incomplete": True},
-    }
-    assert knowledge_risk_lines(solo_risk, None) == (
-        [SOLO_LINE, "Repository risk is incomplete without criticality."],
-        False,
-    )
-    measured = {
-        "entries": [
-            {
-                "path": "solo.py",
-                "contributors_above_threshold": ["@a", "@b"],
-            }
-        ],
-        "distribution": {"criticality_incomplete": False, "knowledge_at_risk": 0.42},
-    }
-    assert "Knowledge at risk: 42%." in knowledge_risk_lines(measured, None)[0]
-    skipped = knowledge_risk_lines(
-        {
-            "entries": [
-                {"path": "a.py", "contributors_above_threshold": ["@a", "@b"]},
-            ],
-            "distribution": {"criticality_incomplete": False, "knowledge_at_risk": True},
-        },
-        None,
-    )
-    assert skipped == ([], False)
-    assert knowledge_risk_lines(None, None) == ([], False)
-    risk, _cut = knowledge_risk_lines(
-        {
-            "entries": [
-                {
-                    "path": "shared.py",
-                    "contributors_above_threshold": ["@owner", "@other"],
-                    "recommended_backups": [],
-                },
-                {
-                    "path": "solo.py",
-                    "contributors_above_threshold": ["alice"],
-                    "recommended_backups": [],
-                },
-                {
-                    "path": "",
-                    "contributors_above_threshold": ["@owner"],
-                },
-            ]
-        },
-        {
-            "reports": [
-                {"handle": "@x", "path": "d.py", "days_since_last_commit": "n/a"},
-                {"handle": "@y", "path": "e.py"},
-            ]
-        },
-    )
-    assert "No candidate backup reviewers." in risk
-    assert "Only @alice" in "\n".join(risk)
-    assert "a while ago" in "\n".join(risk)
-    many = {
-        "entries": [
-            {
-                "path": f"p{index}.py",
-                "contributors_above_threshold": ["@one", "@two"],
-                "recommended_backups": [],
-            }
-            for index in range(2)
-        ]
-        + [
-            {
-                "path": f"s{index}.py",
-                "contributors_above_threshold": ["@one"],
-                "recommended_backups": ["bot[bot]"],
-            }
-            for index in range(10)
-        ]
-    }
-    extra_lines, extra_cut = knowledge_risk_lines(many, None)
-    assert extra_cut is False
-    assert any("more single-owner paths" in line for line in extra_lines)
-    summary = summarize_bus_factor(
-        {"entries": [{"tier": "other"}], "qualified_owner_count_cap": True},
-        2,
-    )
-    assert summary["qualified_owner_count_cap"] == 3
-    assert summary["critical_paths"] == []
-    (tmp_path / "drift.json").write_text(
-        json.dumps(
-            {
-                "drift_detected": False,
-                "stale": "nope",
-                "notes": 1,
-                "analysis_completeness": 0.73,
-                "analysis_gaps": [{"code": "missing_mailmap", "reason": "Missing .mailmap."}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    summary = build(limit=5)
-    assert "No drift detected." in summary
-    assert "analysis completeness: 73%" in summary
-    assert "Missing .mailmap." in summary
-    assert "Baselined: 0. Suppressed: 0. Stale baseline: 0." in build(limit=5)
-    (tmp_path / "bus_factor.json").write_text(
-        json.dumps(
-            {
-                "entries": [
-                    {
-                        "path": "shared.py",
-                        "contributors_above_threshold": ["@a", "@b"],
-                    },
-                    {
-                        "path": "x" * 90,
-                        "contributors_above_threshold": ["@a"],
-                    },
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    (tmp_path / "decay.json").write_text(
-        json.dumps(
-            {
-                "reports": [{"path": "skip-me"}]
-                + [
-                    {
-                        "handle": f"@d{index}",
-                        "path": f"d{index}.py",
-                        "days_since_last_commit": 1,
-                    }
-                    for index in range(10)
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    risk_text = build()
-    assert "### Knowledge risk" in risk_text
-    assert "more continuity-risk warnings." in risk_text
-    assert "Full report is in the checkowners-reports artifact." in risk_text
-    assert KNOWLEDGE_RISK_NOTICE in risk_text
-    (tmp_path / "drift.json").unlink()
-    assert build() == DIAGNOSTIC
-    assert KNOWLEDGE_RISK_NOTICE in DIAGNOSTIC
-    write_step_summary("plain")
-    assert (tmp_path / "checkowners-report.md").read_text(encoding="utf-8") == "plain"
-    (tmp_path / "checkowners-report.md").unlink()
-    (tmp_path / "checkowners-report.md").mkdir()
-    write_step_summary("ignored")
-    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
-    publish_outputs(limit=1)
-    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out"))
-    hexes = iter(["aaa", "bbb"])
-    with patch(
-        "checkowners.action_report.secrets.token_hex",
-        side_effect=lambda _n: next(hexes),
-    ):
-        _write_multiline_output("name", "hello\nghadelim_aaa\nworld")
-    written = (tmp_path / "out").read_text(encoding="utf-8")
-    assert "ghadelim_bbb" in written
-    assert "ghadelim_aaa\nworld" in written
-    monkeypatch.setenv("MAX_OUTPUT_ENTRIES", "nope")
-    with pytest.raises(SystemExit, match="positive integer"):
-        publish_outputs()
-    monkeypatch.setenv("MAX_OUTPUT_ENTRIES", "0")
-    with pytest.raises(SystemExit, match="positive integer"):
-        publish_outputs()
-
-
 def test_summaries_include_ratchet_counts() -> None:
     drift = summarize_drift(
         {
@@ -336,16 +103,18 @@ def test_summaries_include_ratchet_counts() -> None:
         },
         50,
     )
-    assert drift["counts"]["baselined"] == 4
-    assert drift["counts"]["suppressed"] == 2
-    assert drift["counts"]["stale_baseline"] == 1
+    drift_counts = Payload(drift).child("counts")
+    assert drift_counts.whole("baselined") == 4
+    assert drift_counts.whole("suppressed") == 2
+    assert drift_counts.whole("stale_baseline") == 1
     bus = summarize_bus_factor(
         {"entries": [], "baselined": 4, "suppressed": 2, "stale_baseline": []},
         50,
     )
-    assert bus["counts"]["baselined"] == 4
-    assert bus["counts"]["suppressed"] == 2
-    assert bus["counts"]["stale_baseline"] == 0
+    bus_counts = Payload(bus).child("counts")
+    assert bus_counts.whole("baselined") == 4
+    assert bus_counts.whole("suppressed") == 2
+    assert bus_counts.whole("stale_baseline") == 0
 
 
 def test_summarize_balance_trims_each_list() -> None:
@@ -388,8 +157,9 @@ def test_summarize_balance_trims_each_list() -> None:
     assert trimmed["truncated"] is True
     assert trimmed["review_concentration"] == concentration[:1]
     assert trimmed["divergence"] == divergence[:1]
-    assert trimmed["counts"]["review_concentration"] == 2
-    assert trimmed["counts"]["divergence"] == 2
+    trimmed_counts = Payload(trimmed).child("counts")
+    assert trimmed_counts.whole("review_concentration") == 2
+    assert trimmed_counts.whole("divergence") == 2
 
 
 def test_publish_outputs_writes_balance_summary(
@@ -547,8 +317,9 @@ def test_decay_lines_name_a_former_contributor() -> None:
     assert any("former contributor" in line for line in lines)
 
 
-def test_step_summary_ignores_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    with patch("checkowners.action_report.Path.write_text", side_effect=OSError("no")):
-        write_step_summary("hi")
-        monkeypatch.setenv("GITHUB_STEP_SUMMARY", "unused")
-        write_step_summary("hi")
+def test_step_summary_ignores_os_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "checkowners-report.md").mkdir()
+    write_step_summary("hi")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "checkowners-report.md"))
+    write_step_summary("hi")

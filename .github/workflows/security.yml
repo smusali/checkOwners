@@ -11,8 +11,13 @@ on:
 permissions:
   contents: read
 
+env:
+  PIN_UV: "uv==0.11.32"
+  UV_PYTHON_PREFERENCE: only-system
+
 jobs:
   codeql:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,6 +39,7 @@ jobs:
           category: /language:python
 
   dependency-review:
+    timeout-minutes: 10
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +50,7 @@ jobs:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
 
   pip-audit:
+    timeout-minutes: 15
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -55,16 +62,20 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install locked tools
-        run: python -m pip install --require-hashes -r requirements-tools.lock
+      - name: Install uv
+        run: python -m pip install --quiet "$PIN_UV"
 
-      - name: Audit locked dependencies
-        run: |
-          set -euo pipefail
-          pip-audit --require-hashes --disable-pip -r requirements.lock
-          pip-audit --require-hashes --disable-pip -r requirements-dev.lock
+      - name: Audit the runtime lockfile
+        run: uv run --frozen --only-group tools pip-audit --require-hashes --disable-pip -r requirements.lock
+
+      - name: Export the development lockfile
+        run: uv export --frozen --no-emit-project --all-groups --all-extras --format requirements-txt -o dev.txt
+
+      - name: Audit the development lockfile
+        run: uv run --frozen --only-group tools pip-audit --require-hashes --disable-pip -r dev.txt
 
   zizmor:
+    timeout-minutes: 10
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -78,5 +89,5 @@ jobs:
 
       - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b  # v0.8.0
         with:
-          collect: workflows
+          collect: workflows,actions
           version: "1.30.1"

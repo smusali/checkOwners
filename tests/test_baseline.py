@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
-from checkowners.action_report import summarize_bus_factor, summarize_drift
+from checkowners.action_report import summarize_drift
 from checkowners.baseline import (
     active_suppressions,
     apply_ratchet,
@@ -20,166 +19,114 @@ from checkowners.baseline import (
     suppression_matches,
     write_baseline,
 )
-from checkowners.busfactor import BusFactorReport
-from checkowners.cli import (
-    _filter_bus_payload,
-    _print_expired_suppressions,
-    _resolve_baseline,
-    app,
-)
-from checkowners.config import load_config
-from checkowners.drift import detect_drift
-from checkowners.models import (
-    COMMAND_SCHEMA_VERSION,
-    BusFactor,
+from checkowners.cli.common import resolve_baseline
+from checkowners.cli.emit import filter_bus_payload
+from checkowners.cli.render import print_expired_suppressions
+from checkowners.concentration import BusFactorReport
+from checkowners.config import (
     BusFactorConfig,
     Config,
     DriftConfig,
+    Suppression,
+    load_config,
+)
+from checkowners.drift import detect_drift
+from checkowners.models import (
+    BusFactor,
     DriftEntry,
     DriftResult,
     Finding,
-    Suppression,
 )
-from tests.test_cli import (
-    _DRIFT_DETECTED,
-    _MOCK_PATH,
-    _MOCK_TOKEN,
-    _NOW,
-    _OWNERSHIP,
-    _run_github_action,
+from tests.conftest import (
+    DRIFT_DETECTED,
+    NOW,
+    Cli,
+    GitRepo,
+    declared_ownership,
+    drift_config,
+    owner_entry,
+    write_codeowners,
 )
-from tests.test_drift import _config, _owner, _ownership, _write_codeowners
 
 runner = CliRunner()
-_MOCK_LS_FILES = "checkowners.drift._tracked_files"
-
-
-@pytest.fixture(autouse=True)
-def _isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CHECKOWNERS_STATE_DIR", str(tmp_path / "state"))
-    with (
-        patch("checkowners.cli.resolve_as_of", return_value=_NOW),
-        patch("checkowners.cli.head_commit_sha", return_value="deadbeef"),
-    ):
-        yield
 
 
 def _write_config(root: Path, content: str) -> None:
     config_dir = root / ".github"
     config_dir.mkdir(parents=True, exist_ok=True)
-    text = content
-    first = text.lstrip().splitlines()[0] if text.strip() else ""
-    if first and not first.startswith("version:"):
-        text = f"version: 1\n{text}"
-    (config_dir / "checkowners.yml").write_text(text, encoding="utf-8")
+    (config_dir / "checkowners.yml").write_text(content, encoding="utf-8")
 
 
-def _cli_run(args: list[str], *, drift: DriftResult = _DRIFT_DETECTED) -> tuple[int, str]:
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_drift", return_value=drift),
-        _MOCK_PATH,
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, args)
-    return result.exit_code, result.stdout
+_STALE = "* @nobody\n"
+_BLOCKING = "policy:\n  drift:\n    fail: true\n  unowned:\n    fail: true\n"
 
 
-def test_baseline_create_then_new_finding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        "\n".join(
-            [
-                "policy:",
-                "  drift:",
-                "    fail: true",
-                "  unowned:",
-                "    fail: true",
-                "",
-            ]
-        ),
-    )
-    baseline = tmp_path / ".checkowners-baseline.json"
-    exit_code, _stdout = _cli_run(["baseline", "create", "--output", str(baseline)])
-    assert exit_code == 0
+def test_baseline_create_then_a_new_finding_blocks(cli: Cli) -> None:
+    _write_config(cli.repo.path, _BLOCKING)
+    cli.codeowners(_STALE)
+    baseline = cli.repo.path / ".checkowners-baseline.json"
+    assert cli.run("baseline", "create", "--output", str(baseline)).exit_code == 0
     created = load_baseline(baseline)
     assert created
     assert all(item.rule in {"missing", "stale", "changed", "single-expert"} for item in created)
 
-    exit_code, stdout = _cli_run(["drift", "--json", "--baseline", str(baseline)])
-    assert exit_code == 0
-    data = json.loads(stdout)
-    assert data["drift_detected"] is False
-    assert data["missing"] == []
-    assert data["stale"] == []
-    assert data["changed"] == []
-    assert data["baselined"] == len(created)
-    assert data["suppressed"] == 0
-    assert data["stale_baseline"] == []
+    accepted = cli.json("drift", "--baseline", str(baseline))
+    assert accepted["drift_detected"] is False
+    assert accepted["changed"] == []
+    assert accepted["baselined"] == len(created)
+    assert accepted["suppressed"] == 0
+    assert accepted["stale_baseline"] == []
 
-    extra = DriftResult(
-        stale=_DRIFT_DETECTED.stale,
-        missing=(
-            *_DRIFT_DETECTED.missing,
-            DriftEntry(path="/extra.py", confidence_delta=0.5, reason="new path"),
-        ),
-        changed=_DRIFT_DETECTED.changed,
-        drift_detected=True,
-    )
-    exit_code, stdout = _cli_run(
-        ["drift", "--json", "--baseline", str(baseline)],
-        drift=extra,
-    )
-    assert exit_code == 3
-    data = json.loads(stdout)
-    assert data["drift_detected"] is True
-    assert [item["path"] for item in data["missing"]] == ["/extra.py"]
-    assert data["stale"] == []
-    assert data["changed"] == []
+    cli.codeowners("src/ @nobody\ndocs/ @nobody\n")
+    blocked = cli.json("drift", "--baseline", str(baseline))
+    assert blocked["drift_detected"] is True
+    assert blocked["changed"]
 
 
-def test_finding_identity_survives_codeowners_reorder(tmp_path: Path) -> None:
-    ownership = _ownership(
-        {
-            "src/main.py": (_owner("@carol"),),
-            "docs/readme.md": (_owner("@dave"),),
-        }
-    )
-    first = _write_codeowners(tmp_path, "src/ @alice\ndocs/ @bob\n")
-    with patch(_MOCK_LS_FILES, return_value=("src/main.py", "docs/readme.md")):
-        before = detect_drift(tmp_path, ownership, _config(min_delta=0.0), codeowners_path=first)
-    first.write_text("docs/ @bob\nsrc/ @alice\n", encoding="utf-8")
-    with patch(_MOCK_LS_FILES, return_value=("src/main.py", "docs/readme.md")):
-        after = detect_drift(tmp_path, ownership, _config(min_delta=0.0), codeowners_path=first)
-    assert {item.identity() for item in findings_from_drift(before)} == {
-        item.identity() for item in findings_from_drift(after)
-    }
-    before_reasons = {item.path: item.reason for item in before.changed}
-    after_reasons = {item.path: item.reason for item in after.changed}
-    assert before_reasons != after_reasons
-
-
-def test_expired_suppression_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
+def test_an_expired_suppression_fails(cli: Cli) -> None:
+    cli.codeowners(_STALE)
     _write_config(
-        tmp_path,
+        cli.repo.path,
         "\n".join(
             [
                 "suppressions:",
-                "  - path: /old.py",
-                "    rule: stale",
+                "  - path: '*'",
+                "    rule: changed",
                 "    expires: 2020-01-01",
                 '    reason: "Scheduled for retirement"',
                 "",
             ]
         ),
     )
-    exit_code, stdout = _cli_run(["drift"])
-    assert exit_code == 3
-    assert "Expired suppression" in stdout
-    assert "2020-01-01" in stdout
-    assert "Scheduled for retirement" in stdout
+    result = cli.run("drift")
+    assert result.exit_code == 3
+    assert "Expired suppression" in result.stdout
+    assert "2020-01-01" in result.stdout
+    assert "Scheduled for retirement" in result.stdout
+
+
+def test_finding_identity_survives_codeowners_reorder(git_repo: GitRepo) -> None:
+    ownership = declared_ownership(
+        {
+            "src/main.py": (owner_entry("@carol"),),
+            "docs/readme.md": (owner_entry("@dave"),),
+        }
+    )
+    git_repo.commit_paths("src/main.py", "docs/readme.md")
+    first = write_codeowners(git_repo.path, "src/ @alice\ndocs/ @bob\n")
+    before = detect_drift(
+        git_repo.path, ownership, drift_config(min_delta=0.0), codeowners_path=first
+    )
+    first.write_text("docs/ @bob\nsrc/ @alice\n", encoding="utf-8")
+    after = detect_drift(
+        git_repo.path, ownership, drift_config(min_delta=0.0), codeowners_path=first
+    )
+    assert {item.identity() for item in findings_from_drift(before)} == {
+        item.identity() for item in findings_from_drift(after)
+    }
+    before_reasons = {item.path: item.reason for item in before.changed}
+    after_reasons = {item.path: item.reason for item in after.changed}
+    assert before_reasons != after_reasons
 
 
 @pytest.mark.parametrize(
@@ -273,7 +220,7 @@ def test_stale_baseline_reported_after_fix() -> None:
         current,
         baseline=baseline,
         suppressions=(),
-        as_of=_NOW.date(),
+        as_of=NOW.date(),
     )
     assert [item.path for item in outcome.stale_baseline] == ["src/b.py"]
     assert outcome.counts.stale_baseline == 1
@@ -281,53 +228,35 @@ def test_stale_baseline_reported_after_fix() -> None:
     assert outcome.drift.drift_detected is False
 
 
-def test_github_action_honors_baseline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    findings = (
-        *findings_from_drift(_DRIFT_DETECTED),
-        Finding(rule="single-expert", path="src/auth.py", owners=("dave@example.com",)),
-    )
-    baseline = tmp_path / ".checkowners-baseline.json"
-    write_baseline(baseline, findings)
-    exit_code, _stdout, _output, _summary = _run_github_action(
-        tmp_path,
-        monkeypatch,
-        ["github-action", "--baseline", str(baseline)],
-        drift=_DRIFT_DETECTED,
-    )
-    assert exit_code == 0
-    drift = json.loads((tmp_path / "drift.json").read_text(encoding="utf-8"))
-    bus = json.loads((tmp_path / "bus_factor.json").read_text(encoding="utf-8"))
-    assert drift["drift_detected"] is False
-    assert drift["baselined"] == 4
-    assert drift["suppressed"] == 0
-    assert drift["stale_baseline"] == []
-    summary = summarize_drift(drift, 50)
-    assert summary["counts"]["baselined"] == 4
-    assert summary["counts"]["suppressed"] == 0
-    assert summary["counts"]["stale_baseline"] == 0
-    bus_summary = summarize_bus_factor(bus, 50)
-    assert bus_summary["counts"]["baselined"] == 4
-    assert "src/auth.py" not in bus["critical_paths"]
-
-
-def test_github_action_honors_baseline_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    findings = (
-        *findings_from_drift(_DRIFT_DETECTED),
-        Finding(rule="single-expert", path="src/auth.py", owners=("dave@example.com",)),
-    )
-    baseline = tmp_path / "accepted.json"
-    write_baseline(baseline, findings)
-    monkeypatch.setenv("CHECKOWNERS_BASELINE", str(baseline))
-    exit_code, _stdout, _output, _summary = _run_github_action(
-        tmp_path,
-        monkeypatch,
-        ["github-action"],
-        drift=_DRIFT_DETECTED,
-    )
-    assert exit_code == 0
-    drift = json.loads((tmp_path / "drift.json").read_text(encoding="utf-8"))
-    assert drift["drift_detected"] is False
-    assert drift["baselined"] == 4
+@pytest.mark.parametrize("by_env", [False, True], ids=["flag", "environment"])
+def test_github_action_honors_a_baseline(
+    cli: Cli,
+    monkeypatch: pytest.MonkeyPatch,
+    by_env: bool,
+) -> None:
+    cli.codeowners("* @nobody\n")
+    detected = cli.json("github-action", "--no-fail-on-drift")
+    drift = detected["drift_summary"]
+    assert isinstance(drift, dict)
+    assert drift["drift_detected"] is True
+    baseline = cli.repo.path / "accepted.json"
+    created = cli.json("baseline", "create", "--output", str(baseline))
+    assert created["findings"]
+    if by_env:
+        monkeypatch.setenv("CHECKOWNERS_BASELINE", str(baseline))
+        accepted = cli.json("github-action", "--fail-on-drift")
+    else:
+        accepted = cli.json("github-action", "--fail-on-drift", "--baseline", str(baseline))
+    summary = accepted["drift_summary"]
+    assert isinstance(summary, dict)
+    assert summary["drift_detected"] is False
+    stored = json.loads((cli.repo.path / "drift.json").read_text(encoding="utf-8"))
+    assert int(stored["baselined"]) > 0
+    assert stored["suppressed"] == 0
+    assert stored["stale_baseline"] == []
+    counts = summarize_drift(stored, 50)["counts"]
+    assert isinstance(counts, dict)
+    assert int(counts["baselined"]) > 0
 
 
 def test_write_baseline_is_sorted_and_stable(tmp_path: Path) -> None:
@@ -340,7 +269,6 @@ def test_write_baseline_is_sorted_and_stable(tmp_path: Path) -> None:
         ),
     )
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["schema_version"] == COMMAND_SCHEMA_VERSION
     assert [item["path"] for item in raw["findings"]] == ["a.py", "b.py"]
     assert raw["findings"][1]["owners"] == ["@alice", "@Bob"]
 
@@ -353,27 +281,25 @@ def test_load_baseline_rejects_invalid_files(tmp_path: Path) -> None:
     cases: tuple[tuple[str, str], ...] = (
         ("[", "Invalid baseline"),
         ("[]", "JSON object"),
-        ('{"schema_version": "0.9", "findings": []}', "schema_version"),
-        ('{"schema_version": "1", "findings": {}}', "findings must be a list"),
-        ('{"schema_version": "1", "findings": [1]}', "expected an object"),
-        ('{"schema_version": "1", "findings": [{}]}', "rule is required"),
-        ('{"schema_version": "1", "findings": [{"rule": "", "path": "a"}]}', "rule is required"),
+        ('{"findings": {}}', "findings must be a list"),
+        ('{"findings": [1]}', "expected an object"),
+        ('{"findings": [{}]}', "rule is required"),
+        ('{"findings": [{"rule": "", "path": "a"}]}', "rule is required"),
         (
-            '{"schema_version": "1", "findings": [{"rule": "nope", "path": "a"}]}',
+            '{"findings": [{"rule": "nope", "path": "a"}]}',
             "unsupported rule",
         ),
-        ('{"schema_version": "1", "findings": [{"rule": "missing"}]}', "path is required"),
+        ('{"findings": [{"rule": "missing"}]}', "path is required"),
         (
-            '{"schema_version": "1", "findings": [{"rule": "missing", "path": ""}]}',
+            '{"findings": [{"rule": "missing", "path": ""}]}',
             "path is required",
         ),
         (
-            '{"schema_version": "1", "findings": [{"rule": "missing", "path": "a", "owners": 1}]}',
+            '{"findings": [{"rule": "missing", "path": "a", "owners": 1}]}',
             "owners must be a list of strings",
         ),
         (
-            '{"schema_version": "1", "findings": '
-            '[{"rule": "missing", "path": "a", "owners": [1]}]}',
+            '{"findings": [{"rule": "missing", "path": "a", "owners": [1]}]}',
             "owners must be a list of strings",
         ),
     )
@@ -493,82 +419,62 @@ def test_apply_ratchet_suppresses_bus_and_ignores_unevaluated_stale() -> None:
     assert without_bus.hidden_bus_paths == frozenset()
 
 
-def test_baseline_create_json_and_missing_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    exit_code, stdout = _cli_run(["baseline", "create", "--json"])
-    assert exit_code == 0
-    data = json.loads(stdout)
-    assert data["schema_version"] == COMMAND_SCHEMA_VERSION
-    assert data["path"] == ".checkowners-baseline.json"
-    assert isinstance(data["findings"], list)
-
-    exit_code, stdout = _cli_run(["drift", "--baseline", "missing.json"])
-    assert exit_code == 2
-    assert "not found" in stdout
+def test_baseline_create_reports_its_default_path(cli: Cli) -> None:
+    payload = cli.json("baseline", "create")
+    assert payload["path"] == ".checkowners-baseline.json"
+    assert isinstance(payload["findings"], list)
 
 
-def test_drift_human_notes_and_stale_baseline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    baseline = tmp_path / "base.json"
+def test_a_missing_baseline_file_exits_two(cli: Cli) -> None:
+    result = cli.run("drift", "--baseline", "missing.json")
+    assert result.exit_code == 2
+    assert "not found" in result.stdout
+
+
+def test_drift_names_a_stale_baseline_entry(cli: Cli) -> None:
+    cli.codeowners(_STALE)
+    baseline = cli.repo.path / "base.json"
     write_baseline(
         baseline,
         (
-            *findings_from_drift(_DRIFT_DETECTED),
+            *findings_from_drift(DRIFT_DETECTED),
             Finding(rule="changed", path="gone.py", owners=("@alice",)),
         ),
     )
-    noted = DriftResult(
-        stale=_DRIFT_DETECTED.stale,
-        missing=_DRIFT_DETECTED.missing,
-        changed=_DRIFT_DETECTED.changed,
-        drift_detected=True,
-        notes=("handle skip",),
-    )
-    exit_code, stdout = _cli_run(["drift", "--baseline", str(baseline)], drift=noted)
-    assert exit_code == 0
-    assert "handle skip" in stdout
-    assert "stale baseline" in stdout
-    assert "gone.py" in stdout
-    assert "@alice" in stdout
+    result = cli.run("drift", "--baseline", str(baseline))
+    assert "stale baseline" in result.stdout
+    assert "gone.py" in result.stdout
+    assert "@alice" in result.stdout
 
 
-def test_config_baseline_file_is_used_without_flag(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    findings = (
-        *findings_from_drift(_DRIFT_DETECTED),
-        Finding(rule="single-expert", path="src/auth.py", owners=("dave@example.com",)),
-    )
-    write_baseline(tmp_path / "accepted.json", findings)
-    _write_config(tmp_path, "drift:\n  baseline_file: accepted.json\n")
-    exit_code, stdout = _cli_run(["drift", "--json"])
-    assert exit_code == 0
-    data = json.loads(stdout)
-    assert data["drift_detected"] is False
-    assert data["baselined"] == 4
+def test_the_config_baseline_file_is_used_without_a_flag(cli: Cli) -> None:
+    cli.codeowners(_STALE)
+    detected = cli.json("drift")
+    assert detected["drift_detected"] is True
+    baseline = cli.repo.path / "accepted.json"
+    assert cli.run("baseline", "create", "--output", str(baseline)).exit_code == 0
+    _write_config(cli.repo.path, "drift:\n  baseline_file: accepted.json\n")
+    accepted = cli.json("drift")
+    assert accepted.flag("drift_detected") is False
+    assert accepted.whole("baselined") > 0
 
 
 def test_resolve_baseline_flag_and_config() -> None:
     empty = Config()
-    assert _resolve_baseline(" snap.json ", empty) == Path("snap.json")
-    assert _resolve_baseline("  ", empty) is None
-    assert _resolve_baseline(None, empty) is None
+    assert resolve_baseline(" snap.json ", empty) == Path("snap.json")
+    assert resolve_baseline("  ", empty) is None
+    assert resolve_baseline(None, empty) is None
     configured = Config(drift=DriftConfig(baseline_file="from-config.json"))
-    assert _resolve_baseline(None, configured) == Path("from-config.json")
-    assert _resolve_baseline("", configured) == Path("from-config.json")
+    assert resolve_baseline(None, configured) == Path("from-config.json")
+    assert resolve_baseline("", configured) == Path("from-config.json")
 
 
 def test_filter_bus_payload_hidden_and_non_lists() -> None:
     hidden = frozenset({"gone.py"})
-    assert _filter_bus_payload({"entries": [], "critical_paths": []}, frozenset())["entries"] == []
-    payload = {"entries": "nope", "critical_paths": "nope"}
-    assert _filter_bus_payload(payload, hidden) == payload
-    filtered = _filter_bus_payload(
+    assert filter_bus_payload({"entries": [], "critical_paths": []}, frozenset())["entries"] == []
+    payload: dict[str, object] = {"entries": "nope", "critical_paths": "nope"}
+    assert filter_bus_payload(payload, hidden) == payload
+    filtered = filter_bus_payload(
         {
             "entries": [{"path": "gone.py"}, {"path": "keep.py"}, "skip"],
             "critical_paths": ["gone.py", "keep.py"],
@@ -580,4 +486,4 @@ def test_filter_bus_payload_hidden_and_non_lists() -> None:
 
 
 def test_print_expired_suppression_without_date() -> None:
-    _print_expired_suppressions((Suppression(path="legacy/**", rule="stale", reason="no date"),))
+    print_expired_suppressions((Suppression(path="legacy/**", rule="stale", reason="no date"),))

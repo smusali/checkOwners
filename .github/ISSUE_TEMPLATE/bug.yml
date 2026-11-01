@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use this form for a defect you can reproduce. For a wrong owner that is
-        otherwise working as designed, use the false-positive form. For usage
+        Use this form for a defect you can reproduce. For a wrong owner that
+        is otherwise working as designed, use the wrong-owner form. For usage
         questions, use Discussions.
   - type: input
     id: version

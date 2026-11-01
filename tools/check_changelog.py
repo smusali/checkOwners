@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
-_ALL_EXTRA = ["checkowners[graph,github]"]
+_ALL_EXTRA = ["checkowners[graph]"]
 _PY314 = "Programming Language :: Python :: 3.14"
 _MARKETPLACE_DESC_LIMIT = 125
 
@@ -17,10 +17,10 @@ def _normalize(raw: str) -> str:
 
 
 def _init_version() -> str:
-    text = (_ROOT / "checkowners" / "__init__.py").read_text(encoding="utf-8")
+    text = (_ROOT / "src" / "checkowners" / "__init__.py").read_text(encoding="utf-8")
     match = re.search(r'(?m)^__version__ = "([^"]+)"', text)
     if not match:
-        raise ValueError("__version__ missing from checkowners/__init__.py")
+        raise ValueError("__version__ missing from src/checkowners/__init__.py")
     return match.group(1)
 
 
@@ -88,7 +88,7 @@ def _check_packaging() -> list[str]:
 def _check_pins(expected: str) -> list[str]:
     errors: list[str] = []
     sources = {
-        "checkowners/__init__.py": _init_version(),
+        "src/checkowners/__init__.py": _init_version(),
         "action.yml checkowners_version default": _action_input_default("checkowners_version"),
         "action.yml CHECKOWNERS_PINNED_VERSION": _action_pinned_version(),
     }
@@ -100,32 +100,11 @@ def _check_pins(expected: str) -> list[str]:
     if not wheel.is_file():
         errors.append(f"missing {wheel.name}")
 
-    for name in ("requirements.lock", "requirements-dev.lock"):
+    for name in ("requirements.lock", "uv.lock"):
         lock = _ROOT / name
         if not lock.is_file() or lock.stat().st_size == 0:
             errors.append(f"{name} is missing or empty")
-    errors.extend(_check_dev_lock_markers())
     return errors
-
-
-def _check_dev_lock_markers() -> list[str]:
-    lock = _ROOT / "requirements-dev.lock"
-    if not lock.is_file():
-        return []
-    for raw in lock.read_text(encoding="utf-8").splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if not line.startswith("pyyaml-ft=="):
-            continue
-        if "python_version" not in line:
-            return [
-                "requirements-dev.lock must pin pyyaml-ft with a "
-                "python_version marker so hashed installs work on 3.11/3.12"
-            ]
-        return []
-    return [
-        "requirements-dev.lock is missing pyyaml-ft; libcst on Python "
-        "3.13+ needs that pin under --require-hashes"
-    ]
 
 
 def _check_changelog(version: str) -> int:

@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import os
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from checkowners.models import (
-    COMMAND_SCHEMA_VERSION,
     DEFAULT_TRUCK_FACTOR_THRESHOLDS,
     GAP_CATALOG,
     AnalysisCompleteness,
@@ -24,15 +22,17 @@ from checkowners.models import (
     SignalScore,
     _coverage_count,
     completeness_score,
-    envelope_completeness,
-    flat_signal_scores,
     history_evidence_gaps,
     knowledge_concentration,
     merge_gaps,
     repository_label,
-    risk_from_scores,
     run_completeness,
     signal_completeness,
+)
+from checkowners.payloads import (
+    envelope_completeness,
+    flat_signal_scores,
+    risk_from_scores,
     stamp_json,
 )
 
@@ -84,9 +84,11 @@ def _owner(
     )
 
 
-def test_repository_label_prefers_github_repository(tmp_path: Path) -> None:
-    with patch.dict(os.environ, {"GITHUB_REPOSITORY": " acme/widgets "}):
-        assert repository_label(tmp_path) == "acme/widgets"
+def test_repository_label_prefers_github_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", " acme/widgets ")
+    assert repository_label(tmp_path) == "acme/widgets"
 
 
 def test_envelope_reports_a_stored_score_and_omits_gaps_when_unset() -> None:
@@ -128,7 +130,6 @@ def test_stamp_json_merges_external_evidence() -> None:
         evidence={"repository_head": "abc", "github_evidence_collected_at": _NOW.isoformat()},
     )
     assert stamped["ok"] is True
-    assert stamped["schema_version"] == COMMAND_SCHEMA_VERSION
     assert stamped["repository_head"] == "abc"
     assert stamped["github_evidence_collected_at"] == _NOW.isoformat()
 
@@ -230,34 +231,61 @@ def test_coverage_count_uses_every_share_below_the_threshold() -> None:
     assert _coverage_count((0.1, 0.1), 0.75) == 2
 
 
+def _one_gap(
+    *,
+    shallow: bool = False,
+    insufficient: bool = False,
+    renamed: bool = False,
+    mailmap_missing: bool = False,
+    ignore_revs_missing: bool = False,
+    excluded_gitattributes: int = 0,
+    excluded_static: int = 0,
+    review_missing: bool = False,
+    runtime_truncated: bool = False,
+) -> tuple[AnalysisGap, ...]:
+    """Return the gaps for one flag, with every other flag left clear."""
+    return history_evidence_gaps(
+        shallow=shallow,
+        insufficient=insufficient,
+        renamed=renamed,
+        mailmap_missing=mailmap_missing,
+        ignore_revs_missing=ignore_revs_missing,
+        excluded_gitattributes=excluded_gitattributes,
+        excluded_static=excluded_static,
+        review_missing=review_missing,
+        runtime_truncated=runtime_truncated,
+    )
+
+
 def test_each_history_gap_drops_completeness_once() -> None:
-    flags = (
-        ({"shallow": True}, "Shallow history: the clone does not contain full git history."),
-        ({"insufficient": True}, "Insufficient history: no commits in the lookback window."),
-        ({"renamed": True}, "Unresolved renames: path history is not followed across renames."),
-        ({"mailmap_missing": True}, "Missing .mailmap."),
-        ({"ignore_revs_missing": True}, "Missing .git-blame-ignore-revs."),
+    cases: tuple[tuple[Callable[[], tuple[AnalysisGap, ...]], str], ...] = (
         (
-            {"excluded_gitattributes": 2, "excluded_static": 1},
+            lambda: _one_gap(shallow=True),
+            "Shallow history: the clone does not contain full git history.",
+        ),
+        (
+            lambda: _one_gap(insufficient=True),
+            "Insufficient history: no commits in the lookback window.",
+        ),
+        (
+            lambda: _one_gap(renamed=True),
+            "Unresolved renames: path history is not followed across renames.",
+        ),
+        (lambda: _one_gap(mailmap_missing=True), "Missing .mailmap."),
+        (lambda: _one_gap(ignore_revs_missing=True), "Missing .git-blame-ignore-revs."),
+        (
+            lambda: _one_gap(excluded_gitattributes=2, excluded_static=1),
             "Excluded files: 2 gitattributes, 1 static.",
         ),
-        ({"review_missing": True}, "Review history unavailable."),
-        ({"runtime_truncated": True}, "Analysis incomplete: runtime budget exhausted."),
+        (lambda: _one_gap(review_missing=True), "Review history unavailable."),
+        (
+            lambda: _one_gap(runtime_truncated=True),
+            "Analysis incomplete: runtime budget exhausted.",
+        ),
     )
     seen: set[str] = set()
-    base = {
-        "shallow": False,
-        "insufficient": False,
-        "renamed": False,
-        "mailmap_missing": False,
-        "ignore_revs_missing": False,
-        "excluded_gitattributes": 0,
-        "excluded_static": 0,
-        "review_missing": False,
-        "runtime_truncated": False,
-    }
-    for flag, reason in flags:
-        gaps = history_evidence_gaps(**{**base, **flag})
+    for build, reason in cases:
+        gaps = build()
         assert len(gaps) == 1
         assert gaps[0].reason == reason
         assert completeness_score(gaps) == round((len(GAP_CATALOG) - 1) / len(GAP_CATALOG), 4)

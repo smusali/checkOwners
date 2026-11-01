@@ -1,4 +1,4 @@
-"""Judgment checks for ownership-v2 on pinned git histories."""
+"""Judgment checks for inferred ownership on pinned git histories."""
 
 from __future__ import annotations
 
@@ -7,7 +7,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from checkowners.analyze import ReviewProvider, analyze_ownership
-from checkowners.models import OWNERSHIP_MODEL_VERSION, Config, OwnerEntry, OwnershipMap
+from checkowners.config import (
+    Config,
+)
+from checkowners.models import (
+    OwnerEntry,
+    OwnershipMap,
+)
 from tests.conftest import GitRepo
 
 _AS_OF = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
@@ -19,52 +25,45 @@ _WORK = "alice@work.example"
 _HOME = "alice@home.example"
 _OLD = "alice@old.example"
 
-_GOLDEN: dict[str, dict[str, str]] = {
-    "ownership-v2": {
-        "formatting": (
-            "Alice remains the primary expert on foo.py; "
-            "Bob's formatting commit has no blame and a lower score."
-        ),
-        "handoff": (
-            "Ownership moves from Alice to Bob across the year; "
-            "Alice's score falls at each later date and stays above zero."
-        ),
-        "creating_commit": (
-            "The author of a single creating commit is the sole primary owner, "
-            "with a strong score and medium evidence quality."
-        ),
-        "rewrite": (
-            "After a full rewrite, the new author is primary "
-            "and the original author's blame share is zero."
-        ),
-        "mailmap": "Addresses merged by .mailmap count as one person.",
-        "missing_signals": (
-            "When blame and review are unavailable, the ownership score stays inside (0, 1]."
-        ),
-        "rename": "A rename keeps the earlier author on the new path.",
-        "cadence": "A path last touched 18 months earlier has no scored owner.",
-        "coauthor": (
-            "A Co-authored-by trailer adds a scored owner. Blame stays with the commit author."
-        ),
-    },
+_GOLDEN: dict[str, str] = {
+    "formatting": (
+        "Alice remains the primary expert on foo.py; "
+        "Bob's formatting commit has no blame and a lower score."
+    ),
+    "handoff": (
+        "Ownership moves from Alice to Bob across the year; "
+        "Alice's score falls at each later date and stays above zero."
+    ),
+    "creating_commit": (
+        "The author of a single creating commit is the sole primary owner, "
+        "with a strong score and medium evidence quality."
+    ),
+    "rewrite": (
+        "After a full rewrite, the new author is primary "
+        "and the original author's blame share is zero."
+    ),
+    "mailmap": "Addresses merged by .mailmap count as one person.",
+    "missing_signals": (
+        "When blame and review are unavailable, the ownership score stays inside (0, 1]."
+    ),
+    "rename": "A rename keeps the earlier author on the new path.",
+    "cadence": "A path last touched 18 months earlier has no scored owner.",
+    "coauthor": (
+        "A Co-authored-by trailer adds a scored owner. Blame stays with the commit author."
+    ),
 }
 
 
 def _belief(case: str) -> str:
-    record = _GOLDEN.get(OWNERSHIP_MODEL_VERSION)
-    if record is None:
-        pytest.fail(
-            f"{OWNERSHIP_MODEL_VERSION}: no golden record. Add this model version to the record."
-        )
-    message = record.get(case)
+    message = _GOLDEN.get(case)
     if message is None:
-        pytest.fail(f"{OWNERSHIP_MODEL_VERSION}: no golden record for {case}.")
+        pytest.fail(f"no golden record for {case}.")
     return message
 
 
 def _check(case: str, holds: bool) -> None:
     if not holds:
-        pytest.fail(f"{OWNERSHIP_MODEL_VERSION} {case}: {_belief(case)}")
+        pytest.fail(f"{case}: {_belief(case)}")
 
 
 def _when(days_before: int) -> datetime:
@@ -145,9 +144,7 @@ def _analyze(
         retain_all=retain_all,
     )
     if not _same(first, second):
-        pytest.fail(
-            f"{OWNERSHIP_MODEL_VERSION} {case}: repeated analysis with the same as-of diverged."
-        )
+        pytest.fail(f"{case}: repeated analysis with the same as-of diverged.")
     return first
 
 
@@ -209,7 +206,6 @@ def _keepers() -> dict[str, str]:
     return {"keep.py": "kept = 1\n", "notes.py": "note = 1\n"}
 
 
-@pytest.mark.integration
 def test_golden_formatting(git_repo: GitRepo) -> None:
     _belief("formatting")
     _commit(
@@ -263,7 +259,6 @@ def test_golden_formatting(git_repo: GitRepo) -> None:
     _check("formatting", bob.ownership_score < alice.ownership_score)
 
 
-@pytest.mark.integration
 def test_golden_handoff(git_repo: GitRepo) -> None:
     _belief("handoff")
     original = "".join(f"alpha_{index} = {index}\n" for index in range(8))
@@ -313,7 +308,6 @@ def test_golden_handoff(git_repo: GitRepo) -> None:
     _check("handoff", _primary(third, "component.py") == _BOB)
 
 
-@pytest.mark.integration
 def test_golden_creating_commit(git_repo: GitRepo) -> None:
     _belief("creating_commit")
     _commit(
@@ -337,7 +331,6 @@ def test_golden_creating_commit(git_repo: GitRepo) -> None:
     )
 
 
-@pytest.mark.integration
 def test_golden_rewrite(git_repo: GitRepo) -> None:
     _belief("rewrite")
     _commit(
@@ -365,7 +358,6 @@ def test_golden_rewrite(git_repo: GitRepo) -> None:
     _check("rewrite", alice is not None and _blame_share(alice) == 0.0)
 
 
-@pytest.mark.integration
 def test_golden_mailmap(git_repo: GitRepo) -> None:
     _belief("mailmap")
     for days_before, email, body in (
@@ -393,7 +385,6 @@ def test_golden_mailmap(git_repo: GitRepo) -> None:
     _check("mailmap", tuple(owner.handle for owner in found.owners) == (_ALICE,))
 
 
-@pytest.mark.integration
 def test_golden_missing_signals(git_repo: GitRepo) -> None:
     _belief("missing_signals")
     _commit(
@@ -416,7 +407,6 @@ def test_golden_missing_signals(git_repo: GitRepo) -> None:
     _check("missing_signals", 0.0 < owner.ownership_score <= 1.0)
 
 
-@pytest.mark.integration
 def test_golden_rename(git_repo: GitRepo) -> None:
     _belief("rename")
     _commit(
@@ -440,7 +430,6 @@ def test_golden_rename(git_repo: GitRepo) -> None:
     _check("rename", "foo.py" not in ownership.paths)
 
 
-@pytest.mark.integration
 def test_golden_cadence(git_repo: GitRepo) -> None:
     _belief("cadence")
     git_repo.commit_files(
@@ -454,7 +443,6 @@ def test_golden_cadence(git_repo: GitRepo) -> None:
     _check("cadence", "stable.py" not in ownership.paths)
 
 
-@pytest.mark.integration
 def test_golden_coauthor(git_repo: GitRepo) -> None:
     _belief("coauthor")
     git_repo.write("keep.py", "value = 0\n")

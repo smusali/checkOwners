@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+from checkowners.config import (
+    Config,
+)
 from checkowners.models import (
     ConfidenceScore,
-    Config,
     DriftEntry,
     DriftResult,
     OwnerEntry,
@@ -20,8 +22,6 @@ from checkowners.patterns import CodeownersRule
 from checkowners.risk import (
     Pathology,
     RiskReport,
-    _geometric_mean,
-    _writer,
     assess_risk,
     risk_payload,
 )
@@ -400,12 +400,6 @@ def test_pathology_edges_and_role_payload() -> None:
     assert role["writer"] == "@ann"
     assert role["reviewer"] == "@bea"
     assert role["declared"] == "@cam"
-
-
-def test_score_guards() -> None:
-    assert _geometric_mean(()) == 0
-    assert _geometric_mean((2.0,)) == 100
-    assert _writer(()) is None
 
 
 def test_role_payload_omits_absent_fields() -> None:

@@ -27,11 +27,8 @@ install_lockfile() {
 if [ -n "${CHECKOWNERS_INSTALL_SPEC}" ]; then
   if [ "${CHECKOWNERS_INSTALL_SPEC}" != "." ] \
     && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[graph]" ] \
-    && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[github]" ] \
-    && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[graph,github]" ] \
-    && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[github,graph]" ] \
     && [ "${CHECKOWNERS_INSTALL_SPEC}" != ".[all]" ]; then
-    echo "::error::install_spec must be a local extras spec: . .[graph] .[github] .[graph,github] .[github,graph] .[all]"
+    echo "::error::install_spec must be a local extras spec: . .[graph] .[all]"
     exit 1
   fi
   install_lockfile "${INDEX_ARGS[@]+"${INDEX_ARGS[@]}"}"

@@ -6,9 +6,11 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from checkowners.models import (
+from checkowners.config import (
     AnalysisConfig,
     Config,
+)
+from checkowners.models import (
     ContributorStatus,
     OwnerEntry,
     OwnershipMap,
@@ -108,7 +110,6 @@ def test_onboarding_declares_unavailable_signals_and_skips_former_mentors() -> N
         }
     )
     report = generate_onboarding_path(ownership, _config(), target="src/payments/")
-    assert report.experimental is True
     assert report.unavailable_signals == (
         "code complexity",
         "test coverage",
@@ -217,7 +218,6 @@ def test_to_markdown_emits_checklist() -> None:
         max_steps=1,
     )
     md = report.to_markdown()
-    assert "# Experimental onboarding suggestions for src/payments/" in md
     assert "- [ ] **Step 1**" in md
     assert KNOWLEDGE_RISK_NOTICE in md
 

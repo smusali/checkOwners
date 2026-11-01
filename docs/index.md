@@ -1,25 +1,29 @@
-# CheckOwners
+# checkOwners
 
-Local-first documentation for inferring CODEOWNERS from git history. The repository is [smusali/checkowners](https://github.com/smusali/checkowners).
+checkOwners infers who knows each part of a repository from its git history,
+then compares that with the CODEOWNERS file you committed. The repository is
+[smusali/checkowners](https://github.com/smusali/checkowners).
 
-Zero telemetry, ever, by default. CheckOwners does not phone home. Network use is opt-in GitHub API access.
+It reads git locally, sends nothing anywhere without a token, and never phones
+home. Network use is opt-in GitHub API access.
 
-## Five-minute audit
+## A five-minute audit
 
-Install the core package and audit the repository you are in. Git 2.23.0 or newer is required, and the clone needs full history.
+Git 2.23.0 or newer is required, and the clone needs full history.
 
 ```bash
 pip install checkowners
 checkowners audit
 ```
 
-`uvx checkowners audit` runs the same command without a permanent install. With no subcommand, `checkowners` runs `audit`. `checkowners --help` still prints help.
+`uvx checkowners audit` runs the same thing without installing. A bare
+`checkowners` runs `audit`, and the exit codes are in
+[Exit codes](USAGE.md#exit-codes).
 
-Exit status is the same for every command. The codes are in [Exit codes](reference.md#exit-codes).
+## In CI
 
-## CI setup
-
-The composite Action needs a full clone. A shallow checkout fails before analysis starts.
+The composite Action needs a full clone; a shallow checkout fails before
+analysis starts.
 
 ```yaml
 permissions:
@@ -33,12 +37,19 @@ steps:
       comment_on_pr: false
 ```
 
-Inputs, outputs, and the comment and SARIF options are in [Action](reference.md#action). Workflow examples stay in [GitHub Actions](USAGE.md#github-actions).
+Inputs, outputs, permissions, and the SARIF upload are in
+[GitHub Actions](USAGE.md#github-actions).
 
-## Generate CODEOWNERS
+## Write CODEOWNERS
 
 ```bash
 checkowners generate
 ```
 
-The command writes inferred owners into the generated block and leaves a manual block unchanged. Dialects, round-trip checks, and the file layout are in [Generated CODEOWNERS](USAGE.md#generated-codeowners).
+The command fills the generated block and leaves a manual block alone. Where to
+go next:
+
+- [Usage](USAGE.md) for every command, every config key, and CI.
+- [Methodology](METHODOLOGY.md) for the signals, the formulas, and the limits.
+- [Privacy](PRIVACY.md) for what is read, stored, and sent.
+- [FAQ](FAQ.md) for tokens, teams, identity, and troubleshooting.

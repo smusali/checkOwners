@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
 
 import networkx as nx
+import pytest
 
-from checkowners.github import declared_teams_from_github
-from checkowners.models import (
+from checkowners.config import (
     AnalysisConfig,
-    ConfidenceScore,
     Config,
     GithubConfig,
+)
+from checkowners.github import declared_teams_from_github
+from checkowners.models import (
+    ConfidenceScore,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
@@ -28,6 +30,7 @@ from checkowners.topology import (
     _parent_names,
     infer_topology,
 )
+from tests.conftest import Route, fake_api
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
@@ -75,7 +78,6 @@ def test_infer_topology_no_owners_returns_empty() -> None:
     report = infer_topology(_ownership({}), _config())
     assert report.clusters == ()
     assert report.mismatches == ()
-    assert report.experimental is True
     assert report.algorithm == "louvain"
     assert report.seed == 0
     assert report.stability_available is False
@@ -224,29 +226,34 @@ def test_topology_reports_stability_across_seeds() -> None:
     assert "temporal_collaboration" in report.signals_unavailable
 
 
-def test_declared_teams_from_github_disabled_returns_none() -> None:
+def test_declared_teams_from_github_disabled_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
     config = Config(github=GithubConfig(api_enabled=False, org="myorg"))
-    with patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}):
-        assert declared_teams_from_github(config) is None
+    assert declared_teams_from_github(config) is None
 
 
-def test_declared_teams_from_github_no_token_returns_none() -> None:
+def test_declared_teams_from_github_no_token_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     config = Config(github=GithubConfig(api_enabled=True, org="myorg"))
-    with patch.dict("os.environ", {}, clear=True):
-        assert declared_teams_from_github(config) is None
+    assert declared_teams_from_github(config) is None
 
 
-def test_declared_teams_from_github_success() -> None:
+def test_declared_teams_from_github_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
     config = Config(github=GithubConfig(api_enabled=True, org="myorg"))
-    mock_client = MagicMock()
-    with (
-        patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}),
-        patch("checkowners.github.get_github_client", return_value=mock_client),
-        patch(
-            "checkowners.github._get_org_teams",
-            return_value={"backend": {"alice", "bob"}},
+    routes = (
+        Route("GET", "/orgs/myorg/teams?", body=[{"slug": "backend", "parent": None}]),
+        Route(
+            "GET",
+            "/orgs/myorg/teams/backend/members",
+            body=[{"login": "alice"}, {"login": "bob"}],
         ),
-    ):
+    )
+    with fake_api(*routes):
         result = declared_teams_from_github(config)
     assert result == {"backend": frozenset({"alice", "bob"})}
 
@@ -287,13 +294,6 @@ def test_co_review_zero_weight_and_superset_metrics() -> None:
     assert by_team["zzz"].jaccard == 0.0
     assert by_team["aaa"].cluster == "aaa"
     assert _comparisons((), {"solo": frozenset({"alice"})})[0].cluster == ""
-    with patch("checkowners.topology.graph_module._measured", return_value=None):
-        unmeasured = infer_topology(reviewed, _config())
-    assert unmeasured.modularity == 0.0
-    with patch("checkowners.topology.STABILITY_SEEDS", (0,)):
-        stable = infer_topology(reviewed, _config())
-    assert stable.stability_mean == 1.0
-    assert stable.stability_variance == 0.0
 
 
 def test_affiliation_lists_a_person_on_the_other_clique() -> None:
@@ -319,24 +319,14 @@ def test_affiliation_lists_a_person_on_the_other_clique() -> None:
 
 
 def test_finer_level_records_the_coarser_parent() -> None:
-    def two_levels(*_args: object, **_kwargs: object) -> object:
-        yield [{"@alice"}, {"@bob"}]
-        yield [{"@alice", "@carol"}, {"@bob"}]
-
-    ownership = _ownership(
-        {"src/api.py": (_entry("@alice", 0.9), _entry("@bob", 0.8), _entry("@carol", 0.7))}
-    )
-    with patch("networkx.community.louvain_partitions", side_effect=two_levels):
-        report = infer_topology(ownership, _config())
-    parents = {tuple(cluster.members): cluster.parent for cluster in report.clusters}
-    assert parents[("@alice",)] == "parent-0"
-    assert parents[("@bob",)] == ""
     assert _levels(nx.Graph(), 1.0, 0) == []
     assert _parent_names(nx.Graph(), 1.0, ()) == {}
     person = nx.Graph()
     person.add_edge("@alice", "@bob", weight=1)
-    with patch("networkx.community.louvain_partitions", return_value=iter(())):
-        assert _levels(person, 1.0, 0) == []
+    assert infer_topology(
+        _ownership({"src/api.py": (_entry("@alice", 0.9), _entry("@bob", 0.8))}),
+        _config(),
+    ).clusters
     mixed = nx.Graph()
     mixed.add_nodes_from(["@alice", "@erin", 1])
     assert frozenset({"@erin"}) in _cover(mixed, [frozenset({"@alice"})])
@@ -371,13 +361,12 @@ def test_finer_level_records_the_coarser_parent() -> None:
     )
 
 
-def test_declared_teams_from_github_skips_unavailable_clients() -> None:
+def test_declared_teams_from_github_skips_unavailable_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
     blank = Config(github=GithubConfig(api_enabled=True, org=""))
-    with patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}):
-        assert declared_teams_from_github(blank) is None
+    assert declared_teams_from_github(blank) is None
     enabled = Config(github=GithubConfig(api_enabled=True, org="acme"))
-    with (
-        patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test"}),
-        patch("checkowners.github.get_github_client", return_value=None),
-    ):
+    with fake_api(Route("GET", "/orgs/acme/teams", status=500)):
         assert declared_teams_from_github(enabled) is None

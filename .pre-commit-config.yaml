@@ -17,10 +17,10 @@ repos:
     hooks:
       - id: mypy-strict
         name: mypy --strict
-        entry: python3 tools/with_venv.py mypy --strict checkowners/
+        entry: python3 tools/with_venv.py mypy --strict src/checkowners/
         language: system
         pass_filenames: false
-        files: ^checkowners/.*\.py$
+        files: ^src/checkowners/.*\.py$
       - id: checkowners-validate
         name: Validate CODEOWNERS syntax
         entry: python3 tools/with_venv.py checkowners validate
@@ -30,7 +30,7 @@ repos:
         stages: [pre-commit, pre-merge-commit, pre-push, manual]
       - id: checkowners-drift
         name: Detect CODEOWNERS drift
-        entry: python3 tools/with_venv.py checkowners drift --baseline .checkowners-baseline.json
+        entry: python3 tools/with_venv.py checkowners drift
         language: system
         pass_filenames: false
         stages: [pre-push]

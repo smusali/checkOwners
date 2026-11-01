@@ -1,278 +1,150 @@
-# Contributing to CheckOwners
+# Contributing to checkOwners
 
-Thanks for thinking about contributing. CheckOwners is a pure-git ownership inference engine; this guide covers the local workflow, the conventions enforced by CI, and the PR process.
+checkOwners is a pure-git ownership inference engine. This guide covers the
+local workflow, the conventions CI enforces, and the pull-request process.
 
 ## Picking work
 
-Start from a [good first issue](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or any [open issue](https://github.com/smusali/checkowners/issues). Every planned change is an issue with a label for the release it ships in, such as [`v0.7.0`](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3Av0.7.0), and its "Blocked by" list names what has to merge first. One `Upgrade to v0.x.0` issue per release pins and publishes that version.
-
-Usage questions go to [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a). The issue tracker is for bugs, false positives, and features; those forms are required.
+Start from a
+[good first issue](https://github.com/smusali/checkowners/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+or any [open issue](https://github.com/smusali/checkowners/issues). Every
+planned change is an issue labeled for the release it ships in, and its blocked-by
+list names what has to merge first. Usage questions go to
+[Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a).
 
 ## Quick start
 
 ```bash
 git clone https://github.com/smusali/checkowners.git
 cd checkowners
-pip install hatch
-hatch run test
+uv sync --frozen --all-extras --group dev
 ```
 
-`hatch run test` builds the env (including `[graph]` and `[github]` via the `dev` extra), runs the suite with coverage, fails if total coverage is below 85%, and prints a branch-coverage report for `patterns.py`, `analyze.py`, `drift.py`, and `generate.py`. Everything else (lint, format, build) flows through the same environment.
-
-Without hatch:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-pytest
-```
-
-## Common commands
+Dependencies come from `uv.lock`, and every command below runs inside that
+environment.
 
 | Command | What it does |
-|---------|--------------|
-| `hatch run test` | pytest with coverage; CI fails below 85% |
-| `hatch run test -- tests/test_analyze.py --no-cov` | run a single test file without the coverage floor |
-| `hatch run test -- -k "test_name" --no-cov` | run tests matching a substring without the coverage floor |
-| `hatch run lint` | ruff check (including S and PTH) + mypy `--strict` |
-| `hatch run fmt` | ruff format |
-| `hatch build` | produce sdist and wheel in `dist/` |
+| --- | --- |
+| `uv run pytest` | the whole suite |
+| `uv run pytest tests/test_analyze.py` | one test file |
+| `uv run pytest -k "test_name"` | the tests matching a substring |
+| `uv run ruff check .` | lint, including the S and PTH rules |
+| `uv run ruff format .` | format |
+| `uv run mypy` | types, `--strict` from `pyproject.toml` |
+| `uv build` | produce the sdist and wheel in `dist/` |
 
-The documentation site uses the locked docs requirements. From a clean checkout:
-
-```bash
-python -m pip install --require-hashes -r requirements-docs.lock
-python -m pip install --no-build-isolation --no-deps .
-mkdocs build --strict
-python tools/check_docs.py site
-```
-
-CI installs from `requirements-dev.lock` with hashes. A pull request runs pytest on Ubuntu for Python 3.11, 3.12, 3.13, and 3.14, plus macOS and Windows on Python 3.14, each with the runner's Git. Each of those test jobs stops at 25 minutes. Pushes to `main`, the nightly schedule, and a manual run repeat the suite on Ubuntu, macOS, and Windows for every supported Python, and also run Ubuntu on Python 3.14 with Git 2.23.0 and Git 2.39.3. The runner's Git is the latest cell. CI then builds the wheel, smoke-tests CLI subcommands against the built artifact (including `checkowners[all]` and `py.typed`), and runs ruff plus mypy `--strict`. Match the pull-request set locally before opening a PR. A green `pytest` on macOS or Windows runs the same path corpus CI uses: spaces, Unicode, letter case, a long path, and repo-relative separators. The matcher tests also lock forward slashes, backslashes, mixed separators, drive letters, and UNC paths, with no live filesystem.
-
-Optionally, install the pre-commit hooks so ruff, formatting, and mypy run on every commit. This repository also runs `checkowners validate` when a CODEOWNERS file changes, and `checkowners drift` on push against `.checkowners-baseline.json`.
+The documentation site uses the `docs` group:
 
 ```bash
-pip install pre-commit
-pre-commit install
+uv sync --frozen --group docs && uv run mkdocs build
 ```
 
-`pre-commit install` registers both the commit hook and the push hook (`default_install_hook_types`). Re-run it after pulling this change if the hooks were already installed. The mypy and checkowners hooks use `.venv` or `venv` when one of those directories is present.
+Optionally install the hooks so ruff, formatting, and mypy run on every commit,
+plus `checkowners validate` when CODEOWNERS changes and `checkowners drift` on
+push:
 
-## Branch and PR workflow
+```bash
+uv run pre-commit install
+```
+
+## Pull requests
 
 ```mermaid
 flowchart LR
-    Fork[Fork repo] --> Branch[Topic branch]
-    Branch --> Local[Local commits]
-    Local --> Push[Push to fork]
-    Push --> PR[Open PR to main]
-    PR --> CI[CI runs]
-    CI --> Review[Maintainer review]
-    Review --> Merge[Squash + merge]
+  Fork["Fork"] --> Branch["Topic branch"]
+  Branch --> Push["Push"]
+  Push --> PR["Open a PR"]
+  PR --> CI["CI runs"]
+  CI --> Review["Review"]
+  Review --> Merge["Squash and merge"]
 ```
 
-1. Fork the repo and create a branch named after the change (`feat/topology-overlap`, `fix/validate-inline-comments`).
-2. Keep commits focused; one conventional commit per logical step. Squash-and-merge is the default, so commit history inside the branch can be granular without polluting `main`.
-3. Open the PR against `main`. The PR description should state the user-visible behavior change, link to any related issue, and call out follow-up work that is intentionally out of scope.
-4. Wait for CI; fix anything red. Maintainers review once CI is green.
+Name the branch after the change, keep commits focused, and open the pull
+request against `main`. The description states the user-visible behavior change,
+links the issue, and names follow-up work that is intentionally out of scope.
+Squash and merge is the default, so granular commits inside a branch are fine.
 
-## Conventional commits
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
+`feat`, `fix`, `docs`, `chore`, `ci`, or `test`, with a module name or an
+umbrella area as the scope. The body explains why.
 
-Every commit on `main` follows the [Conventional Commits](https://www.conventionalcommits.org/) spec so the changelog can be generated mechanically:
+CI runs pytest on Ubuntu for Python 3.11 to 3.15 plus macOS and Windows on the
+newest, each with the runner's Git. Pushes to `main`, the nightly schedule, and
+a manual run add every operating system for every Python, plus Ubuntu with Git
+2.23.0 and 2.39.3. CI then builds the wheel, exercises the CLI against it, and
+runs ruff and `mypy --strict`.
 
-- `feat(<scope>): <subject>` for user-visible additions
-- `fix(<scope>): <subject>` for bug fixes
-- `docs(<scope>): <subject>` for documentation
-- `chore(<scope>): <subject>` for tooling / metadata
-- `ci(<scope>): <subject>` for workflow changes
-- `test(<scope>): <subject>` for test-only changes
+## Conventions
 
-Scopes match module names (`analyze`, `drift`, `cli`, etc.) or umbrella areas (`docs`, `ci`, `security`). The commit body explains the *why* and the body lines stay wrapped at 80 columns or so.
-
-## Code conventions
-
-- Python 3.11 minimum through 3.14. Git 2.23.0 or newer is required at runtime because blame ignore-revs landed in that release. An older Git exits 4 with the version it found and tells you to install a newer Git. Use modern syntax (`X | Y` unions, `dict[str, int]`).
-- Python 3.10 is not supported. It reaches upstream end of life in October 2026, and chasing it would only complicate the runtime. The Action installs its own interpreter. Older system Pythons are better served by standalone artifacts than by widening `requires-python`.
-- Functional style. The only classes allowed are dataclasses in `models.py` and small frozen dataclasses living inside the module that returns them.
-- Type hints on **every** function signature; `mypy --strict` is enforced.
-- All paths via `pathlib.Path`; never hardcode strings. Ruff `PTH` enforces this.
-- New CLI subcommand? Wire it in `cli.py`, give it a `--json` mode, and persist results through `state.write_state` when appropriate.
-- Ownership is never binary: every owner carries an `ownership_score` in `[0.0, 1.0]` plus a separate `evidence_quality`.
+- Python 3.11 to 3.15, and Git 2.23.0 or newer at runtime because blame ignore-revs landed there. An older Git exits 4 and names the version it found.
+- Functional style. The classes are dataclasses, frozen where they can be.
+- A type hint on every signature; `mypy --strict` is enforced over `src`, `tests`, and `tools`.
+- Paths are `pathlib.Path`, which ruff `PTH` enforces.
+- A new command lives in one of the `cli/` modules, takes `--json`, and persists through `state.write_state` when that makes sense.
+- Ownership is never binary: an owner carries an `ownership_score` and a separate `evidence_quality`.
 
 ## Tests
 
-- Every module has a `tests/test_<module>.py`.
-- Unit tests mock subprocess calls such as `git log` and `git blame`. They do not need a git binary.
-- Integration tests build a temporary repository with the `git_repo` fixture in `tests/conftest.py`. Commits pin `GIT_AUTHOR_DATE` and `GIT_COMMITTER_DATE`. Mark them `@pytest.mark.integration`.
-- Drift, patterns, generate, and validate keep both layers: mocked unit tests, and integration tests against a real git history and real CODEOWNERS text.
-- `pytest -m integration` selects the integration tests. `pytest -m "not integration"` skips them. The default `pytest` run includes them, including on every pull request.
-- The integration marker must finish within 60 seconds.
-- `tests/test_golden.py` is the ownership judgment suite. Histories pin author and committer dates, and analysis uses a fixed as-of. Expected conclusions are keyed by `OWNERSHIP_MODEL_VERSION`. A model-version change updates that record in the same commit. The beliefs are written in `docs/METHODOLOGY.md`.
-- Blame-fidelity tests may keep calling `init_git_repo` and `git_commit`.
-- Git 2.23.0 or newer is required. The fixture fails if `git version` is older. The scripted repository used by the integration tests includes spaces, Unicode, a case-distinct path, and a long path. A green run on macOS or Windows executes that same corpus.
-- Tests that touch `~/.checkowners/state.json` set the `CHECKOWNERS_STATE_DIR` env var so they don't clobber the contributor's real state.
-- Coverage is enforced at 85% repo-wide (`--cov-fail-under=85`); new modules should land above that. The floor is a gate, not a substitute for tests against real git repositories and real CODEOWNERS files. For a focused run that should not apply the floor, pass `--no-cov`.
-- `checkowners/patterns.py` also fails CI below 100% branch coverage. The cases live in `corpus/compatibility.jsonl` (pattern, path, and whole-file rules) and `corpus/realworld.jsonl` (parser fixtures from permissively licensed public repositories). `corpus/README.md` is the format other tools can load.
-- Property and differential tests use Hypothesis. `HYPOTHESIS_PROFILE=ci` (the default) runs 200 examples. `HYPOTHESIS_PROFILE=nightly` runs 10,000.
-- The nightly Fuzz workflow runs that profile. A shrunk failure is a JSON object with `kind`, `category`, `pattern`, `path`, and `expected`. Append it to `corpus/compatibility.jsonl` and fix the matcher. Do not commit a bot-generated file.
-
-## Quality bar
-
-The Fuzz workflow's `mutation` job runs on the nightly cron `0 6 * * *` and on `workflow_dispatch`. It is a sibling of the fuzz job, and it is not in `ci.yml`. The job sets `HYPOTHESIS_PROFILE=ci`. One Ubuntu runner and Python 3.14 run five `mutmut run` calls into one `mutants/` directory.
-
-The scopes are:
-
-- `patterns.py`, `drift.py`, and `generate.py`: every function. Local command: `mutmut run "checkowners.patterns.x*"`, and the same shape for `drift` and `generate`.
-- `analyze.py` scoring: `combine_available_signals`, `signal_weights`, `signal_reliabilities`, `frequency_prior_for`, `_qualify_authors`, `score_owners`, `effective_half_life`, `_as_days`, `_bounded_half_life`, `_historical_expertise`, `_classify_freshness`, `_recency_score`, `_elapsed_days`, `frequency_credit`, `_frequency_score`, and `_clamp`.
-- `github.py` identity: `resolve_noreply_handle`, `resolve_handles`, `_cached_handle`, `_rate_remaining`, `_search_budget_allows`, `_lookup_handle`, and `_lookup_commit_login`.
-
-A scoped local run passes those names as globs, for example `mutmut run "checkowners.analyze.x_score_owners*" "checkowners.analyze.x__clamp*"`.
-
-The score is `100 * killed / (killed + survived)`. Killed exit codes are 1, 3, and 37. Timeouts stay out of the score. The job fails when a scope has no scored mutants, and when `patterns.py` is under 90. The other four scopes publish the measured score and have no floor.
-
-This baseline was measured with `HYPOTHESIS_PROFILE=ci`. `pattern_matches` returning `regex.match(path) is not None` is killed.
-
-| Scope | Killed | Survived | Score |
-| --- | ---: | ---: | ---: |
-| `patterns.py` | 331 | 9 | 97.4 |
-| `drift.py` | 770 | 13 | 98.3 |
-| `generate.py` | 622 | 29 | 95.5 |
-| `analyze.py` scoring | 313 | 6 | 98.1 |
-| `github.py` identity | 109 | 1 | 99.1 |
-
-These survivors leave behavior unchanged:
-
-- `marker_layout` assigns `open_line` and `open_offset` when a block opens, so the initial `0` can be `None` or `1` without being read. The initial `manual_done` of `False` can be `None`: `None` is falsy, and a completed block assigns `True` before a repeat is checked.
-- `_degenerate_globstar` can treat a body of `""` as degenerate. The only such pattern is `/`, and `_translate` already turns it into a regex that matches nothing.
-- `_translate` can wrap the empty-pattern regex `(?!)` in extra literal text. The regex still matches nothing.
-- `_translate_segment` reads `escaped` as a flag. `None` is falsy both at the start and after an escape is consumed.
-- `_load_rules`, `_read_existing`, `ensure_overwrite_safe`, `_write_codeowners`, and `write_github_output` can pass `encoding=None` or `encoding="UTF-8"` where the source passes `"utf-8"`. `"UTF-8"` is the same codec. `None` selects the process locale, and this baseline and the nightly runner use UTF-8, so the CODEOWNERS text is unchanged. Omitting the argument selects that same locale default.
-- `_compare` assigns `changed`, `notes`, and `reviews` for `commit`, `repo`, and `both` before it builds the result, so an initial `None` is unused.
-- `_find_changed` can start `team_rules_skipped` at `None`. `None` is falsy, so a comparison with no team rule still omits the team note.
-- `_confidence_delta` can return `1.0` for equal casefolded owner sets. `_measure_divergence` returns before that call when the sets already match.
-- `drift_entry_payload` and `_reconciliation_entry` build a one-entry result so `compute_severity` can score it. That score uses qualified-owner counts, decay, and the confidence delta. `drift_detected` can be `None` or `False` on that temporary result.
-- `_as_days` can subtract `0.0` instead of adding it. The day count is unchanged.
-- `_bounded_half_life` can use `<=` and `>=` at the floor and ceiling. A cadence equal to either bound still returns that bound.
-- `_elapsed_days` can treat `seconds < 0` like `seconds <= 0`, treat `seconds <= 1` like `seconds <= 0`, and use `/` instead of `//`. Zero and a fraction of a second still return 0, and a positive duration still truncates to whole days.
-- `_search_budget_allows` can return true after the request budget is already spent. `resolve_handles` checks that budget again before a search, so no lookup runs and the budget gap is unchanged.
-- `generate_codeowners`, `_build_codeowners_content`, and `_render_codeowners` can default `token` or `org` to `"XXXX"`. Team resolution runs only when both values are non-empty, and each mutant changes one default while the other stays `""`.
-- `_read_existing` can return `"XXXX"` for a missing file. That text has no markers, so the manual slice stays empty.
-- `_collect_rows` can sort with `key=None`. The path is the first element of each row and paths are unique, so the order matches a path sort.
-- `_consolidate` can split a root path with `split("/")` or `split("/", 2)` instead of `split("/", 1)`. The first segment is the same.
-- `_merge_owners` can omit `score_breakdown=None`. `None` is the field default.
-- `_records_for_group` looks up paths that are already in the owner map, so the `()` default can be `None` or omitted.
-- `_resolve_sanitized_rows` recurses with per-file rows only. Those rows cannot explode, so `file_owners`, `allow_broad`, and `depth` on the recursive call are unread. On the first call, `depth < 1`, `depth <= 1`, and `depth < 2` are all true, and exploding a per-file row with `or` reproduces that row.
-
-A rewritten module gets this baseline recorded again. The workflow summary and the open issue titled `Mutation scores` show the latest run. This table is the snapshot for the tree that produced it, and the two can diverge until the baseline is recorded again.
-
-The weekly `CODEOWNERS conformance` workflow (`.github/workflows/codeowners-conformance.yml`) reruns `python tools/build_codeowners_corpus.py conformance --check`. It opens or updates an issue titled `CODEOWNERS conformance pass rate` when the recorded rate drops. It does not commit from CI. Refresh `corpus/codeowners_errors.jsonl` and `corpus/conformance.json` locally when the recorded cases change.
+- Each module has a `tests/test_<module>.py`, and the CLI suite lives in `tests/cli/`.
+- Tests run the real CLI against a real temporary git repository built by the `git_repo` fixture, with author and committer dates pinned.
+- `unittest.mock` appears only at the GitHub HTTP seam, `checkowners.github.request`, through the `fake_api` fixture, and at the comment-on-PR `urlopen` seam.
+- Tests that touch the cache set `CHECKOWNERS_STATE_DIR` so they never write the contributor's real state.
+- Property tests use Hypothesis, which runs 200 examples by default.
+- `filterwarnings = ["error"]` is on, so a new warning fails the suite.
 
 ## Dependencies
 
-Runtime dependencies are capped at the next untested major (`typer>=0.9.0,<1`, `rich>=13.0.0,<16`, and so on). Bump a ceiling when CI proves the new major. CI installs third-party test and lint deps from `requirements-dev.lock` with hashes across Python 3.11–3.14, so interpreter-specific pins (today `pyyaml-ft`) must keep environment markers. The composite Action installs runtime extras from `requirements.lock` with hashes.
-
-## Coverage uploads
-
-CI uploads `coverage.xml` to Codecov with the `CODECOV_TOKEN` repository secret. Install the [Codecov GitHub App](https://github.com/apps/codecov) on the account for PR comments and status checks. If the README badge still 500s after a green upload on `main` (typical leftover state after an organization move), erase the project in Codecov's Danger Zone and let the next CI run recreate it.
-
-## Reporting bugs
-
-Open an issue from the [issue chooser](https://github.com/smusali/checkowners/issues/new/choose). Use the bug form for a defect, the false-positive form when inference named the wrong owner, and the feature form for a proposed change. Each form asks for the command, configuration (no tokens), repository shape, and merge strategy. False-positive reports that opt in are added to the public ledger in [docs/false-positives.md](false-positives.md). A fixed entry keeps the original evidence and names the regression test. An open entry names the tracking issue.
-
-Usage questions belong in [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a), not the issue tracker.
-
-## Security issues
-
-Do not open public issues for vulnerabilities. Use [private vulnerability reporting](https://github.com/smusali/checkowners/security/advisories/new). You can also email <fortyone.technologies@gmail.com> with a description and a proof-of-concept. We will respond and coordinate disclosure.
+Runtime dependencies are capped at the next untested major (`typer>=0.9.0,<1`,
+`rich>=13.0.0,<16`, and so on); raise a ceiling when CI proves the new major.
+`uv.lock` pins the development, docs, and tools groups with hashes across
+Python 3.11 to 3.15. `requirements.lock` holds the runtime set alone, exported
+with `uv export --no-dev --no-emit-project --extra graph`, because the composite
+Action installs it with `pip --require-hashes`. Regenerate both in the commit
+that changes a dependency.
 
 ## Breaking changes
 
-A breaking change is any of:
+Removing a command, changing the JSON schema, the scoring model, the default
+policy, an Action input or output, or the configuration schema is a breaking
+change. A `0.x` minor release may include one when the changelog calls it out;
+`1.x` keeps those contracts stable until a major release. `1.0` additionally
+means external production users and outside contributors, not a star count.
 
-- CLI command removal
-- JSON schema changes
-- scoring-model changes
-- default policy changes
-- Action input or output changes
-- configuration schema changes
-
-`0.x` may include those changes in a minor release when the changelog calls them out. `1.x` keeps those contracts stable until a major release.
-
-Scoring, risk classification, and topology each have a model id (`model.ownership`, `model.risk`, `model.topology`). Changing the algorithm bumps that id. Configuration files may pin the ids this release implements; an unknown pin is refused. Cached analyze state and the graph cache are reused only when those ids match.
-
-Append user-visible notes under `[Unreleased]` in [docs/CHANGELOG.md](CHANGELOG.md) as they merge. Leave `[Unreleased]` non-empty. A pointer to the next `Upgrade to v0.x.0` issue is enough when nothing has landed yet.
-
-## Semantic versioning
-
-`1.0` means the JSON schema, the configuration schema, the CLI, and the exit codes are stable, under the breaking-change definition above. It also means multiple external production users, real issue and pull-request activity, and several outside contributors. No star threshold is required. Usage matters more. Do not rush `1.0`.
-
-Until then, `0.x` may change those contracts in a minor release when the changelog calls the change out.
-
-## Governance
-
-Project rules live in this guide. The [code of conduct](https://github.com/smusali/checkowners/blob/main/CODE_OF_CONDUCT.md) covers behavior. Architectural decisions are in [Decisions](decisions.md).
-
-## Maintainers
-
-Samir Musali (`@smusali`) is the only Core Maintainer, and the only person with release rights. The second maintainer seat is open. It is not filled.
-
-Release rights mean permission to publish a GitHub Release. Publishing a release is what starts the publish workflow.
-
-A person can take the open seat when they already meet the Maintainer rung and a Core Maintainer grants release rights in public.
-
-## Contributor ladder
-
-| Rung | Criteria |
-| --- | --- |
-| Contributor | A merged change. |
-| Reviewer | Repeated review on areas they know. |
-| Maintainer | Can merge in those areas. |
-| Core Maintainer | Release rights, and changes to these rules. |
-
-## Open core
-
-The open-source tool is the repository. A commercial layer, if one is ever built, starts at organization-wide features. This document draws the boundary. It does not build the commercial layer.
-
-| Open source, forever, no asterisk | Commercial layer |
-| --- | --- |
-| Single-repository analysis, all commands | Cross-repository and organization-wide aggregation |
-| Full JSON output, full schema, no gating | Historical time-series storage and trend alerting |
-| CODEOWNERS generation, drift, validation | Organization-level identity graph and team reconciliation |
-| Per-repository risk, decay, topology | Ranked organization-wide risk register and remediation workflow |
-| The Action, the CLI, the pre-commit hook | Hosted dashboards, SSO, RBAC, ticket and chat routing |
-| The inference spec and conformance corpus | Benchmarks against peer organizations |
-
-Rules that protect both sides:
-
-- Do not cripple the open-source tool to sell a paid one.
-- Zero telemetry, ever, by default. CheckOwners does not phone home. Network use is opt-in GitHub API access.
-- A commercial product consumes the open-source JSON contract unmodified. Schema changes ship to open source first.
-- The license stays MIT.
-- The privacy controls are required for this boundary.
-- The validation study is the moat.
-
-## AI-assisted changes
-
-Changes in this repository may be written with agent assistance. Every AI-assisted change is human-reviewed, tested, and signed off before it merges. The README states the same rule in short form. This section is the process.
+Add user-visible notes under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) as
+they merge, one line each.
 
 ## Releasing
 
-One tagged GitHub Release produces the artifacts. Nothing publishes from `main` by itself.
+One tagged GitHub Release produces the artifacts; nothing publishes from `main`
+on its own.
 
-1. Set `__version__` in `checkowners/__init__.py`.
-2. Move `[Unreleased]` to a dated heading `## [X.Y.Z] - YYYY-MM-DD`, using the UTC day the version is published to PyPI.
-3. Set `version` in `CITATION.cff` to that same version in the same commit.
-4. Keep the Action pin, the committed wheel, and the lockfiles on that version. `tools/check_changelog.py` rejects a tag whose pins or changelog heading disagree.
-5. Publish the GitHub Release. The tag is `vX.Y.Z`. The publish workflow checks the changelog, runs `hatch build`, publishes to PyPI with a GitHub OIDC token, writes a CycloneDX SBOM from `requirements.lock`, attests the distributions, and uploads the SBOM and provenance to the release.
-6. The docs workflow deploys that version and points the `latest` alias at it.
+1. Set `__version__` in `src/checkowners/__init__.py`.
+2. Move `[Unreleased]` to a dated `## [X.Y.Z] - YYYY-MM-DD` heading, using the UTC day of the PyPI release.
+3. Keep the Action pin, the committed wheel, and both lockfiles on that version. `tools/check_changelog.py` rejects a tag whose pins or heading disagree.
+4. Publish the release as `vX.Y.Z`. The workflow checks the changelog, runs `uv build`, publishes with a GitHub OIDC token, writes a CycloneDX SBOM, attests the distributions, and uploads the SBOM and provenance.
+5. The docs workflow deploys that version and points `latest` at it.
 
-There is no Docker image, Homebrew formula, or standalone binary in this repository today. An extra channel, when it exists, publishes from that same tagged release and not from `main`.
+## Governance
 
-## Roadmap
+Samir Musali (`@smusali`) is the only Core Maintainer and the only person with
+release rights. The second maintainer seat is open. The rungs are Contributor (a
+merged change), Reviewer (repeated review in an area), Maintainer (can merge
+there), and Core Maintainer (release rights, and changes to these rules).
 
-Planned work is an issue labeled for the release it ships in. One upgrade issue per release pins that version. There is no separate roadmap file.
+The [code of conduct](https://github.com/smusali/checkowners/blob/main/CODE_OF_CONDUCT.md)
+covers behavior, and the architectural decisions are in
+[Methodology](METHODOLOGY.md#decisions).
 
-## Security
+Changes here may be written with agent assistance. Every one of them is
+human-reviewed, tested, and signed off before it merges.
 
-Supported versions and how to report a vulnerability are in the [security policy](https://github.com/smusali/checkowners/blob/main/SECURITY.md).
+## Reporting
+
+Open an issue from the
+[issue chooser](https://github.com/smusali/checkowners/issues/new/choose): the
+bug form for a defect, the wrong-owner form when inference named the wrong
+owner, the feature form for a proposal. Each asks for the command, the
+configuration without tokens, the repository shape, and the merge strategy.
+
+Supported versions and how to report a vulnerability are in the
+[security policy](https://github.com/smusali/checkowners/blob/main/SECURITY.md).

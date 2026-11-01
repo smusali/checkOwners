@@ -1,6 +1,6 @@
 # Sample output
 
-Trimmed `analyze --json` and `drift --json`. Handles are shown as GitHub usernames. A run without `GITHUB_TOKEN` emits commit emails instead and skips owner-set comparison. Envelope fields (`schema_version`, `checkowners_version`, `models`, `repository`, `head_sha`, `generated_at`, `analysis_completeness`) are omitted here.
+Trimmed `analyze --json` and `drift --json`. Handles are shown as GitHub usernames. A run without `GITHUB_TOKEN` emits commit emails instead and skips owner-set comparison. Envelope fields (`checkowners_version`, `repository`, `head_sha`, `generated_at`, `analysis_completeness`) are omitted here.
 
 ## `checkowners analyze --json`
 
@@ -48,4 +48,4 @@ Trimmed `analyze --json` and `drift --json`. Handles are shown as GitHub usernam
 }
 ```
 
-`docs/CODEOWNERS` is a generated `* @smusali` rule, so coverage is complete. Without a token the owner sets are not compared (email vs `@handle`). The Action's dogfood comment on a clean PR is the resolved form: "CheckOwners: no drift detected."
+`docs/CODEOWNERS` is a generated `* @smusali` rule, so coverage is complete. Without a token the owner sets are not compared (email vs `@handle`). The Action's dogfood comment on a clean PR is the resolved form: "checkOwners: no drift detected."

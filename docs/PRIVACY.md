@@ -6,7 +6,7 @@ checkOwners reads git history on the machine where it runs and writes an ownersh
 
 `output.anonymize`, `output.aggregate_only`, `privacy.redact_emails` (`--redact-emails`), `identity.mode`, and `contributors.exclude` control what reports may show. See [Privacy controls](USAGE.md#privacy-controls).
 
-`suggest` (alias `balance`) is the report most likely to be misused for individual evaluation. It names people only to recommend a reviewer. `output.anonymize` replaces those names with `person-` tokens. `output.aggregate_only` drops names, the recommendation, and per-person load fields, and keeps `load_signal` plus path-level `review_concentration` and divergence. Do not use either form in a performance review.
+`suggest` is the report most likely to be misused for individual evaluation. It names people only to recommend a reviewer. `output.anonymize` replaces those names with `person-` tokens. `output.aggregate_only` drops names, the recommendation, and per-person load fields, and keeps `load_signal` plus path-level `review_concentration` and divergence. Do not use either form in a performance review.
 
 ## What is read
 
@@ -21,7 +21,7 @@ Source file contents are not uploaded. The cache key is the normalized `origin` 
 
 ## What leaves the machine
 
-With `--offline`, with no `GITHUB_TOKEN`, or without the `github` extra, nothing does. The command prints:
+With `--offline`, or with no `GITHUB_TOKEN`, nothing does. The command prints:
 
 ```text
 Network access: disabled
@@ -29,7 +29,7 @@ Review evidence: unavailable
 Team verification: unavailable
 ```
 
-Otherwise a token can be used for the calls below. Each one runs only when its gate is on, the token is set, and the `github` extra is installed. `--offline` skips all of them. Noreply addresses, `.mailmap`, and an existing handle file still resolve locally.
+Otherwise a token can be used for the calls below. Each one runs only when its gate is on and the token is set. `--offline` skips all of them. Noreply addresses, `.mailmap`, and an existing handle file still resolve locally.
 
 | When | Call | Sent |
 | --- | --- | --- |
@@ -39,9 +39,9 @@ Otherwise a token can be used for the calls below. Each one runs only when its g
 | `github.api_enabled` is true and `GITHUB_REPOSITORY` is set. Review collection also resolves handles, so the search row above can run first | Ownership review: `POST /graphql` for closed pulls in the review window, including reviewer logins and changed paths. `suggest` still uses `GET /repos/{owner}/{repo}/pulls` (closed, newest update first, at most 200), then `GET /repos/{owner}/{repo}/pulls/{n}/reviews` and `GET /repos/{owner}/{repo}/pulls/{n}/files`, and reads open pulls the same way, at most 200 | Repository name. Responses are reviewer logins, requested reviewers, and changed paths |
 | `generate` or `sync` with `github.resolve_teams` and `github.org`, or topology and explain when `github.api_enabled` and `github.org` are set | `GET /orgs/{org}`, `GET /orgs/{org}/teams`, `GET /orgs/{org}/teams/{slug}/members` | Organization name. Responses are team slugs and member logins |
 | Composite Action, `comment_on_pr` true, same-repo pull request | `GET /repos/{owner}/{repo}/issues/{n}/comments`, then `POST` a new comment or `PATCH` the existing one | The report markdown |
-| `checkowners sync` without `--commit` or `--dry-run`, when the generated file differs | `GET /repos/{owner}/{repo}`, Git Data reads and writes for one commit on `checkowners/reconcile-codeowners`, then `GET`, `POST`, or `PATCH` `/repos/{owner}/{repo}/pulls` | Repository name, the CODEOWNERS text, and the pull-request body. This call does not use the github extra. |
+| `checkowners sync` without `--commit` or `--dry-run`, when the generated file differs | `GET /repos/{owner}/{repo}`, Git Data reads and writes for one commit on `checkowners/reconcile-codeowners`, then `GET`, `POST`, or `PATCH` `/repos/{owner}/{repo}/pulls` | Repository name, the CODEOWNERS text, and the pull-request body. |
 
-A workflow that posts `GITHUB_OUTPUT` to a webhook does that itself. checkOwners does not open that connection. See [Data flow](#data-flow). The sync row above is the exception to the github extra: it uses the standard library.
+A workflow that posts `GITHUB_OUTPUT` to a webhook does that itself. checkOwners does not open that connection. See [Data flow](#data-flow).
 
 ## What is stored
 
@@ -85,23 +85,18 @@ A job that uses the Action's runner temp directory loses the cache when the runn
 
 ```mermaid
 flowchart LR
-    gitHistory[git history local]
-    identity[identity resolution]
-    reviewApi[review coverage API]
-    teamApi[team resolution API]
-    localOut[terminal and files]
-    githubOutput[GITHUB_OUTPUT]
-    prComment[pull request comment]
-    webhook[caller webhook]
-
-    gitHistory --> identity
-    identity --> reviewApi
-    reviewApi --> teamApi
-    teamApi --> localOut
-    teamApi --> githubOutput
-    teamApi --> prComment
-    githubOutput --> webhook
+  Git["git history"] --> Score["Scoring"]
+  Ids["Identity API"] -.-> Score
+  Reviews["Review API"] -.-> Score
+  Teams["Team API"] -.-> Score
+  Score --> Local["Terminal and files"]
+  Score --> Outputs["Action outputs"]
+  Score --> Comment["PR comment"]
 ```
+
+The dotted edges are optional and gated. Git history is the only required
+input, and every output below is written by checkOwners itself; a webhook is
+posted by the caller's workflow from the Action outputs.
 
 Identity resolution is local first: a configured identity, `.mailmap`, GitHub noreply addresses, then this repository's handle file. A commit lookup sends a SHA and reads `author.login` and account type. User search still sends the email and is last. Org membership is one members request when `github.org` is set. Review coverage and team resolution are API steps and run only under the gates in [What leaves the machine](#what-leaves-the-machine). Outputs are the terminal, local report files, `GITHUB_OUTPUT`, and the pull-request comment. A webhook is optional and is posted by the caller's workflow from `GITHUB_OUTPUT`, not by checkOwners. `output.aggregate_only` drops identities from `identity audit` and leaves `duplicate_count`.
 
@@ -109,9 +104,9 @@ Identity resolution is local first: a configured identity, `.mailmap`, GitHub no
 
 **What source data is read?** Git history, blame, mailmap, ignore-revs, gitattributes, CODEOWNERS, and `.github/checkowners.yml`. Source file contents are not uploaded.
 
-**What leaves the machine?** Nothing under `--offline`, with no token, or without the `github` extra. Otherwise the calls in [What leaves the machine](#what-leaves-the-machine): an unresolved email on user search, repository and pull-request metadata for review coverage, organization and team membership for team resolution, and the report body when the Action comments.
+**What leaves the machine?** Nothing under `--offline` or with no token. Otherwise the calls in [What leaves the machine](#what-leaves-the-machine): an unresolved email on user search, repository and pull-request metadata for review coverage, organization and team membership for team resolution, and the report body when the Action comments.
 
-**When is GitHub contacted?** Only when a gate above is on, `GITHUB_TOKEN` is set, and the `github` extra is installed. Local noreply parsing, mailmap, and cache hits do not contact GitHub.
+**When is GitHub contacted?** Only when a gate above is on and `GITHUB_TOKEN` is set. Local noreply parsing, mailmap, and cache hits do not contact GitHub.
 
 **What is cached?** The ownership map, the ownership graph, and the handle map, under `~/.checkowners/` or `CHECKOWNERS_STATE_DIR`.
 
@@ -121,4 +116,4 @@ Identity resolution is local first: a configured identity, `.mailmap`, GitHub no
 
 **How are tokens handled?** The only supported token source is the `GITHUB_TOKEN` environment variable. `github.token` in config is rejected because that file is committed. See [SECURITY.md](https://github.com/smusali/checkowners/blob/main/SECURITY.md).
 
-**What permissions are required?** Job token scopes are in [What token scopes are needed](FAQ.md#what-token-scopes-are-needed). Copy-paste blocks for the Action are in [GitHub Actions](USAGE.md#github-actions).
+**What permissions are required?** The per-feature permissions are in [the FAQ](FAQ.md#what-permissions-does-each-feature-need), and the workflow blocks are in [GitHub Actions](USAGE.md#github-actions).

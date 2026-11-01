@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   upload:
+    timeout-minutes: 10
     if: >-
       github.event.workflow_run.conclusion == 'success' ||
       github.event.workflow_run.conclusion == 'failure'

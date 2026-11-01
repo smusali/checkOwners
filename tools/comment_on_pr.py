@@ -13,7 +13,7 @@ from checkowners.privacy import KNOWLEDGE_RISK_NOTICE
 
 MARKER = "<!-- checkowners-drift-report -->"
 RESOLVED = (
-    f"{MARKER}\n### CheckOwners: no drift detected\n\n"
+    f"{MARKER}\n### checkOwners: no drift detected\n\n"
     "Previously reported drift has been resolved.\n\n"
     f"{KNOWLEDGE_RISK_NOTICE}\n"
 )

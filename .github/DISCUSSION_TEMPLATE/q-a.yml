@@ -3,8 +3,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Ask usage questions here. Bugs, false positives, and features belong on
-        the issue tracker, which has forms for each.
+        Ask usage questions here. Bugs, wrong owners, and features belong on
+        the issue tracker, which has a form for each.
   - type: textarea
     id: question
     attributes:

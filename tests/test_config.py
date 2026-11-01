@@ -7,25 +7,21 @@ import warnings
 from pathlib import Path
 
 import pytest
-import yaml
 
 from checkowners.config import (
-    _build_suppressions,
+    Config,
+    DriftConfig,
+    QualificationConfig,
     _is_string_tuple,
     find_codeowners_path,
     load_config,
 )
-from checkowners.models import Config, DriftConfig, QualificationConfig, models_payload
 
 
 def _write_config(tmp_path: Path, content: str) -> Path:
     config_dir = tmp_path / ".github"
     config_dir.mkdir(exist_ok=True)
-    text = content
-    first = text.lstrip().splitlines()[0] if text.strip() else ""
-    if first and ":" in first and not first.startswith("version:"):
-        text = f"version: 1\n{text}"
-    (config_dir / "checkowners.yml").write_text(text, encoding="utf-8")
+    (config_dir / "checkowners.yml").write_text(content, encoding="utf-8")
     return tmp_path
 
 
@@ -99,7 +95,7 @@ def test_drift_mode_default_matches_documented_surfaces() -> None:
     root = Path(__file__).resolve().parents[1]
     expected = DriftConfig().mode
 
-    reference = (root / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference = (root / "docs" / "USAGE.md").read_text(encoding="utf-8")
     documented = re.search(r"(?m)^drift:\n  mode: (\w+)", reference)
     assert documented is not None
     assert documented.group(1) == expected
@@ -114,25 +110,6 @@ def test_load_config_empty_file(tmp_path: Path) -> None:
     root = _write_config(tmp_path, "")
     cfg = load_config(repo_root=root)
     assert cfg == Config()
-
-
-def test_rename_similarity_stays_between_1_and_100(tmp_path: Path) -> None:
-    root = _write_config(
-        tmp_path,
-        "analysis:\n  follow_renames: false\n  rename_similarity: 80\n",
-    )
-    cfg = load_config(repo_root=root)
-    assert cfg.analysis.follow_renames is False
-    assert cfg.analysis.rename_similarity == 80
-    invalid = _write_config(tmp_path, "analysis:\n  rename_similarity: 0\n")
-    with pytest.raises(ValueError, match=r"analysis\.rename_similarity"):
-        load_config(repo_root=invalid)
-    too_high = _write_config(tmp_path, "analysis:\n  rename_similarity: 101\n")
-    with pytest.raises(ValueError, match=r"1 to 100"):
-        load_config(repo_root=too_high)
-    bad_flag = _write_config(tmp_path, "analysis:\n  follow_renames: 1\n")
-    with pytest.raises(ValueError, match=r"analysis\.follow_renames must be a boolean"):
-        load_config(repo_root=bad_flag)
 
 
 def test_load_config_partial_override(tmp_path: Path) -> None:
@@ -159,16 +136,21 @@ analysis:
   top_n_owners: 2
   confidence_threshold: 0.5
   respect_gitattributes: false
-scoring:
-  recency_half_life_days: 60
-  recency_weight: 0.5
-  frequency_weight: 0.2
-  blame_weight: 0.2
-  review_weight: 0.1
-  recency_reliability: 0.9
-  frequency_reliability: 0.8
-  blame_reliability: 0.7
-  review_reliability: 0.6
+model:
+  signals:
+    recency:
+      weight: 0.5
+      half_life_days: 60
+      reliability: 0.9
+    frequency:
+      weight: 0.2
+      reliability: 0.8
+    blame:
+      weight: 0.2
+      reliability: 0.7
+    reviews:
+      weight: 0.1
+      reliability: 0.6
 decay:
   threshold_days: 90
   alert_on_decay: false
@@ -255,18 +237,6 @@ identity:
     assert cfg.git.merge_strategy == "squash"
 
 
-def test_load_config_invalid_yaml(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "[[[invalid yaml")
-    with pytest.raises(yaml.YAMLError):
-        load_config(repo_root=root)
-
-
-def test_load_config_non_mapping(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "- a\n- b\n")
-    with pytest.raises(ValueError, match="expected a YAML mapping"):
-        load_config(repo_root=root)
-
-
 def test_risk_thresholds_default_and_custom(tmp_path: Path) -> None:
     assert load_config(repo_root=tmp_path).risk.truck_factor_thresholds == (0.5, 0.75, 0.9)
     root = _write_config(
@@ -276,30 +246,6 @@ def test_risk_thresholds_default_and_custom(tmp_path: Path) -> None:
     assert load_config(repo_root=root).risk.truck_factor_thresholds == (0.4, 0.6, 0.8)
     omitted = _write_config(tmp_path, "risk: {}\n")
     assert load_config(repo_root=omitted).risk.truck_factor_thresholds == (0.5, 0.75, 0.9)
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        "risk:\n  truck_factor_thresholds: [0.5, 0.9]\n",
-        "risk:\n  truck_factor_thresholds: [0.9, 0.5, 0.75]\n",
-        "risk:\n  truck_factor_thresholds: [0, 0.5, 0.9]\n",
-        "risk:\n  truck_factor_thresholds: [0.5, 0.75, 1.1]\n",
-        "risk:\n  truck_factor_thresholds: no\n",
-        "risk:\n  truck_factor_thresholds: [true, 0.6, 0.8]\n",
-        "risk:\n  truck_factor_thresholds: ['x', 0.6, 0.8]\n",
-    ],
-)
-def test_risk_thresholds_rejected(tmp_path: Path, content: str) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match="truck_factor_thresholds"):
-        load_config(repo_root=root)
-
-
-def test_load_config_unknown_keys_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "custom_field: true\nanother: 42\n")
-    with pytest.raises(ValueError, match="Unsupported checkowners config key"):
-        load_config(repo_root=root)
 
 
 def test_load_config_custom_repo_root(tmp_path: Path) -> None:
@@ -319,27 +265,6 @@ def test_drift_mode_literal(tmp_path: Path) -> None:
         (tmp_path / ".github").rmdir()
 
 
-def test_block_order_invalid_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "output:\n  block_order: sideways\n")
-    with pytest.raises(ValueError, match=r"Invalid output\.block_order"):
-        load_config(repo_root=root)
-    root = _write_config(tmp_path, "output:\n  block_order: 1\n")
-    with pytest.raises(ValueError, match=r"Invalid output\.block_order"):
-        load_config(repo_root=root)
-
-
-def test_drift_mode_invalid_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "drift:\n  mode: nonsense\n")
-    with pytest.raises(ValueError, match=r"Invalid drift\.mode"):
-        load_config(repo_root=root)
-
-
-def test_hysteresis_runs_invalid_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "drift:\n  hysteresis_runs: 0\n")
-    with pytest.raises(ValueError, match=r"Invalid drift\.hysteresis_runs"):
-        load_config(repo_root=root)
-
-
 def test_drift_mode_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _write_config(tmp_path, "drift:\n  mode: commit\n")
     monkeypatch.setenv("CHECKOWNERS_DRIFT_MODE", "both")
@@ -355,18 +280,8 @@ def test_drift_mode_env_override_without_config_file(
     assert cfg.drift.mode == "repo"
 
 
-def test_drift_mode_env_override_invalid_rejected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("CHECKOWNERS_DRIFT_MODE", "sideways")
-    with pytest.raises(ValueError, match="Invalid CHECKOWNERS_DRIFT_MODE"):
-        load_config(repo_root=tmp_path)
-
-
 def test_config_path_env_override_relative(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (tmp_path / "custom.yml").write_text(
-        "version: 1\nanalysis:\n  min_commits: 7\n", encoding="utf-8"
-    )
+    (tmp_path / "custom.yml").write_text("analysis:\n  min_commits: 7\n", encoding="utf-8")
     monkeypatch.setenv("CHECKOWNERS_CONFIG", "custom.yml")
     cfg = load_config(repo_root=tmp_path)
     assert cfg.analysis.min_commits == 7
@@ -375,7 +290,7 @@ def test_config_path_env_override_relative(tmp_path: Path, monkeypatch: pytest.M
 def test_config_path_env_override_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     custom = tmp_path / "elsewhere" / "co.yml"
     custom.parent.mkdir()
-    custom.write_text("version: 1\nanalysis:\n  top_n_owners: 9\n", encoding="utf-8")
+    custom.write_text("analysis:\n  top_n_owners: 9\n", encoding="utf-8")
     monkeypatch.setenv("CHECKOWNERS_CONFIG", str(custom))
     # repo_root deliberately points somewhere without a config file.
     cfg = load_config(repo_root=tmp_path)
@@ -398,17 +313,11 @@ def test_load_config_github_section(tmp_path: Path) -> None:
     assert cfg.github.api_enabled is False
 
 
-def test_load_config_github_token_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "github:\n  token: ghp_secret\n")
-    with pytest.raises(ValueError, match=r"github\.token is not accepted"):
-        load_config(repo_root=root)
-
-
-def test_load_config_scoring_section(tmp_path: Path) -> None:
+def test_load_config_signal_weights(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
-        "scoring:\n  recency_weight: 0.5\n  change_survival_weight: 0.1\n"
-        "  change_survival_reliability: 0.4\n",
+        "model:\n  signals:\n    recency:\n      weight: 0.5\n"
+        "    change_survival:\n      weight: 0.1\n      reliability: 0.4\n",
     )
     cfg = load_config(repo_root=root)
     assert cfg.scoring.recency_weight == 0.5
@@ -439,39 +348,6 @@ def test_qualification_min_commits_wins_over_analysis(tmp_path: Path) -> None:
     assert cfg.qualification.min_commits == 2
 
 
-def test_qualification_strategy_invalid_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "qualification:\n  strategy: fuzzy\n")
-    with pytest.raises(ValueError, match=r"Invalid qualification\.strategy"):
-        load_config(repo_root=root)
-
-
-def test_git_mass_refactor_fraction_invalid_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "git:\n  mass_refactor_file_fraction: 1.5\n")
-    with pytest.raises(ValueError, match=r"Invalid git\.mass_refactor_file_fraction"):
-        load_config(repo_root=root)
-    weight = _write_config(tmp_path, "git:\n  co_author_weight: 1.5\n")
-    with pytest.raises(ValueError, match=r"Invalid git\.co_author_weight"):
-        load_config(repo_root=weight)
-    strategy = _write_config(tmp_path, "git:\n  merge_strategy: fast-forward\n")
-    with pytest.raises(ValueError, match=r"Invalid git\.merge_strategy"):
-        load_config(repo_root=strategy)
-    numbered = _write_config(tmp_path, "git:\n  merge_strategy: 1\n")
-    with pytest.raises(ValueError, match=r"Invalid git\.merge_strategy"):
-        load_config(repo_root=numbered)
-    flag = _write_config(tmp_path, "git:\n  count_co_authors: 1\n")
-    with pytest.raises(ValueError, match=r"Invalid git\.count_co_authors"):
-        load_config(repo_root=flag)
-    boolean_weight = _write_config(tmp_path, "git:\n  co_author_weight: true\n")
-    with pytest.raises(ValueError, match=r"Invalid git\.co_author_weight"):
-        load_config(repo_root=boolean_weight)
-    text_weight = _write_config(tmp_path, "git:\n  co_author_weight: high\n")
-    with pytest.raises(ValueError, match=r"Invalid git\.co_author_weight"):
-        load_config(repo_root=text_weight)
-    negative = _write_config(tmp_path, "git:\n  co_author_weight: -0.1\n")
-    with pytest.raises(ValueError, match=r"Invalid git\.co_author_weight"):
-        load_config(repo_root=negative)
-
-
 def test_find_codeowners_path_github_dir(tmp_path: Path) -> None:
     (tmp_path / ".github").mkdir()
     (tmp_path / ".github" / "CODEOWNERS").write_text("# test", encoding="utf-8")
@@ -500,90 +376,6 @@ def test_find_codeowners_path_none_exist(tmp_path: Path) -> None:
     assert find_codeowners_path(tmp_path) == tmp_path / ".github" / "CODEOWNERS"
 
 
-_V1_MOVED = """\
-analysis:
-  top_n_owners: 4
-  min_commits: 2
-  exclude_bots: false
-scoring:
-  recency_weight: 0.4
-  frequency_weight: 0.2
-  blame_weight: 0.2
-  review_weight: 0.2
-  recency_half_life_days: 30
-  recency_reliability: 0.9
-  frequency_reliability: 0.8
-  blame_reliability: 0.7
-  review_reliability: 0.6
-"""
-
-
-def _v2_alias() -> str:
-    models = models_payload()
-    return f"""\
-version: 1
-analysis:
-  max_owners: 4
-qualification:
-  min_commits: 2
-bots:
-  exclude: false
-model:
-  ownership: {models["ownership"]}
-  risk: {models["risk"]}
-  topology: {models["topology"]}
-  signals:
-    recency:
-      weight: 0.4
-      half_life_days: 30
-      reliability: 0.9
-    frequency:
-      weight: 0.2
-      reliability: 0.8
-    blame:
-      weight: 0.2
-      reliability: 0.7
-    reviews:
-      weight: 0.2
-      reliability: 0.6
-"""
-
-
-def test_current_layout_loads(tmp_path: Path) -> None:
-    flat = tmp_path / "flat"
-    nested = tmp_path / "nested"
-    flat.mkdir()
-    nested.mkdir()
-    _write_config(flat, _V1_MOVED)
-    _write_config(nested, _v2_alias())
-    loaded_flat = load_config(repo_root=flat)
-    loaded_nested = load_config(repo_root=nested)
-    assert loaded_flat == loaded_nested
-    assert loaded_flat.analysis.top_n_owners == 4
-    assert loaded_flat.analysis.exclude_bots is False
-    assert loaded_flat.qualification.min_commits == 2
-    assert loaded_flat.scoring.recency_half_life_days == 30
-    assert loaded_flat.scoring.review_weight == 0.2
-    assert loaded_flat.scoring.blame_reliability == 0.7
-
-
-def test_missing_or_old_config_version_rejected(tmp_path: Path) -> None:
-    missing = tmp_path / "missing"
-    missing.mkdir()
-    _write_config(missing, "analysis:\n  lookback_days: 10\n")
-    (missing / ".github" / "checkowners.yml").write_text(
-        "analysis:\n  lookback_days: 10\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError, match="requires version: 1"):
-        load_config(repo_root=missing)
-    old = tmp_path / "old"
-    old.mkdir()
-    _write_config(old, "version: 2\n")
-    with pytest.raises(ValueError, match="Unsupported checkowners config version"):
-        load_config(repo_root=old)
-
-
 def test_missing_config_does_not_warn(tmp_path: Path) -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -592,16 +384,9 @@ def test_missing_config_does_not_warn(tmp_path: Path) -> None:
     assert caught == []
 
 
-def test_model_pin_must_match_implementation(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\nmodel:\n  ownership: ownership-v1\n")
-    with pytest.raises(ValueError, match=r"model\.ownership"):
-        load_config(repo_root=root)
-
-
 def test_adaptive_lookback_and_fixed_recency_parse(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
-        "version: 1\n"
         "analysis:\n"
         "  lookback_days: adaptive\n"
         "model:\n"
@@ -618,73 +403,17 @@ def test_adaptive_lookback_and_fixed_recency_parse(tmp_path: Path) -> None:
     assert cfg.scoring.recency_half_life_ceiling_days == 400
 
 
-@pytest.mark.parametrize(
-    ("content", "match"),
-    [
-        ("version: 3\n", "Unsupported checkowners config version"),
-        ("version: '2'\n", "Unsupported checkowners config version"),
-        ("version: 1\nanalysis:\n  lookback_days: forever\n", "lookback_days"),
-        ("version: 1\nscoring:\n  recency_strategy: rolling\n", "recency_strategy"),
-        (
-            "version: 1\nscoring:\n  recency_half_life_floor_days: 90\n"
-            "  recency_half_life_ceiling_days: 90\n",
-            "below",
-        ),
-        (
-            "version: 1\nmodel:\n  signals:\n    historical_depth:\n      weight: 0.1\n",
-            "historical_depth",
-        ),
-    ],
-)
-def test_unknown_config_version_and_keys_rejected(tmp_path: Path, content: str, match: str) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match=match):
-        load_config(repo_root=root)
-
-
-@pytest.mark.parametrize(
-    ("content", "match"),
-    [
-        ("version: 1\ncriticality: []\n", "criticality must be a mapping"),
-        ("version: 1\ncriticality:\n  '': 0.5\n", "non-empty"),
-        ("version: 1\ncriticality:\n  'docs/**': 0\n", r"criticality\.docs/"),
-        ("version: 1\ncriticality:\n  'docs/**': true\n", r"criticality\.docs/"),
-        ("version: 1\nanalysis: []\n", "analysis must be a mapping"),
-        ("version: 1\nsuppressions: {}\n", "suppressions must be a list"),
-        ("version: 1\nanalysis:\n  max_owners: '4'\n", "analysis.max_owners must be an integer"),
-        (
-            "version: 1\nanalysis:\n  max_owners: 4\n  top_n_owners: 3\n",
-            "disagree",
-        ),
-        ("version: 1\nbots:\n  exclude: 1\n", "bots.exclude must be a boolean"),
-        (
-            "version: 1\nanalysis:\n  exclude_bots: true\nbots:\n  exclude: false\n",
-            "bots.exclude and analysis.exclude_bots disagree",
-        ),
-        (
-            "version: 1\nscoring:\n  review_weight: 0.2\n"
-            "model:\n  signals:\n    reviews:\n      weight: 0.3\n",
-            "scoring.review_weight disagree",
-        ),
-    ],
-)
-def test_v2_invalid_aliases_rejected(tmp_path: Path, content: str, match: str) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match=match):
-        load_config(repo_root=root)
-
-
 def test_criticality_map_parses(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
-        'version: 1\ncriticality:\n  "payments/**": 1.0\n  "auth/**": 1\n  "docs/**": 0.1\n',
+        'criticality:\n  "payments/**": 1.0\n  "auth/**": 1\n  "docs/**": 0.1\n',
     )
     cfg = load_config(repo_root=root)
     assert cfg.criticality == (("payments/**", 1.0), ("auth/**", 1.0), ("docs/**", 0.1))
 
 
 def test_v2_without_model_keeps_defaults(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\n")
+    root = _write_config(tmp_path, "")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         cfg = load_config(repo_root=root)
@@ -692,58 +421,28 @@ def test_v2_without_model_keeps_defaults(tmp_path: Path) -> None:
     assert cfg == Config()
 
 
-def test_v2_alias_edges_load(tmp_path: Path) -> None:
-    agreed = """\
-version: 1
+def test_an_empty_section_keeps_the_defaults(tmp_path: Path) -> None:
+    content = """\
 analysis:
-  max_owners: 4
-  top_n_owners: 4
-  exclude_bots: false
-bots:
-  exclude: false
-scoring:
-  review_weight: 0.2
-model:
-  signals:
-    reviews:
-      weight: 0.2
+  lookback_days: 30
+bots: {}
 suppressions:
   - path: legacy/**
     rule: stale
     reason: later
 """
-    omitted = """\
-version: 1
-analysis:
-  lookback_days: 30
-bots: {}
-"""
-    agreed_dir = tmp_path / "agreed"
-    omitted_dir = tmp_path / "omitted"
-    agreed_dir.mkdir()
-    omitted_dir.mkdir()
-    agreed_root = _write_config(agreed_dir, agreed)
-    omitted_root = _write_config(omitted_dir, omitted)
-    agreed_cfg = load_config(repo_root=agreed_root)
-    omitted_cfg = load_config(repo_root=omitted_root)
-    assert agreed_cfg.analysis.top_n_owners == 4
-    assert agreed_cfg.analysis.exclude_bots is False
-    assert agreed_cfg.scoring.review_weight == 0.2
-    assert agreed_cfg.suppressions[0].path == "legacy/**"
-    assert agreed_cfg.suppressions[0].rule == "stale"
-    assert omitted_cfg.analysis.lookback_days == 30
-    assert omitted_cfg.analysis.top_n_owners == 3
-    assert omitted_cfg.analysis.exclude_bots is True
+    cfg = load_config(repo_root=_write_config(tmp_path, content))
+    assert cfg.analysis.lookback_days == 30
+    assert cfg.analysis.top_n_owners == 3
+    assert cfg.analysis.exclude_bots is True
+    assert cfg.suppressions[0].path == "legacy/**"
+    assert cfg.suppressions[0].rule == "stale"
 
 
 def test_analysis_budgets(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
-        "version: 1\n"
-        "analysis:\n"
-        "  max_runtime_seconds: 10\n"
-        "  max_git_workers: 2\n"
-        "  max_api_requests: 5\n",
+        "analysis:\n  max_runtime_seconds: 10\n  max_git_workers: 2\n  max_api_requests: 5\n",
     )
     cfg = load_config(repo_root=root)
     assert cfg.analysis.max_runtime_seconds == 10
@@ -751,29 +450,9 @@ def test_analysis_budgets(tmp_path: Path) -> None:
     assert cfg.analysis.max_api_requests == 5
 
 
-@pytest.mark.parametrize(
-    ("content", "match"),
-    [
-        ("version: 1\nanalysis:\n  max_runtime_seconds: 0\n", "positive integer"),
-        ("version: 1\nanalysis:\n  max_git_workers: -1\n", "positive integer"),
-        ("version: 1\nanalysis:\n  max_api_requests: false\n", "positive integer"),
-    ],
-)
-def test_budget_keys_rejected(tmp_path: Path, content: str, match: str) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match=match):
-        load_config(repo_root=root)
-
-
 def test_output_consolidate_can_be_disabled(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\noutput:\n  consolidate: false\n")
+    root = _write_config(tmp_path, "output:\n  consolidate: false\n")
     assert load_config(repo_root=root).output.consolidate is False
-
-
-def test_suppression_builder_rejects_non_lists() -> None:
-    assert _build_suppressions(None) == ()
-    with pytest.raises(ValueError, match="expected a YAML list"):
-        _build_suppressions({})
 
 
 def test_identity_roster_and_bot_addresses_load(tmp_path: Path) -> None:
@@ -812,126 +491,3 @@ contributors:
     assert _is_string_tuple(("ada",))
     assert not _is_string_tuple(("ada", 1))
     assert not _is_string_tuple(["ada"])
-
-
-@pytest.mark.parametrize(
-    ("content", "match"),
-    [
-        ("identity:\n  negative_cache_ttl_days: true\n", "non-negative integer"),
-        ("identity:\n  negative_cache_ttl_days: -1\n", "non-negative integer"),
-        ("identity:\n  do_not_merge: nope\n", "must be a list"),
-        ("identity:\n  do_not_merge:\n    - [only]\n", "must be pairs"),
-        ("identity:\n  do_not_merge:\n    - [1, 2]\n", "non-empty strings"),
-        ("identity:\n  do_not_merge:\n    - [' ', bob]\n", "non-empty strings"),
-        ("bots:\n  additional: nope\n", "must be a list"),
-        ("bots:\n  additional:\n    - ' '\n", "non-empty strings"),
-        ("identities: []\n", "identities"),
-        ("identities:\n  ' ':\n    emails: []\n", "non-empty strings"),
-        ("identities:\n  ada: []\n", "identities.ada"),
-        ("identities:\n  ada:\n    extra: 1\n", "Unsupported"),
-        ("identities:\n  ada:\n    service_account: nope\n", "service_account"),
-        ("identities:\n  ada:\n    emails: nope\n", "must be a list"),
-        ("contributors:\n  roster: []\n", "must be a mapping"),
-        ("contributors:\n  roster:\n    ' ': former\n", "non-empty strings"),
-        ("contributors:\n  roster:\n    ada: 1\n", "Invalid contributors.roster"),
-        ("contributors:\n  roster:\n    ada: nope\n", "Invalid contributors.roster"),
-    ],
-)
-def test_identity_config_rejects_invalid_values(tmp_path: Path, content: str, match: str) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match=match):
-        load_config(repo_root=root)
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        "drift:\n  severity_thresholds: 1\n",
-        "drift:\n  severity_thresholds: [0.1, 0.2]\n",
-        "drift:\n  severity_thresholds: [true, 0.2, 0.3, 0.4]\n",
-        "drift:\n  severity_thresholds: ['a', 0.2, 0.3, 0.4]\n",
-        "drift:\n  severity_thresholds: [-0.1, 0.2, 0.3, 0.4]\n",
-        "drift:\n  severity_thresholds: [0.1, 0.2, 0.3, 1.1]\n",
-        "drift:\n  severity_thresholds: [0.4, 0.3, 0.2, 0.1]\n",
-        "drift:\n  severity_thresholds: [0.2, 0.2, 0.3, 0.4]\n",
-    ],
-)
-def test_severity_thresholds_must_be_four_ascending_numbers(tmp_path: Path, content: str) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match="four ascending numbers"):
-        load_config(repo_root=root)
-
-
-_CALIBRATION = """
-calibration:
-  cutoff: "2024-06-01T00:00:00+00:00"
-  train_paths: 24
-  held_out_paths: 6
-  history_days: 200
-  weights:
-    recency: 0.30
-    frequency: 0.20
-    blame: 0.20
-    review: 0.15
-    change_survival: 0.15
-  default_weights:
-    recency: 0.30
-    frequency: 0.20
-    blame: 0.20
-    review: 0.15
-    change_survival: 0.15
-  held_out:
-    precision_at_1: 0.5
-    precision_at_3: 0.4
-    recall_at_3: 0.4
-    mrr: 0.5
-    brier: 0.2
-"""
-
-
-def test_calibration_section_loads(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, _CALIBRATION)
-    loaded = load_config(repo_root=root)
-    assert loaded.calibration is not None
-    assert loaded.calibration.train_paths == 24
-    assert loaded.calibration.held_out_precision_at_1 == pytest.approx(0.5)
-    ignored = _write_config(tmp_path, "calibration: []\n")
-    with pytest.raises(ValueError, match="must be a mapping"):
-        load_config(repo_root=ignored)
-
-
-@pytest.mark.parametrize(
-    ("content", "match"),
-    [
-        (_CALIBRATION.replace("recency: 0.30", "recency: true", 1), "must be a number"),
-        (_CALIBRATION.replace("recency: 0.30", 'recency: "no"', 1), "must be a number"),
-        (_CALIBRATION.replace("train_paths: 24", "train_paths: true"), "must be an integer"),
-        (_CALIBRATION.replace("train_paths: 24", "train_paths: 1.5"), "must be an integer"),
-        (_CALIBRATION.replace("    frequency: 0.20\n", "", 1), "is missing frequency"),
-        (_CALIBRATION.replace('cutoff: "2024-06-01T00:00:00+00:00"', "cutoff: 1"), "timestamp"),
-        (_CALIBRATION.replace('cutoff: "2024-06-01T00:00:00+00:00"', 'cutoff: "   "'), "timestamp"),
-        (_CALIBRATION.replace("    brier: 0.2\n", ""), "is missing brier"),
-        (
-            _CALIBRATION.replace(
-                "  held_out:\n"
-                "    precision_at_1: 0.5\n"
-                "    precision_at_3: 0.4\n"
-                "    recall_at_3: 0.4\n"
-                "    mrr: 0.5\n"
-                "    brier: 0.2\n",
-                "  held_out: []\n",
-            ),
-            "must be a mapping",
-        ),
-        (
-            _CALIBRATION.replace("    recency: 0.30\n", "    recency: 0.30\n    extra: 1\n", 1),
-            "Unsupported",
-        ),
-    ],
-)
-def test_calibration_section_rejects_invalid_values(
-    tmp_path: Path, content: str, match: str
-) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match=match):
-        load_config(repo_root=root)

@@ -1,14 +1,10 @@
+"""The audit rows and the findings they produce."""
+
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import NoReturn
-from unittest.mock import patch
-
-import pytest
-import typer
 
 from checkowners.audit import (
     CODEOWNERS_SIZE_LIMIT,
@@ -24,29 +20,23 @@ from checkowners.audit import (
     format_audit,
     without_hidden,
 )
-from checkowners.cli import (
-    _audit_report,
-    _branch_name,
-    _cache_writable,
-    _load_teams,
-)
-from checkowners.github import TeamDirectory, TeamRecord, set_offline
-from checkowners.models import (
+from checkowners.config import (
     Config,
+)
+from checkowners.github import TeamDirectory, TeamRecord
+from checkowners.models import (
     ContributorStatus,
     DecayWarning,
     DriftEntry,
     DriftResult,
     Finding,
-    GithubConfig,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
 )
 from checkowners.patterns import parse_rules
 from checkowners.validate import RemoteCodeownersError, ValidationFinding
-from tests.conftest import git_commit, init_git_repo
-from tests.test_cli import _EMPTY_OWNERSHIP, _MOCK_TOKEN, app, runner
+from tests.conftest import Payload
 
 
 def _facts(tmp_path: Path, text: str = "* @alice\n") -> AuditFacts:
@@ -97,8 +87,8 @@ def test_text_and_json_fixtures(tmp_path: Path) -> None:
         "ok: stale: Every pattern matches a tracked file.\n"
         "unverifiable: single-expert: Analysis did not run.\n"
     )
-    payload = audit_body(report)
-    assert payload["rows"][0] == {
+    payload = Payload(audit_body(report))
+    assert payload.rows("rows")[0].data == {
         "owners": [],
         "path": "",
         "rule": "branch",
@@ -183,69 +173,6 @@ def test_environment_rows_do_not_pass_a_missing_token() -> None:
     text = format_audit(AuditReport(rows=(), env=rows))
     assert "unverifiable: token:" in text
     assert "ok: token:" not in text
-
-
-def test_help_lists_audit_and_doctor() -> None:
-    result = runner.invoke(app, ["--help"])
-    assert result.exit_code == 0
-    assert "audit" in result.stdout
-    assert "doctor" in result.stdout
-
-
-def test_bare_command_runs_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    init_git_repo(tmp_path)
-    (tmp_path / "README").write_text("fixture\n", encoding="utf-8")
-    git_commit(
-        tmp_path,
-        "init",
-        author="Test",
-        email="test@example.com",
-        date="2026-05-28T12:00:00+00:00",
-    )
-    codeowners = tmp_path / ".github" / "CODEOWNERS"
-    codeowners.parent.mkdir(parents=True)
-    codeowners.write_text("* @alice\n", encoding="utf-8")
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP),
-        patch(
-            "checkowners.cli.detect_drift",
-            return_value=DriftResult(stale=(), missing=(), changed=(), drift_detected=False),
-        ),
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, [])
-    assert result.exit_code == 0, result.output
-    assert "file-size" in result.stdout
-    assert "unverifiable: owner-permission:" in result.stdout
-
-
-def test_doctor_json_and_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    init_git_repo(tmp_path)
-    (tmp_path / "README").write_text("fixture\n", encoding="utf-8")
-    git_commit(
-        tmp_path,
-        "init",
-        author="Test",
-        email="test@example.com",
-        date="2026-05-28T12:00:00+00:00",
-    )
-    codeowners = tmp_path / "CODEOWNERS"
-    codeowners.write_text("* @alice\n", encoding="utf-8")
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP),
-        patch("checkowners.cli.find_codeowners_path", return_value=codeowners),
-        _MOCK_TOKEN,
-    ):
-        env = runner.invoke(app, ["doctor", "--env"])
-        listed = runner.invoke(app, ["doctor", "--json"])
-    assert env.exit_code == 0, env.output
-    assert "environment:" in env.stdout
-    assert "unverifiable: token:" in env.stdout
-    assert listed.exit_code == 0, listed.output
-    payload = json.loads(listed.stdout)
-    assert isinstance(payload["rows"], list)
 
 
 def _owner(
@@ -499,134 +426,3 @@ def test_audit_rows_cover_failures_and_warnings(tmp_path: Path) -> None:
     assert "ok: api: GitHub API answered." in text
     assert "CODEOWNERS path is unset." in text
     assert "fail: config:" in text
-
-
-def test_audit_command_uses_github_baseline_and_sarif(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    init_git_repo(tmp_path)
-    (tmp_path / "README").write_text("fixture\n", encoding="utf-8")
-    git_commit(
-        tmp_path,
-        "init",
-        author="Test",
-        email="test@example.com",
-        date="2026-05-28T12:00:00+00:00",
-    )
-    codeowners = tmp_path / "CODEOWNERS"
-    codeowners.write_text("* @ghost\n", encoding="utf-8")
-    (tmp_path / ".github").mkdir()
-    (tmp_path / ".github" / "checkowners.yml").write_text(
-        "version: 1\ngithub:\n  org: acme\n",
-        encoding="utf-8",
-    )
-    (tmp_path / ".git-blame-ignore-revs").write_text("\n", encoding="utf-8")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "acme/app")
-    monkeypatch.setenv("GITHUB_BASE_REF", "develop")
-    directory = TeamDirectory(
-        org="acme",
-        fetched_at="2026-01-01T00:00:00+00:00",
-        teams=(TeamRecord("core", frozenset({"ann"}), "", (), True),),
-    )
-    hidden = TeamDirectory(
-        org="acme",
-        fetched_at="2026-01-01T00:00:00+00:00",
-        teams=(TeamRecord("core", frozenset(), "", (), False),),
-    )
-    set_offline(False)
-    with (
-        patch("checkowners.cli.get_github_token", return_value="tok"),
-        patch("checkowners.cli.repository_visibility", return_value=(True, "main")),
-        patch("checkowners.cli.fetch_codeowners_errors", return_value=()),
-        patch("checkowners.cli.owner_access", return_value="read"),
-        patch("checkowners.cli.code_owner_review_required", return_value="disabled"),
-        patch("checkowners.cli.load_team_directory", return_value=directory),
-        patch("checkowners.cli.api_status", return_value=(True, ("repo",))),
-        patch("checkowners.cli.organization_members", return_value=None),
-        patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP),
-        patch(
-            "checkowners.cli.detect_drift",
-            return_value=DriftResult(stale=(), missing=(), changed=(), drift_detected=False),
-        ),
-    ):
-        sarif = runner.invoke(app, ["audit", "--format", "sarif"])
-    assert sarif.exit_code == 3, sarif.output
-    assert "owner-permission" in sarif.stdout
-    with (
-        patch("checkowners.cli.get_github_token", return_value="tok"),
-        patch("checkowners.cli.repository_visibility", return_value=(True, "main")),
-        patch("checkowners.cli.fetch_codeowners_errors", return_value=()),
-        patch("checkowners.cli.owner_access", return_value="write"),
-        patch("checkowners.cli.code_owner_review_required", return_value="required"),
-        patch("checkowners.cli.load_team_directory", return_value=directory),
-        patch("checkowners.cli.api_status", return_value=(True, ("repo",))),
-        patch("checkowners.cli.organization_members", return_value=None),
-        patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP),
-    ):
-        env = runner.invoke(app, ["doctor", "--env"])
-    assert env.exit_code == 0, env.output
-    assert "Token scopes: repo." in env.stdout
-    assert "Team visibility: visible." in env.stdout
-    baseline = tmp_path / "accepted.json"
-    baseline.write_text(
-        json.dumps(
-            {
-                "schema_version": "1",
-                "findings": [{"rule": "owner-permission", "path": "@ghost", "owners": ["@ghost"]}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    with (
-        patch("checkowners.cli.get_github_token", return_value="tok"),
-        patch("checkowners.cli.repository_visibility", return_value=None),
-        patch("checkowners.cli.fetch_codeowners_errors", return_value=()),
-        patch("checkowners.cli.owner_access", return_value="read"),
-        patch("checkowners.cli.code_owner_review_required", return_value="required"),
-        patch("checkowners.cli.load_team_directory", return_value=hidden),
-        patch("checkowners.cli.api_status", return_value=(False, ())),
-        patch("checkowners.cli.organization_members", return_value=None),
-        patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP),
-        patch("checkowners.cli.detect_drift", side_effect=typer.Exit()),
-    ):
-        accepted = runner.invoke(app, ["audit", "--baseline", str(baseline)])
-        missing = runner.invoke(app, ["audit", "--baseline", str(tmp_path / "missing.json")])
-        hidden_env = runner.invoke(app, ["doctor", "--env"])
-        assert _load_teams(Config(github=GithubConfig(org="acme"))) is hidden
-        codeowners.write_text("*\n", encoding="utf-8")
-        quiet, _ownership, _rules = _audit_report(
-            Config(github=GithubConfig(org="acme")),
-            include_inference=False,
-            env=False,
-        )
-    assert accepted.exit_code == 0, accepted.output
-    assert "owner-permission" not in accepted.stdout
-    assert missing.exit_code == 2, missing.output
-    assert hidden_env.exit_code == 3, hidden_env.output
-    assert "Team visibility: invisible." in hidden_env.stdout
-    assert _row(quiet, "owner-permission").summary == "CODEOWNERS names no owners."
-    blocked = tmp_path / "not-a-directory"
-    blocked.write_text("x", encoding="utf-8")
-    monkeypatch.setattr("checkowners.cli.cache_directory", lambda: blocked)
-    assert _cache_writable() is False
-
-    class _Head:
-        stdout = "HEAD\n"
-
-    monkeypatch.setattr("checkowners.cli.run_git", lambda *_args, **_kwargs: _Head())
-    assert _branch_name(tmp_path) == ""
-
-    def _fail_git(*_args: object, **_kwargs: object) -> NoReturn:
-        raise OSError("no git")
-
-    monkeypatch.setattr("checkowners.cli.run_git", _fail_git)
-    assert _branch_name(tmp_path) == ""
-    with (
-        patch("checkowners.cli.get_github_token", return_value=""),
-        patch("checkowners.cli.analyze_ownership", side_effect=OSError("git")),
-    ):
-        report, ownership, _parsed = _audit_report(Config(), include_inference=True, env=True)
-    assert ownership is None
-    assert any(row.rule == "git-repo" and row.status == "fail" for row in report.env)

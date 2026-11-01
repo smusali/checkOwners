@@ -1,5 +1,9 @@
 # FAQ
 
+## Which Action tag should I pin?
+
+`@v0` tracks the latest 0.x. `@v0.7` tracks 0.7.x. `@v0.6` stays on 0.6.x. `@v0.7.0` is the pin.
+
 ## Does checkOwners need a GitHub token?
 
 No. The inference is pure git and runs offline. A token only adds three

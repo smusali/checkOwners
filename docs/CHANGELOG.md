@@ -8,6 +8,12 @@ Each dated heading is the UTC calendar day that version was published to PyPI. `
 
 ## [Unreleased]
 
+Patch releases stay on the 0.7.x line.
+
+## [0.7.0] - 2026-11-01
+
+Ownership risk, audit, scale, and validation.
+
 ### Added
 
 - A documentation site is published from this repository, with search and a version per release.
@@ -235,7 +241,8 @@ Pattern-aware drift, per-repository state, and local identity resolution.
 
 - `checkowners analyze`, `checkowners print`, and `checkowners generate` infer ownership from git history and write a CODEOWNERS file.
 
-[Unreleased]: https://github.com/smusali/checkowners/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/smusali/checkowners/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/smusali/checkowners/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/smusali/checkowners/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/smusali/checkowners/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/smusali/checkowners/compare/v0.4.0...v0.5.0

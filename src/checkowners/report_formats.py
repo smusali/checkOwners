@@ -136,7 +136,7 @@ _RULES: tuple[_Rule, ...] = (
         "checkowners/single-expert-risk",
         "Single expert risk",
         "One qualified owner holds the expertise for a path.",
-        "error",
+        "warning",
     ),
     _Rule(
         "checkowners/incomplete-analysis",
@@ -346,9 +346,11 @@ def findings_for_drift(
     return tuple(rows)
 
 
-def findings_for_bus(report: BusFactorReport) -> tuple[ReportFinding, ...]:
+def findings_for_bus(report: BusFactorReport, severity: str) -> tuple[ReportFinding, ...]:
+    """Return one finding per critical path, at `severity`."""
     critical = set(report.critical_paths)
     rows: list[ReportFinding] = []
+    level = sarif_level(severity)
     for entry in report.entries:
         if entry.path not in critical:
             continue
@@ -363,7 +365,7 @@ def findings_for_bus(report: BusFactorReport) -> tuple[ReportFinding, ...]:
         rows.append(
             ReportFinding(
                 rule_id="checkowners/single-expert-risk",
-                level=sarif_level("critical"),
+                level=level,
                 message=message,
                 uri=entry.path,
                 start_line=1,

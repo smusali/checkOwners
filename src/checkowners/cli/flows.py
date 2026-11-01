@@ -489,7 +489,7 @@ def _risk_impl(json_output: bool, baseline: str | None, output_format: str | Non
     elif _is_machine(fmt):
         bus = compute_qualified_owners(ownership, config, target=None)
         machine = combine_findings(
-            findings_for_bus(bus),
+            findings_for_bus(bus, config.policy.single_expert.severity),
             _gap_findings(ownership, repo_root, codeowners_path, config),
         )
         _emit_machine(fmt, machine, command="risk", ownership=ownership)

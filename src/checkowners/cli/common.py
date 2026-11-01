@@ -685,7 +685,7 @@ def _action_findings(
         _gap_findings(ownership, repo_root, codeowners_path, config),
     ]
     if bus is not None:
-        groups.append(findings_for_bus(bus))
+        groups.append(findings_for_bus(bus, config.policy.single_expert.severity))
     return combine_findings(*groups)
 
 

@@ -139,7 +139,7 @@ def _document() -> dict[str, object]:
     )
     findings = (
         *findings_for_drift(drift, codeowners_uri="CODEOWNERS", config=Config()),
-        *findings_for_bus(bus),
+        *findings_for_bus(bus, "warning"),
         *findings_for_validation(
             (
                 ValidationFinding(
@@ -186,7 +186,7 @@ def test_sarif_document_matches_schema_and_locations() -> None:
         "checkowners/ownership-drift": ("error", "CODEOWNERS", 9),
         "checkowners/invalid-owner": ("error", "CODEOWNERS", 3),
         "checkowners/shadowed-rule": ("warning", "CODEOWNERS", 2),
-        "checkowners/single-expert-risk": ("error", "src/solo.py", 1),
+        "checkowners/single-expert-risk": ("warning", "src/solo.py", 1),
         "checkowners/incomplete-analysis": ("warning", ".github/checkowners.yml", 1),
     }
     assert set(by_rule) == set(expected)

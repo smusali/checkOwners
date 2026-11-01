@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+requirements.lock linguist-generated=true
+uv.lock linguist-generated=true
+*.whl binary linguist-generated=true

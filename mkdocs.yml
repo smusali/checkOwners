@@ -1,4 +1,4 @@
-site_name: CheckOwners
+site_name: checkOwners
 site_url: https://smusali.github.io/checkowners/
 repo_url: https://github.com/smusali/checkowners
 repo_name: smusali/checkowners
@@ -39,31 +39,14 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
 
-validation:
-  nav:
-    omitted_files: warn
-  links:
-    not_found: warn
-    anchors: warn
-
 nav:
   - Getting Started: index.md
-  - Concepts: concepts.md
-  - Guides: guides.md
-  - Reference:
-      - CLI: cli.md
-      - Configuration: reference.md
-  - Internals:
-      - Scoring model: METHODOLOGY.md
-      - Patterns and caching: internals.md
+  - Usage: USAGE.md
+  - CLI: cli.md
+  - Methodology: METHODOLOGY.md
+  - Privacy: PRIVACY.md
+  - FAQ: FAQ.md
   - Project:
       - Changelog: CHANGELOG.md
       - Contributing: CONTRIBUTING.md
-      - Decisions: decisions.md
-      - Usage: USAGE.md
-      - FAQ: FAQ.md
-      - Privacy: PRIVACY.md
-      - Limitations: limitations.md
-      - Glossary: GLOSSARY.md
-      - False positives: false-positives.md
       - Security: https://github.com/smusali/checkowners/blob/main/SECURITY.md

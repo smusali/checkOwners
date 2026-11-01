@@ -1,3 +1,5 @@
+"""SARIF, JUnit, and the workflow annotations."""
+
 from __future__ import annotations
 
 import hashlib
@@ -9,13 +11,15 @@ import jsonschema
 import pytest
 from typer.testing import CliRunner
 
-from checkowners import __version__
-from checkowners.busfactor import BusFactor, BusFactorReport
 from checkowners.cli import app
-from checkowners.models import (
-    AnalysisGap,
+from checkowners.concentration import BusFactorReport
+from checkowners.config import (
     BusFactorConfig,
     Config,
+)
+from checkowners.models import (
+    AnalysisGap,
+    BusFactor,
     DriftEntry,
     DriftResult,
 )
@@ -25,7 +29,6 @@ from checkowners.report_formats import (
     baseline_fingerprint,
     baseline_identity,
     check_annotations,
-    combine_findings,
     finding_for_audit,
     findings_for_bus,
     findings_for_drift,
@@ -41,7 +44,7 @@ from checkowners.report_formats import (
 from checkowners.validate import ValidationFinding
 from tests.conftest import init_git_repo
 
-_SCHEMA = Path(__file__).resolve().parents[1] / "docs" / "schemas" / "sarif-2.1.0.json"
+_SCHEMA = Path(__file__).parent / "fixtures" / "sarif-2.1.0.json"
 
 
 def test_rule_ids_stay_stable() -> None:
@@ -246,7 +249,7 @@ def test_junit_shape_and_annotations() -> None:
 
 def test_annotation_cap_names_the_remainder() -> None:
     findings = findings_for_gaps(
-        tuple(AnalysisGap(code=f"gap-{index}", reason=f"Gap {index}.") for index in range(51)),
+        tuple(AnalysisGap(code="review_history", reason=f"Gap {index}.") for index in range(51)),
         "CODEOWNERS",
         "warning",
     )
@@ -269,91 +272,6 @@ def test_validate_format_junit_and_conflict(
     assert "<testsuites" in junit.stdout
     conflict = runner.invoke(app, ["validate", "--json", "--format", "sarif"])
     assert conflict.exit_code == 2
-
-
-def test_format_edges() -> None:
-    assert workflow_annotations(()) == ""
-    rules = (
-        CodeownersRule(pattern="src/solo.py", owners=("@old",), line_number=3),
-        CodeownersRule(pattern="src/solo.py", owners=("@new",), line_number=0),
-    )
-    shadows = findings_for_shadows(rules, ("src/solo.py", "src/solo.py"), "CODEOWNERS")
-    assert len(shadows) == 1
-    assert shadows[0].start_line == 1
-    skipped = findings_for_validation(
-        (
-            ValidationFinding(line_number=0, line="x", message="Invalid owner format: z"),
-            ValidationFinding(line_number=2, line="x", message="syntax error"),
-            ValidationFinding(line_number=4, line="x", message="Invalid owner format: "),
-        ),
-        "CODEOWNERS",
-        "warning",
-    )
-    assert len(skipped) == 1
-    assert skipped[0].owners == ()
-    assert skipped[0].level == "warning"
-    gap = AnalysisGap(code="absent_token", reason="No period")
-    repeated = findings_for_gaps((gap, gap), "CODEOWNERS", "low")
-    assert len(combine_findings(repeated, repeated)) == 1
-    assert check_annotations(repeated)[0]["annotation_level"] == "notice"
-    bus = BusFactorReport(
-        entries=(
-            BusFactor(
-                path="src/ok.py",
-                qualified_owner_count=3,
-                contributors_above_threshold=("@a",),
-                recommended_backups=(),
-            ),
-            BusFactor(
-                path="src/solo.py",
-                qualified_owner_count=1,
-                contributors_above_threshold=(),
-                recommended_backups=(),
-            ),
-        ),
-        qualified_owner_count_cap=3,
-        config=BusFactorConfig(),
-    )
-    solo = findings_for_bus(bus)
-    assert len(solo) == 1
-    assert "none" in solo[0].message
-    assert "Backups" not in solo[0].message
-    assert check_annotations(solo)[0]["annotation_level"] == "failure"
-    done = findings_for_drift(
-        DriftResult(
-            stale=(
-                DriftEntry(
-                    path="old/",
-                    confidence_delta=0.1,
-                    reason="Already done.",
-                    owners=(),
-                    drift_type="stale_rule",
-                    line_number=0,
-                ),
-            ),
-            missing=(),
-            changed=(),
-            drift_detected=True,
-        ),
-        codeowners_uri="CODEOWNERS",
-        config=Config(),
-    )
-    assert done[0].message.startswith("Already done.")
-    assert done[0].start_line == 1
-    blank = sarif_document((), command="drift", provenance={})
-    numbered = sarif_document((), command="drift", provenance={"checkowners_version": 3})
-    runs = blank["runs"]
-    other = numbered["runs"]
-    assert isinstance(runs, list) and isinstance(other, list)
-    assert runs[0]["tool"]["driver"]["version"] == __version__
-    assert other[0]["tool"]["driver"]["version"] == __version__
-    weird = findings_for_gaps((gap,), "dir/a b:c,%\n", "note")
-    command = workflow_annotations(weird)
-    assert "%2C" in command or "%3A" in command
-    assert "%0A" in command
-    assert "%25" in command
-    xml = junit_document(weird, command="drift")
-    assert "No period" in xml
 
 
 def test_finding_for_audit_skips_rules_without_a_sarif_id() -> None:

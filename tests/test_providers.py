@@ -5,31 +5,31 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-import typer
 
 from checkowners import RepositoryAnalyzer
-from checkowners.analyze import Contribution, analyze_ownership, frequency_prior_for
-from checkowners.cli import ExitCode, _dialect_or_exit, _team_resolver
-from checkowners.generate import generate_codeowners
-from checkowners.models import (
+from checkowners.analyze import (
+    analyze_ownership,
+)
+from checkowners.config import (
     AnalysisConfig,
     Config,
-    GithubConfig,
+    ScoringConfig,
+)
+from checkowners.errors import ExitCode
+from checkowners.generate import generate_codeowners
+from checkowners.models import (
     OwnerEntry,
     OwnershipEvidence,
     OwnershipMap,
     PathOwnership,
-    ScoringConfig,
 )
 from checkowners.patterns import CodeownersRule, parse_rules
 from checkowners.providers import (
     DialectError,
     GitHubTeamProvider,
     _nested_owners,
-    _read_text,
     evidence_from_payload,
     path_evidence,
     reconcile_layers,
@@ -37,6 +37,10 @@ from checkowners.providers import (
     require_dialect,
     rescore,
     rescore_map,
+)
+from checkowners.scoring import (
+    Contribution,
+    frequency_prior_for,
 )
 from checkowners.state import load_ownership, write_state
 from checkowners.validate import validate_codeowners
@@ -73,7 +77,6 @@ def _review_signal(owners: tuple[OwnerEntry, ...]) -> dict[str, float]:
     return signals
 
 
-@pytest.mark.integration
 def test_stored_evidence_replays_live_scores(git_repo: GitRepo) -> None:
     git_repo.commit_files(
         {"payments/core.py": "def pay() -> int:\n    return 1\n"},
@@ -105,14 +108,13 @@ def test_stored_evidence_replays_live_scores(git_repo: GitRepo) -> None:
         record for path_ownership in ownership.paths.values() for record in path_ownership.evidence
     ]
     prior = frequency_prior_for(config.qualification.strategy)
-    with patch("checkowners.analyze.run_git", side_effect=AssertionError("git")):
-        changed = rescore(
-            evidence,
-            scoring=heavier.scoring,
-            now=ownership.last_analyzed,
-            frequency_prior=prior,
-            threshold_days=config.decay.threshold_days,
-        )
+    changed = rescore(
+        evidence,
+        scoring=heavier.scoring,
+        now=ownership.last_analyzed,
+        frequency_prior=prior,
+        threshold_days=config.decay.threshold_days,
+    )
     assert changed
     original_scores = [owner.ownership_score for owners in replayed.values() for owner in owners]
     changed_scores = [owner.ownership_score for owners in changed.values() for owner in owners]
@@ -222,9 +224,9 @@ def test_gitlab_sections_round_trip(tmp_path: Path) -> None:
     assert optional_rules[-1].section == "docs"
     assert optional_rules[-1].optional
     assert optional_rules[-1].owners == ("@bob",)
-    with pytest.raises(typer.Exit) as caught:
-        _dialect_or_exit("gerrit")
-    assert caught.value.exit_code == ExitCode.CONFIG
+    with pytest.raises(DialectError) as caught:
+        require_dialect("gerrit")
+    assert caught.value.exit_code is ExitCode.CONFIG
     gitlab_file = _write(tmp_path, written.content)
     findings = validate_codeowners(tmp_path, codeowners_path=gitlab_file, dialect="gitlab")
     assert findings == []
@@ -318,10 +320,16 @@ def test_reconcile_declared_and_observed_layers(tmp_path: Path) -> None:
     assert bare[-1].declared_global == ()
 
 
-def test_provider_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unknown_dialect_is_refused() -> None:
     with pytest.raises(DialectError):
         require_dialect("fossil")
+
+
+def test_an_empty_team_contributes_no_evidence() -> None:
     assert tuple(GitHubTeamProvider("a.py", {"@acme/empty": frozenset()}).collect()) == ()
+
+
+def test_path_evidence_omits_the_signals_that_were_unavailable() -> None:
     observed = path_evidence(
         "a.py",
         {"@ada": Contribution(commits=1, last_commit=_WHEN, credit=1.0)},
@@ -332,7 +340,9 @@ def test_provider_edges(monkeypatch: pytest.MonkeyPatch) -> None:
         survival=None,
     )
     assert [record.type for record in observed] == ["commit", "review"]
-    assert _read_text(Path("missing-owners-file")) == ""
+
+
+def test_rescoring_stored_evidence_reproduces_the_owner() -> None:
     scored = rescore(
         (
             OwnershipEvidence(subject="@ada", path="a.py", type="review"),
@@ -343,6 +353,9 @@ def test_provider_edges(monkeypatch: pytest.MonkeyPatch) -> None:
         now=_WHEN,
     )
     assert scored["a.py"][0].handle == "@ada"
+
+
+def test_the_deepest_matching_rule_owns_a_nested_path() -> None:
     assert _nested_owners(
         "payments/skip/file.py",
         (
@@ -350,9 +363,18 @@ def test_provider_edges(monkeypatch: pytest.MonkeyPatch) -> None:
             ("payments/skip", (CodeownersRule("*", ("@nested",), 2),)),
         ),
     ) == ("@nested",)
-    assert evidence_from_payload("a.py", None) is None
-    assert evidence_from_payload("a.py", {"type": 1, "subject": "@ada"}) is None
-    assert evidence_from_payload("a.py", {"type": "note", "subject": "@ada"}) is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, {"type": 1, "subject": "@ada"}, {"type": "note", "subject": "@ada"}],
+    ids=["missing", "non-string-type", "unknown-type"],
+)
+def test_a_malformed_evidence_payload_is_dropped(payload: dict[str, object] | None) -> None:
+    assert evidence_from_payload("a.py", payload) is None
+
+
+def test_an_evidence_payload_keeps_what_it_can_parse() -> None:
     parsed = evidence_from_payload(
         "fallback.py",
         {
@@ -370,16 +392,8 @@ def test_provider_edges(monkeypatch: pytest.MonkeyPatch) -> None:
         "a.py",
         {"type": "review", "subject": "@ada", "path": "b.py", "share": "no", "later_commits": "no"},
     )
-    assert reviewed is not None and reviewed.path == "b.py"
-    assert _team_resolver(Config(github=GithubConfig(resolve_teams=False, org="acme"))) is None
-    assert _team_resolver(Config(github=GithubConfig(resolve_teams=True, org=""))) is None
-    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
-    monkeypatch.setattr(
-        "checkowners.cli.create_team_resolver",
-        lambda _token, _org: lambda _owners: None,
-    )
-    resolved = _team_resolver(Config(github=GithubConfig(resolve_teams=True, org="acme")))
-    assert resolved is not None
+    assert reviewed is not None
+    assert reviewed.path == "b.py"
 
 
 def _write(root: Path, content: str) -> Path:

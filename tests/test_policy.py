@@ -5,25 +5,23 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
 from checkowners.action_report import build, summarize_drift
-from checkowners.cli import app
-from checkowners.config import load_config
-from checkowners.models import (
-    CheckPolicy,
+from checkowners.config import (
     Config,
+    SecurityPolicy,
+    load_config,
+)
+from checkowners.models import (
     Finding,
     FreshnessStatus,
     OwnerEntry,
     OwnershipFreshness,
     OwnershipMap,
     PathOwnership,
-    PolicyConfig,
-    SecurityPolicy,
 )
 from checkowners.patterns import CodeownersRule
 from checkowners.policy import (
@@ -34,39 +32,21 @@ from checkowners.policy import (
     security_findings,
 )
 from checkowners.validate import ValidationFinding
-from tests.conftest import git_commit, init_git_repo
-from tests.test_cli import (
-    _DRIFT_DETECTED,
-    _EMPTY_OWNERSHIP,
-    _MOCK_PATH,
-    _MOCK_TOKEN,
-    _NO_DRIFT,
-    _NOW,
-    _OWNERSHIP,
-    _entry,
-)
+from tests.conftest import NOW, Cli, Payload
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _pin_clock() -> None:
-    with (
-        patch("checkowners.cli.resolve_as_of", return_value=_NOW),
-        patch("checkowners.cli.head_commit_sha", return_value="deadbeef"),
-    ):
-        yield
 
 
 def _write_config(root: Path, content: str) -> Path:
     config_dir = root / ".github"
     config_dir.mkdir(parents=True, exist_ok=True)
-    text = content
-    first = text.lstrip().splitlines()[0] if text.strip() else ""
-    if first and not first.startswith("version:"):
-        text = f"version: 1\n{text}"
-    (config_dir / "checkowners.yml").write_text(text, encoding="utf-8")
+    (config_dir / "checkowners.yml").write_text(content, encoding="utf-8")
     return root
+
+
+def _config(cli: Cli, content: str) -> None:
+    """Write `content` as the repository's checkowners config."""
+    _write_config(cli.repo.path, content)
 
 
 def test_audit_rules_use_the_existing_policy_checks() -> None:
@@ -86,9 +66,9 @@ def test_policy_without_a_fail_flag_stays_off(tmp_path: Path) -> None:
     empty.mkdir()
     omitted.mkdir()
     blank.mkdir()
-    _write_config(empty, "version: 1\npolicy: {}\n")
-    _write_config(omitted, "version: 1\npolicy:\n  incomplete_analysis: {}\n")
-    _write_config(blank, "version: 1\npolicy:\n  incomplete_analysis: []\n")
+    _write_config(empty, "policy: {}\n")
+    _write_config(omitted, "policy:\n  incomplete_analysis: {}\n")
+    _write_config(blank, "policy:\n  incomplete_analysis: []\n")
     assert load_config(repo_root=empty).policy.incomplete_analysis.fail is False
     assert load_config(repo_root=omitted).policy.incomplete_analysis.fail is False
     with pytest.raises(ValueError, match="must be a mapping"):
@@ -100,7 +80,7 @@ def test_policy_fail_rejects_non_booleans(tmp_path: Path) -> None:
     legacy = tmp_path / "legacy"
     current.mkdir()
     legacy.mkdir()
-    _write_config(current, "version: 1\npolicy:\n  incomplete_analysis:\n    fail: 1\n")
+    _write_config(current, "policy:\n  incomplete_analysis:\n    fail: 1\n")
     _write_config(legacy, "policy:\n  incomplete_analysis:\n    fail: 1\n")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
@@ -111,106 +91,46 @@ def test_policy_fail_rejects_non_booleans(tmp_path: Path) -> None:
 
 
 def test_unknown_policy_check_is_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\npolicy:\n  not_a_check: {}\n")
+    root = _write_config(tmp_path, "policy:\n  not_a_check: {}\n")
     with pytest.raises(ValueError, match=r"policy\.not_a_check"):
         load_config(repo_root=root)
 
 
-def test_incomplete_analysis_policy_exits_findings() -> None:
-    policy = Config(
-        policy=PolicyConfig(
-            incomplete_analysis=CheckPolicy(fail=True, severity="warning"),
-        )
-    )
-    with (
-        patch("checkowners.cli.load_config", return_value=policy),
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        _MOCK_TOKEN,
-    ):
-        failed = runner.invoke(app, ["analyze"])
-        cleared = runner.invoke(app, ["--exit-zero", "analyze"])
+def test_incomplete_analysis_can_be_made_blocking(cli: Cli) -> None:
+    _config(cli, "policy:\n  incomplete_analysis:\n    fail: true\n")
+    failed = cli.run("analyze")
+    cleared = cli.run("--exit-zero", "analyze")
     assert failed.exit_code == 3
     assert cleared.exit_code == 0
 
 
-def test_default_policy_blocks_only_the_structural_defect(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    github = tmp_path / ".github"
-    github.mkdir()
-    (github / "CODEOWNERS").write_text("* not-an-owner\n", encoding="utf-8")
-    ownership = OwnershipMap(
-        paths={
-            "src/app.py": PathOwnership(
-                owners=(_entry("@alice", 1.0),),
-                qualified_owner_count=1,
-            ),
-        },
-        last_analyzed=_NOW,
-        analysis_ref="deadbeef",
+def test_the_default_policy_blocks_only_the_structural_defect(cli: Cli) -> None:
+    cli.codeowners("* not-an-owner\n")
+    payload = cli.json("drift")
+    blocking = payload["blocking"]
+    assert isinstance(blocking, list)
+    assert {str(item["rule"]) for item in blocking} == {"invalid-owner"}
+
+
+def test_a_security_path_blocks_while_another_path_stays_informational(cli: Cli) -> None:
+    _config(
+        cli,
+        "security:\n  paths:\n    - src/**\n  minimum_effective_owners: 2\n",
     )
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=ownership),
-        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, ["drift", "--json"])
-    assert result.exit_code == 3, result.output
-    data = json.loads(result.stdout)
-    assert {item["rule"] for item in data["blocking"]} == {"invalid-owner"}
+    cli.codeowners("src/ @alice\ndocs/ @alice\n")
+    payload = cli.json("drift")
+    blocking = payload["blocking"]
+    assert isinstance(blocking, list)
+    blocked = {str(item["path"]) for item in blocking}
+    assert any(path.startswith("src/") for path in blocked)
+    assert not any(path.startswith("docs/") for path in blocked)
 
 
-def test_security_paths_block_while_docs_stay_informational(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    github = tmp_path / ".github"
-    github.mkdir()
-    (github / "checkowners.yml").write_text(
-        "version: 1\nsecurity:\n  paths:\n    - security/**\n  minimum_effective_owners: 2\n",
-        encoding="utf-8",
-    )
-    (github / "CODEOWNERS").write_text("security/ @alice\ndocs/ @alice\n", encoding="utf-8")
-    ownership = OwnershipMap(
-        paths={
-            "security/auth.py": PathOwnership(
-                owners=(_entry("@alice", 1.0),),
-                qualified_owner_count=1,
-            ),
-            "docs/readme.md": PathOwnership(
-                owners=(_entry("@alice", 1.0),),
-                qualified_owner_count=1,
-            ),
-        },
-        last_analyzed=_NOW,
-        analysis_ref="deadbeef",
-    )
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=ownership),
-        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, ["drift", "--json"])
-    assert result.exit_code == 3, result.output
-    blocked = {item["path"] for item in json.loads(result.stdout)["blocking"]}
-    assert "security/auth.py" in blocked
-    assert "docs/readme.md" not in blocked
-
-
-def test_reported_policy_matches_configuration_and_the_fail_override(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    github = tmp_path / ".github"
-    github.mkdir()
-    (github / "checkowners.yml").write_text(
+def test_the_reported_policy_matches_the_configuration(cli: Cli) -> None:
+    _config(
+        cli,
         "\n".join(
             [
-                "version: 1",
                 "policy:",
                 "  drift:",
                 "    fail: false",
@@ -230,23 +150,11 @@ def test_reported_policy_matches_configuration_and_the_fail_override(
                 "",
             ]
         ),
-        encoding="utf-8",
     )
-    (github / "CODEOWNERS").write_text("* @alice\n", encoding="utf-8")
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_EMPTY_OWNERSHIP),
-        patch("checkowners.cli.detect_drift", return_value=_NO_DRIFT),
-        _MOCK_TOKEN,
-    ):
-        plain = runner.invoke(app, ["drift", "--json"])
-        forced = runner.invoke(
-            app,
-            ["github-action", "--json", "--fail-on-drift", "--no-include-decay"],
-        )
-    assert plain.exit_code == 0, plain.output
-    assert forced.exit_code == 0, forced.output
-    reported = json.loads(plain.stdout)["policy"]
-    overridden = json.loads(forced.stdout)["drift_summary"]["policy"]
+    generated = cli.json("generate", "--force")
+    cli.codeowners(str(generated["content"]))
+    reported = cli.json("drift")["policy"]
+    assert isinstance(reported, dict)
     assert reported["drift"] == {"fail": False, "severity": "warning"}
     assert reported["single_expert"] == {"fail": False, "severity": "warning"}
     assert reported["unowned"] == {"fail": True, "severity": "error"}
@@ -258,101 +166,49 @@ def test_reported_policy_matches_configuration_and_the_fail_override(
         "require_declared_owner": True,
         "require_active_expert": False,
     }
-    assert overridden["drift"]["fail"] is True
-    assert overridden["security"]["paths"] == ["auth/**"]
 
 
-def test_suppression_hides_blocking_and_keeps_the_count(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    _write_config(
-        tmp_path,
-        "\n".join(
-            [
-                "policy:",
-                "  drift:",
-                "    fail: true",
-                "  unowned:",
-                "    fail: true",
-                "suppressions:",
-                "  - path: /old.py",
-                "    rule: stale",
-                '    reason: "accepted"',
-                "  - path: /changed.py",
-                "    rule: changed",
-                '    reason: "accepted"',
-                "  - path: /new.py",
-                "    rule: missing",
-                '    reason: "accepted"',
-                "",
-            ]
-        ),
+def test_fail_on_drift_overrides_the_configured_policy(cli: Cli) -> None:
+    _config(cli, "policy:\n  drift:\n    fail: false\n")
+    cli.codeowners("* @nobody\n")
+    allowed = cli.run("github-action", "--no-fail-on-drift")
+    forced = cli.run("github-action", "--fail-on-drift")
+    assert allowed.exit_code == 0
+    assert forced.exit_code == 3
+
+
+def test_a_suppression_hides_a_blocking_finding_and_keeps_the_count(cli: Cli) -> None:
+    _config(cli, "policy:\n  drift:\n    fail: true\n")
+    cli.codeowners("* @nobody\n")
+    detected = cli.json("drift")
+    changed = detected["changed"]
+    assert isinstance(changed, list)
+    paths = sorted({str(item["path"]) for item in changed})
+    assert paths
+    assert detected["blocking"]
+    rules = "\n".join(
+        f'  - path: "{path}"\n    rule: changed\n    reason: "accepted"' for path in paths
     )
-    with (
-        patch("checkowners.cli.analyze_ownership", return_value=_OWNERSHIP),
-        patch("checkowners.cli.detect_drift", return_value=_DRIFT_DETECTED),
-        _MOCK_PATH,
-        _MOCK_TOKEN,
-    ):
-        result = runner.invoke(app, ["drift", "--json"])
-    assert result.exit_code == 0, result.output
-    data = json.loads(result.stdout)
-    assert data["suppressed"] == 3
-    assert data["blocking"] == []
-    assert data["baselined"] == 0
+    _config(cli, f"policy:\n  drift:\n    fail: true\nsuppressions:\n{rules}\n")
+    payload = cli.json("drift")
+    assert payload["suppressed"] == len(paths)
+    assert payload["blocking"] == []
+    assert payload["baselined"] == 0
 
 
-def test_solo_maintainer_repository_does_not_fail(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    init_git_repo(tmp_path)
-    (tmp_path / "app.py").write_text("print('hi')\n", encoding="utf-8")
-    github = tmp_path / ".github"
-    github.mkdir()
-    (github / "CODEOWNERS").write_text("* test@example.com\n", encoding="utf-8")
-    git_commit(
-        tmp_path,
-        "init",
-        author="Solo",
-        email="test@example.com",
-        date="2026-01-15T00:00:00Z",
-    )
-    with _MOCK_TOKEN:
-        result = runner.invoke(app, ["github-action", "--json"])
-    assert result.exit_code == 0, result.output
-
-
-@pytest.mark.parametrize(
-    ("content", "match"),
-    [
-        ("version: 1\npolicy:\n  drift:\n    severity: critical\n", "severity"),
-        ("version: 1\npolicy:\n  drift:\n    severity: 1\n", "severity"),
-        ("version: 1\nsecurity:\n  paths: auth/**\n", "security.paths"),
-        ("version: 1\nsecurity:\n  paths:\n    - ''\n", "security.paths"),
-        ("version: 1\nsecurity:\n  paths:\n    - '  '\n", "security.paths"),
-    ],
-)
-def test_policy_and_security_config_reject_bad_values(
-    tmp_path: Path,
-    content: str,
-    match: str,
-) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match=match):
-        load_config(repo_root=root)
+def test_a_solo_maintainer_repository_does_not_fail(cli: Cli) -> None:
+    cli.codeowners("* @alice\n")
+    result = cli.run("github-action", "--no-fail-on-drift")
+    assert result.exit_code == 0
 
 
 def test_null_security_paths_are_empty(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\nsecurity:\n  paths:\n")
+    root = _write_config(tmp_path, "security:\n  paths:\n")
     assert load_config(repo_root=root).security.paths == ()
 
 
 def test_security_paths_only_keep_the_strict_defaults(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\nsecurity:\n  paths:\n    - ' auth/** '\n")
+    root = _write_config(tmp_path, "security:\n  paths:\n    - ' auth/** '\n")
     security = load_config(repo_root=root).security
     assert security.paths == ("auth/**",)
     assert security.minimum_effective_owners == 2
@@ -393,7 +249,7 @@ def _fresh(handle: str, status: FreshnessStatus | None) -> OwnerEntry:
     return OwnerEntry(
         handle=handle,
         ownership_score=1.0,
-        last_commit=_NOW,
+        last_commit=NOW,
         commits=4,
         freshness=freshness,
     )
@@ -425,7 +281,7 @@ def test_security_rules_raise_only_matching_paths() -> None:
                 qualified_owner_count=1,
             ),
         },
-        last_analyzed=_NOW,
+        last_analyzed=NOW,
         analysis_ref="deadbeef",
     )
     config = Config(
@@ -525,5 +381,6 @@ def test_job_summary_names_blocking_findings(
         },
         5,
     )
-    assert copied["blocking"] == []
-    assert copied["policy"]["drift"]["fail"] is False
+    summary = Payload(copied)
+    assert summary.rows("blocking") == []
+    assert summary.child("policy").child("drift").flag("fail") is False

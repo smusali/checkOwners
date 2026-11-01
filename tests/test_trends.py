@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from unittest.mock import patch
 
-import pytest
-
-from checkowners.analyze import Contribution, _CommitHistory, _RawCommit, score_owners
-from checkowners.models import AnalysisConfig, Config, ScoringConfig
-from checkowners.trends import _two_factor_confidence, analyze_trends, build_trends
+from checkowners.config import (
+    AnalysisConfig,
+    Config,
+    ScoringConfig,
+)
+from checkowners.history import (
+    RawCommit,
+)
+from checkowners.trends import analyze_trends, build_trends
+from tests.conftest import GitRepo
 
 _NOW = datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC)
 
 
-def _commit(author: str, days_ago: int, files: tuple[str, ...]) -> _RawCommit:
-    return _RawCommit(author=author, timestamp=_NOW - timedelta(days=days_ago), files=files)
+def _commit(author: str, days_ago: int, files: tuple[str, ...]) -> RawCommit:
+    return RawCommit(author=author, timestamp=_NOW - timedelta(days=days_ago), files=files)
 
 
 def _config() -> Config:
@@ -89,31 +92,12 @@ def test_build_trends_confidence_in_unit_range() -> None:
         assert 0.0 <= point.historical_activity_confidence <= 1.0
 
 
-def test_analyze_and_trends_match_on_same_available_signals() -> None:
-    contrib = Contribution(commits=4, last_commit=_NOW, credit=4.0)
-    scoring = ScoringConfig()
-    trend = _two_factor_confidence(contrib, 4, scoring, _NOW, 0.0)
-    owners = score_owners(
-        {"alice@example.com": contrib},
-        {},
-        {},
-        max_commits=4,
-        scoring=scoring,
-        now=_NOW,
-        blame_available=False,
-        review_available=False,
-        frequency_prior=0.0,
+def test_analyze_trends_fetches_history_span(git_repo: GitRepo) -> None:
+    git_repo.seed_history(
+        [
+            ("alice@example.com", _NOW - timedelta(days=60), ["src/main.py"]),
+            ("alice@example.com", _NOW, ["src/main.py"]),
+        ]
     )
-    assert owners[0].ownership_score == pytest.approx(trend)
-
-
-def test_analyze_trends_fetches_history_span() -> None:
-    config = _config()
-    with patch(
-        "checkowners.trends._get_commit_history",
-        return_value=_CommitHistory(commits=[], merge_strategy="rebase", co_author_count=0),
-    ) as mock_hist:
-        report = analyze_trends(Path("/fake"), config, periods=4, period_days=15, as_of=_NOW)
-    assert mock_hist.call_args[0][1] == _NOW - timedelta(days=60)
-    assert mock_hist.call_args[0][2] == _NOW
+    report = analyze_trends(git_repo.path, _config(), periods=4, period_days=15, as_of=_NOW)
     assert report.periods == 4

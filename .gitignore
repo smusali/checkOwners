@@ -99,10 +99,7 @@ ipython_config.py
 # Pipfile.lock
 
 # UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-uv.lock
+#   uv.lock is committed: CI installs from it with hashes.
 
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
@@ -221,9 +218,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Local benchmark output. The manual workflow uploads the same path as an artifact.
-/benchmarks/results/
-
 # checkOwners state + graph cache (contributor emails + ownership map);
 # only relevant if CHECKOWNERS_STATE_DIR is pointed inside the repo.
 .checkowners/
@@ -235,6 +229,14 @@ __marimo__/
 /balance.json
 /checkowners-report.md
 /.checkowners-requirements.lock
+
+# CI smoke and audit scratch files.
+/.smoke/
+/analyze.json
+/qualified-owners.json
+/topology.json
+/risk.json
+/dev.txt
 
 # Claude Code local session settings (never commit or package)
 .claude/

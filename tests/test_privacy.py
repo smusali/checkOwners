@@ -6,31 +6,25 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
-from checkowners.cli import (
-    _ACTIVE_CONFIG,
-    _aggregate,
-    _codeowners_ownership,
-    _person,
-    _public_payload,
-    _review_provider,
-    app,
+from checkowners.cli import app
+from checkowners.cli.common import codeowners_ownership
+from checkowners.cli.emit import public_payload
+from checkowners.config import (
+    Config,
+    OutputConfig,
+    PrivacyConfig,
+    load_config,
 )
-from checkowners.config import load_config
 from checkowners.graph import for_display
 from checkowners.models import (
-    Config,
     DecayWarning,
-    GithubConfig,
-    OutputConfig,
     OwnerEntry,
     OwnershipMap,
     PathOwnership,
-    PrivacyConfig,
 )
 from checkowners.privacy import (
     email_token,
@@ -46,12 +40,14 @@ from checkowners.privacy import (
 )
 from checkowners.state import (
     read_handle_cache,
-    repository_identity,
     write_graph_cache,
     write_handle_cache,
     write_state,
 )
-from tests.conftest import GitRepo
+from checkowners.storage import (
+    repository_identity,
+)
+from tests.conftest import Cli, GitRepo, Payload, Route, fake_api
 
 runner = CliRunner()
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
@@ -61,10 +57,8 @@ _AS_OF = "2026-06-15T00:00:00+00:00"
 _COMMIT_DATE = "2025-12-01T00:00:00Z"
 _PRIVACY_COMMANDS = (
     ["--offline", "--as-of", _AS_OF, "analyze", "--json"],
-    ["--offline", "--as-of", _AS_OF, "decay", "--json"],
     ["--offline", "--as-of", _AS_OF, "qualified-owners", "--all", "--json"],
     ["--offline", "--as-of", _AS_OF, "topology", "--json"],
-    ["--offline", "--as-of", _AS_OF, "balance", "--json"],
     ["--offline", "--as-of", _AS_OF, "suggest", "--json"],
     ["--offline", "--as-of", _AS_OF, "expertise", "foo.py", "--json"],
     ["--offline", "--as-of", _AS_OF, "graph"],
@@ -98,7 +92,6 @@ def test_privacy_controls_load(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
         """
-version: 1
 output:
   anonymize: true
   aggregate_only: true
@@ -121,17 +114,8 @@ contributors:
 
 
 def test_identity_mode_is_rejected(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\nidentity:\n  mode: name\n")
+    root = _write_config(tmp_path, "identity:\n  mode: name\n")
     with pytest.raises(ValueError, match=r"identity\.mode"):
-        load_config(repo_root=root)
-
-
-def test_config_without_version_is_rejected(tmp_path: Path) -> None:
-    root = _write_config(
-        tmp_path,
-        "output:\n  anonymize: true\nprivacy:\n  redact_emails: true\nidentity:\n  mode: hashed\n",
-    )
-    with pytest.raises(ValueError, match="requires version: 1"):
         load_config(repo_root=root)
 
 
@@ -174,7 +158,7 @@ def test_privacy_modes_hide_identities(
     repo = _privacy_repo(tmp_path)
     flag = "anonymize: true" if mode == "anonymize" else "aggregate_only: true"
     config_path = tmp_path / "checkowners.yml"
-    config_path.write_text(f"version: 1\noutput:\n  {flag}\n", encoding="utf-8")
+    config_path.write_text(f"output:\n  {flag}\n", encoding="utf-8")
     monkeypatch.chdir(repo.path)
     monkeypatch.setenv("CHECKOWNERS_CONFIG", str(config_path))
     result = runner.invoke(app, args)
@@ -198,7 +182,7 @@ def test_pseudonyms_are_stable_and_repo_scoped(
     assert left.startswith("person-")
     repo = _privacy_repo(tmp_path)
     config_path = tmp_path / "checkowners.yml"
-    config_path.write_text("version: 1\noutput:\n  anonymize: true\n", encoding="utf-8")
+    config_path.write_text("output:\n  anonymize: true\n", encoding="utf-8")
     monkeypatch.chdir(repo.path)
     monkeypatch.setenv("CHECKOWNERS_CONFIG", str(config_path))
     first = runner.invoke(app, ["--offline", "--as-of", _AS_OF, "--no-cache", "analyze", "--json"])
@@ -223,7 +207,7 @@ def test_excluded_contributor_is_absent(
     )
     config_path = tmp_path / "checkowners.yml"
     config_path.write_text(
-        f'version: 1\ncontributors:\n  exclude:\n    - "{_ALICE}"\n',
+        f'contributors:\n  exclude:\n    - "{_ALICE}"\n',
         encoding="utf-8",
     )
     monkeypatch.chdir(repo.path)
@@ -329,8 +313,8 @@ def test_without_emails_drops_addresses_and_recounts() -> None:
 
 
 def test_sanitize_drops_people_and_labels_text() -> None:
-    payload: dict[object, object] = {
-        1: "ignored",
+    payload: dict[str, object] = {
+        "ignored": 1,
         "handle": _ALICE,
         "note": f"ask {_ALICE} or @alice",
         "count": 2,
@@ -341,7 +325,7 @@ def test_sanitize_drops_people_and_labels_text() -> None:
     assert "handle" not in hidden
     assert _ALICE not in json.dumps(hidden)
     assert "@alice" not in json.dumps(hidden)
-    assert hidden["count"] == 2
+    assert Payload(hidden).whole("count") == 2
     anonymized = sanitize(payload, Config(output=OutputConfig(anonymize=True)), "repo")
     text = json.dumps(anonymized)
     assert _ALICE not in text
@@ -391,83 +375,56 @@ def test_graph_cache_skips_malformed_entries(tmp_path: Path) -> None:
     assert stored["graph"]["edges"] == []
 
 
-@pytest.mark.parametrize(
-    ("content", "match"),
-    [
-        ('version: 1\noutput:\n  anonymize: "yes"\n', "output.anonymize"),
-        ("version: 1\noutput:\n  aggregate_only: 1\n", "output.aggregate_only"),
-        ('version: 1\nprivacy:\n  redact_emails: "yes"\n', "privacy.redact_emails"),
-        ("version: 1\nidentity:\n  mode: 1\n", "identity.mode"),
-        ("version: 1\ncontributors: []\n", "contributors must be a mapping"),
-        ("version: 1\ncontributors:\n  exclude: alice\n", "contributors.exclude must be a list"),
-        ("version: 1\ncontributors:\n  exclude:\n    - '  '\n", "non-empty strings"),
-        ("version: 1\ncontributors:\n  exclude:\n    - 1\n", "non-empty strings"),
-    ],
-)
-def test_privacy_config_values_are_rejected(tmp_path: Path, content: str, match: str) -> None:
-    root = _write_config(tmp_path, content)
-    with pytest.raises(ValueError, match=match):
-        load_config(repo_root=root)
-
-
 def test_contributors_section_without_exclude_is_empty(tmp_path: Path) -> None:
-    root = _write_config(tmp_path, "version: 1\ncontributors: {}\n")
+    root = _write_config(tmp_path, "contributors: {}\n")
     assert load_config(repo_root=root).contributors_exclude == ()
 
 
 def test_non_mapping_privacy_sections_rejected(tmp_path: Path) -> None:
     root = _write_config(
         tmp_path,
-        "version: 1\nidentity: true\noutput: []\nprivacy: true\ncontributors: true\n",
+        "identity: true\noutput: []\nprivacy: true\ncontributors: true\n",
     )
     with pytest.raises(ValueError, match="must be a mapping"):
         load_config(repo_root=root)
 
 
 def test_helpers_without_an_active_config() -> None:
-    token = _ACTIVE_CONFIG.set(None)
-    try:
-        assert _aggregate() is False
-        assert _person("@alice") == "@alice"
-        assert _public_payload({"handle": "@alice"}) == {"handle": "@alice"}
-    finally:
-        _ACTIVE_CONFIG.reset(token)
+    assert public_payload({"handle": "@alice"}) == {"handle": "@alice"}
 
 
-def test_codeowners_ownership_skips_raw_emails_when_redacted() -> None:
+def testcodeowners_ownership_skips_raw_emails_when_redacted() -> None:
     config = Config(privacy=PrivacyConfig(redact_emails=True))
     ownership = _map_with(_owner(_ALICE), _owner("@bob"))
-    kept = _codeowners_ownership(ownership, config)
+    kept = codeowners_ownership(ownership, config)
     assert [owner.handle for owner in kept.paths["a.py"].owners] == ["@bob"]
 
 
-def test_review_provider_skips_excluded_emails(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GITHUB_REPOSITORY", "acme/app")
-    monkeypatch.setenv("GITHUB_TOKEN", "ghs_test")
-    config = Config(
-        github=GithubConfig(api_enabled=True),
-        contributors_exclude=("skip@example.com",),
+def test_an_excluded_contributor_never_reaches_the_review_api(
+    cli: Cli,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cli.repo.commit_files(
+        {"src/skipped.py": "x = 1\n"},
+        "excluded author",
+        author="Skip",
+        email="skip@example.com",
+        date="2026-05-21T12:00:00+00:00",
     )
-    as_of = datetime(2026, 10, 24, tzinfo=UTC)
-    with patch("checkowners.cli.build_review_coverage", return_value={}) as coverage:
-        provider = _review_provider(config, as_of)
-        assert provider is not None
-        assert provider({"skip@example.com", "keep@example.com"}) == {}
-    assert coverage.call_args is not None
-    assert coverage.call_args.args[2] == {"keep@example.com"}
-    assert coverage.call_args.kwargs["as_of"] == as_of
-    monkeypatch.delenv("GITHUB_REPOSITORY")
-    assert _review_provider(config, as_of) is None
+    config = cli.repo.path / ".github" / "checkowners.yml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(
+        "github:\n  api_enabled: true\ncontributors:\n  exclude:\n    - skip@example.com\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_TOKEN", "ghs_test")
     monkeypatch.setenv("GITHUB_REPOSITORY", "acme/app")
-    monkeypatch.delenv("GITHUB_TOKEN")
-    assert _review_provider(config, as_of) is None
+    with fake_api(Route("POST", "/graphql", body={"data": {}})) as api:
+        assert cli.run("analyze").exit_code == 0
+    sent = json.dumps(api.payloads("POST"))
+    assert "skip@example.com" not in sent
 
 
 def test_aggregate_person_is_blank() -> None:
     config = replace(load_config(), output=OutputConfig(aggregate_only=True))
-    token = _ACTIVE_CONFIG.set(config)
-    try:
-        assert _person(_ALICE) == ""
-        assert _aggregate() is True
-    finally:
-        _ACTIVE_CONFIG.reset(token)
+    assert "handle" not in public_payload({"handle": _ALICE}, config)

@@ -8,6 +8,7 @@ dynamic = ["version"]
 description = "Keep CODEOWNERS aligned with reality."
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [
     { name = "Samir Musali", email = "samir.musali@gmail.com" },
@@ -35,13 +36,13 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Version Control :: Git",
     "Typing :: Typed",
 ]
-# Core inference is pure git via subprocess: no GitPython, no PyGithub.
-# GitHub API features (handle search, teams, review coverage) live behind
-# the optional "github" extra and degrade gracefully when absent.
+# Core inference is pure git via subprocess, and the GitHub API is reached
+# with urllib, so the runtime needs no git or GitHub client library.
 dependencies = [
     "typer>=0.9.0,<1",
     "rich>=13.0.0,<16",
@@ -52,28 +53,29 @@ dependencies = [
 graph = [
     "networkx>=3.0,<4",
 ]
-github = [
-    "pygithub>=2.0.0,<3",
-]
-blame = [
-    "pygit2>=1.14,<2",
-]
 all = [
-    "checkowners[graph,github]",
+    "checkowners[graph]",
 ]
+
+[dependency-groups]
 dev = [
-    "checkowners[all]",
     "pytest>=7.0",
-    "pytest-cov>=4.0",
     "ruff>=0.4.0",
     "mypy>=1.0",
     "types-PyYAML",
     "jsonschema>=4.18",
     "hypothesis>=6.100,<7",
-    "mutmut>=3,<4",
-    # libcst (via mutmut) needs pyyaml-ft on 3.13+ only. Declare it here so
-    # pip-compile keeps the marker and hashed CI installs skip it on 3.11/3.12.
-    "pyyaml-ft>=8.0.0; python_version >= '3.13'",
+    "pre-commit>=4,<5",
+]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.6,<10",
+    "mike>=2.1,<3",
+    "mkdocs-typer2>=0.4,<1",
+]
+tools = [
+    "cyclonedx-bom",
+    "pip-audit",
 ]
 
 [project.urls]
@@ -87,31 +89,29 @@ Changelog = "https://github.com/smusali/checkowners/blob/main/docs/CHANGELOG.md"
 checkowners = "checkowners.cli:main"
 
 [tool.hatch.version]
-path = "checkowners/__init__.py"
+path = "src/checkowners/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/checkowners"]
+dev-mode-dirs = ["src"]
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-    ".claude",
-    ".instructions",
-    ".pre-commit-config.yaml",
-    "tools",
-    "*.whl",
+only-include = [
+    "src/checkowners",
+    "tests",
+    "schemas",
+    "examples",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
 ]
-
-[tool.hatch.envs.default]
-features = ["dev"]
-
-[tool.hatch.envs.default.scripts]
-test = [
-    "pytest {args}",
-    "coverage report --include=checkowners/patterns.py,checkowners/analyze.py,checkowners/drift.py,checkowners/generate.py --show-missing",
-]
-lint = ["ruff check .", "mypy --strict checkowners/"]
-fmt = "ruff format ."
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+src = ["src", "tests", "tools"]
 extend-exclude = ["docs"]
 
 [tool.ruff.lint]
@@ -119,7 +119,7 @@ extend-exclude = ["docs"]
 # with user-supplied paths. RUF, C4, PL, ARG, TID, ERA are the second pass.
 select = [
     "E", "F", "I", "N", "W", "UP", "ANN", "B", "A", "SIM",
-    "S", "PTH", "RUF", "C4", "PL", "ARG", "TID", "ERA",
+    "S", "PTH", "RUF", "C4", "PL", "ARG", "TID", "ERA", "PT",
 ]
 # PLR complexity metrics (arg counts, magic values, statement counts) follow
 # the CLI and dataclass surfaces; ratcheting them is not a safety win.
@@ -130,7 +130,6 @@ ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "S105", "S106", "S108", "S404"]
-"tools/test_*.py" = ["S101", "S105", "S106", "S108", "S404"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -138,6 +137,11 @@ quote-style = "double"
 [tool.mypy]
 strict = true
 python_version = "3.11"
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+files = ["src/checkowners", "tests", "tools"]
+mypy_path = "src:tools"
+explicit_package_bases = true
 
 # networkx ships no type stubs; the per-module override is the durable
 # alternative to scattering "type: ignore[import-untyped]" at import sites.
@@ -149,44 +153,8 @@ ignore_missing_imports = true
 module = ["jsonschema", "jsonschema.*"]
 ignore_missing_imports = true
 
-[tool.coverage.run]
-source = ["checkowners"]
-branch = true
-
-[tool.coverage.report]
-show_missing = true
-
-[tool.mutmut]
-source_paths = [
-    "checkowners/patterns.py",
-    "checkowners/analyze.py",
-    "checkowners/drift.py",
-    "checkowners/generate.py",
-    "checkowners/github.py",
-]
-also_copy = ["corpus", "checkowners"]
-pytest_add_cli_args = ["--no-cov", "-m", "not integration"]
-pytest_add_cli_args_test_selection = [
-    "tests/test_patterns.py",
-    "tests/test_analyze.py",
-    "tests/test_drift.py",
-    "tests/test_generate.py",
-    "tests/test_github.py",
-    "-k",
-    "not git_ls",
-]
-
 [tool.pytest.ini_options]
-testpaths = ["tests", "tools"]
-pythonpath = ["tools"]
-markers = [
-    "integration: tests that run real git in a temporary repository",
-]
-addopts = [
-    "--strict-markers",
-    "--cov=checkowners",
-    "--cov-branch",
-    "--cov-report=term-missing",
-    "--cov-report=xml",
-    "--cov-fail-under=85",
-]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+xfail_strict = true
+filterwarnings = ["error"]

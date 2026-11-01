@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from checkowners.busfactor import compute_qualified_owners
+from checkowners.concentration import compute_qualified_owners
+from checkowners.config import (
+    AnalysisConfig,
+    Config,
+)
 from checkowners.expertise import path_matches_glob, rank_expertise
-from checkowners.models import AnalysisConfig, Config, OwnerEntry, OwnershipMap, PathOwnership
+from checkowners.models import (
+    OwnerEntry,
+    OwnershipMap,
+    PathOwnership,
+)
 from checkowners.onboard import generate_onboarding_path
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)

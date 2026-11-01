@@ -1,8 +1,7 @@
-version: 1
 
 analysis:
   lookback_days: 365
-  max_owners: 3
+  top_n_owners: 3
   confidence_threshold: 0.2
 
 qualification:

@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   drift:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,42 +29,27 @@ jobs:
         uses: ./  # zizmor: ignore[self-repository]
         with:
           mode: both
-          baseline: .checkowners-baseline.json
           # Keep the action non-failing so the label + fail steps below still
           # run; this workflow gates the merge with its own final step.
           fail_on_drift: "false"
           # Dogfood the checked-out source rather than the pinned wheel so
           # this repo's PRs test the code they contain. Downstream users
           # should OMIT install_spec (the action then installs the pinned wheel).
-          install_spec: ".[graph,github]"
+          install_spec: ".[graph]"
 
       - name: Assert state directory is cached
         run: test -d "${HOME}/.checkowners"
 
       - name: Assert owner comparison ran
-        run: |
-          python -c "
-          import json, sys
-          data = json.load(open('drift.json'))
-          notes = data.get('notes') or []
-          bad = [n for n in notes if 'commit emails' in n]
-          if bad:
-              print('identity note present; owner comparison was skipped:', bad)
-              sys.exit(1)
-          "
+        run: python3 tools/assert_drift_notes.py
 
       # Example of consuming the action's outputs for custom logic.
       - name: Add ownership-critical label
         if: fromJson(steps.checkowners.outputs.bus_factor_summary).critical_paths[0]
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
-        with:
-          script: |
-            await github.rest.issues.addLabels({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: ['ownership-critical'],
-            });
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash tools/label_pr.sh
 
       - name: Fail when drift detected
         if: fromJson(steps.checkowners.outputs.drift_summary).drift_detected

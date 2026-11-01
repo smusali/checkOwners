@@ -4,18 +4,17 @@
 
 ## Tests
 
-- [ ] Tests cover the change, or this is docs / metadata only (say why below)
+- [ ] Tests cover the change, or this is docs or metadata only (say why below)
 
 ## Docs
 
-- [ ] USAGE / FAQ updated when behavior changed
-- [ ] CHANGELOG Unreleased updated when the change is user-visible
+- [ ] Usage and FAQ updated when behavior changed
+- [ ] Changelog `Unreleased` updated when the change is user-visible
 - [ ] README updated when the landing page needs it
 
-## Model or contract impact
+## Stability
 
-- [ ] None
-- [ ] Scoring weights
-- [ ] JSON shape
-- [ ] Config defaults
-- [ ] Action inputs or outputs
+Before 1.0.0, an incompatible change bumps the minor version and is listed in the changelog.
+
+- [ ] This change is backward compatible
+- [ ] This change is incompatible and the changelog says so

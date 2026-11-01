@@ -1,328 +1,141 @@
 # FAQ
 
-Common questions about configuring and operating checkowners. For the full configuration reference see [Configuration](reference.md#configuration).
+## Does checkOwners need a GitHub token?
 
-## Requirements
+No. The inference is pure git and runs offline. A token only adds three
+features: resolving non-noreply emails to `@handles`, resolving teams and
+subteams, and the review signal with team reconciliation. Without one you still
+get scored ownership, drift, qualified owner counts, freshness, and onboarding,
+and the remaining signal weights are renormalized so the score stays on
+`[0, 1]`.
 
-### Which systems does checkOwners support?
+Noreply addresses such as `login@users.noreply.github.com` resolve to `@login`
+with no token at all.
 
-Python 3.11 through 3.14, and Git 2.23.0 or newer, on Ubuntu, macOS, and Windows. A pull request checks Ubuntu on every supported Python and macOS plus Windows on Python 3.14. Each of those test jobs is limited to 25 minutes. Pushes to `main`, the nightly schedule, and a manual run also test Git 2.23.0 and Git 2.39.3 on Ubuntu. The Git already installed on the runner is the latest cell.
+## Where does the token go?
 
-### Why did the command exit 4 and mention Git 2.23.0?
+In the `GITHUB_TOKEN` environment variable, and nowhere else.
+`github.token` in `checkowners.yml` is refused, because that file is committed
+and a secret there would be published. In Actions the composite Action exports
+the job token for you; pass `github_token` only when you need a PAT or App
+token.
 
-Blame needs `git blame --ignore-revs-file`, which Git added in 2.23.0. The message names the Git it found, or `none` when `git` is missing from `PATH`. Install Git 2.23.0 or newer and rerun. Both cases exit 4.
+## What permissions does each feature need?
 
-### Where is the state directory on Windows?
+| Capability | Job token | Fine-grained PAT |
+| --- | --- | --- |
+| Email to `@handle` | the default token is enough | no extra repository permission |
+| Teams and subteams | not available; the job token cannot list org teams | Organization members: Read |
+| Review coverage, `suggest` | `pull-requests: read` | Pull requests: Read |
+| Pull-request comment | `pull-requests: write` | Pull requests: Write |
+| Code scanning upload | `security-events: write` | Code scanning alerts: Read and write |
+| Check run | `checks: write` | Checks: Read and write |
+| `sync` pull request | `contents: write` and `pull-requests: write` | Contents and Pull requests: Read and write |
 
-The default is `%USERPROFILE%\.checkowners`, the same `~/.checkowners` directory used on macOS and Linux. `CHECKOWNERS_STATE_DIR` overrides it and expands a leading `~`. Each repository is stored under `state/` by a hash of its origin URL, or of its resolved absolute path when it has no origin.
+A fork pull request cannot comment or upload code scanning results: GitHub makes
+that token read-only whatever the `permissions:` block says. The Action skips
+both, writes the report and the SARIF artifact, and does not fail the job.
 
-## Ownership identity
+## Will the generated CODEOWNERS use handles or emails?
 
-### Will the generated CODEOWNERS show GitHub usernames or commit email addresses?
+Handles whenever one was resolved. A path whose owners are still raw addresses
+is skipped rather than written with an address, because GitHub would not
+understand it. Writing a `.mailmap` is the cheapest way to improve this.
 
-GitHub usernames whenever they can be resolved. Start with a `.mailmap` at the repo root. That is the cheapest accuracy fix and the first identity stage (`identity.mailmap: true` by default).
+## Does it handle teams and subteams?
 
-Git collapses one person's addresses first. CheckOwners then applies a configured `identities` entry, parses GitHub noreply emails (`12345+login@users.noreply.github.com`) to `@login` locally, reads this repository's handle cache, reads `author.login` on one local commit, and calls the GitHub user-search API last when `GITHUB_TOKEN` is set. Search runs only after the commit read found no login. When resolution misses (private email, no GitHub account, API unavailable) the entry falls back to the raw email so the output stays usable.
+With a token, `github.org`, and `github.resolve_teams`, yes. checkOwners loads
+the organization team list once, follows child teams, and reports a team rule as
+aligned, partially drifted, unverifiable, invisible, empty, or nested.
+`team_coverage` is the share of inferred handles who are members.
 
-On squash-merge repos most contributors have noreply author emails, so usernames appear even without a token. An override, a noreply address, or a commit login that shares a handle merges into one owner, and the path's qualified owner count is recomputed over distinct people. A search hit relabels that one email and does not merge two owners. `identity.do_not_merge` and `identity unmerge` keep a pair apart. Set `identity.mailmap: false` to keep raw commit addresses.
+## Can a report leave out people's names?
 
-`contributors.roster` can mark someone `former`. That status is configuration. Org membership and commit dates do not invent it. `checkowners simulate --remove-status former` removes the cached owners with that status.
+Yes. `output.anonymize` replaces each person with a stable `person-` token,
+`output.aggregate_only` drops per-person fields and keeps path and repository
+metrics, and `privacy.redact_emails` replaces addresses with tokens.
+`generate` and `sync` exit 2 under those settings, because a CODEOWNERS file
+has to name accounts.
 
-```yaml
-identity:
-  mailmap: true          # default; set false for raw emails
-  negative_cache_ttl_days: 30
-github:
-  resolve_handles: true  # default
-identities:
-  "@alice":
-    emails: [alice@company.example]
-contributors:
-  roster:
-    "@bob": former
-```
+## Can CODEOWNERS live in the repository root?
 
-### Does it handle GitHub teams and subteams?
+Yes. checkOwners reads `.github/CODEOWNERS`, `CODEOWNERS`, and
+`docs/CODEOWNERS`, in that order, and writes back to whichever it found.
 
-Yes. When `github.org` is set and a token is available, `checkowners generate` collects every team in the org (including nested subteams), and any owner set whose handles are a subset of a team's membership is collapsed to that team. The most deeply-nested matching team wins ties, so subteams are preferred over their parents.
+## Where is the cache?
 
-```yaml
-github:
-  org: my-org
-  resolve_teams: true    # default; emits @my-org/platform/backend etc.
-```
+`~/.checkowners`, or `%USERPROFILE%\.checkowners` on Windows. Set
+`CHECKOWNERS_STATE_DIR` to move it, `checkowners cache path` to print it, and
+`checkowners cache purge` to delete everything in it.
 
-Disable `resolve_teams` if you want raw `@username` entries even when a team would match.
+## How do I turn checkOwners on without failing on everything?
 
-Drift asks the opposite question. A token, `github.resolve_teams`, and `github.org` expand `@org/team` to members, including child teams. Without that directory the team rule is `unverifiable`. It is not reported as aligned. See [Drift and severity](USAGE.md#drift-and-severity).
+Run `checkowners baseline create` and commit the file. Later runs then fail only
+on findings that are not in it. `--exit-zero` is the other way: it turns the
+findings exit code into 0 after printing the report.
 
-### Can a report omit people's names?
+## What is the difference between a baseline and a suppression?
 
-Yes. `output.anonymize: true` replaces each person with a stable `person-` token for that repository. `output.aggregate_only: true` drops per-person fields and keeps repository metrics. `identity.mode` is `handle` (default), `email`, or `hashed`. `privacy.redact_emails: true` or `--redact-emails` replaces addresses in output with tokens. `contributors.exclude` removes those people from every command, including graph export.
+A baseline is a snapshot of what was already there, written by a command, and it
+ratchets: a finding you fix cannot come back silently. A suppression is a
+hand-written rule in the config that always applies, and it requires a reason so
+the next reader knows why.
 
-`generate` and `sync` exit 2 under anonymize, aggregate-only, or hashed mode. On disk, state and the per-repository handle files store email tokens rather than raw addresses. See [Privacy controls](USAGE.md#privacy-controls).
+## How do I fail only on critical drift?
 
-## GitHub API access
+Leave `policy.drift.fail` false and branch on the Action's `drift_summary`,
+which carries the severity. A workflow step that fails when
+`severity == "critical"` is three lines of `if:`.
 
-### Does checkowners require a GitHub token?
+## Why is analysis completeness below 100% on a healthy repository?
 
-No. The core inference is pure git and runs offline. A token is only needed for three optional features:
+Completeness counts the evidence catalog, not the health of the repository.
+Without a token the review signal is missing; without a `.mailmap` or a
+`.git-blame-ignore-revs` file those corrections did not run. Each of those is a
+gap, so a normal run sits below 1 and still exits 0.
 
-| Feature | Config gate | Why a token is needed |
-|---------|-------------|-----------------------|
-| Email to `@username` resolution (non-noreply emails) | `github.resolve_handles` | GitHub user-search API |
-| Team / subteam resolution | `github.resolve_teams` + `github.org` | List org teams + members |
-| Review history and team reconciliation | `github.api_enabled` | PR review API + team membership |
+## Why did a formatter commit not take ownership?
 
-Noreply emails (`login@users.noreply.github.com`) resolve to `@login` without any token. The API-backed features also need the `github` extra (`pip install "checkowners[github]"`). Without it they degrade gracefully with a log hint.
+Commits that touch at least `git.mass_refactor_file_fraction` of tracked files
+are left out of blame, and revisions in `.git-blame-ignore-revs` are ignored.
+Both exist so a sweeping reformat does not become ownership.
 
-Without a token you still get scored ownership, drift detection, qualified owner counts, ownership freshness, and onboarding paths. They operate on email handles and skip the review-activity signal. Remaining weights are renormalized so the score stays on `[0, 1]`. What that score is, and what it is not, is in [Methodology](METHODOLOGY.md). When it can be wrong is in [Limitations](limitations.md).
+## Why are some paths missing from `analyze`?
 
-### What environment variable holds the token?
+They were excluded: `linguist-generated` or `linguist-vendored` in
+`.gitattributes`, a `paths.exclude` pattern, a deleted file, or a path whose only
+authors are bots.
 
-`GITHUB_TOKEN` (not `GITHUB_API_KEY`). This is the **only** supported way to provide a token. `github.token` is intentionally **not** accepted in `checkowners.yml` because that file gets committed to git and storing a secret there would publish it to GitHub.
+## Can I keep a hand-written rule when I generate CODEOWNERS?
 
-`load_config` refuses to load a config that contains `github.token` so a misconfigured repo fails fast instead of silently leaking. The full environment-variable list and precedence live in [Environment variables](reference.md#environment-variables).
+Yes. Wrap it in `# checkowners:manual:start` and `# checkowners:manual:end`.
+`generate` rewrites only the generated block. `output.block_order` decides which
+block wins an overlap, and the later block is the winner.
 
-```bash
-export GITHUB_TOKEN=ghp_...
-checkowners generate
-```
+## `generate` stopped on a marker error and left the file alone.
 
-In GitHub Actions the job token exists as `${{ secrets.GITHUB_TOKEN }}` / `${{ github.token }}`. A `run:` step only sees `GITHUB_TOKEN` if the workflow exports it. The composite action does this for you: `github_token` defaults to `${{ github.token }}` and is exported on the `github-action` step and the PR comment step. Pass a PAT or App token only when the default job token is not enough (org team listing or commenting). See [docs/USAGE.md](USAGE.md#github-actions).
+The manual and generated markers are unbalanced or interleaved. The message
+names the line. Nothing is written until they pair up, so no manual rule is ever
+lost to a half-written file.
 
-```yaml
-- uses: smusali/checkowners@v0
-  # github_token defaults to github.token; override only when you need a PAT.
-  # @v0 tracks the latest 0.x; @v0.6 tracks 0.6.x; @v0.5 stays on 0.5.x; @v0.6.0 is the pin.
-  with:
-    github_token: ${{ secrets.GITHUB_TOKEN }}
-```
+## `generate` refused because the file is too large.
 
-If you invoke the CLI yourself in a `run:` step, export the token:
+`output.max_bytes` defaults to 2.5 MB because GitHub ignores a CODEOWNERS file
+over 3 MB. Raise the limit, or let `output.consolidate` collapse uniform
+directories, or pass `--force`.
 
-```yaml
-- run: checkowners drift --json
-  env:
-    GITHUB_TOKEN: ${{ github.token }}
-```
+## `networkx` is not installed but I want `graph`.
 
-### What token scopes are needed?
+`pip install "checkowners[graph]"`. The graph, topology, and onboarding commands
+need it; nothing else does.
 
-| Capability | Job token (`permissions`) | Classic PAT | Fine-grained PAT |
-|---|---|---|---|
-| Email to `@username` (user search) | Default job token is enough (`contents: read` is already required for checkout) | Authenticated token; `read:user` if you want the user-search scope stated explicitly | No extra repository permission |
-| Team / subteam resolution | Not available: the default `GITHUB_TOKEN` is repo-scoped and cannot list org teams. Pass a PAT or App token via `github_token` | `read:org` | Organization members: Read |
-| Review coverage and `suggest` (`github.api_enabled`) | `pull-requests: read` | `repo` (private) or `public_repo` | Pull requests: Read |
-| `suggest --pr` file list | `pull-requests: read` | `repo` (private) or `public_repo` | Pull requests: Read |
-| PR comment (Action `comment_on_pr`) | `pull-requests: write` | `repo` | Pull requests: Write |
-| Code scanning upload (`upload_sarif`) | `security-events: write` | Not applicable to a classic PAT for this upload | Code scanning alerts: Read and write |
-| checkOwners check run | `checks: write` | Not applicable to a classic PAT for this check | Checks: Read and write |
-| Reconciliation pull request (`checkowners sync`) | `contents: write` and `pull-requests: write` | `repo` | Contents: Read and write, and Pull requests: Read and write |
+## Is this a performance-measurement tool?
 
-Fork `pull_request` runs cannot comment or upload code scanning results with the job token: GitHub makes that token read-only regardless of the `permissions:` block. The action skips the comment, skips the SARIF upload, writes the report and the SARIF artifact, and does not fail the job. The same warning-not-failure path applies when the workflow itself is read-only; set `comment_on_pr: false` to skip the comment. A check run needs `checks: write`. Without it the check is skipped and the job result stays the findings exit code.
+No. It measures where knowledge is concentrated, which is a property of a
+repository, not of a person. Using it to evaluate individuals is unsupported and
+harmful.
 
-`checkowners sync` uses the same token to open a pull request. The repository `GITHUB_TOKEN` can do that, but GitHub will not run `push` workflows from it, and the `pull_request` workflows it creates stay waiting for approval. Use a personal access token or a GitHub App token when those checks should start on their own. `--commit` commits on the current branch instead. `--dry-run` only prints the diff.
+## Does it use an LLM?
 
-A fine-grained PAT scoped to the target org with the minimums above is the recommended setup when the job token cannot reach org teams.
-
-## File locations
-
-### Can the CODEOWNERS file live in the repo root instead of `.github/`?
-
-Yes. `checkowners` auto-detects the file at any of the three locations GitHub itself supports, in priority order:
-
-1. `.github/CODEOWNERS`
-2. `CODEOWNERS` (repo root)
-3. `docs/CODEOWNERS`
-
-The first one that exists wins for `analyze`, `drift`, `validate`, and `sync`. If none exists, `generate` creates `.github/CODEOWNERS` by default; move the file manually if you want a different layout and checkowners will keep using it there.
-
-Note that `generate` and `sync` refuse to overwrite a CODEOWNERS that was not generated by checkOwners (it looks for the machine-generated header). Pass `--force` to replace a hand-written file, or to write a file larger than `output.max_bytes`.
-
-### Where does the config file live?
-
-`.github/checkowners.yml`. There's no auto-detection for the config; it has to live there.
-
-### Where is the state cache?
-
-`~/.checkowners/` (schema 1). `checkowners cache path` prints that directory. State and graph files are named from the normalized `origin` URL, so two checkouts of the same remote share a cache. A repo with no `origin` is keyed by its absolute path, and the stored identity is checked on load, so one repo cannot read another's file. Downstream commands (`qualified-owners`, `decay`, `topology`, `suggest`, `balance`, `onboard`, `expertise`, `graph`) reuse the file when its commit is still `HEAD` and the scoring config hash matches. If not, they apply a usable baseline incrementally, or score the full lookback when the baseline is missing or rejected. A rejected baseline prints the reason on stderr. `--no-incremental` forces the full lookback. `--allow-stale` reuses a map from an older commit. `--max-age SECONDS` refuses a map older than that (`0` expires immediately). `--no-cache` skips the analysis cache and the blame cache for one run. `cache clear` drops analysis files and blame-cache files and keeps handle files. `cache purge` deletes the directory contents, including handle tokens and the identity graph. State, graph, and blame-cache files are capped at 256 MiB together and the oldest files are removed past that cap. The blame cache key is the blob SHA, the path, the blame flags, the ignore-revs bytes, the mass-refactor revisions, and the `.mailmap` bytes. `--verbose` prints the hit and miss counts. `explain` and `owners` do not read this cache. Override the directory with `CHECKOWNERS_STATE_DIR` for CI or tests. The composite Action uses `~/.checkowners` when `cache` is `"true"`, and `${{ runner.temp }}/checkowners-state` when `cache` is `"false"`. See [docs/USAGE.md](USAGE.md#pipeline).
-
-## Inference behavior
-
-### How is the ownership score computed?
-
-A weighted mean over **available** signals, each in `[0.0, 1.0]`:
-
-- **Recency**: `exp(-ln 2 × days_since_last_commit / half_life)`. The default strategy is `adaptive`: the half-life is the path's median gap between commits, clamped to 14 and 730 days. A path with no gap keeps the 90-day half-life. `scoring.recency_strategy: fixed` uses that 90-day value for every path.
-- **Frequency**: contributor's commits on the path divided by the path's max contributor.
-- **Blame coverage**: fraction of current lines `git blame` attributes to the contributor, after whitespace ignore, optional move/copy detection, and ignore-revs.
-- **Review activity**: PR reviews on the path divided by total reviews. Unavailable unless `github.api_enabled` is true; missing review is skipped, not scored as `0.0`.
-- **Change survival**: current blame lines divided by that person's blame lines at their last commit. Line counts, not an AST diff. Unavailable when blame did not run or the older count is zero. Below `0.2`, with a later commit from someone else, the owner is `superseded`.
-
-```text
-ownership_score  = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
-evidence_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
-```
-
-Weights and per-signal `*_reliability` defaults live under `scoring`. The score is always on `[0.0, 1.0]`; owners below `analysis.confidence_threshold` are dropped from the generated CODEOWNERS. JSON emits `ownership_score`. This is a ranking signal, not a calibrated probability. The formulas, what each signal proxies, the truck-factor divergence, and the project principles are in [Methodology](METHODOLOGY.md). When the tool can be wrong is in [Limitations](limitations.md). If you gate CI on a threshold, re-check it after upgrading: offline scores are no longer capped at `0.85`.
-
-### Can I tune the inference for a high-turnover team?
-
-Yes. Common tunings:
-
-```yaml
-scoring:
-  recency_strategy: fixed
-  recency_half_life_days: 45   # shorten ownership freshness
-  recency_weight: 0.5          # weigh recent commits higher
-
-decay:
-  threshold_days: 90           # continuity risk when a path has no commit interval
-
-analysis:
-  confidence_threshold: 0.4    # stricter cutoff
-```
-
-### Why didn't a formatter commit take ownership?
-
-Blame ignores whitespace-only edits (`-w`), follows moved and copied lines when `git.detect_moves` is true, and omits commits listed in `.git-blame-ignore-revs` (or `blame.ignoreRevsFile`). Commits that modify at least `git.mass_refactor_file_fraction` of tracked files (default half the repository) are omitted the same way, so a `black .` or license-header sweep does not become the owner. Add the formatting SHA to `.git-blame-ignore-revs` for an explicit record. Analyze JSON reports whether an ignore-revs file was found, and whether a `.mailmap` was found and applied, under `analysis`.
-
-### Why are some paths missing from `checkowners analyze`?
-
-Four filters can drop a path: `.gitattributes` marks it `linguist-generated` or `linguist-vendored` (`analysis.respect_gitattributes`, on by default), it matches a `paths.exclude` pattern (the fallback list), it no longer exists on disk (deleted files are filtered automatically so CODEOWNERS doesn't pin removed paths), or its only contributors are bots (`analysis.exclude_bots`, on by default). With `qualification.strategy: threshold`, a fifth filter still drops paths where no contributor reaches `analysis.min_commits` within the lookback window. The default `adaptive` strategy keeps those sparse paths and scores them; a one-commit author of a new file can appear as an owner. Analyze JSON reports `analysis.excluded_gitattributes` and `analysis.excluded_static` so a path counted under gitattributes is not counted again under the static list.
-
-## Drift, severity, and CI
-
-`drift.mode` defaults to `commit` (missing + changed). Set `repo` or `both` to also flag stale rules.
-
-### What does drift "severity" mean in CI?
-
-Severity is the worst entry score. The score mixes overlap, the confidence delta, path criticality, decay, and a bump when one qualified owner remains. The default cutoffs are `0.15 / 0.35 / 0.55 / 0.75`, stored as `drift.severity_thresholds`. Below `0.15` the tier is `info`. A solo repository is not uniformly `critical`. `policy.drift.fail` stays false unless you set it.
-
-`checkowners` with no subcommand runs `checkowners audit`. `checkowners doctor` stops at configuration, plus the bus-factor row. `doctor --env` reports the environment and does not treat a missing token as a pass. `--json` and the Action output `drift_summary` include the severity field so a workflow can branch on it.
-
-### How do I turn checkOwners on without failing on every existing finding?
-
-`checkowners baseline create` writes `.checkowners-baseline.json` with today's findings. Pass that file with `--baseline`, `drift.baseline_file`, or the Action `baseline` input. Subsequent runs fail only on findings whose identity is not in the file. Identity is `rule` plus `path` plus owner set, so a CODEOWNERS reorder does not invalidate the snapshot. `checkowners --exit-zero drift` is the other adoption path: findings are still printed, and the process exits 0. See [Turning checkOwners on for an existing large repository](USAGE.md#turning-checkowners-on-for-an-existing-large-repository).
-
-### What is the difference between a baseline and a suppression?
-
-The baseline is a bulk snapshot of current debt so CI can start green. A suppression is a named exception with a mandatory reason and an optional expiry. Use a suppression when you can explain one rule on one path; use the baseline when you need to adopt on a large existing tree. Both counts appear in every `drift` and Action summary.
-
-### Why does a suppression require a reason?
-
-A reasonless ignore becomes invisible debt. `load_config` rejects a suppression that omits `reason` or leaves it blank. Expiry is optional. When `expires` is set and the analysis date is after that day, the command fails and prints the path, rule, date, and reason. It does not keep suppressing.
-
-### What happens when I fix a finding that is still in the baseline?
-
-The leftover baseline row is reported as stale (`stale_baseline`). That does not fail the run. Re-run `checkowners baseline create` to drop rows that no longer exist.
-
-### How do I fail a PR only on critical drift?
-
-The example workflow in `.github/workflows/checkowners-example.yml` does this with `fromJson(steps.checkowners.outputs.drift_summary).severity == 'critical'`. The default policy does not fail a pull request for ownership drift or a single expert. Set `policy.drift.fail: true`, or the Action input `fail_on_drift: "true"`, when that drift should block. `fail_on_drift: "false"` forces the informational path even when the file says to fail.
-
-### Why is analysis completeness below 100% on a normal repository?
-
-The run score counts every missing evidence source, not only the four scoring signals. A repository without `.mailmap`, without `.git-blame-ignore-revs`, or without review history is incomplete even when the owners that were scored look confident. The summary lists each reason. Missing evidence lowers evidence quality. It does not lower the ownership score, and it is not reported as drift.
-
-`--fail-on-incomplete`, or `policy.incomplete_analysis.fail: true`, exits 3 when the score is below 1. Leave it off until the repository can satisfy the sources you care about. `--exit-zero` still turns that 3 into 0.
-
-### What exit code should a script check?
-
-| Code | Meaning |
-|------|---------|
-| 0 | Clean, or findings hidden by `--exit-zero` |
-| 1 | Internal error |
-| 2 | Configuration or usage error |
-| 3 | Findings (`validate`, `drift`, expired suppressions, incomplete analysis) |
-| 4 | Git or GitHub integration failure |
-
-Any non-zero status fails the step. The Action exits 3 when a novel finding's policy check fails. The default policy blocks invalid owners and does not block drift, a single expert, or unowned paths, so a one-person repository with a valid CODEOWNERS file stays green. `fail_on_drift: "true"` blocks novel drift for that run. `--exit-zero` and `fail_on_drift: "false"` hide findings only. The full table is in [Exit codes](USAGE.md#exit-codes).
-
-### Why is the first run on a small repository not a red X?
-
-Knowledge risk takes time to fix. The default policy reports single-expert paths, ownership drift, and missing coverage, and it does not fail the job for them. A broken owner token or a CODEOWNERS syntax error still exits 3. Set `policy.drift.fail: true` when the repository is ready to block on new drift. A baseline still decides which findings are new, and policy decides which of those new findings block. Both show up in the summary.
-
-## Positioning
-
-### Is this a performance-measurement tool?
-
-No. This is a knowledge-risk tool, not a performance-measurement tool. Using it for individual evaluation is unsupported and harmful. The project will not be positioned around who contributes least, who is really working, or which engineer is underperforming. Position it around repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. The ten principles are in [Methodology](METHODOLOGY.md#principles). What repository evidence cannot prove is in [Limitations](limitations.md). What is read, what leaves the machine, and how to delete the cache are in [Privacy](PRIVACY.md).
-
-### How does CheckOwners compare to other CODEOWNERS tools?
-
-CheckOwners treats code ownership as a scored spectrum rather than a static binary declaration. No other open-source tool combines git-history inference, per-path ownership scores with evidence quality, pattern-aware drift with severity tiers, and knowledge-risk reporting behind a single CI-native JSON contract.
-
-Dedicated validators still go further on owner validity: they verify that accounts exist and that users and teams belong to the organization. Formal bus/truck-factor research tools run a removal simulation over a knowledge distribution. CheckOwners `qualified_owner_count` is a capped count of owners above the confidence threshold; it is not truck factor, bus factor, or lottery factor. See [Qualified owner count](USAGE.md#qualified-owner-count) and [Knowledge concentration](METHODOLOGY.md#knowledge-concentration).
-
-The full matrix and what each category does well live in [How checkowners compares](USAGE.md#how-checkowners-compares).
-
-### Why did scores used to change overnight with no commits?
-
-Recency used to age against the wall clock, so the same commit scored differently each day. Analysis now uses one instant: `--as-of`, else `SOURCE_DATE_EPOCH`, else the HEAD committer timestamp. The same repository, commit, and config produce the same JSON. Pass `--as-of 2026-01-15T00:00:00+00:00` to pin an audit instant. `--deterministic` is the documented name for that guarantee.
-
-### Does CheckOwners use LLMs?
-
-No LLM is in the inference path. Core analysis is deterministic git work (`git log`, `git blame`) plus optional GitHub API lookups. The scoring heuristics live in `analyze.py` and are auditable. The codebase has been built with agent assistance; every AI-assisted change is human-reviewed, tested, and signed off.
-
-## Reporting
-
-### How do I report a wrong owner?
-
-Open a [false-positive report](https://github.com/smusali/checkowners/issues/new?template=false-positive.yml). The form asks for the path, inferred owner, expected owner, command, configuration, repository shape, and merge strategy. Those reports feed the public false-positive ledger. Crashes and CLI defects use the [bug form](https://github.com/smusali/checkowners/issues/new?template=bug.yml). Usage questions go to [Discussions](https://github.com/smusali/checkowners/discussions/categories/q-a).
-
-## Troubleshooting
-
-### Can I keep a hand-written rule when I generate CODEOWNERS?
-
-Yes. Put the rule between `# checkowners:manual:start` and `# checkowners:manual:end`. Regeneration copies that block unchanged and rewrites only the generated block. The file still needs the machine-generated header, or `--force` on the first write. A file with no markers is still refused without `--force`.
-
-### Which block wins when a manual rule and a generated rule match the same path?
-
-The later block wins. `output.block_order: manual-first` (the default) places the manual block first, so the generated rule wins the overlap. `generated-first` places the manual block last, so the manual rule wins. Drift reports that manual winner as `declared ownership without observed expertise` and asks for review. It does not call the rule `changed`.
-
-### Why did generate stop on a marker error and leave the file alone?
-
-A marker is missing its partner, repeated, or nested inside the other block. Generate exits 2 and does not write. Close the block, or remove the extra marker, and run again.
-
-### What does `drift --fix-plan` change?
-
-Nothing. It prints a suggested diff for generated rules and a review sentence for manual rules. It does not write CODEOWNERS and it does not open a pull request.
-
-### Why did generate warn about `routes/[id]/` and emit per-file rules?
-
-GitHub skips CODEOWNERS lines that contain `[...]` character ranges, so Next.js and Remix dynamic segments cannot be written as-is. Generate rewrites those segments to `*`. When that wildcard would also own paths that were inferred for someone else (`routes/[slug]/`, `routes/static/`), the default is to refuse the broad rule, warn, and emit per-file rules. Those per-file lines stay GitHub-valid when a narrower `*` is unique; otherwise they keep the literal `[id]` path, which GitHub will ignore. Pass `--allow-broad-patterns` (or set `output.allow_broad_patterns: true`) only when you accept that over-ownership. `--force` does not opt in. `generate --json` records the affected paths and owner delta under `broad_patterns`.
-
-### `generate` failed with a round-trip verification error.
-
-The generated rules did not resolve to the owners generation assigned. The message names the path, the intended owners, the resolved owners, and the winning rule. Last-match-wins ordering is the usual cause: a later broader rule (for example `*`) un-owns a subtree that a directory rule was meant to cover. Fix the ordering, or set `output.consolidate: false` and regenerate. A manual block that wins the path is kept and is not this error. `--force` does not skip this check. `checkowners explain-path <path>` shows the match chain for a single path.
-
-### `generate` refused because the file is too large.
-
-GitHub does not load a CODEOWNERS file over 3 MB. Generate warns at 2 MB and refuses above `output.max_bytes` (default 2_500_000) unless you pass `--force`. Consolidation (`output.consolidate: true`) is the usual way to stay under the ceiling.
-
-### How do I see which CODEOWNERS rule owns a path?
-
-```bash
-checkowners explain-path src/main.py
-checkowners explain-path src/main.py --json
-```
-
-The command reads the existing CODEOWNERS file and lists every matching rule in file order. The last match wins. It does not re-run analysis.
-
-### How do I see why someone was inferred (or not) for a path?
-
-`checkowners explain-path` answers the declared-rule question. `checkowners explain PATH` answers the inference question: per-signal scores, availability, named commits, and `--why-not @handle`. `checkowners owners PATH` (or `who`) prints only the ranked list. Those two commands analyze the requested path only and do not use the cached state.
-
-### `networkx` is not installed but I want `checkowners graph`.
-
-Install the extra: `pip install "checkowners[graph]"`. The error message points to this too.
-
-### `checkowners drift` complains about lines with `# alice(0.92)`.
-
-You're on an older version that predates the inline-comment fix. Upgrade to v0.3.0+ or strip the annotations by setting `output.include_confidence: false` and regenerating.
-
-### The qualified-owners report says every path has one qualified owner. Is that right?
-
-For a solo-maintainer repo, yes. `qualified_owner_count` is the number of selected owners with confidence at or above `analysis.confidence_threshold`, after the list has already been truncated to `analysis.top_n_owners` (default 3). A single committer is 1 per path. The value cannot exceed `top_n_owners`, so fifteen healthy contributors report the same count as three. This capped count is not truck factor. `checkowners simulate --remove` is the removal: it reports the repository truck factor before and after the named people leave. Per-path JSON reports score-mass concentration, computed before that cap, as `risk.top_owner_share`, `risk.effective_owners` (`1 / sum(p_i^2)`), `risk.truck_factor_50`, `risk.truck_factor_75`, and `risk.truck_factor_90`. The repository figure is the criticality-weighted distribution of `top_owner_share` (`minimum`, `p10`, `median`, `p90`, `critical_path_risk`, `knowledge_at_risk`). Without a `criticality` map, `distribution.criticality_incomplete` is true. Changing `top_n_owners` does not change the concentration numbers. See [Qualified owner count](USAGE.md#qualified-owner-count). The composite Action does not open a knowledge-risk PR comment for the solo-maintainer case: single-owner paths are expected when only one human has qualified ownership.
+No. Inference is deterministic git analysis, and the scoring code is in the
+repository to read.

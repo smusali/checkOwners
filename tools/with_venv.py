@@ -16,6 +16,10 @@ def main(argv: list[str]) -> None:
     """Run `argv` with `.venv` or `venv` on PATH and exit with its status."""
     if not argv:
         sys.exit("usage: with_venv.py COMMAND [ARG ...]")
+    src = _ROOT / "src"
+    if src.is_dir():
+        pythonpath = os.environ.get("PYTHONPATH", "")
+        os.environ["PYTHONPATH"] = f"{src}{os.pathsep}{pythonpath}" if pythonpath else str(src)
     path = os.environ.get("PATH", "")
     for name in (".venv", "venv"):
         bin_dir = _ROOT / name / ("Scripts" if os.name == "nt" else "bin")

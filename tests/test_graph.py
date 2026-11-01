@@ -2,48 +2,24 @@
 
 from __future__ import annotations
 
-import builtins
-import io
-import json
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
 
-import networkx as nx
-import pytest
-
-import checkowners.analyze as analyze_module
-import checkowners.graph as graph_module
+from checkowners.config import (
+    Config,
+)
 from checkowners.graph import (
-    ArticulationPoint,
-    BetweennessScore,
-    GraphAnalytics,
-    GraphExtraMissingError,
-    OrphanSubgraph,
-    TransferResult,
     _add_relation,
-    _dot_quote,
-    _split_directories,
     build_graph,
-    endpoint_is_contributor,
-    format_analytics,
-    format_transfer,
-    from_dot,
     from_serializable,
     graph_analytics,
     python_dependencies,
-    resolve_node,
-    to_dot,
-    to_gexf,
-    to_graphml,
-    to_json,
     to_serializable,
     to_text,
     transfer_path,
 )
 from checkowners.models import (
     ConfidenceScore,
-    Config,
     ContributorStatus,
     FreshnessStatus,
     OwnerEntry,
@@ -54,7 +30,6 @@ from checkowners.models import (
     TeamCluster,
 )
 from checkowners.patterns import CodeownersRule
-from checkowners.topology import infer_topology
 
 _NOW = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
 
@@ -160,92 +135,6 @@ def test_to_text_lists_partitions() -> None:
     assert "@alice" in text
 
 
-def test_to_graphml_round_trip() -> None:
-    original = build_graph(_ownership())
-    xml = to_graphml(original)
-    assert xml.lstrip().startswith("<?xml")
-    restored = nx.read_graphml(io.BytesIO(xml.encode("utf-8")))
-    assert set(restored.nodes) == set(original.nodes)
-    assert set(map(frozenset, restored.edges)) == set(map(frozenset, original.edges))
-    weight = restored["contrib::@alice"]["path::/src/api.py"]["weight"]
-    assert isinstance(weight, int | float)
-    assert weight == 0.9
-
-
-def test_to_dot_emits_graphviz_format() -> None:
-    dot = to_dot(build_graph(_ownership()))
-    assert "graph" in dot or "digraph" in dot
-    assert "contrib::@alice" in dot
-
-
-def test_dot_quote_escapes_backslash_and_quote() -> None:
-    assert _dot_quote('say "hi"') == 'say \\"hi\\"'
-    assert _dot_quote("a\\b") == "a\\\\b"
-    assert _dot_quote('a\\"b') == 'a\\\\\\"b'
-    assert _dot_quote("plain") == "plain"
-    assert _dot_quote(0.9) == "0.9"
-
-
-def test_to_dot_escapes_node_ids_and_attribute_values() -> None:
-    ownership = OwnershipMap(
-        paths={
-            'src/we"ird\\file.py': PathOwnership(
-                owners=(_entry('@ali"ce', 0.9),),
-                qualified_owner_count=1,
-            ),
-        },
-        last_analyzed=_NOW,
-    )
-    clusters = (
-        TeamCluster(
-            name='team "core"',
-            members=('@ali"ce',),
-            primary_paths=('src/we"ird\\file.py',),
-            declared=False,
-        ),
-    )
-    dot = to_dot(build_graph(ownership, clusters=clusters))
-    assert '"path::/src/we\\"ird\\\\file.py"' in dot
-    assert '"contrib::@ali\\"ce"' in dot
-    assert '"team::team \\"core\\""' in dot
-    assert 'path::/src/we"ird' not in dot
-    restored = from_dot(dot)
-    assert 'path::/src/we"ird\\file.py' in restored
-    assert 'contrib::@ali"ce' in restored
-    assert 'team::team "core"' in restored
-
-
-def test_missing_extra_raises_clear_error() -> None:
-    missing = GraphExtraMissingError("missing")
-    with (
-        patch.object(graph_module, "_require_networkx", side_effect=missing),
-        pytest.raises(GraphExtraMissingError),
-    ):
-        build_graph(_ownership())
-    assert analyze_module.run_git
-    with (
-        patch.object(graph_module, "_require_networkx", side_effect=missing),
-        pytest.raises(GraphExtraMissingError),
-    ):
-        infer_topology(_ownership(), Config())
-
-
-def test_exports_round_trip_nodes_edges_and_weight() -> None:
-    original = build_graph(_ownership())
-    document = json.loads(to_json(original, graph_analytics(original, _ownership(), Config())))
-    assert "analytics" in document
-    restored_json = from_serializable(document)
-    restored_dot = from_dot(to_dot(original))
-    restored_graphml = nx.read_graphml(io.BytesIO(to_graphml(original).encode("utf-8")))
-    restored_gexf = nx.read_gexf(io.BytesIO(to_gexf(original).encode("utf-8")))
-    for restored in (restored_json, restored_dot, restored_graphml, restored_gexf):
-        assert set(restored.nodes) == set(original.nodes)
-        assert set(map(frozenset, restored.edges)) == set(map(frozenset, original.edges))
-        weight = restored["contrib::@alice"]["path::/src/api.py"]["weight"]
-        assert isinstance(weight, int | float)
-        assert weight == 0.9
-
-
 def test_articulation_point_splits_directories() -> None:
     ownership = OwnershipMap(
         paths={
@@ -316,21 +205,6 @@ def test_declared_rule_adds_team_and_rule_nodes() -> None:
     assert graph.has_node("team::@acme/backend")
     assert graph.has_edge("team::@acme/backend", "rule::4")
     assert "OWNS_DECLARED" in graph["rule::4"]["path::/src/api.py"]["relations"]
-
-
-def test_require_networkx_names_the_install_extra() -> None:
-    real_import = builtins.__import__
-
-    def guarded(name: str, *args: object, **kwargs: object) -> object:
-        if name == "networkx" or name.startswith("networkx."):
-            raise ImportError(name)
-        return real_import(name, *args, **kwargs)
-
-    with (
-        patch("builtins.__import__", side_effect=guarded),
-        pytest.raises(GraphExtraMissingError, match=r"checkowners\[graph\]"),
-    ):
-        graph_module._require_networkx()
 
 
 def test_python_dependencies_skip_unresolved_and_broken_files(tmp_path: Path) -> None:
@@ -430,115 +304,3 @@ def test_graph_records_repository_reviews_and_nested_directories() -> None:
     assert graph.has_node("rule::3")
     report = graph_analytics(graph, ownership, Config())
     assert report.orphans[0].paths == ("README",)
-
-
-def test_analytics_and_parsers_cover_edge_inputs() -> None:
-    ownership = OwnershipMap(
-        paths={
-            "api/a.py": PathOwnership(
-                owners=(_entry("@alice", 0.9), _entry("@bob", 0.8)),
-                qualified_owner_count=2,
-            ),
-            "api/b.py": PathOwnership(
-                owners=(_entry("@alice", 0.9), _entry("@bob", 0.8)),
-                qualified_owner_count=2,
-            ),
-            "db/c.py": PathOwnership(
-                owners=(_entry("@alice", 0.9), _entry("@carol", 0.8)),
-                qualified_owner_count=2,
-            ),
-        },
-        last_analyzed=_NOW,
-    )
-    graph = build_graph(
-        ownership,
-        clusters=(
-            TeamCluster(
-                name="owners",
-                members=("@alice",),
-                primary_paths=("api/a.py",),
-                declared=True,
-            ),
-        ),
-    )
-    assert from_dot(to_dot(graph)).nodes["team::owners"]["declared"] is True
-    graph.add_node(5, kind="path")
-    graph.add_edge(
-        "contrib::@alice",
-        "contrib::@bob",
-        kind="OWNS_OBSERVED",
-        relations="OWNS_OBSERVED",
-    )
-    graph.add_edge(
-        "path::/api/a.py",
-        "path::/db/c.py",
-        kind="DEPENDS_ON",
-        relations="DEPENDS_ON",
-        dependent="db/c.py",
-        dependency=1,
-    )
-    report = graph_analytics(graph, ownership, Config())
-    assert any(point.person == "contrib::@alice" for point in report.articulation_points)
-    rooted = nx.Graph()
-    rooted.add_node("contrib::@alice", kind="contributor")
-    rooted.add_node("path::/top.py", kind="path")
-    rooted.add_node("path::/db/c.py", kind="path")
-    rooted.add_edge("contrib::@alice", "path::/top.py", relations="OWNS_OBSERVED")
-    rooted.add_edge("contrib::@alice", "path::/db/c.py", relations="OWNS_OBSERVED")
-    assert _split_directories(rooted, "contrib::@alice") == ("db",)
-    graph.remove_node(5)
-    text = format_analytics(
-        GraphAnalytics(
-            articulation_points=(
-                ArticulationPoint("contrib::@alice", ("api",)),
-                ArticulationPoint("solo", ()),
-            ),
-            betweenness=(BetweennessScore("contrib::@alice", 0.5),),
-            orphans=(OrphanSubgraph("", ("README",), ("app.py",)),),
-        )
-    )
-    assert "alice: api" in text
-    assert "solo: -" in text
-    assert "0.5000" in text
-    assert "dependents: app.py" in text
-    assert format_transfer(TransferResult()) == ""
-    assert format_transfer(TransferResult(nodes=("plain",))) == "plain"
-    assert endpoint_is_contributor(graph, "@missing") is False
-    assert resolve_node(graph, "contrib::@alice") == "contrib::@alice"
-    moved = transfer_path(graph, "team::owners", "api/a.py")
-    assert moved.missing == ()
-    assert moved.nodes[0] == "team::owners"
-    assert "analytics" not in json.loads(to_json(graph))
-    restored = from_serializable(
-        {
-            "nodes": ["nope", {"id": 1}, {"id": "kept", "kind": "path"}],
-            "edges": [
-                "nope",
-                {"source": 1, "target": "kept"},
-                {"source": "kept", "target": "other"},
-            ],
-        }
-    )
-    assert "kept" in restored
-    assert from_serializable({"nodes": None, "edges": None}).number_of_nodes() == 0
-    plain = from_dot('graph checkowners {\n  "solo"\n}\n')
-    assert "solo" in plain
-    open_bracket = from_dot('graph checkowners {\n  "solo" [declared="True"\n}\n')
-    assert open_bracket.nodes["solo"]["declared"] is True
-    escaped = from_dot('graph checkowners {\n  "solo" [pattern="a\\\\b"];\n}\n')
-    assert escaped.nodes["solo"]["pattern"] == "a\\b"
-    with pytest.raises(ValueError, match="quoted"):
-        from_dot("graph checkowners {\n  bare;\n}\n")
-    with pytest.raises(ValueError, match="unterminated"):
-        from_dot('graph checkowners {\n  "abc;\n}\n')
-    observed = graph["contrib::@alice"]["path::/api/a.py"]
-    observed["weight"] = True
-    assert "(1.00)" in to_text(graph)
-    observed["weight"] = 2
-    assert "(2.00)" in to_text(graph)
-    observed["weight"] = "n/a"
-    assert "(1.00)" in to_text(graph)
-    observed["relations"] = 1
-    graph.nodes["path::/api/a.py"]["kind"] = 1
-    listing = to_text(graph)
-    assert "path::/api/a.py" in listing

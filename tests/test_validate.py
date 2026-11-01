@@ -4,15 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from checkowners.validate import (
-    ConformanceCase,
     RemoteCodeownersError,
     ValidationFinding,
     _validate_entry,
     compare_codeowners_syntax,
-    conformance_report,
     syntax_classes,
     validate_codeowners,
 )
@@ -154,7 +150,6 @@ _RELATIVE_CODEOWNERS = (
 )
 
 
-@pytest.mark.integration
 def test_validate_committed_relative_patterns(git_repo: GitRepo) -> None:
     codeowners = git_repo.path / ".github" / "CODEOWNERS"
     codeowners.parent.mkdir(parents=True)
@@ -184,49 +179,25 @@ def _remote(line: int, source: str, kind: str = "Invalid pattern") -> RemoteCode
     )
 
 
-def test_conformance_agrees_and_ignores_unknown_owners() -> None:
-    case = ConformanceCase(
-        repo="example/widgets",
-        ref="main",
-        default_branch="main",
-        private=False,
-        text="* @ghost\n",
-        api_errors=(_remote(1, "* @ghost", "Invalid owner"),),
-    )
-    report = conformance_report((case,))
-    assert report["pass_rate"] == 1.0
-    assert report["compared"] == 1
-    assert report["divergences"] == []
-
-
-def test_conformance_reports_a_syntax_divergence() -> None:
-    case = ConformanceCase(
-        repo="example/widgets",
-        ref="main",
-        default_branch="main",
-        private=False,
-        text="!build @alice\n",
-        api_errors=(),
-    )
-    report = conformance_report((case,))
-    assert report["pass_rate"] == 0.0
-    assert report["divergences"]
-
-
-def test_conformance_excludes_private_branch_silence() -> None:
-    case = ConformanceCase(
-        repo="example/private",
+def test_compare_treats_private_branch_silence_as_inconclusive() -> None:
+    compared = compare_codeowners_syntax(
+        "!secret @alice\n",
+        (),
+        private=True,
         ref="feature",
         default_branch="main",
-        private=True,
-        text="!secret @alice\n",
-        api_errors=(),
     )
-    report = conformance_report((case,))
-    assert report["compared"] == 0
-    assert report["excluded"] == 1
-    assert report["pass_rate"] is None
-    assert report["divergences"] == []
+    assert compared.inconclusive is True
+    assert compared.agrees is False
+
+
+def test_compare_without_api_errors_reports_local_only() -> None:
+    compared = compare_codeowners_syntax(
+        "* @alice\n", None, private=False, ref="main", default_branch="main"
+    )
+    assert compared.source == "local"
+    assert compared.agrees is True
+    assert compared.inconclusive is False
 
 
 def test_syntax_classes_cover_remote_wording_and_blank_entries() -> None:

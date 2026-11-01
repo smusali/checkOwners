@@ -15,10 +15,10 @@ def main(root: Path) -> int:
         print(f"expected one wheel, found {wheels}", file=sys.stderr)
         return 1
     wheel = wheels[0]
-    init = (root / "checkowners" / "__init__.py").read_text(encoding="utf-8")
+    init = (root / "src" / "checkowners" / "__init__.py").read_text(encoding="utf-8")
     match = _VERSION.search(init)
     if match is None:
-        print("__version__ missing from checkowners/__init__.py", file=sys.stderr)
+        print("__version__ missing from src/checkowners/__init__.py", file=sys.stderr)
         return 1
     version = match.group(1)
     with zipfile.ZipFile(wheel) as archive:

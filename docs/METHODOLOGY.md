@@ -1,520 +1,122 @@
 # Methodology
 
-How CheckOwners turns git history into an ownership ranking. This page is the
-scoring contract. It is not a validation study: the score is a ranking signal,
-not a calibrated probability.
+checkOwners scores each (path, owner) pair from the git evidence it was able to
+collect, then compares the top owners of a path with the CODEOWNERS rule that
+covers it.
+
+```mermaid
+flowchart LR
+  Git["Git history"] --> Signals["Five signals"]
+  Reviews["Review API"] -.-> Signals
+  Signals --> Score["ownership_score"]
+  Signals --> Quality["evidence_quality"]
+  Score --> Shares["Knowledge shares"]
+  Score --> Drift["Drift severity"]
+```
 
 ## Signals
 
-For contributor `u` on path `p`:
+| Signal | Source | Weight | Reliability |
+| --- | --- | --- | --- |
+| Recency | `exp(-ln 2 * days_since_last_commit / half_life)` | 0.30 | 1.0 |
+| Frequency | `commits / (max_commits_for_path + prior)`, prior 3 under `adaptive` | 0.20 | 1.0 |
+| Blame | porcelain lines for that person over total lines | 0.20 | 1.0 |
+| Reviews | reviews on pulls closed inside the review lookback | 0.15 | 1.0 |
+| Change survival | current blame lines over that person's lines at their last commit | 0.15 | 1.0 |
 
-| Signal | Meaning | Available when |
-|--------|---------|----------------|
-| Recency | Exponential decay from last commit. `scoring.recency_strategy: adaptive` (default) sets the half-life to the path's median inter-commit gap, clamped to `recency_half_life_floor_days` and `recency_half_life_ceiling_days` (14 and 730). No positive gap falls back to `recency_half_life_days` (90). `fixed` uses that value for every path. Aged against the analysis instant (HEAD committer time by default, never the wall clock) | The owner has a last-commit timestamp |
-| Frequency | Weighted commit credit on the path inside the lookback, divided by that path's maximum credit plus `prior`. The commit author adds `1`. A credited `Co-authored-by` trailer adds `git.co_author_weight` (default `1`) when `git.count_co_authors` is on. Emails come from `git log` after `.mailmap` when `identity.mailmap` is on. `prior` is `3` when `qualification.strategy` is `adaptive`, and `0` when it is `threshold`. The `commits` field counts appearances. At the default weight it matches the numerator | Commit counts exist for the path |
-| Blame | Share of current lines `git blame` (porcelain, `-w`, `.mailmap` when `identity.mailmap` is on, and `-M`/`-C` when `git.detect_moves`) attributes to `u`. Commits listed in a resolved ignore-revs file, and mass-refactor commits above `git.mass_refactor_file_fraction`, are omitted so the prior author keeps the line | Blame ran and produced lines for the path |
-| Review | Share of PR reviews on `p` from pulls closed inside `analysis.review_lookback_days`. When that key is omitted, the window is `analysis.lookback_days`, including `adaptive` | A review provider was injected (`github.api_enabled` plus token and `GITHUB_REPOSITORY`) |
-
-An author missing from a successful blame map, or from a provider result, scores
-`0.0` with the signal still available. That is measured zero, not missing
-evidence. Blame that failed or was skipped, and a run with no review provider,
-mark those signals unavailable.
-
-Blame line counts are cached by blob SHA and path, together with the blame flags, the ignore-revs file bytes, the mass-refactor revision list, and the `.mailmap` bytes. The path is part of the key so two files with the same bytes keep their own line attribution. A hit rebuilds the same author fractions from those integer counts. The cache survives a rejected incremental baseline. Its files share the 256 MiB cap with state and graph files and are evicted oldest-first with them. `--no-cache` does not read or write it.
-
-`analyze` and `audit` blame every qualified path. `owners`, `explain`, and `change` blame only the requested path. `--diff-only` blames the changed paths. `risk` and bus-factor reports keep the full map. The blame command stays `git blame --line-porcelain`, one path per process. The timed alternatives are in the [benchmark readme](https://github.com/smusali/checkowners/blob/main/benchmarks/README.md).
-
-## What each signal proxies
-
-| Signal | It measures | It proxies for | It does not establish |
-|--------|-------------|----------------|------------------------|
-| Recency | Days since the last commit, with exponential half-life decay relative to the path's own cadence unless strategy is `fixed` | How fresh the contact with the path is | What the person knows, availability, or current employment |
-| Frequency | Share of weighted commit credit on the path inside the lookback window | Repeated authorship | Ownership, or that a squash-merge author wrote the lines |
-| Blame | Share of current lines attributed to the person | Who the current text is attributed to, after whitespace, move, and ignore-revs corrections | Authority to decide, or that a formatter did not touch the file |
-| Review | Share of recorded pull-request reviews on pulls closed in the review window | Review participation when a provider returned data | Organizational accountability, or that the person is the right reviewer now |
-
-A high `ownership_score` is a ranking of that evidence. It is not a probability
-that the person should own the path.
-
-## Ownership score
-
-Missing evidence is not negative evidence. Unavailable signals are omitted and
-the remaining weights are renormalized so the attainable range is `[0, 1]` in
-every configuration:
+Recency proxies whether someone still works here, frequency how often they
+touch the path, blame how much of the current text is theirs, reviews the
+knowledge that reading code produces, and change survival whether their work
+outlived them.
 
 ```text
-ownership_score = Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)
+ownership_score  = sum(wi * ai * si) / sum(wi * ai)
+evidence_quality = sum(wi * ai * ri) / sum(wi)
 ```
 
-`wᵢ` is the configured weight, `aᵢ ∈ {0, 1}` is availability, and `sᵢ` is the
-per-signal score. If no signal is available the score is `0.0`. Default weights
-are `0.30 / 0.20 / 0.20 / 0.15 / 0.15` for recency, frequency, blame, review,
-and change survival.
+`ai` is 1 when the signal was observed for the path and 0 otherwise, so a
+missing signal is skipped rather than scored as zero and the range stays
+`[0, 1]` either way. A person with 0% blame still has that signal available:
+that is a measured zero. `evidence_quality` is the separate question of how much
+of the configured weight was actually collected, and it is never folded into the
+score. Two owners can share a score and differ in quality.
 
-`analyze` and `trends` share one helper. `trends` emits `historical-v1` with
-signals recency and frequency. Blame and review stay unavailable, so the
-formula renormalizes over those two signals. That score is
-`historical_activity_confidence`, not `ownership_score`.
+Under the default `adaptive` recency strategy the half-life is the path's median
+gap between commits, clamped to the floor and ceiling. Under `fixed` it is the
+configured `half_life_days` for every path. The score is a ranking signal, not a
+calibrated probability.
 
-JSON from `analyze` emits `ownership_score`. `analysis.confidence_threshold` still gates this number.
-
-The score is an interpretation of stored observations. Each analyzed path keeps the commit, blame, and review facts that `score_owners` already used: commit count, last commit, credit, cadence, blame share, and review fraction. A later scoring pass rebuilds those inputs from the stored facts and calls `score_owners` again. Changing a weight does not require another git or API pass. Command JSON does not add these records. They stay on the library object and in the state file.
-
-## Evidence quality
-
-Evidence quality is a separate quantity and is never folded into the score:
-
-```text
-signal_quality = Σ(wᵢ × aᵢ × rᵢ) / Σ(wᵢ)
-evidence_quality = signal_quality × analysis_completeness
-```
-
-`rᵢ` is `scoring.*_reliability` (default `1.0` for every signal). With those
-defaults, `signal_quality` equals the fraction of configured weight that was
-observed. Unavailable review therefore lowers quality (by `0.15` by default)
-without pulling the owner's score toward zero. `analysis_completeness` is the
-fraction of the evidence catalog that was collected (shallow history, token,
-review history, rate limit, budgets, team membership, identity, exclusions,
-renames, mailmap, ignore-revs). It is recomputed from the signal breakdown
-whenever gaps change, so the run score is applied once. A missing signal stays
-unavailable. A measured zero stays zero. The ownership score is not multiplied.
-
-On a fresh analyze, that quality is then multiplied once by identity certainty:
-`1.0` when the link is an override, a noreply address, a commit login, or an
-already-resolved handle; `0.75` for an unresolved email; `0.5` for a user-search
-hit. A cached load does not scale again. Qualification still uses
-`ownership_score`, so the factor does not change who counts as an owner.
-
-An author with at least 20 commits whose subjects are at least 80 percent one
-template, after commit SHAs and version numbers are stripped, or who matches a
-mechanical subject prefix (`bump`, `chore(deps)`, `dependabot`, `automated`),
-keeps recency and has frequency credit capped at one commit. The author stays
-in the map. `bots.exclude` is what drops a bot address before scoring.
-
-Human output shows both values as `handle (score/quality)`, for example
-`@alice 0.91/0.93` versus `@bob 0.79/0.31`.
-
-`contributor_status` is separate from freshness `status`. `former` is set only
-by `contributors.roster`. `former_knowledge_share` is the share of positive
-`ownership_score` held by those owners. It is a knowledge-risk figure, not a
-performance measure. The knowledge-risk notice still applies.
-
-`checkowners explain PATH` prints the same weighted mean as `analyze`. Each
-row shows the five signals with their configured weight and availability. A
-measured zero (author absent from a successful blame or review map) is a
-number. An unavailable signal is omitted from the mean and shown as `n/a`.
-The printed total equals `Σ(wᵢ × aᵢ × sᵢ) / Σ(wᵢ × aᵢ)` on the displayed
-tuples. `--why-not` uses that same total against
-`analysis.confidence_threshold`.
-
-## Versioning
-
-Three model ids are stamped on JSON output and on human reports:
-
-| Id | Config key | What it names |
-| --- | --- | --- |
-| `ownership-v2` | `model.ownership` | The renormalized score in this page |
-| `risk-v1` | `model.risk` | Inverse-Herfindahl concentration and the qualified-owner classifier |
-| `topology-v2` | `model.topology` | Weighted Louvain clusters |
-
-A formula change, a classifier change, or a topology-algorithm change bumps the matching id. That bump is a breaking change for anyone gating CI on a threshold, even when the JSON shape is unchanged. A config pin must equal the id this release implements, or be omitted. Cached analyze state and the graph cache are reused only when all three ids match.
-
-JSON carries `models.ownership`, `models.risk`, and `models.topology`. Per-repo state is schema 1. Email addresses in that state are stored as tokens.
-
-Files without a matching `models` object, and files whose scoring config hash
-does not match, are ignored and replaced on the next analyze. A cached map is
-reused only when its commit is still `HEAD`, unless `--allow-stale` is set.
-When the stored commit is an ancestor of `HEAD` and the baseline is usable,
-the next analyze replays `git log` metadata for the current lookback, attaches
-stored path lists for commits it already saw, and re-blames only paths whose
-blob changed. Commits that `git log --since` and `--until` no longer return
-are left out of the map. The scored result is the same function of the
-repository, commit, config, and model as a full lookback. `--no-incremental`
-forces that full lookback. Recency and the lookback window are evaluated at
-the analysis instant, not the wall clock. JSON payloads emit `head_sha` and
-`generated_at`.
-
-`qualification.strategy: adaptive` (the default) treats commit count as evidence:
-authors below `min_commits` still qualify when blame is at least
-`strong_blame_override`. `strategy: threshold` keeps the previous eligibility
-gate and the undamped `commits / max_commits` frequency ratio.
-
-Weight search has not been run. See [Benchmark and calibration](#benchmark-and-calibration).
+Each owner also reports `active_expertise` (their last commit, decayed),
+`historical_expertise` (their commits over their commits plus later commits by
+others), and `maintenance_recency` (the path's last commit, decayed).
+Continuity risk is a status rather than a day count: `stable`, `inactive`,
+`superseded`, or `departed`.
 
 ## Knowledge concentration
 
-`qualified_owner_count` is the number of owners on a path whose
-`ownership_score` is at or above `analysis.confidence_threshold`, taken from
-the list already truncated to `analysis.top_n_owners` (default 3). JSON emits
-`qualified_owner_count` and `qualified_owner_count_cap`. Human output states
-the cap. Raising `top_n_owners` raises the maximum reportable count without
-any code changing hands.
-
-Before that rename, the same count was labeled bus factor. It was a
-qualified-owner count, not a removal simulation. The count is unchanged. The
-`bus_factor` config section classifies the capped count.
-
-Concentration uses every contributor at or above
-`analysis.confidence_threshold`, before `top_n_owners` truncation. The
-displayed owner list is still truncated. Expertise is `ownership_score`. A
-survival-weighted score is not part of this model. Shares are not a JSON key.
-For each positive score on that untruncated list:
-
-```text
-p_i = score_i / sum(score)
-top_owner_share = max(p_i)
-hhi = sum(p_i^2)
-effective_owners = 1 / hhi
-shannon_entropy = -sum(p_i * ln(p_i))
-truck_factor_50 = smallest k whose largest shares sum to at least q_50
-truck_factor_75 = smallest k whose largest shares sum to at least q_75
-truck_factor_90 = smallest k whose largest shares sum to at least q_90
-```
-
-`q_50`, `q_75`, and `q_90` are `risk.truck_factor_thresholds`, default
-`[0.50, 0.75, 0.90]`, in that order. The array is repeated on the risk
-object. `shannon_entropy` is in nats. `hhi` is the Herfindahl index on the
-unit interval. `effective_owners` is the inverse Herfindahl index: one owner
-is `1.00`, an even split of two is `2.00`, and four equal shares are `4.00`.
-It is not the exponential of Shannon entropy.
-
-A contributor is major when `p_i >= 0.05`. `major_contributor_count` is that
-count. `minor_contributor_share` is the sum of the other shares. The 5% line
-is fixed.
-
-An empty or all-zero list reports `top_owner_share` `0.0`,
-`effective_owners` `0.0`, `shannon_entropy` `0.0`, `hhi` `0.0`,
-`minor_contributor_share` `0.0`, `major_contributor_count` `0`, and truck
-factors `0`.
-
-These truck factors are coverage counts on one path's score mass. They are
-not a repository truck factor. `checkowners simulate --remove` is that
-repository removal: it drops named people from the cached map and reports
-files that lose their only author, files left with one author, fully orphaned
-directories, and the repository truck factor before and after. Changing
-`top_n_owners` changes the displayed list and
-`qualified_owner_count`. It does not change concentration. The `bus_factor`
-config section still classifies the capped count: `critical` at or below
-`critical_threshold`, `warning` at or below `warn_threshold`.
-
-Repository output does not average that capped count. It distributes
-`top_owner_share` after weighting each path by `criticality`. The first
-matching glob wins. An unmatched path weighs `1.0`. An empty map uses that
-weight and sets `criticality_incomplete`, because risk without a criticality
-map is incomplete. Weighted percentiles of `top_owner_share` are `minimum`,
-`p10`, `median`, and `p90`, taken as the first share whose cumulative weight
-reaches the quantile. `critical_path_risk` is `sum(weight * top_owner_share) / sum(weight)`.
-`knowledge_at_risk` is the share of total weight on paths whose
-`qualified_owner_count` is at or below `critical_threshold`.
-
-## Composite risk
-
-`checkowners risk` ranks paths by a 0-100 score. `bus-factor` and `decay` are aliases of that command. `qualified-owners` still reports the capped count. The score is the geometric mean of the factors that are present:
-
-```text
-risk = round(100 * exp(mean(ln(factor))))
-```
-
-Each factor is in `(0, 1]`. A missing factor is left out of the mean. It is not replaced with `1`.
-
-| Factor | Meaning |
-|---|---|
-| `ownership_concentration` | `top_owner_share` on the untruncated scored owners. No positive score is `1.0`. |
-| `change_frequency` | `1 / (1 + cadence_days / 7)`. One recorded change is `0.05`. Missing `change_events` leaves the factor out. |
-| `dependency_criticality` | Co-change degree divided by the repository maximum. Commits that touch more than 20 files are ignored. No partner leaves the factor out. |
-| `code_criticality` | The first matching `criticality` glob. Otherwise `0.8` for a deploy or manifest path (`Dockerfile`, `docker-compose*.yml`, `compose*.yml`, `Chart.yaml`, a `k8s` or `deploy` directory, `*.tf`, `Procfile`, `fly.toml`, `serverless.yml`). Otherwise left out. |
-| `expertise_decay` | `1 -` the dominant owner's `active_expertise`, and at least `0.05`. No freshness leaves the factor out. |
-
-`criticality_unavailable` is true when the repository has no `criticality` map, no manifest or deploy path, and no co-change degree. The report says repository risk is incomplete without criticality. The qualified-owner distribution still uses weight `1.0` and `criticality_incomplete` in that case.
-
-Tiers on the 0-100 score are critical at or above 75, high at or above 50, medium at or above 25, and low otherwise. `reason` names the strong factors: `single expert`, `high churn`, `dependency criticality`, `stale expertise`, `low criticality`.
-
-Four pathologies are findings, suppressible by baseline rule and path:
-
-| Rule | When |
-|---|---|
-| `knowledge-vacuum` | The best score is below `analysis.confidence_threshold`, or every owner at that threshold is `inactive`, `superseded`, or `departed`. |
-| `phantom-ownership` | A CODEOWNERS owner has no commits and no review signal on the path. The detail is `declared ownership without observed expertise`. Skipped when handles and emails cannot be compared. |
-| `shadow-maintainer` | A declared owner exists and the dominant observed expert is a different identity. |
-| `ownership-review-divergence` | The writer, the reviewer, and the declared owner are three different identities. Omitted when review evidence is unavailable. |
-
-Observed ownership coverage is the share of analyzed paths with `qualified_owner_count >= 1`. Critical components are paths in the critical tier. High CODEOWNERS drift counts drift entries with `confidence_delta >= 0.7`, or with `qualified_owner_count` at or below `bus_factor.critical_threshold`, or with decay set.
-
-## Prior art
-
-Published truck factor, also called bus factor or lottery factor, is the
-smallest set of people whose departure leaves a project, or a threshold
-fraction of its files, without a knowledgeable author.
-
-Avelino, Passos, Hora, and Valente, "A Novel Approach for Estimating Truck
-Factors" (ICPC 2016, [arXiv:1604.06766](https://arxiv.org/abs/1604.06766)),
-estimate degree of authorship per file, keep authors above a normalized
-threshold, then greedily remove the author who covers the most files until at
-least half the files have no remaining author. Ferreira, Valente, and
-Ferreira, "A Comparison of Three Algorithms for Computing Truck Factors"
-(ICPC 2017), compare that algorithm with the blame-based estimate of Rigby et
-al. and the file-then-project estimate of Cosentino et al.
-
-Degree of knowledge, Fritz, Ou, Murphy, and Murphy-Hill (ICSE 2010) and Fritz,
-Murphy, Murphy-Hill, Ou, and Hill, "Degree-of-Knowledge: Modeling a
-Developer's Knowledge of Code" (TOSEM 2014), adds interaction (reviews,
-navigation) to authorship. CheckOwners does not compute degree of authorship
-or degree of knowledge. `simulate` removes people from the existing author
-sets (scores at or above the confidence threshold). It does not compute DOA.
-
-The divergence is deliberate. The old headline number was the capped
-`qualified_owner_count`. Calling it bus factor overclaimed the literature.
-CheckOwners reports per-path knowledge shares, inverse-Herfindahl
-`effective_owners`, and `truck_factor_50`, `truck_factor_75`, and
-`truck_factor_90` over every score above the confidence threshold. Those
-counts remove the highest-knowledge contributors on one path until a share of
-inferred knowledge is gone. The repository truck factor, reported by
-`simulate`, greedily removes the author who still covers the most files until
-covered files drop below the first `risk.truck_factor_thresholds` value
-(default `0.50`). That coverage line is the one in Avelino et al. Ties break
-by identity so the count is stable.
-
-## Exploratory repository topology
-
-`checkowners topology` is experimental. It is a hypothesis about repository collaboration, not an org chart and not a team assignment.
-
-The person graph is weighted. Co-ownership adds `min(confidence)` for each shared path where both people clear `analysis.confidence_threshold`. Co-review adds `min(review score)` only when both review signals are available. A missing review is left out, not stored as zero. Shared-module activity adds `0.25` for each parent directory where both people qualify on at least one file. Co-change and temporal collaboration are not available: `cochange_degree` counts files that change together, and `last_commit` is not a shared time window. The report names those signals as unavailable. Co-review is unavailable when no shared path has a review score.
-
-Clusters come from Louvain (`networkx.community.louvain_partitions`), seed `0`, resolution `1.0` unless `--resolution` is set. Values above 1 favor smaller clusters. Modularity uses that same resolution and the primary partition. Stability is the mean and population variance of greedy Jaccard matches across seeds `0` through `4`. Stability is unavailable when the person graph has no edges.
-
-Louvain returns a partition. A person is also listed on another cluster when their edge weight into it is at least half their weight into the primary cluster and they connect to at least two of its members. One bridge edge does not affiliate. `members` is the primary partition. `affiliated_members` is the extra membership. When Louvain emits more than one level, a finer cluster records the coarser community as `parent`.
-
-Each declared team is compared with the closest inferred cluster, using primary and affiliated members. Jaccard is `|intersection| / |union|`. Precision is `|intersection| / |inferred|`. Recall is `|intersection| / |declared|`. Coverage is the share of declared members who appear in any cluster. A cluster takes a declared name only when that Jaccard is 1. People in the inferred cluster who are not on the declared team are reported as potential cross-team experts.
-
-`networkx` stays an optional extra and is imported only when the run has qualified owners.
-
-## Ownership graph
-
-The ownership graph is undirected. Several relations between the same pair are one edge whose `relations` value is a sorted list of names. Attribute values are strings, integers, floats, or booleans.
-
-Populated nodes are contributors, files, directories, the repository, teams, and CODEOWNERS rules. Populated edges are `OWNS_OBSERVED`, `AUTHORED` when `commits > 0`, `REVIEWS` when a review score exists, `DECAYING_EXPERTISE` when contributor status is `former` or freshness is `inactive` or `departed`, `OWNS_DECLARED` from parsed CODEOWNERS, `MEMBER_OF`, `CONTAINS`, and `DEPENDS_ON` for a Python `import` or `from ... import` that resolves to a file already in the ownership map. Installed packages are not followed. Zero resolved edges means the dependency graph is unavailable.
-
-Not populated, because this repository has no source for them: Package, Service, Commit, PullRequest, Review, Incident, Domain, and the edges `KNOWS`, `MODIFIES`, `REPLACES`, and `REVIEWED_BY`.
-
-Articulation points and betweenness use the unweighted ownership edges between contributors and files. Weight is a strength, so betweenness does not treat it as distance. Orphan files are those with no qualified owner outside `former` and `inactive` and whose freshness is not `inactive` or `departed`. A missing roster (`unknown`) does not mark the repository orphaned. A file that imports an orphan is recorded on that orphan. `--from` and `--to` print a shortest path across people and files.
-
-## Onboarding suggestions
-
-`checkowners onboard` is experimental. The steps are inferred suggestions. Dependency order comes from the Python edges above, prerequisites first. A cycle is named and those members use path order. When no edge resolves, dependency order is listed as unavailable.
-
-Within a rank the sort is qualified-owner count, then `change_events` when present, then a matching `criticality` weight when present, then path. Missing values are not filled with zero. `easy`, `medium`, and `hard` record position in the list. The sentence on each step is the claim. Code complexity, test coverage, and documentation coverage are always named as unavailable. Domain criticality is unavailable when no configured rule matches a selected path.
-
-Mentor candidates are qualified owners on the selected steps except `former`, `inactive`, and `bot`. Rank is the number of those steps that have another qualified owner, then fewer commits, then handle. The list is capped at three and labeled as candidates.
-
-## Terminology
-
-Use these names in human-facing output. JSON keys and command names stay as
-shipped. Definitions are in [docs/GLOSSARY.md](GLOSSARY.md).
-
-| Instead of | Use |
-|---|---|
-| organizational owner | repository-evidence candidate, reviewer candidate, evidence-ranked reviewer |
-| expertise decay | ownership freshness, evidence freshness, continuity risk |
-| backup reviewer | candidate backup reviewer |
-| bus factor (as previously computed) | qualified owner count, reviewer depth |
-| uncalibrated `0.92` | evidence score, ranking signal, ownership score |
-| knowledge graph (as modeled) | ownership graph |
-| org chart | exploratory repository topology |
-| review load (from commits) | git authorship proxy |
-| trend score | historical activity confidence |
-
-## Never collapse these
-
-- Contribution into ownership.
-- Blame into authority.
-- Recent activity into expertise.
-- Co-commit clusters into teams.
-- Inferred reviewer affinity into organizational accountability.
-- An uncalibrated score into a probability.
-
-## Other reported numbers
-
-`historical_confidence` is the present `ownership_score` stored on a
-continuity-risk warning. It is not `historical_activity_confidence` and it is
-not a score reconstructed at an earlier date.
-
-`active_expertise`, `historical_expertise`, and `maintenance_recency` are
-separate evidence scores on each owner. `active_expertise` is the recency
-term: this person's last commit, decayed by the effective half-life.
-`historical_expertise` is this person's commits divided by their commits plus
-later commits by anyone else. `maintenance_recency` is the path's latest
-commit, decayed by the same half-life. None of the three measures what a
-person knows. `historical_expertise` counts commits. It does not measure
-which lines survived.
-
-Continuity risk is a status. `stable` means the gap fits the path's cadence,
-or this person made the latest commit and the gap is within the half-life
-ceiling, and no warning is emitted. Change survival is
-`current blame lines / blame lines at that person's last commit` on the lineage
-path, clamped to `[0, 1]`. It is a line count from `git blame`, not an AST
-comparison. A zero denominator leaves the signal unavailable. When it is
-available and below `0.2`, and someone else committed later, the status is
-`superseded`. When it is available and at least `0.2`, later commits do not
-mark the owner `superseded`; the cadence and time rules still choose `stable`
-or `inactive`. When the signal is unavailable, `superseded` still means later
-commits by others outnumber this person's commits. `inactive` means the gap is
-past the cadence bound, or the path has no commit interval and the gap exceeds
-`decay.threshold_days`. `departed` means `inactive` on every path. `analysis.lookback_days: adaptive` keeps stable paths inside the history window.
-
-`historical_activity_confidence` is the mean, across paths that still have a
-scored owner, of the top score at the end of one trend period. The model is
-`historical-v1` and the signals are recency and frequency.
-`avg_qualified_owner_count` is the mean capped count for those same paths.
-Blame, review, and change survival are unavailable, so this number is not
-`ownership_score` (`ownership-v2`).
-
-`load_signal` says what a balance count is. `github_completed_reviews` means the GitHub sample returned submitted reviews. `git_authorship_proxy` means it did not, and `reviews` in that payload is a commit total. `external` means the caller supplied completed-review counts. The proxy never sets `reviews_completed`, `load_band`, `review_concentration`, or `divergence`, and it never recommends a person. Commit volume is not review load.
-
-`diff` and `suggest --diff` are routing suggestions for the changed paths. Each recommended person carries `evidence_quality` and the signal scores already computed for that pass (`recency`, `frequency`, `blame`, `review` when that signal was available). A `high` load band moves a person out of the recommended list only when `load_signal` is `github_completed_reviews` or `external`, and the reason includes the open-review count. The authorship proxy does not demote and does not treat commits as review load. The suggestion does not assign pull-request reviewers.
-
-When the signal is real reviews, `reviews_completed` counts submitted review objects in the suggest closed-pull sample (at most 200, most recently updated). That cap is not the ownership review window. `reviews_requested` counts one fulfilled request per pull a person reviewed, plus each open request that has no submitted review from them. `prs_waiting` counts those open requests. The open scan uses the same cap. It is not a new lookback window. `median_response_time_hours` is the median, in hours, from pull creation to that person's earliest submitted review on the pull. It is not request-to-review time. `reviewed_lines` sums `additions + deletions` once per reviewed pull. `pr_complexity` is the median of those per-pull totals. `ownership_criticality` is the highest configured criticality weight on a path the person owns at or above the confidence threshold, or unset when none match. Per-path review counts increment once per pull that touched the path, not once per review comment.
-
-`load_band` is `high` when completed reviews are at least twice the average, or `prs_waiting` is at least twice its average. It is `low` when the person is not high and both numbers are at or below their averages (waiting is ignored when it was not collected). Otherwise it is `typical`. The recommendation names one co-owner who is not high: low before typical, then higher `ownership_score` (`expertise`), then fewer completed reviews, then handle. `ownership_score` here is the same uncalibrated ranking signal as everywhere else.
-
-`review_concentration` is the top reviewer's share of per-path reviews. It is reported when that share is at least 0.72 and at least two owners on the path meet the confidence threshold. It is not ownership concentration. `divergence` keeps three identities: the writer (most commits; ties break by higher score, then handle), the reviewer (most reviews on that path), and a declared CODEOWNERS owner who is neither. Missing any one of the three omits the path.
-
-`confidence_delta` is the drift gap between declared CODEOWNERS owners and
-inferred owners on one path: the sum of inferred scores for people who are
-inferred but not declared, plus `1.0` for each declared owner who is not
-inferred, clamped to `[0, 1]`. `max_confidence_delta` is the largest absolute
-`confidence_delta` in the drift result, or `0.0` when there are no entries.
-
-## Ownership beliefs
-
-These cases are the project's stated ownership philosophy.
-`tests/test_golden.py` is the judgment suite. Each history is a real git
-repository with pinned author and committer dates. Analysis uses a fixed as-of
-of `2026-06-01T12:00:00+00:00` (the handoff reuses one repository at three
-earlier pinned instants). The expected sentence for each case is stored under
-the model id, currently `ownership-v2`. A model-version bump fails until that
-record gains the new id. A run that breaks a belief fails with the sentence.
-
-Strong ownership in that suite means a score of at least `0.5`. Medium evidence
-quality means a quality of at least `0.4` and below `1`.
-
-**Formatting does not confer ownership.** Alice creates `foo.py` (alongside
-other tracked files, so the later edit stays under the mass-refactor fraction)
-and edits it. Bob changes only whitespace. Alice reviews that change. Alice
-stays the primary expert. Bob's blame share is zero, and his score is below
-Alice's.
-
-**Ownership moves gradually.** Alice's last commit stays inside the 365-day
-lookback. Bob then replaces the file in a few commits across that year. Alice
-is primary at the first as-of. Her score is lower at each later as-of and still
-above zero at the last one. Bob's score rises, and Bob is primary at the end.
-
-**A single creating commit is strong, with medium evidence.** One commit that
-adds a file makes that author the sole primary owner. The score is strong.
-Evidence quality is medium, because review and other catalog gaps are missing.
-
-**A full rewrite leaves no current lines for the original author.** Bob
-replaces every line Alice wrote. Bob is primary. Alice's blame share is zero.
-That share is how this model shows superseded work.
-
-**One person, one owner.** Three commit addresses that `.mailmap` maps to one
-canonical email score as a single owner.
-
-**Missing blame and review stay on the unit interval.** An empty tracked file
-produces no blame lines, and no review provider is configured, so those two
-signals are unavailable. The score stays inside `(0, 1]`. A commit still
-supplies frequency, so the case scores the signals that were observed.
-
-**Rename.** Ownership survives a rename from `foo.py` to `bar.py`. History
-aggregation follows renames and copies that git reports at
-`analysis.rename_similarity` (default 50). The earlier author stays on the
-new path. `analysis.follow_renames: false` keys on the literal path again, so
-only the rename commit is scored on `bar.py`. A directory rename is one prefix
-move applied to every file that moved with it. A copy is linked only when the
-source is modified in that same commit; an untouched source starts a new file.
-The lineage pass on a 300-file directory rename stays within 10 seconds.
-Rename confidence is the lowest similarity on the chain, as a fraction, and
-it scales evidence quality for that path. A score of 1.0 means the path was
-not renamed, or every rename was exact.
-
-**Stable cadence.** Intended belief: a path with an 18-month cadence keeps its
-owner. Under `ownership-v2`, a commit 18 months before the as-of falls outside
-the 365-day lookback and the 90-day half-life, so the path has no scored owner.
-
-**Co-authors.** A `Co-authored-by` trailer adds a scored owner on every file in
-that commit. Blame stays with the commit author, so the co-author's blame
-share is zero. `git.count_co_authors: false` scores only the commit author.
-
-When a later model makes the rename or cadence record match the intended
-belief, update the `ownership-v2` sentences, or add the new model id, in the
-same change.
-
-## Benchmark and calibration
-
-Runtimes are measured by [benchmarks/harness.py](https://github.com/smusali/checkowners/blob/main/benchmarks/harness.py). A result records cold runtime, warm runtime, peak resident memory, git command count, GitHub API request count, cache size, and incremental runtime after one new commit. Peak resident memory comes from `time -l` on macOS and `time -v` on Linux. Two runs on the same commit must match the git command count exactly. Wall time within 15% is checked unless `--counts-only` is set. The pull-request job passes `--counts-only` because a hosted runner does not hold that band. A run fails the regression check when its cold time is above the recorded baseline times 1.15. The procedure and the current `ci` baseline are in the [benchmark readme](https://github.com/smusali/checkowners/blob/main/benchmarks/README.md).
-
-The J1 incremental measurement, from one development machine on 2026-10-24, used 600 one-line Python files added across 20 commits, then one commit that changed two of those files. The cold pass took 1.99 seconds and ran git blame on all 600 files. The warm pass took 0.34 seconds and ran git blame on the two changed files.
-
-The default weights `0.30 / 0.20 / 0.20 / 0.15 / 0.15` stay in place unless a held-out comparison beats them. Ground truth is who later maintains the code. For a cutoff commit, prediction uses only history at or before that commit. The label for a path is the authors of non-merge commits that change it afterward. Reviewer labels are used only when a review provider returned reviews submitted after the cutoff. Commit counts are never labeled as reviews. When that sample is absent, `review_metrics` is `unavailable`. The committed CODEOWNERS file is not a label and is not the fit objective.
-
-The cutoff is the commit nearest 60 percent of the way from the first commit time to the last. A re-run at the same pinned commits must match exactly. That is the variance band.
-
-`precision_at_1`, `precision_at_3`, and `precision_at_5` are the mean, over labeled paths, of the number of positive authors in the top k divided by k. `recall_at_3` divides that overlap by the size of the positive set. `mrr` is the mean reciprocal rank of the first positive author. `ndcg` is binary NDCG over the full ranking, with discount `log2(rank + 1)`. `brier` is the mean squared error of the top score against whether that person later changed the path. `calibration_error` is the expected absolute gap between bin mean score and hit rate across ten bins. `changed_file_coverage` is the share of labeled paths that had at least one candidate. `acceptance_rate` is the share of top-1 predictions that later changed the path. `rejection_rate`, `false_positive_rate`, and `stale_ownership_rate` are the complementary share among paths that had a prediction. Under this label those three rates are the same quantity. `handoff_days` is the mean days from the cutoff until a different author first holds a strict majority of later commits, on paths where that happens.
-
-Baselines rank the same candidates by commit count, blame share, or recency alone. The published table keeps rows where a baseline wins.
-
-Repository holdout sorts ids and reserves every fourth repository. The weight search is a 0.05 grid on the other repositories. It never sees the held-out ids. Shipped defaults change only when held-out `precision_at_1` improves by at least 0.02. `ownership_score` is called a calibrated probability only when every occupied bin is within 0.1 of its hit rate. Otherwise the name stays `ownership_score`.
-
-`checkowners calibrate` reports the same held-out metrics for one repository. `checkowners calibrate --fit` learns weights on the earliest 80 percent of labeled paths and writes the later 20 percent into `.github/checkowners.yml` with the cutoff, sample sizes, and held-out metrics. It refuses when history is shorter than 180 days or labeled paths are fewer than 30. Training-slice metrics are not the result. A fitted vector whose L1 distance from the shipped defaults is above 0.20 produces a warning.
-
-The public false-positive ledger in [docs/false-positives.md](false-positives.md) records a prediction, the judgment, the reason, the fix, and the evidence that produced the prediction. New reports use the [false-positive issue form](https://github.com/smusali/checkowners/issues/new?template=false-positive.yml). Corrections use the categories `recommendation_correct`, `recommendation_wrong`, `right_person_unavailable`, `team_owns_it`, `security_owner_required`, `compliance_owner_required`, `temporary_migration`, `departed_contributor`, `useful_but_incomplete`, `no_ownership`, and `should_not_own`.
-
-Published numbers for the current corpus are in [benchmarks/validation_results.json](https://github.com/smusali/checkowners/blob/main/benchmarks/validation_results.json). The corpus list is [benchmarks/validation_corpus.json](https://github.com/smusali/checkowners/blob/main/benchmarks/validation_corpus.json).
-
-The held-out repositories are davegamble/cJSON, google/uuid, kjd/idna, pallets/markupsafe, and ruby/rake. That slice has 306 labeled paths and 133 paths with a candidate. `ownership_score` is not a calibrated probability on this slice: occupied bins are not all within 0.1 of their hit rate, and `calibration_error` is 0.3918.
-
-Held-out `precision_at_1` for the shipped weights is 0.3105. The best grid point on the other repositories scored 0.3039 on the same slice, which is below the 0.02 margin, so the shipped weights stayed `0.30 / 0.20 / 0.20 / 0.15 / 0.15`. Ranking the same candidates by commit count scored 0.3268. Recency alone scored 0.317. Blame alone scored 0.2941. Commit count wins this slice.
-
-The same slice: `precision_at_3` 0.1198, `precision_at_5` 0.0745, `recall_at_3` 0.1447, `mrr` 0.3316, `ndcg` 0.3091, `brier` 0.3966, `changed_file_coverage` 0.4346, `acceptance_rate` 0.7143, `rejection_rate` 0.2857, `false_positive_rate` 0.2857, `stale_ownership_rate` 0.2857, `handoff_days` 362.1566. Reviewer overload, review latency, and time to first useful review were not computed.
-
-Held-out `precision_at_1` by language: C 0.0303 (33 paths), Go 0.0 (27 paths), Python 0.15 (120 paths), Ruby 0.6032 (126 paths). JavaScript, Rust, the small monorepo, and medium-turnover repositories were in the fit and not in this held-out slice, so they have no held-out row.
-
-## Principles
-
-1. **Evidence over guesses.** Every ownership recommendation must derive from inspectable evidence.
-2. **Human policy remains authoritative.** Observed expertise informs CODEOWNERS. It does not silently override governance.
-3. **Missing evidence is not negative evidence.** Unavailable review or team information reduces `evidence_quality`. It does not arbitrarily depress `ownership_score`.
-4. **Local-first.** Core analysis works without uploading proprietary source.
-5. **Deterministic by default.** The same evidence and the same model produce the same result.
-6. **Explain everything.** Every score and recommendation is inspectable.
-7. **Measure uncertainty.** Thin evidence is not certainty. Report `evidence_quality` and `analysis_completeness` beside the score.
-8. **Compatibility matters.** GitHub CODEOWNERS semantics must be reproduced accurately where the pattern language is supported.
-9. **No employee surveillance.** The project optimizes repository resilience, knowledge continuity, review routing, organizational alignment, and onboarding. It will not be positioned around who contributes least, who is really working, or which engineer is underperforming. The data is not designed for that.
-10. **Correctness before feature count.** A new report waits until the number it prints is defined and bounded.
-
-**Observed expertise is evidence, not authority.**
-
-## Team comparison
-
-Drift expands a team rule to people. `generate` does the reverse and is unchanged: it collapses people to a team.
-
-One org team list supplies slug, parent slug, and member logins. Child links are built in memory. There is no per-team child request. A forbidden member listing marks that team invisible. A successful listing with no members and no children is empty. No token, an offline run, or a failed org list is no directory. A cached snapshot is not reread to turn that run into `aligned`.
-
-Coverage for a nested team is the union of the team and its descendants. Cycles are ignored. `team_coverage` is the share of inferred handles who are in that set. `aligned` means every inferred handle is in the set. Anyone inferred outside it is `partial-drift` and `organizational_mismatch`. Members who were not inferred are `inactive_members`. The record stores `team_snapshot` from the directory timestamp.
-
-## CODEOWNERS errors endpoint
-
-GitHub's syntax source is `GET /repos/{owner}/{repo}/codeowners/errors?ref=`. The body is `{errors: [{line, column, kind, source, suggestion, message, path}]}`. The local validator checks syntax and token shape. The endpoint also reports unknown users and missing access. Those owner kinds are not validator bugs.
-
-The diff compares the syntax classes both sides own: a leading `!`, a pattern containing `[` or `]`, and a malformed owner token. Other GitHub kinds are listed beside the pass rate and are not failures. A private repository, a `ref` other than the default branch, an empty API error list, and local syntax findings is inconclusive. That case is dropped from the pass-rate denominator. It is not counted as agreement. Doctor and audit use the same fetch and the same inconclusive check. Offline, they use the local validator and set `source` to `local`.
-
-## Pattern semantics
-
-CODEOWNERS rules are matched in file order. The last match wins. A pattern assigns owners only when it is a supported glob:
-
-- `*` stays inside one path segment. `**` crosses segments.
-- A leading `/` anchors the pattern to the repository root. An interior `/` does the same. A bare name floats to any directory.
-- `dir/*` matches direct children of `dir`, not deeper files.
-- A trailing `/` matches files inside that directory, not a sibling whose name only shares the prefix, and not the directory path itself.
-- A line that starts with `!`, or a pattern that contains `[` or `]`, does not assign an owner. A backslash before `#` does not turn a comment into a pattern that matches a path beginning with `#`.
-
-`corpus/compatibility.jsonl` locks these results. A differential test compares the supported glob language (one `**` segment, no leading `!`, no brackets, no `\#`) with an independent matcher. Repeated `**` segments such as `**/**` are outside that comparison.
+Concentration is computed over every score at or above the confidence
+threshold, before the display list is truncated to `top_n_owners`. Let `pi` be
+each owner's share of the score mass on one path:
+
+- `top_owner_share` is `max(pi)`.
+- `effective_owners` is `1 / sum(pi^2)`, the inverse Herfindahl index.
+- `hhi` is `sum(pi^2)` and `shannon_entropy` is the entropy of `pi` in nats.
+- `truck_factor_50`, `truck_factor_75`, and `truck_factor_90` are the smallest
+  counts of highest-share owners whose shares reach each configured quantile.
+- a major contributor holds at least `0.05`; `minor_contributor_share` is the rest.
+
+`qualified_owner_count` is a different number: the owners at or above the
+threshold in the list already truncated to `top_n_owners`. It is a capped count,
+not a truck factor, and raising `top_n_owners` raises it without any code
+changing hands. The repository truck factor, reported by `simulate`, greedily
+removes the author who still covers the most files until covered files drop
+below the first truck-factor threshold.
+
+## Drift severity
+
+Each drift entry scores `0.40 *` the non-overlap between declared and inferred
+owners, `0.25 *` the confidence delta capped at 1, `0.15 *` the path
+criticality, `0.15` when the entry is decayed, and `0.05` when the qualified
+owner count is 1. Overlap is `team_coverage` for a team rule and the Jaccard
+overlap otherwise, so a superset of the declared owners scores below a disjoint
+set at the same delta. The default cutoffs are `0.15`, `0.35`, `0.55`, and
+`0.75` for `info`, `low`, `medium`, `high`, and `critical`, and the command
+severity is the worst entry.
+
+## Terms
+
+- **analysis completeness**: the fraction of the evidence catalog a run collected.
+- **baseline**: an accepted-findings file, so later runs fail only on new findings.
+- **candidate backup reviewer**: another scored person on a path, after the primary owners.
+- **confidence delta**: the clamped gap between declared and inferred owners on one path.
+- **criticality**: a configured weight in `(0, 1]` for a path glob, used when aggregating.
+- **critical-path risk**: the criticality-weighted mean of `top_owner_share`.
+- **drift**: the comparison of inferred owners with the committed rules.
+- **knowledge at risk**: the share of criticality weight on paths at or below the critical threshold.
+- **load signal**: what a review-load report measured: recorded reviews, a git authorship proxy, or an external provider.
+- **last match wins**: the last matching CODEOWNERS pattern assigns the owners.
+
+## Decisions
+
+- `ownership_score` ranks; `evidence_quality` reports collection. Neither is a probability, and an unobserved signal is unavailable rather than zero.
+- Pattern matching follows GitHub CODEOWNERS semantics in one engine, which `generate`, `validate`, and `drift` share. GitLab sections are a dialect on that engine, not a second matcher.
+- Identity resolution is local first and search last. Search relabels one address and never merges two owners.
+- Blame is `git blame --line-porcelain`, one process per path on a thread pool, cached by blob SHA. A replacement has to match porcelain line attribution.
+- There is no webhook. The Action writes bounded summaries and the calling workflow, which already holds the secrets, delivers them.
+
+## Limits
+
+- Git history is not complete expertise, and squash merges hide authors who are absent from the commit and its trailers.
+- Blame can over-credit formatting changes, which is what the ignore-revs file and the mass-refactor filter exist to reduce.
+- CODEOWNERS may differ from history on purpose. Drift is a question, not a verdict.
+- Team analysis, review evidence, and handle resolution for non-noreply addresses need a GitHub token.
+- Identity resolution can be ambiguous, and a user-search hit can attach the wrong account.
+- Trend scores use recency and frequency only, so they are not `ownership_score`.
+- Repository evidence cannot prove formal ownership, decision authority, operational or incident responsibility, employment, or reviewer availability. Inferred clusters are a hypothesis, not an org chart.
+
+## Built on
+
+- The repository truck factor in `simulate`, after Avelino, Passos, Hora, and Valente, "A Novel Approach for Estimating Truck Factors" (ICPC 2016).
+- The comparison of truck-factor algorithms, after Ferreira, Valente, and Ferreira (ICPC 2017), which is why `simulate` reports the coverage line rather than a degree-of-authorship estimate.
+- Counting reviews as knowledge, after Fritz, Ou, Murphy, and Murphy-Hill (ICSE 2010) and Fritz, Murphy, Murphy-Hill, Ou, and Hill (TOSEM 2014). checkOwners does not compute degree of knowledge.
+- Louvain community detection for `topology`, which is exploratory.
